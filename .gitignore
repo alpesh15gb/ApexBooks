@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.db
+.env
+.gst_api_engine/
+/backups/
+*.egg-info/
