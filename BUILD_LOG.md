@@ -833,3 +833,48 @@ payments
 ```
 
 Changed files compiled successfully with Python 3.11.
+
+## 16. Fixes and Improvements (2026-05-14 v2)
+
+### Thread-Safe Tenant Context
+- Added `app/core/tenant_context.py` using Python `contextvars` for async-safe, thread-safe tenant/user storage
+- Replaced module-level `TENANT_CONTEXT` dict in `tenant_middleware.py`
+- `TenantMiddleware` now sets/clears contextvar per request in try/finally block
+- Updated `main.py`, `deps.py` to consume new contextvar-based helpers
+- All `TENANT_CONTEXT` references removed
+
+### Celery Worker Wiring
+- `docker-compose.yml`: worker uses `celery -A app.tasks.celery_app worker` with prefork pool (concurrency=4)
+- Scheduler uses DjangoCeleryBeat for periodic scheduling
+- Added Redis volume persistence (`redisdata`)
+- Added nginx config volume mount
+
+### Background Task Dispatch
+- `app/tasks/background_worker.py`: `BackgroundJobModel` table + full job lifecycle (pending queue processing completed failed)
+- `app/tasks/background_tasks.py`: `execute_job` Celery task dispatching by type (PDF GST recon notifications webhooks)
+- Updated `tasks/__init__.py` for automatic Celery worker discovery
+- Invoice PDF endpoint now returns `job_id` for async tracking
+- GST reconciliation dispatch endpoint added
+- Notification dispatch endpoint added
+
+### Admin Dashboard API
+- `GET /admin/audit-logs` filtered audit log viewer
+- `GET /admin/audit-logs/summary` action counts by period
+- `GET /admin/jobs` background job queue monitor
+- `GET/DELETE /admin/jobs/{id}` job status/cancel
+- `GET /admin/queue/stats` queue statistics
+- `GET /admin/webhooks/pending` pending webhook list
+- `POST /admin/webhooks/{id}/retry` manual retry
+- `GET /admin/webhooks/failed` failed webhook log
+- `GET /admin/activity` tenant activity summary
+- `GET /admin/system-info` platform overview
+
+### Webhooks Router
+- Replaced stub routes with real implementations using `WebhookDelivery` model
+- Full CRUD + event type listing + delivery log browsing
+
+---
+
+## Current Test Status
+- **8/8 system invariants**: PASS
+- **Full validation suite**: PASS (195 routes including new dispatch/reconciliation)
