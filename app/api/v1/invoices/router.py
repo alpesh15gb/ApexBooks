@@ -10,6 +10,7 @@ from app.services.idempotency_service import acquire_idempotency, store_idempote
 from app.services.period_lock_service import check_period_locked
 from app.services.audit_service import AuditLog
 from app.services.voucher_service import void_invoice
+from app.tasks.background_worker import create_background_job
 
 router = APIRouter(prefix='/invoices', tags=['Invoices'])
 
@@ -193,8 +194,24 @@ def void_sales(row_id: str, payload: dict,
 
 # --- Read endpoints ---
 @router.get('/sales/{row_id}/pdf')
-def sales_pdf(row_id: str):
-    return ok({'pdf_url': f'/files/invoices/{row_id}.pdf', 'engine': 'WeasyPrint'})
+def sales_pdf(row_id: str, principal: dict = Depends(current_principal), db: Session = Depends(get_db)):
+    """Generate invoice PDF as a background job and return immediate job ID."""
+    job = create_background_job(
+        db, principal['tenant_id'], 'pdf_invoice',
+        {'invoice_id': row_id, 'kind': 'sales'},
+        created_by=principal.get('user_id'),
+    )
+    return ok({'job_id': job.id, 'status': job.status, 'message': 'PDF generation queued'}, 'PDF generation started')
+
+
+@router.get('/sales/{row_id}/pdf/status/{job_id}')
+def pdf_status(job_id: str, principal: dict = Depends(current_principal), db: Session = Depends(get_db)):
+    """Check background PDF generation status."""
+    from app.tasks.background_worker import get_job
+    job = get_job(db, job_id, principal['tenant_id'])
+    if not job:
+        raise APIError('JOB_NOT_FOUND', f'Job {job_id} not found', status_code=404)
+    return ok({'job_id': job.id, 'status': job.status, 'result': job.result, 'error': job.error})
 
 @router.get('/sales/{row_id}/einvoice')
 def einvoice_json(row_id: str, principal: dict = Depends(current_principal), db: Session = Depends(get_db)):

@@ -6,28 +6,20 @@ import json
 import logging
 from app.core.security import decode_token
 from app.core.exceptions import APIError
+from app.core.tenant_context import set_tenant_context, clear_tenant_context, get_current_tenant
 
 logger = logging.getLogger('gst_api')
 
-TENANT_CONTEXT = {'current_tenant_id': None, 'current_user_id': None}
-
-def get_current_tenant() -> str:
-    tid = TENANT_CONTEXT.get('current_tenant_id')
-    if not tid:
-        raise APIError('NO_TENANT', 'Tenant context not set', status_code=500)
-    return tid
-
-def get_current_user() -> str:
-    uid = TENANT_CONTEXT.get('current_user_id')
-    if not uid:
-        raise APIError('NO_USER', 'User context not set', status_code=500)
-    return uid
 
 class TenantMiddleware:
-    """Extracts tenant_id from JWT or X-Tenant-ID header and sets context."""
+    """Extracts tenant_id from JWT or X-Tenant-ID header and sets contextvar."""
+
     async def __call__(self, scope, receive, send):
         if scope['type'] == 'http':
             request = Request(scope, receive)
+
+            tenant_id = None
+            user_id = None
 
             # Try JWT first
             auth_header = request.headers.get('Authorization', '')
@@ -35,33 +27,40 @@ class TenantMiddleware:
                 token = auth_header[7:]
                 try:
                     payload = decode_token(token)
-                    TENANT_CONTEXT['current_tenant_id'] = payload.get('tenant_id')
-                    TENANT_CONTEXT['current_user_id'] = payload.get('sub', payload.get('user_id'))
+                    tenant_id = payload.get('tenant_id')
+                    user_id = payload.get('sub', payload.get('user_id'))
                 except Exception:
                     pass
 
             # Fallback to header
-            if not TENANT_CONTEXT['current_tenant_id']:
+            if not tenant_id:
                 tenant_id = request.headers.get('X-Tenant-ID')
-                if tenant_id:
-                    TENANT_CONTEXT['current_tenant_id'] = tenant_id
 
             # Validate tenant is set for API routes
-            if scope['path'].startswith('/api/') and not TENANT_CONTEXT['current_tenant_id']:
+            if scope['path'].startswith('/api/') and not tenant_id:
                 response = JSONResponse(
                     status_code=401,
-                    content={'success': False, 'error': 'TENANT_REQUIRED', 'message': 'Tenant ID required for API access'}
+                    content={'success': False, 'error': 'TENANT_REQUIRED',
+                             'message': 'Tenant ID required for API access'}
                 )
                 await response(scope, receive, send)
                 return
 
-        await self.app(scope, receive, send)
+            set_tenant_context(tenant_id=tenant_id, user_id=user_id)
+
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            if scope['type'] == 'http':
+                clear_tenant_context()
 
     def __init__(self, app):
         self.app = app
 
+
 class StructuredLoggingMiddleware:
     """Emits structured JSON logs for every request."""
+
     async def __call__(self, scope, receive, send):
         if scope['type'] != 'http':
             await self.app(scope, receive, send)
@@ -98,6 +97,8 @@ class StructuredLoggingMiddleware:
             await self.app(scope, receive, wrapped_send)
         except Exception as e:
             duration_ms = round((time.time() - start_time) * 1000, 2)
+            from app.core.tenant_context import get_context
+            ctx = get_context()
             logger.error(json.dumps({
                 "level": "ERROR",
                 "event": "request_error",
@@ -105,12 +106,14 @@ class StructuredLoggingMiddleware:
                 "path": path,
                 "duration_ms": duration_ms,
                 "error": str(e),
-                "tenant_id": TENANT_CONTEXT.get('current_tenant_id'),
-                "user_id": TENANT_CONTEXT.get('current_user_id'),
+                "tenant_id": ctx.get('tenant_id'),
+                "user_id": ctx.get('user_id'),
             }))
             raise
 
         duration_ms = round((time.time() - start_time) * 1000, 2)
+        from app.core.tenant_context import get_context
+        ctx = get_context()
         log_entry = {
             "level": "INFO",
             "event": "request",
@@ -118,8 +121,8 @@ class StructuredLoggingMiddleware:
             "path": path,
             "status": getattr(logging, '_status', 200),
             "duration_ms": duration_ms,
-            "tenant_id": TENANT_CONTEXT.get('current_tenant_id'),
-            "user_id": TENANT_CONTEXT.get('current_user_id'),
+            "tenant_id": ctx.get('tenant_id'),
+            "user_id": ctx.get('user_id'),
             "client_ip": request.client.host if request.client else None,
         }
 

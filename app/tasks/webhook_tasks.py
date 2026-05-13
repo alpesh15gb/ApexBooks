@@ -1,5 +1,5 @@
 import logging
-from sqlalchemy import Column, Integer, String, JSON, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, JSON, DateTime
 from sqlalchemy.orm import Session
 from app.core.database import Base
 from app.core.config import get_settings

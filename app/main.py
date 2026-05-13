@@ -7,7 +7,8 @@ from app.core.config import get_settings
 from app.core.database import create_all_for_dev
 from app.core.exceptions import APIError, api_error_handler
 from app.core.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
-from app.core.tenant_middleware import TenantMiddleware, TENANT_CONTEXT, get_current_tenant
+from app.core.tenant_context import get_current_tenant, get_context
+from app.core.tenant_middleware import TenantMiddleware
 from app.services.audit_service import AuditLog
 
 settings = get_settings()
@@ -34,21 +35,25 @@ async def http_exception_handler(request, exc):
     from app.core.exceptions import ok
     return ok({'error': exc.detail}, exc.detail, status_code=exc.status_code)
 
+
 @app.middleware('http')
 async def add_request_metadata(request: Request, call_next):
     start = time.time()
     response = await call_next(request)
     response.headers['X-Process-Time-ms'] = str(round((time.time() - start) * 1000, 2))
     response.headers['X-API-Version'] = 'v1'
-    response.headers['X-Tenant-ID'] = TENANT_CONTEXT.get('current_tenant_id', 'unknown')
+    response.headers['X-Tenant-ID'] = get_context().get('tenant_id', 'unknown')
     return response
+
 
 @app.on_event('startup')
 def startup():
     if settings.environment in {'development', 'test'}:
         create_all_for_dev()
 
+
 app.include_router(router)
+
 
 @app.get('/health')
 def health():
@@ -57,8 +62,9 @@ def health():
         'service': settings.app_name,
         'version': '0.2.0',
         'environment': settings.environment,
-        'tenant_context': TENANT_CONTEXT.get('current_tenant_id')
+        'tenant_context': get_context().get('tenant_id')
     }
+
 
 @app.post('/tenants/validate')
 def validate_tenant():

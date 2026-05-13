@@ -5,7 +5,49 @@ from app.core.exceptions import ok
 from app.core.security import current_principal
 from app.services.gst_engine import calculate_tax
 from app.services.normalized_repository import normalized_repo
-router=APIRouter(prefix='/gst', tags=['GST Compliance'])
+from app.tasks.background_worker import create_background_job
+
+router = APIRouter(prefix='/gst', tags=['GST Compliance'])
+
+@router.post('/tax-calculate')
+def tax_calculate(payload: dict): return ok(calculate_tax(**payload))
+
+@router.post('/reconcile/dispatch')
+def dispatch_reconciliation(
+    payload: dict,
+    principal: dict = Depends(current_principal),
+    db: Session = Depends(get_db),
+):
+    """Dispatch GST reconciliation as a background job."""
+    month = payload.get('month')
+    year = payload.get('year')
+    if not month or not year:
+        raise Exception('month and year are required')
+    job = create_background_job(
+        db, principal['tenant_id'], 'gst_reconciliation',
+        {'month': month, 'year': year},
+        created_by=principal.get('user_id'),
+    )
+    return ok({'job_id': job.id, 'status': job.status}, 'Reconciliation queued')
+
+@router.post('/notify/dispatch')
+def dispatch_notification(
+    payload: dict,
+    principal: dict = Depends(current_principal),
+    db: Session = Depends(get_db),
+):
+    """Dispatch notification as a background job."""
+    job = create_background_job(
+        db, principal['tenant_id'], 'send_notification',
+        {
+            'channel': payload.get('channel', 'email'),
+            'recipient': payload.get('recipient'),
+            'subject': payload.get('subject', ''),
+            'body': payload.get('body', ''),
+        },
+        created_by=principal.get('user_id'),
+    )
+    return ok({'job_id': job.id, 'status': job.status}, 'Notification queued')
 @router.post('/tax-calculate')
 def tax_calculate(payload: dict): return ok(calculate_tax(**payload))
 @router.get('/gstr1/summary/{month}/{year}')
