@@ -26,14 +26,32 @@ if settings.environment == 'production':
     app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
-# Exception handler
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+# Exception handlers
 app.add_exception_handler(APIError, api_error_handler)
 
-# HTTP exception handler
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
-    from app.core.exceptions import ok
-    return ok({'error': exc.detail}, exc.detail, status_code=exc.status_code)
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Invalid request data",
+                "details": exc.errors()
+            }
+        }
+    )
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"success": False, "error": {"code": "HTTP_ERROR", "message": exc.detail}}
+    )
 
 
 @app.middleware('http')

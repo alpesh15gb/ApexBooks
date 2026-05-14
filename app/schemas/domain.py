@@ -19,9 +19,19 @@ class Company(CompanyCreate):
     company_id: UUID = Field(default_factory=uuid4); created_at: datetime = Field(default_factory=datetime.utcnow); updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 class UserRegister(BaseModel):
-    email: str; password: str; full_name: str; company: CompanyCreate
-class Login(BaseModel): email: str; password: str
-class Token(BaseModel): access_token: str; refresh_token: str; token_type: str = 'bearer'
+    email: str
+    password: str
+    full_name: str
+    company: CompanyCreate
+
+class Login(BaseModel):
+    email: str
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = 'bearer'
 
 class Party(BaseModel):
     party_id: UUID = Field(default_factory=uuid4); party_type: str; party_name: str; gstin: str | None = None; pan: str | None = None
