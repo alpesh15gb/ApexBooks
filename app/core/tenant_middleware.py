@@ -36,8 +36,9 @@ class TenantMiddleware:
             if not tenant_id:
                 tenant_id = request.headers.get('X-Tenant-ID')
 
-            # Validate tenant is set for API routes
-            if scope['path'].startswith('/api/') and not tenant_id:
+            # Validate tenant is set for API routes (excluding auth)
+            is_auth = '/auth/' in scope['path']
+            if scope['path'].startswith('/api/') and not tenant_id and not is_auth:
                 response = JSONResponse(
                     status_code=401,
                     content={'success': False, 'error': 'TENANT_REQUIRED',
