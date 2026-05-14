@@ -4,7 +4,7 @@ def q(v): return Decimal(v).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
 def calculate_tax(seller_state_code: str, buyer_state_code: str, supply_type: str, item_list: list[dict], reverse_charge: bool=False, composition_scheme: bool=False):
     lines=[]; totals={k:Decimal('0.00') for k in ['subtotal','total_discount','total_cgst','total_sgst','total_igst','total_cess']}
-    zero_rated = 'Export' in supply_type or 'SEZ' in supply_type
+    zero_rated = any(supply_type.upper().startswith(x) for x in ['EXP', 'SEZ', 'EXPORT'])
     for item in item_list:
         qty=Decimal(str(item['quantity'])); price=Decimal(str(item['unit_price'])); rate=Decimal(str(item.get('gst_rate',0)))
         disc_amt=Decimal(str(item.get('discount_amount',0))) + q(qty*price*Decimal(str(item.get('discount_percent',0)))/Decimal('100'))

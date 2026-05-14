@@ -1,7 +1,13 @@
 // App-wide constants
 
-// API Configuration
-const String apiBaseUrl = 'http://localhost:8000/api/v1';
+// API Configuration — Override via --dart-define=API_BASE_URL=... during build
+// Examples:
+//   flutter build web --dart-define=API_BASE_URL=https://api.apexbooks.in/api/v1
+//   flutter build linux --dart-define=API_BASE_URL=https://api.apexbooks.in/api/v1
+const String apiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'http://localhost:8000/api/v1',
+);
 const String apiHealthEndpoint = '/health';
 const String apiTimeout = '30000';
 

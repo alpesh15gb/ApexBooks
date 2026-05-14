@@ -14,9 +14,11 @@ from app.api.v1.settings.router import router as settings_router
 from app.api.v1.automations.router import router as automations_router
 from app.api.v1.webhooks.router import router as webhooks_router
 from app.api.v1.admin.router import router as admin_router
+from app.api.v1.imports.router import router as imports_router
 
 router = APIRouter(prefix='/api/v1')
 for r in [auth_router, parties_router, items_router, item_masters_router, invoices_router,
-          payments_router, gst_router, accounts_router, bank_router, tds_router,
-          inventory_router, settings_router, automations_router, webhooks_router, admin_router]:
+           payments_router, gst_router, accounts_router, bank_router, tds_router,
+           inventory_router, settings_router, automations_router, webhooks_router,
+           admin_router, imports_router]:
     router.include_router(r)

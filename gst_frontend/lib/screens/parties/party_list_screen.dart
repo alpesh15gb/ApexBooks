@@ -6,8 +6,15 @@ import 'package:gst_frontend/widgets/app_scaffold.dart';
 
 /// Party list with Tally-style ledger cards
 /// Shows party name, GSTIN, outstanding balance at a glance
-class PartyListScreen extends ConsumerWidget {
+class PartyListScreen extends ConsumerStatefulWidget {
   const PartyListScreen({super.key});
+
+  @override
+  ConsumerState<PartyListScreen> createState() => _PartyListScreenState();
+}
+
+class _PartyListScreenState extends ConsumerState<PartyListScreen> {
+  String _searchQuery = '';
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -328,10 +335,41 @@ class _PartyFormState extends State<_PartyForm> {
               height: 48,
               child: ElevatedButton(
                 onPressed: () {
-                  if (_formKey.currentState!.validate()) {
-                    // TODO: Submit party
-                    Navigator.pop(context);
-                  }
+if (_formKey.currentState!.validate()) {
+                     final api = ref.read(apiProvider);
+                     final payload = {
+                       'party_name': _nameCtrl.text,
+                       'party_type': _type,
+                       'gstin': _gstinCtrl.text.isEmpty
+                           ? null
+                           : _gstinCtrl.text.toUpperCase(),
+                       'pan': _panCtrl.text.isEmpty ? null : _panCtrl.text.toUpperCase(),
+                       'credit_limit': double.tryParse(_creditLimitCtrl.text) ?? 0,
+                       'credit_days': int.tryParse(_creditDaysCtrl.text) ?? 0,
+                     };
+                     try {
+                       if (widget.party != null) {
+                         await api.updateParty(widget.party!.partyId, payload);
+                       } else {
+                         await api.createParty(payload);
+                       }
+                       ref.invalidate(partyListProvider);
+                       if (ctx.mounted) {
+                         ScaffoldMessenger.of(ctx).showSnackBar(
+                           SnackBar(
+                               content: Text(widget.party != null
+                                   ? 'Party updated'
+                                   : 'Party created')),
+                         );
+                       }
+                       Navigator.pop(ctx);
+                     } catch (e) {
+                       if (ctx.mounted) {
+                         ScaffoldMessenger.of(ctx)
+                             .showSnackBar(SnackBar(content: Text('Error: $e')));
+                       }
+                     }
+                   }
                 },
                 child: Text(
                     widget.party != null ? 'UPDATE PARTY' : 'CREATE PARTY'),

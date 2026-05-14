@@ -79,9 +79,9 @@ class SettingsScreen extends ConsumerWidget {
         ),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
         trailing: const Icon(Icons.chevron_right),
-        onTap: () {
-          // TODO: Navigate to detail forms
-        },
+onTap: () {
+           Navigator.pushNamed(context, route);
+         },
       ),
     );
   }

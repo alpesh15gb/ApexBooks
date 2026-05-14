@@ -5,3 +5,6 @@ __pycache__/
 .gst_api_engine/
 /backups/
 *.egg-info/
+secrets/
+*.pem
+openapi_spec.json

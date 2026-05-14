@@ -1,0 +1,849 @@
+const collection = {
+  "info": {
+    "name": "GST API Engine Collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register Company",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@yourcompany.com\",\n  \"password\": \"Admin@123456\",\n  \"full_name\": \"Admin User\",\n  \"company_name\": \"Your Company Pvt Ltd\",\n  \"gstin\": \"27YOURGSTIN1Z5\",\n  \"pan\": \"YOURPAN12\",\n  \"state_code\": \"27\",\n  \"country_code\": \"+91\",\n  \"phone\": \"9876543210\"\n}"
+            },
+            "url": {"path": ["api", "v1", "auth", "register"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@yourcompany.com\",\n  \"password\": \"Admin@123456\"\n}"
+            },
+            "url": {"path": ["api", "v1", "auth", "login"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"}
+            ],
+            "url": {"path": ["api", "v1", "auth", "refresh"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"}
+            ],
+            "url": {"path": ["api", "v1", "auth", "logout"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Generate API Key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"Integration Key\"}"
+            },
+            "url": {"path": ["api", "v1", "auth", "api-key", "generate"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Validate Tenant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "tenants", "validate"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Invoices",
+      "item": [
+        {
+          "name": "Create Sales Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invoice_date\": \"2026-06-15\",\n  \"place_of_supply\": \"27\",\n  \"supply_type\": \"B2B\",\n  \"invoice_type\": \"Regular\",\n  \"party_id\": \"<party_id>\",\n  \"line_items\": [\n    {\"description\": \"Service A\", \"quantity\": 10, \"unit_price\": 500, \"gst_rate\": 18},\n    {\"description\": \"Service B\", \"quantity\": 5, \"unit_price\": 200, \"gst_rate\": 12}\n  ]\n}"
+            },
+            "url": {"path": ["api", "v1", "invoices", "sales"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Create Purchase Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invoice_date\": \"2026-06-15\",\n  \"place_of_supply\": \"27\",\n  \"supply_type\": \"B2B\",\n  \"line_items\": [\n    {\"description\": \"Raw Material\", \"quantity\": 100, \"unit_price\": 50, \"gst_rate\": 18}\n  ]\n}"
+            },
+            "url": {"path": ["api", "v1", "invoices", "purchase"]}
+          },
+          "response": []
+        },
+        {
+          "name": "List Invoices",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {
+              "path": ["api", "v1", "invoices"],
+              "query": [
+                {"key": "kind", "value": "sales"},
+                {"key": "status", "value": "Draft"},
+                {"key": "page", "value": "1"},
+                {"key": "per_page", "value": "25"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Invoice Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "invoices", "sales", "<invoice_id>"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Update Invoice",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"place_of_supply\": \"29\"}"
+            },
+            "url": {"path": ["api", "v1", "invoices", "sales", "<invoice_id>"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "invoices", "sales", "<invoice_id>", "submit"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Void Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\": \"Cancelled by user\"}"
+            },
+            "url": {"path": ["api", "v1", "invoices", "sales", "<invoice_id>", "void"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "invoices", "sales", "<invoice_id>", "cancel"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Amend Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "invoices", "sales", "<invoice_id>", "amend"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Generate Invoice PDF",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "invoices", "sales", "<invoice_id>", "pdf"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Check PDF Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "invoices", "sales", "<invoice_id>", "pdf", "status", "<job_id>"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Bulk Submit Invoices",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"invoice_ids\": [\"<invoice_id_1>\", \"<invoice_id_2>\"]}"
+            },
+            "url": {"path": ["api", "v1", "invoices", "sales", "bulk-submit"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Get E-Invoice JSON",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "invoices", "sales", "<invoice_id>", "einvoice"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Push E-Invoice to IRP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "invoices", "sales", "<invoice_id>", "einvoice", "push"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Export Invoices",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "invoices", "sales", "export"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Parties",
+      "item": [
+        {
+          "name": "Create Party",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"party_name\": \"Apex Traders\",\n  \"party_type\": \"Customer\",\n  \"gstin\": \"27ABCDE1234F1Z5\",\n  \"pan\": \"ABCDE1234F\",\n  \"state_code\": \"27\",\n  \"credit_limit\": 50000,\n  \"credit_days\": 30\n}"
+            },
+            "url": {"path": ["api", "v1", "parties"]}
+          },
+          "response": []
+        },
+        {
+          "name": "List Parties",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {
+              "path": ["api", "v1", "parties"],
+              "query": [
+                {"key": "search", "value": ""},
+                {"key": "type", "value": "Customer"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Party Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "parties", "<party_id>"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Update Party",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"credit_limit\": 100000}"
+            },
+            "url": {"path": ["api", "v1", "parties", "<party_id>"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Party",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "parties", "<party_id>"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Get Party Ledger",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "parties", "<party_id>", "ledger"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Get Party Outstanding",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "parties", "<party_id>", "outstanding"]}
+          },
+          "response": []
+        },
+        {
+          "name": "GSTIN Lookup",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"gstin\": \"27ABCDE1234F1Z5\"}"
+            },
+            "url": {"path": ["api", "v1", "parties", "gstin-lookup"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Receive Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payment_type\": \"Receive\",\n  \"payment_mode\": \"Bank Transfer\",\n  \"payment_date\": \"2026-06-15\",\n  \"party_id\": \"<party_id>\",\n  \"amount\": 5000,\n  \"reference_no\": \"BNFTXN001\",\n  \"narration\": \"Payment for Invoice INV-2026-0001\"\n}"
+            },
+            "url": {"path": ["api", "v1", "payments", "receive"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Make Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payment_type\": \"Make\",\n  \"payment_mode\": \"UPI\",\n  \"payment_date\": \"2026-06-15\",\n  \"party_id\": \"<party_id>\",\n  \"amount\": 10000,\n  \"reference_no\": \"UPIREF001\"\n}"
+            },
+            "url": {"path": ["api", "v1", "payments", "made"]}
+          },
+          "response": []
+        },
+        {
+          "name": "List Payments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "payments"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Reconcile Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"invoice_id\": \"<invoice_id>\", \"amount\": 5000}"
+            },
+            "url": {"path": ["api", "v1", "payments", "<payment_id>", "reconcile"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Void Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "payments", "<payment_id>", "void"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Auto Reconcile Payments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "payments", "auto-reconcile"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "GST Compliance",
+      "item": [
+        {
+          "name": "Calculate Tax",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seller_state_code\": \"27\",\n  \"buyer_state_code\": \"27\",\n  \"supply_type\": \"B2B\",\n  \"item_list\": [\n    {\"quantity\": 10, \"unit_price\": 500, \"gst_rate\": 18}\n  ]\n}"
+            },
+            "url": {"path": ["api", "v1", "gst", "tax-calculate"]}
+          },
+          "response": []
+        },
+        {
+          "name": "GSTR-1 Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "gst", "gstr1", "summary", "6", "2026"]}
+          },
+          "response": []
+        },
+        {
+          "name": "GSTR-3B Computation",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "gst", "gstr3b", "compute", "6", "2026"]}
+          },
+          "response": []
+        },
+        {
+          "name": "File GSTR-1",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "gst", "gstr1", "file", "6", "2026"]}
+          },
+          "response": []
+        },
+        {
+          "name": "File GSTR-3B",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "gst", "gstr3b", "file", "6", "2026"]}
+          },
+          "response": []
+        },
+        {
+          "name": "GST Reconciliation (2A vs Books)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "gst", "reconcile", "2a-vs-books", "6"]}
+          },
+          "response": []
+        },
+        {
+          "name": "ITC Available",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "gst", "itc-available", "6", "2026"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Dispatch Reconciliation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"month\": 6, \"year\": 2026}"
+            },
+            "url": {"path": ["api", "v1", "gst", "reconcile", "dispatch"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "item": [
+        {
+          "name": "Get All Categories",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "settings", "categories"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Get Settings Category",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "settings", "business"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Update Settings Category",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"business_name\": \"Updated Company Name\"}"
+            },
+            "url": {"path": ["api", "v1", "settings", "business"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Check GST Enabled",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "settings", "gst", "enabled"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Check E-Invoice Enabled",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "settings", "einvoice", "enabled"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Get Invoice Numbering",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {
+              "path": ["api", "v1", "settings", "invoice-numbering"],
+              "query": [{"key": "kind", "value": "sales"}]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "System Info",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "admin", "system-info"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Audit Logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {
+              "path": ["api", "v1", "admin", "audit-logs"],
+              "query": [
+                {"key": "limit", "value": "50"},
+                {"key": "offset", "value": "0"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Audit Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "admin", "audit-logs", "summary"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Background Jobs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "admin", "jobs"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Job",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "admin", "jobs", "<job_id>"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Queue Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "admin", "queue", "stats"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Tenant Activity",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "url": {"path": ["api", "v1", "admin", "activity"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Import",
+      "item": [
+        {
+          "name": "Vyapar Import (Dry Run)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "binary",
+              "binary": ["@/path/to/backup.vyb"]
+            },
+            "url": {"path": ["api", "v1", "import", "dry-run"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Vyapar Import (Commit)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer <access_token>"},
+              {"key": "X-Tenant-ID", "value": "<tenant_id>"}
+            ],
+            "body": {
+              "mode": "binary",
+              "binary": ["@/path/to/backup.vyb"]
+            },
+            "url": {"path": ["api", "v1", "import", "vyapar"]}
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+};

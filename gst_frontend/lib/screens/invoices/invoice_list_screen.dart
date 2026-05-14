@@ -240,11 +240,18 @@ class _InvoiceListScreenState extends ConsumerState<InvoiceListScreen>
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
-        onTap: () {
-          // TODO: Navigate to invoice detail
-          // Navigator.pushNamed(ctx, '/invoices/detail', arguments: inv);
-        },
-        onLongPress: () {
+onTap: () {
+           Navigator.push(
+             context,
+             MaterialPageRoute(
+               builder: (_) => InvoiceDetailScreen(
+                 invoiceId: inv.invoiceId,
+                 kind: _currentKind,
+               ),
+             ),
+           );
+         },
+         onLongPress: () {
           // Show action menu
           showModalBottomSheet(
             context: ctx,
@@ -426,8 +433,18 @@ class _InvoiceActionsMenu extends StatelessWidget {
           const SizedBox(height: 12),
           if (invoice.isDraft)
             _menuItem('Submit', Icons.send, () => onAction('submit')),
-          if (invoice.isDraft)
-            _menuItem('Edit', Icons.edit, () {}),
+if (widget.existing != null)
+             _menuItem('Edit', Icons.edit, () {
+               Navigator.push(
+                 ctx,
+                 MaterialPageRoute(
+                   builder: (_) => InvoiceFormScreen(
+                     existing: widget.invoice,
+                     kind: kind,
+                   ),
+                 ),
+               );
+             })
           if (invoice.isSubmitted || invoice.isPartPaid)
             _menuItem('Void', Icons.block, () => onAction('void')),
           if (invoice.isDraft)

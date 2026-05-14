@@ -4,6 +4,7 @@ import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:intl/intl.dart';
 import 'package:gst_frontend/core/constants/app_constants.dart';
 import 'package:gst_frontend/core/models/invoice.dart';
+import 'package:gst_frontend/core/models/system_info.dart';
 import 'package:gst_frontend/providers/app_providers.dart';
 import 'package:gst_frontend/widgets/app_scaffold.dart';
 
@@ -243,10 +244,8 @@ class DashboardScreen extends ConsumerWidget {
                           color: Color(0xFF10B981))),
                   const SizedBox(height: 4),
                   GestureDetector(
-                    onTap: () {
-                      // TODO: Navigate to receivables report
-                    },
-                    child: const Text('3 pending →',
+onTap: () => Navigator.pushNamed(context, '/payments'),
+                     child: const Text('3 pending →',
                         style: TextStyle(
                             color: Color(0xFF10B981), fontSize: 12)),
                   ),
@@ -275,10 +274,8 @@ class DashboardScreen extends ConsumerWidget {
                           color: Color(0xFFEF4444))),
                   const SizedBox(height: 4),
                   GestureDetector(
-                    onTap: () {
-                      // TODO: Navigate to payables report
-                    },
-                    child: const Text('1 pending →',
+onTap: () => Navigator.pushNamed(context, '/payments'),
+                     child: const Text('1 pending →',
                         style: TextStyle(
                             color: Color(0xFFEF4444), fontSize: 12)),
                   ),
@@ -317,16 +314,12 @@ class DashboardScreen extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(12),
                   onTap: () {
                     switch (a['label']) {
-                      case 'New Sale':
-                        Navigator.pushNamed(context, '/invoices')
-                            // TODO: navigate to create sales
-                            ;
-                        break;
-                      case 'New Purchase':
-                        Navigator.pushNamed(context, '/invoices')
-                            // TODO: navigate to create purchase
-                            ;
-                        break;
+case 'New Sale':
+                         Navigator.pushNamed(context, '/invoices');
+                         break;
+                       case 'New Purchase':
+                         Navigator.pushNamed(context, '/invoices', arguments: 'purchase');
+                         break;
                     }
                   },
                   child: Container(

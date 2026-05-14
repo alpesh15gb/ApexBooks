@@ -107,12 +107,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                TextButton(
-                  onPressed: () {
-                    // TODO: navigate to registration
-                  },
-                  child: const Text('Register your company →'),
-                ),
+TextButton(
+                   onPressed: () => Navigator.pushNamed(context, '/register'),
+                   child: const Text('Register your company →'),
+                 ),
               ],
             ),
           ),

@@ -1,7 +1,8 @@
 from datetime import datetime, date
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base
+
 
 class CompanyRecord(Base):
     __tablename__ = 'companies_registry'
@@ -15,6 +16,7 @@ class CompanyRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
 class UserRecord(Base):
     __tablename__ = 'users_registry'
     user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -27,6 +29,7 @@ class UserRecord(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+
 class ApiKeyRecord(Base):
     __tablename__ = 'api_keys'
     key_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -35,6 +38,7 @@ class ApiKeyRecord(Base):
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 
 class ResourceRecord(Base):
     __tablename__ = 'tenant_resources'
@@ -46,10 +50,11 @@ class ResourceRecord(Base):
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str | None] = mapped_column(String(64))
     txn_date: Mapped[date | None] = mapped_column(Date)
-    amount: Mapped[float | None] = mapped_column(Numeric(14,2))
+    amount: Mapped[float | None] = mapped_column(Numeric(14, 2))
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 
 class NumberingSeriesRecord(Base):
     __tablename__ = 'numbering_series'
@@ -60,6 +65,7 @@ class NumberingSeriesRecord(Base):
     prefix: Mapped[str] = mapped_column(String(32), nullable=False)
     current: Mapped[int] = mapped_column(Integer, default=0)
     padding: Mapped[int] = mapped_column(Integer, default=3)
+
 
 class AuditLogRecord(Base):
     __tablename__ = 'audit_logs'
@@ -72,4 +78,34 @@ class AuditLogRecord(Base):
     ip_address: Mapped[str | None] = mapped_column(String(64))
     user_agent: Mapped[str | None] = mapped_column(Text)
     details: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AccountModel(Base):
+    __tablename__ = 'accounts'
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'code', name='uq_accounts_tenant_code'),
+        Index('ix_accounts_tenant_type', 'tenant_id', 'account_type'),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    account_type: Mapped[str] = mapped_column(String(50), default='Expense')
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class JournalEntryModel(Base):
+    __tablename__ = 'journal_entries'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    entry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    reference: Mapped[str | None] = mapped_column(String(64))
+    narration: Mapped[str | None] = mapped_column(Text)
+    entries: Mapped[dict] = mapped_column(JSON, default=list)
+    total_debit: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
+    total_credit: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

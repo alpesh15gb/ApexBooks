@@ -5,6 +5,7 @@ import 'package:gst_frontend/core/services/api_service.dart';
 import 'package:gst_frontend/core/services/auth_service.dart';
 import 'package:gst_frontend/providers/app_providers.dart';
 import 'package:gst_frontend/screens/auth/login_screen.dart';
+import 'package:gst_frontend/screens/auth/register_screen.dart';
 import 'package:gst_frontend/screens/dashboard/dashboard_screen.dart';
 import 'package:gst_frontend/core/constants/app_constants.dart';
 
@@ -33,16 +34,24 @@ class GstApp extends ConsumerWidget {
         authenticated: () => const DashboardScreen(),
         unauthenticated: () => const LoginScreen(),
       ),
-      routes: {
-        '/login': (ctx) => const LoginScreen(),
-        '/dashboard': (ctx) => const DashboardScreen(),
-        '/invoices': (ctx) => const InvoiceListScreen(),
-        '/parties': (ctx) => const PartyListScreen(),
-        '/payments': (ctx) => const PaymentListScreen(),
-        '/gst': (ctx) => const GstDashboardScreen(),
-        '/settings': (ctx) => const SettingsScreen(),
-        '/admin': (ctx) => const AdminDashboardScreen(),
-      },
+routes: {
+         '/login': (ctx) => const LoginScreen(),
+         '/dashboard': (ctx) => const DashboardScreen(),
+         '/invoices': (ctx) => const InvoiceListScreen(),
+         '/invoices/detail': (ctx) => const InvoiceDetailScreen(invoiceId: '', kind: 'sales'),
+         '/parties': (ctx) => const PartyListScreen(),
+         '/payments': (ctx) => const PaymentListScreen(),
+         '/gst': (ctx) => const GstDashboardScreen(),
+         '/settings': (ctx) => const SettingsScreen(),
+         '/settings/business': (ctx) => const SettingsScreen(),
+         '/settings/gst': (ctx) => const SettingsScreen(),
+         '/settings/einvoice': (ctx) => const SettingsScreen(),
+         '/settings/ewaybill': (ctx) => const SettingsScreen(),
+         '/settings/numbering': (ctx) => const SettingsScreen(),
+         '/settings/notifications': (ctx) => const SettingsScreen(),
+         '/settings/integrations': (ctx) => const SettingsScreen(),
+         '/admin': (ctx) => const AdminDashboardScreen(),
+       },
     );
   }
 }

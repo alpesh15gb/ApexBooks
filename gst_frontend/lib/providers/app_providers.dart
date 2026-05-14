@@ -6,14 +6,18 @@ import 'package:gst_frontend/core/models/party.dart';
 import 'package:gst_frontend/core/models/payment.dart';
 import 'package:gst_frontend/core/models/gl_entry.dart';
 import 'package:gst_frontend/core/models/user.dart';
+import 'package:gst_frontend/core/models/system_info.dart';
+import 'package:gst_frontend/core/models/audit_log.dart';
+import 'package:gst_frontend/core/models/background_job.dart';
+import 'package:gst_frontend/core/models/gstr.dart';
 import 'package:gst_frontend/core/theme/app_theme.dart';
 
-// ── API Provider ──
+// -- API Provider --
 final apiProvider = Provider<ApiService>((ref) {
   return ApiService(baseUrl: 'http://localhost:8000/api/v1');
 });
 
-// ── Auth Provider ──
+// -- Auth Provider --
 enum AuthStatus { loading, authenticated, unauthenticated }
 
 class AuthState {
@@ -54,21 +58,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       final response = await _api.login({'username': username, 'password': password});
       final data = response.data as Map<String, dynamic>;
-
       final accessToken = data['access_token'] as String;
       final refreshToken = data['refresh_token'] as String;
       final tenantId = data['tenant_id'] as String;
-
       await AuthService.saveTokens(accessToken: accessToken, refreshToken: refreshToken);
       await AuthService.saveTenantId(tenantId);
       _api.setAuthToken(accessToken);
-
       final userData = data['user'] as Map<String, dynamic>? ?? {};
       final user = User.fromJson(userData);
-      state = state.copyWith(
-        status: AuthStatus.authenticated,
-        user: user,
-      );
+      state = state.copyWith(status: AuthStatus.authenticated, user: user);
       return true;
     } catch (e) {
       state = state.copyWith(error: e.toString());
@@ -90,10 +88,9 @@ final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier(ref.read(apiProvider));
 });
 
-// ── Theme Provider ──
+// -- Theme Provider --
 class ThemeNotifier extends StateNotifier<bool> {
-  ThemeNotifier() : super(false); // false = light
-
+  ThemeNotifier() : super(false);
   void toggle() => state = !state;
 }
 
@@ -101,24 +98,27 @@ final themeProvider = StateNotifierProvider<ThemeNotifier, bool>((ref) {
   return ThemeNotifier();
 });
 
-// ── Invoice Provider ──
+// -- Invoice Provider (family by kind) --
 final invoiceListProvider =
-    StateNotifierProvider<InvoiceListNotifier, AsyncValue<List<Invoice>>>((ref) {
-  return InvoiceListNotifier(ref.read(apiProvider));
-});
+    StateNotifierProvider.autoDispose
+        .family<InvoiceListNotifier, AsyncValue<List<Invoice>>, String>(
+  (ref, kind) => InvoiceListNotifier(ref.read(apiProvider), kind: kind),
+);
 
 class InvoiceListNotifier extends StateNotifier<AsyncValue<List<Invoice>>> {
   final ApiService _api;
+  final String _kind;
 
-  InvoiceListNotifier(this._api)
-      : super(const AsyncValue.loading()) {
+  InvoiceListNotifier(this._api, {required String kind})
+      : _kind = kind,
+        super(const AsyncValue.loading()) {
     fetchInvoices();
   }
 
-  Future<void> fetchInvoices({String kind = 'sales', String? status}) async {
+  Future<void> fetchInvoices({String? status}) async {
     state = const AsyncValue.loading();
     try {
-      final response = await _api.getInvoices(kind: kind, status: status);
+      final response = await _api.getInvoices(kind: _kind, status: status);
       final data = response.data as Map<String, dynamic>;
       final results = data['results'] as List<dynamic>;
       final invoices = results.map((e) => Invoice.fromJson(e)).toList();
@@ -129,7 +129,7 @@ class InvoiceListNotifier extends StateNotifier<AsyncValue<List<Invoice>>> {
   }
 }
 
-// ── Party Provider ──
+// -- Party Provider --
 final partyListProvider =
     StateNotifierProvider<PartyListNotifier, AsyncValue<List<Party>>>((ref) {
   return PartyListNotifier(ref.read(apiProvider));
@@ -156,12 +156,10 @@ class PartyListNotifier extends StateNotifier<AsyncValue<List<Party>>> {
   }
 }
 
-// ── Payment Provider ──
+// -- Payment Provider --
 final paymentListProvider =
     StateNotifierProvider<PaymentListNotifier, AsyncValue<List<Payment>>>(
-        (ref) {
-  return PaymentListNotifier(ref.read(apiProvider));
-});
+        (ref) => PaymentListNotifier(ref.read(apiProvider)));
 
 class PaymentListNotifier extends StateNotifier<AsyncValue<List<Payment>>> {
   final ApiService _api;
@@ -184,7 +182,7 @@ class PaymentListNotifier extends StateNotifier<AsyncValue<List<Payment>>> {
   }
 }
 
-// ── GST Provider ──
+// -- GST Provider --
 final gstr1Provider =
     StateNotifierProvider<Gstr1Notifier, AsyncValue<Gstr3bSummary>>((ref) {
   return Gstr1Notifier(ref.read(apiProvider));
@@ -200,13 +198,9 @@ class Gstr1Notifier extends StateNotifier<AsyncValue<Gstr3bSummary>> {
     try {
       final response = await _api.getGstr1Summary(month, year);
       final data = response.data['tables'] as Map<String, dynamic>;
-      // Simplified: wrap B2B data as Gstr3bSummary for chart display
       final b2b = Gstr1Bucket.fromJson(data['B2B'] ?? {});
       final summary = Gstr3bSummary(
-        supDetails: Gstr3bSection(
-          txval: b2b.taxable,
-          iamt: b2b.tax,
-        ),
+        supDetails: Gstr3bSection(txval: b2b.taxable, iamt: b2b.tax),
         itcElg: const Gstr3bSection(),
       );
       state = AsyncValue.data(summary);
@@ -215,3 +209,28 @@ class Gstr1Notifier extends StateNotifier<AsyncValue<Gstr3bSummary>> {
     }
   }
 }
+
+// -- System Info Provider --
+final systemInfoProvider = FutureProvider<SystemInfo>((ref) async {
+  final api = ref.read(apiProvider);
+  final response = await api.getSystemInfo();
+  return SystemInfo.fromJson(response.data as Map<String, dynamic>);
+});
+
+// -- Audit Logs Provider --
+final auditLogsProvider = FutureProvider<List<AuditLogEntry>>((ref) async {
+  final api = ref.read(apiProvider);
+  final response = await api.getAuditLogs(limit: 50);
+  final data = response.data as Map<String, dynamic>;
+  final logs = data['logs'] as List<dynamic>;
+  return logs.map((e) => AuditLogEntry.fromJson(e as Map<String, dynamic>)).toList();
+});
+
+// -- Background Jobs Provider --
+final backgroundJobsProvider = FutureProvider<List<BackgroundJob>>((ref) async {
+  final api = ref.read(apiProvider);
+  final response = await api.getBackgroundJobs();
+  final data = response.data as Map<String, dynamic>;
+  final jobs = data['jobs'] as List<dynamic>;
+  return jobs.map((e) => BackgroundJob.fromJson(e as Map<String, dynamic>)).toList();
+});

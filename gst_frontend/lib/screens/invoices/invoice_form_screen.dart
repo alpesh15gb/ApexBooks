@@ -2,13 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gst_frontend/core/constants/app_constants.dart';
 import 'package:gst_frontend/core/models/invoice.dart';
+import 'package:gst_frontend/core/models/party.dart';
 import 'package:gst_frontend/providers/app_providers.dart';
+import 'package:intl/intl.dart';
 
 class InvoiceFormScreen extends ConsumerStatefulWidget {
   final Invoice? existing;
   final String kind; // 'sales' or 'purchase'
+  final Party? selectedParty;
 
-  const InvoiceFormScreen({super.key, this.existing, required this.kind});
+  const InvoiceFormScreen({
+    super.key,
+    this.existing,
+    required this.kind,
+    this.selectedParty,
+  });
 
   @override
   ConsumerState<InvoiceFormScreen> createState() => _InvoiceFormScreenState();
@@ -42,6 +50,9 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.selectedParty != null) {
+      _partyCtrl.text = widget.selectedParty!.partyName;
+    }
     if (widget.existing != null) {
       final inv = widget.existing!;
       _placeCtrl.text = inv.placeOfSupply;
@@ -108,13 +119,14 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
 
     try {
       final api = ref.read(apiProvider);
-      final payload = {
-        'invoice_date': _invoiceDate.toIso8601String().split('T')[0],
-        'place_of_supply': _placeCtrl.text,
-        'supply_type': _supplyType,
-        'invoice_type': _invoiceType,
-        'line_items': _lines,
-      };
+final payload = {
+         'invoice_date': _invoiceDate.toIso8601String().split('T')[0],
+         'place_of_supply': _placeCtrl.text,
+         'supply_type': _supplyType,
+         'invoice_type': _invoiceType,
+         'party_id': widget.selectedParty?.partyId ?? '',
+         'line_items': _lines,
+       };
 
       if (widget.existing != null) {
         await api.updateInvoice(

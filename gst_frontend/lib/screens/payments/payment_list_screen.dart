@@ -1,11 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gst_frontend/core/constants/app_constants.dart';
 import 'package:gst_frontend/core/models/payment.dart';
+import 'package:gst_frontend/core/models/party.dart';
 import 'package:gst_frontend/providers/app_providers.dart';
 import 'package:gst_frontend/widgets/app_scaffold.dart';
 
-class PaymentListScreen extends ConsumerWidget {
+class PaymentListScreen extends ConsumerStatefulWidget {
   const PaymentListScreen({super.key});
+
+  @override
+  ConsumerState<PaymentListScreen> createState() => _PaymentListScreenState();
+}
+
+class _PaymentListScreenState extends ConsumerState<PaymentListScreen> {
+  String _searchQuery = '';
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -157,19 +166,43 @@ class _NewPaymentFormState extends State<_NewPaymentForm> {
               maxLines: 2,
             ),
             const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: () {
-                  if (_formKey.currentState!.validate()) {
-                    // TODO: Submit payment via API
-                    Navigator.pop(context);
-                  }
-                },
-                child: const Text('SAVE PAYMENT'),
-              ),
-            ),
+SizedBox(
+               width: double.infinity,
+               height: 48,
+               child: ElevatedButton(
+                 onPressed: () async {
+                   if (_formKey.currentState!.validate()) {
+                     final api = ref.read(apiProvider);
+                     final payload = {
+                       'payment_type': _type == 'Receive' ? 'Receive' : 'Make',
+                       'payment_mode': _mode,
+                       'payment_date': DateTime.now().toIso8601String().split('T')[0],
+                       'party_id': '',
+                       'amount': double.parse(_amountCtrl.text),
+                       'reference_no': _refCtrl.text,
+                       'narration': _narrationCtrl.text,
+                     };
+                     try {
+                       await api.createPayment(payload);
+                       ref.invalidate(paymentListProvider);
+                       if (mounted) {
+                         ScaffoldMessenger.of(context).showSnackBar(
+                           const SnackBar(content: Text('Payment saved')),
+                         );
+                       }
+                       Navigator.pop(context);
+                     } catch (e) {
+                       if (mounted) {
+                         ScaffoldMessenger.of(context).showSnackBar(
+                           SnackBar(content: Text('Error: $e')),
+                         );
+                       }
+                     }
+                   }
+                 },
+                 child: const Text('SAVE PAYMENT'),
+               ),
+             ),
             const SizedBox(height: 8),
           ],
         ),
