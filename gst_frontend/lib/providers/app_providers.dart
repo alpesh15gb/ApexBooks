@@ -57,7 +57,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<bool> login(String username, String password) async {
     try {
       final response = await _api.login({'email': username, 'password': password});
-      final data = response.data as Map<String, dynamic>;
+      final responseData = response.data as Map<String, dynamic>;
+      final data = responseData['data'] as Map<String, dynamic>;
+      
       final accessToken = data['access_token'] as String;
       final refreshToken = data['refresh_token'] as String;
       final tenantId = data['tenant_id'] as String;
