@@ -10,8 +10,8 @@ import uuid
 from datetime import datetime, date
 from decimal import Decimal
 
-sys.path.insert(0, '//Vault/ApexBooks/gst-api-engine')
-os.chdir('//Vault/ApexBooks/gst-api-engine')
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
