@@ -16,6 +16,7 @@ down_revision = '0002_normalized_accounting'
 branch_labels = None
 depends_on = None
 
+
 def upgrade():
     # Period Locks
     op.create_table(
@@ -42,20 +43,22 @@ def upgrade():
         UniqueConstraint('tenant_id', 'idempotency_key', name='uq_idempotency'),
     )
 
-    # Additional indexes for performance
-    op.create_index('ix_gl_tenant_date', 'gl_entries', ['tenant_id', 'posting_date'])
-    op.create_index('ix_gl_account_date', 'gl_entries', ['account', 'posting_date'])
-    op.create_index('ix_invoices_tenant_date', 'invoices', ['tenant_id', 'invoice_date'])
-    op.create_index('ix_invoices_party_date', 'invoices', ['tenant_id', 'party_id', 'invoice_date'])
-    op.create_index('ix_invoices_status_date', 'invoices', ['status', 'invoice_date'])
-    op.create_index('ix_invoices_paid_status', 'invoices', ['tenant_id', 'payment_status'])
+    # Additional indexes for performance — using IF NOT EXISTS for idempotency
+    # (handles case of partial previous migration runs)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_gl_tenant_date ON gl_entries (tenant_id, posting_date)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_gl_account_date ON gl_entries (account, posting_date)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_invoices_tenant_date ON invoices (tenant_id, invoice_date)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_invoices_party_date ON invoices (tenant_id, party_id, invoice_date)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_invoices_status_date ON invoices (status, invoice_date)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_invoices_paid_status ON invoices (tenant_id, payment_status)")
+
 
 def downgrade():
-    op.drop_index('ix_invoices_paid_status', table_name='invoices')
-    op.drop_index('ix_invoices_status_date', table_name='invoices')
-    op.drop_index('ix_invoices_party_date', table_name='invoices')
-    op.drop_index('ix_invoices_tenant_date', table_name='invoices')
-    op.drop_index('ix_gl_account_date', table_name='gl_entries')
-    op.drop_index('ix_gl_tenant_date', table_name='gl_entries')
+    op.drop_index('ix_invoices_paid_status', table_name='invoices', if_exists=True)
+    op.drop_index('ix_invoices_status_date', table_name='invoices', if_exists=True)
+    op.drop_index('ix_invoices_party_date', table_name='invoices', if_exists=True)
+    op.drop_index('ix_invoices_tenant_date', table_name='invoices', if_exists=True)
+    op.drop_index('ix_gl_account_date', table_name='gl_entries', if_exists=True)
+    op.drop_index('ix_gl_tenant_date', table_name='gl_entries', if_exists=True)
     op.drop_table('idempotency_keys')
     op.drop_table('period_locks')
