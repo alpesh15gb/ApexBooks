@@ -23,7 +23,7 @@ class AppTheme {
       centerTitle: true,
       titleTextStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: _surfaceLight,
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -61,7 +61,7 @@ class AppTheme {
       centerTitle: true,
       titleTextStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: _surfaceDark,
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

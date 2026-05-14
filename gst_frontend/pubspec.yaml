@@ -22,7 +22,7 @@ dependencies:
   flutter_secure_storage: ^9.0.0
 
   # Charts
-  syncfusion_flutter_charts: ^23.1.40
+  syncfusion_flutter_charts: ^33.2.6
 
   # Models / Serialization
   json_annotation: ^4.9.0
@@ -30,7 +30,7 @@ dependencies:
   equatable: ^2.0.5
 
   # Utils
-  intl: ^0.18.0
+  intl: ^0.19.0
   shared_preferences: ^2.2.2
   uuid: ^4.2.1
   logger: ^2.0.2+1

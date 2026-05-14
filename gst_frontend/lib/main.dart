@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:gst_frontend/core/theme/app_theme.dart';
 import 'package:gst_frontend/core/services/api_service.dart';
 import 'package:gst_frontend/core/services/auth_service.dart';
@@ -7,7 +8,13 @@ import 'package:gst_frontend/providers/app_providers.dart';
 import 'package:gst_frontend/screens/auth/login_screen.dart';
 import 'package:gst_frontend/screens/auth/register_screen.dart';
 import 'package:gst_frontend/screens/dashboard/dashboard_screen.dart';
-import 'package:gst_frontend/core/constants/app_constants.dart';
+import 'package:gst_frontend/screens/invoices/invoice_list_screen.dart';
+import 'package:gst_frontend/screens/invoices/invoice_detail_screen.dart';
+import 'package:gst_frontend/screens/parties/party_list_screen.dart';
+import 'package:gst_frontend/screens/payments/payment_list_screen.dart';
+import 'package:gst_frontend/screens/dashboard/gst_dashboard_screen.dart';
+import 'package:gst_frontend/screens/settings/settings_screen.dart';
+import 'package:gst_frontend/screens/dashboard/admin_dashboard_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,16 +32,21 @@ class GstApp extends ConsumerWidget {
     final authState = ref.watch(authProvider);
     final isDark = ref.watch(themeProvider);
 
+    Widget homeWidget;
+    if (authState.status == AuthStatus.loading) {
+      homeWidget = const Scaffold(body: Center(child: CircularProgressIndicator()));
+    } else if (authState.status == AuthStatus.authenticated) {
+      homeWidget = const DashboardScreen();
+    } else {
+      homeWidget = const LoginScreen();
+    }
+
     return MaterialApp(
       title: 'GST API Engine',
       debugShowCheckedModeBanner: false,
       theme: isDark ? AppTheme.darkTheme : AppTheme.lightTheme,
-      home: authState.when(
-        loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-        authenticated: () => const DashboardScreen(),
-        unauthenticated: () => const LoginScreen(),
-      ),
-routes: {
+      home: homeWidget,
+      routes: {
          '/login': (ctx) => const LoginScreen(),
          '/dashboard': (ctx) => const DashboardScreen(),
          '/invoices': (ctx) => const InvoiceListScreen(),
@@ -51,7 +63,7 @@ routes: {
          '/settings/notifications': (ctx) => const SettingsScreen(),
          '/settings/integrations': (ctx) => const SettingsScreen(),
          '/admin': (ctx) => const AdminDashboardScreen(),
-       },
+      },
     );
   }
 }

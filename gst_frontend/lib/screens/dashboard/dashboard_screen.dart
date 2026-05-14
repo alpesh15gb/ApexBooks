@@ -148,7 +148,7 @@ class DashboardScreen extends ConsumerWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(s['icon'] as IconData, color: s['color'], size: 28),
+                Icon(s['icon'] as IconData, color: s['color'] as Color, size: 28),
                 const SizedBox(height: 8),
                 Text(s['value'] as String,
                     style: const TextStyle(
@@ -184,13 +184,13 @@ class DashboardScreen extends ConsumerWidget {
             SizedBox(
               height: 180,
               child: SfCartesianChart(
-                primaryXAxis: const CategoryAxis(
-                  majorGridLines: MajorGridLines(width: 0),
+                primaryXAxis: CategoryAxis(
+                  majorGridLines: const MajorGridLines(width: 0),
                 ),
-                primaryYAxis: const NumericAxis(
+                primaryYAxis: NumericAxis(
                   labelFormat: '{value}k',
-                  axisLine: AxisLine(width: 0),
-                  majorTickLines: MajorTickLines(size: 0),
+                  axisLine: const AxisLine(width: 0),
+                  majorTickLines: const MajorTickLines(size: 0),
                 ),
                 series: <CartesianSeries>[
                   AreaSeries<Map<String, dynamic>, String>(
@@ -200,9 +200,9 @@ class DashboardScreen extends ConsumerWidget {
                     }),
                     xValueMapper: (data, _) => data['month'],
                     yValueMapper: (data, _) => data['sales'],
-                    gradient: const LinearGradient(colors: [
-                      Color(0xFFFF6B35),
-                      Color(0xFFFF6B35).withOpacity(0.1),
+                    gradient: LinearGradient(colors: [
+                      const Color(0xFFFF6B35),
+                      const Color(0xFFFF6B35).withOpacity(0.1),
                     ]),
                     borderColor: const Color(0xFFFF6B35),
                     borderWidth: 2,

@@ -88,7 +88,7 @@ class ApiService {
     return await _dio.get('/invoices/sales/$invoiceId/pdf');
   }
 
-  Future<Response> checkPdfStatus(String jobId) async {
+  Future<Response> checkPdfStatus(String invoiceId, String jobId) async {
     return await _dio.get('/invoices/sales/$invoiceId/pdf/status/$jobId');
   }
 
@@ -102,7 +102,7 @@ class ApiService {
 
   // --- Parties ---
   Future<Response> getParties({String? search, String? partyType}) async {
-    final params = {};
+    final params = <String, dynamic>{};
     if (search != null) params['search'] = search;
     if (partyType != null) params['party_type'] = partyType;
     return await _dio.get('/parties', queryParameters: params);
@@ -141,7 +141,7 @@ class ApiService {
 
   // --- Items ---
   Future<Response> getItems({String? search}) async {
-    final params = {};
+    final params = <String, dynamic>{};
     if (search != null) params['search'] = search;
     return await _dio.get('/items', queryParameters: params);
   }
@@ -297,7 +297,7 @@ class ApiService {
 
   Future<Response> getBackgroundJobs(
       {String? jobType, String? status, int limit = 50}) async {
-    final params = {};
+    final params = <String, dynamic>{};
     if (jobType != null) params['job_type'] = jobType;
     if (status != null) params['status'] = status;
     params['limit'] = limit.toString();
