@@ -2,24 +2,19 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:gst_frontend/core/constants/app_constants.dart';
 
-String _resolvedBaseUrl() {
-  // Use dart-define override if provided at build time
-  const defined = String.fromEnvironment('API_BASE_URL');
-  if (defined.isNotEmpty) return defined;
-  // At runtime resolve relative to the page origin (Flutter web only)
-  // Uri.base is dart:core — works on all platforms, no dart:html needed
-  try {
-    return Uri.base.resolve('api/').toString();
-  } catch (_) {}
-  return apiBaseUrl;
-}
+// Resolved at COMPILE TIME via --dart-define=API_BASE_URL=...
+// Default: production Nginx proxy path (same-origin, no cross-domain issues)
+const String _kApiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'http://apexbooks.in/api',
+);
 
 class ApiService {
   final Dio _dio;
 
   ApiService({String? baseUrl})
       : _dio = Dio(BaseOptions(
-          baseUrl: baseUrl ?? _resolvedBaseUrl(),
+          baseUrl: baseUrl ?? _kApiBaseUrl,
           connectTimeout: const Duration(milliseconds: 30000),
           receiveTimeout: const Duration(milliseconds: 30000),
           headers: {
