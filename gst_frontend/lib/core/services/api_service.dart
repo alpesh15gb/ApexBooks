@@ -6,7 +6,7 @@ import 'package:gst_frontend/core/constants/app_constants.dart';
 // Default: production Nginx proxy path (same-origin, no cross-domain issues)
 const String _kApiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://apexbooks.in/api',
+  defaultValue: 'https://apexbooks.in/api',
 );
 
 class ApiService {
