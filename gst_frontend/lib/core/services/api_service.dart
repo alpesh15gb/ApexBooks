@@ -1,17 +1,15 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:gst_frontend/core/constants/app_constants.dart';
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
 
 String _resolvedBaseUrl() {
-  // Use dart-define override if provided
+  // Use dart-define override if provided at build time
   const defined = String.fromEnvironment('API_BASE_URL');
   if (defined.isNotEmpty) return defined;
-  // Otherwise use same origin so Nginx proxy handles it
+  // At runtime resolve relative to the page origin (Flutter web only)
+  // Uri.base is dart:core — works on all platforms, no dart:html needed
   try {
-    final origin = html.window.location.origin ?? '';
-    if (origin.isNotEmpty) return '$origin/api/v1';
+    return Uri.base.resolve('api/').toString();
   } catch (_) {}
   return apiBaseUrl;
 }
