@@ -5,7 +5,7 @@ services:
     depends_on: [db, redis, minio]
     restart: unless-stopped
     volumes:
-      - jwt_keys:/run/secrets:ro
+      - ./secrets:/run/secrets:ro
     # Expose API on localhost ONLY — not on public IP
     # System nginx proxies api.apexbooks.in → 127.0.0.1:8000
     ports:
@@ -76,7 +76,6 @@ volumes:
   pgdata: {}
   redisdata: {}
   miniodata: {}
-  jwt_keys: {}
 
 networks:
   gst-net:
