@@ -433,18 +433,18 @@ class _InvoiceActionsMenu extends StatelessWidget {
           const SizedBox(height: 12),
           if (invoice.isDraft)
             _menuItem('Submit', Icons.send, () => onAction('submit')),
-if (widget.existing != null)
+          if (invoice.isDraft)
              _menuItem('Edit', Icons.edit, () {
                Navigator.push(
-                 ctx,
+                 context,
                  MaterialPageRoute(
                    builder: (_) => InvoiceFormScreen(
-                     existing: widget.invoice,
+                     existing: invoice,
                      kind: kind,
                    ),
                  ),
                );
-             })
+             }),
           if (invoice.isSubmitted || invoice.isPartPaid)
             _menuItem('Void', Icons.block, () => onAction('void')),
           if (invoice.isDraft)

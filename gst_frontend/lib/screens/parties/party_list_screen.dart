@@ -181,16 +181,16 @@ class _PartyListScreenState extends ConsumerState<PartyListScreen> {
   }
 }
 
-class _PartyForm extends StatefulWidget {
+class _PartyForm extends ConsumerStatefulWidget {
   final Party? party;
 
   const _PartyForm({this.party});
 
   @override
-  State<_PartyForm> createState() => _PartyFormState();
+  ConsumerState<_PartyForm> createState() => _PartyFormState();
 }
 
-class _PartyFormState extends State<_PartyForm> {
+class _PartyFormState extends ConsumerState<_PartyForm> {
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
   final _gstinCtrl = TextEditingController();
@@ -334,7 +334,7 @@ class _PartyFormState extends State<_PartyForm> {
               width: double.infinity,
               height: 48,
               child: ElevatedButton(
-                onPressed: () {
+                onPressed: () async {
 if (_formKey.currentState!.validate()) {
                      final api = ref.read(apiProvider);
                      final payload = {
@@ -354,18 +354,18 @@ if (_formKey.currentState!.validate()) {
                          await api.createParty(payload);
                        }
                        ref.invalidate(partyListProvider);
-                       if (ctx.mounted) {
-                         ScaffoldMessenger.of(ctx).showSnackBar(
+                       if (context.mounted) {
+                         ScaffoldMessenger.of(context).showSnackBar(
                            SnackBar(
                                content: Text(widget.party != null
                                    ? 'Party updated'
                                    : 'Party created')),
                          );
+                         Navigator.pop(context);
                        }
-                       Navigator.pop(ctx);
                      } catch (e) {
-                       if (ctx.mounted) {
-                         ScaffoldMessenger.of(ctx)
+                       if (context.mounted) {
+                         ScaffoldMessenger.of(context)
                              .showSnackBar(SnackBar(content: Text('Error: $e')));
                        }
                      }

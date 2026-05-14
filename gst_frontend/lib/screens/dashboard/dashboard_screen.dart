@@ -267,7 +267,7 @@ onTap: () => Navigator.pushNamed(context, '/payments'),
                   const Text('You Pay',
                       style: TextStyle(color: Colors.grey, fontSize: 12)),
                   const SizedBox(height: 4),
-                  const Text('\u20BJK12,500',
+                  const Text('\u20B912,500',
                       style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
