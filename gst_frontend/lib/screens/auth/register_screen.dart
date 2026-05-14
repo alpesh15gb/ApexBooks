@@ -43,21 +43,25 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
     try {
       final api = ref.read(apiProvider);
+      final gstin = _gstinCtrl.text.toUpperCase();
+      final stateCode = gstin.length >= 2 ? gstin.substring(0, 2) : _stateCtrl.text;
+      final pincode = _stateCtrl.text.length == 6 ? _stateCtrl.text : '500062';
+
       await api.registerCompany({
         'email': _emailCtrl.text,
         'password': _passwordCtrl.text,
         'full_name': _nameCtrl.text,
         'company': {
           'company_name': _companyCtrl.text,
-          'gstin': _gstinCtrl.text.toUpperCase(),
+          'gstin': gstin,
           'pan': _panCtrl.text.toUpperCase(),
-          'state_code': _stateCtrl.text,
-          'business_type': 'Proprietorship', // Default
+          'state_code': stateCode,
+          'business_type': 'Proprietorship',
           'address': {
-            'line1': 'Default Address', // Required by schema
+            'line1': 'Default Address',
             'city': 'Default City',
-            'pincode': '000000',
-            'state_code': _stateCtrl.text,
+            'pincode': pincode,
+            'state_code': stateCode,
           }
         }
       });
