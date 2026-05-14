@@ -47,12 +47,19 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         'email': _emailCtrl.text,
         'password': _passwordCtrl.text,
         'full_name': _nameCtrl.text,
-        'company_name': _companyCtrl.text,
-        'gstin': _gstinCtrl.text.toUpperCase(),
-        'pan': _panCtrl.text.toUpperCase(),
-        'phone': _phoneCtrl.text,
-        'state_code': _stateCtrl.text,
-        'country_code': '+91',
+        'company': {
+          'company_name': _companyCtrl.text,
+          'gstin': _gstinCtrl.text.toUpperCase(),
+          'pan': _panCtrl.text.toUpperCase(),
+          'state_code': _stateCtrl.text,
+          'business_type': 'Proprietorship', // Default
+          'address': {
+            'line1': 'Default Address', // Required by schema
+            'city': 'Default City',
+            'pincode': '000000',
+            'state_code': _stateCtrl.text,
+          }
+        }
       });
 
       if (mounted) {
