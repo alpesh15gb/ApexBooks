@@ -66,6 +66,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await AuthService.saveTokens(accessToken: accessToken, refreshToken: refreshToken);
       await AuthService.saveTenantId(tenantId);
       _api.setAuthToken(accessToken);
+      _api.setTenantId(tenantId);
       final userData = data['user'] as Map<String, dynamic>? ?? {};
       final user = User.fromJson(userData);
       state = state.copyWith(status: AuthStatus.authenticated, user: user);

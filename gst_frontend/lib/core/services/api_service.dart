@@ -348,8 +348,13 @@ class ApiService {
     _dio.options.headers['Authorization'] = 'Bearer $token';
   }
 
+  setTenantId(String tenantId) {
+    _dio.options.headers['X-Tenant-ID'] = tenantId;
+  }
+
   clearAuthToken() {
     _dio.options.headers.remove('Authorization');
+    _dio.options.headers.remove('X-Tenant-ID');
   }
 
   Future<Response> requestWithRetry(RequestOptions requestOptions) async {
