@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:gst_frontend/core/constants/app_constants.dart';
 import 'package:gst_frontend/core/models/invoice.dart';
+import 'package:gst_frontend/screens/invoices/invoice_detail_screen.dart';
+import 'package:gst_frontend/screens/invoices/invoice_form_screen.dart';
 import 'package:gst_frontend/providers/app_providers.dart';
 import 'package:gst_frontend/widgets/app_scaffold.dart';
 
@@ -43,7 +45,7 @@ class _InvoiceListScreenState extends ConsumerState<InvoiceListScreen>
       actions: [
         IconButton(
           icon: const Icon(Icons.add),
-          onPressed: () => _createInvoice(context),
+          onPressed: () => _createInvoice(),
           tooltip: 'New Invoice',
         ),
         IconButton(
@@ -353,6 +355,10 @@ onTap: () {
         ),
       ),
     );
+  }
+
+  void _showSearch() {
+    // Show search implementation
   }
 
   Future<void> _submitInvoice(BuildContext ctx, Invoice inv) async {

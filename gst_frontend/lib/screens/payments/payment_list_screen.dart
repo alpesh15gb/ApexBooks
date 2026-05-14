@@ -17,7 +17,7 @@ class _PaymentListScreenState extends ConsumerState<PaymentListScreen> {
   String _searchQuery = '';
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final paymentsAsync = ref.watch(paymentListProvider);
 
     return AppScaffold(
@@ -85,14 +85,14 @@ class _PaymentListScreenState extends ConsumerState<PaymentListScreen> {
   }
 }
 
-class _NewPaymentForm extends StatefulWidget {
+class _NewPaymentForm extends ConsumerStatefulWidget {
   const _NewPaymentForm();
 
   @override
-  State<_NewPaymentForm> createState() => _NewPaymentFormState();
+  ConsumerState<_NewPaymentForm> createState() => _NewPaymentFormState();
 }
 
-class _NewPaymentFormState extends State<_NewPaymentForm> {
+class _NewPaymentFormState extends ConsumerState<_NewPaymentForm> {
   final _formKey = GlobalKey<FormState>();
   String _type = 'Receive';
   String _mode = 'Cash';

@@ -12,14 +12,12 @@ import 'package:gst_frontend/screens/invoices/invoice_list_screen.dart';
 import 'package:gst_frontend/screens/invoices/invoice_detail_screen.dart';
 import 'package:gst_frontend/screens/parties/party_list_screen.dart';
 import 'package:gst_frontend/screens/payments/payment_list_screen.dart';
-import 'package:gst_frontend/screens/dashboard/gst_dashboard_screen.dart';
 import 'package:gst_frontend/screens/settings/settings_screen.dart';
-import 'package:gst_frontend/screens/dashboard/admin_dashboard_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
-  await SecureStorageService.init();
+  await AuthService.init();
 
   runApp(const ProviderScope(child: GstApp()));
 }
@@ -52,17 +50,17 @@ class GstApp extends ConsumerWidget {
          '/invoices': (ctx) => const InvoiceListScreen(),
          '/invoices/detail': (ctx) => const InvoiceDetailScreen(invoiceId: '', kind: 'sales'),
          '/parties': (ctx) => const PartyListScreen(),
-         '/payments': (ctx) => const PaymentListScreen(),
-         '/gst': (ctx) => const GstDashboardScreen(),
-         '/settings': (ctx) => const SettingsScreen(),
-         '/settings/business': (ctx) => const SettingsScreen(),
-         '/settings/gst': (ctx) => const SettingsScreen(),
-         '/settings/einvoice': (ctx) => const SettingsScreen(),
-         '/settings/ewaybill': (ctx) => const SettingsScreen(),
-         '/settings/numbering': (ctx) => const SettingsScreen(),
-         '/settings/notifications': (ctx) => const SettingsScreen(),
-         '/settings/integrations': (ctx) => const SettingsScreen(),
-         '/admin': (ctx) => const AdminDashboardScreen(),
+         '/payments': (ctx) => PaymentListScreen(),
+         // '/gst': (ctx) => const GstDashboardScreen(),
+         '/settings': (ctx) => SettingsScreen(),
+         '/settings/business': (ctx) => SettingsScreen(),
+         '/settings/gst': (ctx) => SettingsScreen(),
+         '/settings/einvoice': (ctx) => SettingsScreen(),
+         '/settings/ewaybill': (ctx) => SettingsScreen(),
+         '/settings/numbering': (ctx) => SettingsScreen(),
+         '/settings/notifications': (ctx) => SettingsScreen(),
+         '/settings/integrations': (ctx) => SettingsScreen(),
+         // '/admin': (ctx) => const AdminDashboardScreen(),
       },
     );
   }

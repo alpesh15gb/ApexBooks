@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:gst_frontend/core/models/party.dart';
 import 'package:gst_frontend/providers/app_providers.dart';
 import 'package:gst_frontend/widgets/app_scaffold.dart';
@@ -17,7 +18,7 @@ class _PartyListScreenState extends ConsumerState<PartyListScreen> {
   String _searchQuery = '';
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final partiesAsync = ref.watch(partyListProvider);
 
     return AppScaffold(
