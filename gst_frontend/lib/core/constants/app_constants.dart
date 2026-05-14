@@ -6,7 +6,7 @@
 //   flutter build linux --dart-define=API_BASE_URL=https://api.apexbooks.in/api/v1
 const String apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: '/api',
+  defaultValue: 'http://api.apexbooks.in/api/v1',
 );
 const String apiHealthEndpoint = '/health';
 const String apiTimeout = '30000';
