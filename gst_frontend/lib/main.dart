@@ -46,6 +46,7 @@ class GstApp extends ConsumerWidget {
       home: homeWidget,
       routes: {
          '/login': (ctx) => const LoginScreen(),
+         '/register': (ctx) => const RegisterScreen(),
          '/dashboard': (ctx) => const DashboardScreen(),
          '/invoices': (ctx) => const InvoiceListScreen(),
          '/invoices/detail': (ctx) => const InvoiceDetailScreen(invoiceId: '', kind: 'sales'),
