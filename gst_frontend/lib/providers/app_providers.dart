@@ -14,7 +14,7 @@ import 'package:gst_frontend/core/theme/app_theme.dart';
 
 // -- API Provider --
 final apiProvider = Provider<ApiService>((ref) {
-  return ApiService(baseUrl: 'http://localhost:8000/api/v1');
+  return ApiService();
 });
 
 // -- Auth Provider --
