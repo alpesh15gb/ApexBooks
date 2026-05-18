@@ -27,7 +27,7 @@ const lineSchema = z.object({
 const invoiceSchema = z.object({
   invoice_date: z.string().min(1, 'Date is required'),
   due_date: z.string().optional().or(z.literal('')),
-  party_id: z.string().min(1, 'Party is required'),
+  party_id: z.string().optional(),
   party_name: z.string().optional(),
   party_gstin: z.string().optional().or(z.literal('')),
   place_of_supply: z.string().optional(),
@@ -35,6 +35,9 @@ const invoiceSchema = z.object({
   reverse_charge: z.boolean().optional(),
   notes: z.string().optional(),
   lines: z.array(lineSchema).min(1, 'At least one line item is required'),
+}).refine(data => data.party_id || data.party_name, {
+  message: 'Select an existing party or enter a new party name',
+  path: ['party_id'],
 });
 
 type InvoiceFormData = z.infer<typeof invoiceSchema>;
@@ -52,6 +55,8 @@ export function InvoiceFormPage() {
 
   const parties = (partiesData as any)?.items || partiesData || [];
   const items = (itemsData as any)?.items || itemsData || [];
+  const [partySearch, setPartySearch] = useState('');
+  const [selectedParty, setSelectedParty] = useState<any>(null);
   const sellerStateCode = String(settingsData?.business?.state_code || '27');
 
   const {
@@ -88,6 +93,19 @@ export function InvoiceFormPage() {
       }
     }
   }, [selectedPartyId, parties, setValue]);
+
+  // When user types party_name manually, auto-clear party selection
+  useEffect(() => {
+    const sub = watch((value, { name }) => {
+      if (name === 'party_name' && value.party_name) {
+        setValue('party_id', '');
+      }
+      if (name === 'party_id' && value.party_id) {
+        setValue('party_name', '');
+      }
+    });
+    return () => sub.unsubscribe();
+  }, [watch, setValue]);
 
   // Auto-fill item details when item name matches
   const handleItemSelect = useCallback((index: number, itemName: string) => {
@@ -243,16 +261,47 @@ export function InvoiceFormPage() {
             <h3 className="font-semibold text-gray-900">{kind === 'sales' ? 'Customer' : 'Vendor'} Details</h3>
           </div>
           <div className="card-body grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Select
-              label="Select Party"
-              placeholder="Choose existing party"
-              options={parties.map((p: any) => ({ value: p.party_id, label: `${p.party_name}${p.gstin ? ` (${p.gstin})` : ''}` }))}
-              error={errors.party_id?.message}
-              required
-              {...register('party_id')}
-            />
-            <Input label="GSTIN" placeholder="Auto-filled from party" {...register('party_gstin')} />
-            <Select label="Place of Supply" placeholder="Select state" options={Object.entries(STATE_CODES).map(([v, l]) => ({ value: v, label: `${v} - ${l}` }))} {...register('place_of_supply')} />
+            <div>
+              <label className="label">Select Party</label>
+              <input className="input mb-1 text-sm" placeholder="Search existing party..." value={partySearch}
+                     onChange={e => setPartySearch(e.target.value)} />
+              <select className="input w-full text-sm"
+                value={selectedPartyId || ''}
+                onChange={e => {
+                  const pid = e.target.value;
+                  setValue('party_id', pid);
+                  setValue('party_name', pid ? '' : '');
+                  if (pid) setPartySearch('');
+                }}>
+                <option value="">-- Select existing --</option>
+                {parties
+                  .filter((p: any) => p.party_name?.toLowerCase().includes(partySearch.toLowerCase()) || p.gstin?.includes(partySearch))
+                  .map((p: any) => (
+                    <option key={p.party_id} value={p.party_id}>{p.party_name}{p.gstin ? ` (${p.gstin})` : ''}</option>
+                  ))}
+              </select>
+              {errors.party_id && <p className="text-xs text-red-600 mt-1">{errors.party_id.message}</p>}
+            </div>
+            <div className="space-y-2">
+              <label className="label">Or New Party Name</label>
+              <Input placeholder="Type new party name for on-the-fly creation"
+                value={watch('party_name') || ''}
+                onChange={e => {
+                  setValue('party_name', e.target.value);
+                  if (e.target.value) setValue('party_id', ''); // Clear selection
+                }}
+              />
+            <Input label="GSTIN" placeholder="Auto-filled or enter manually" {...register('party_gstin')} />
+            <div>
+              <label className="label">Place of Supply</label>
+              <select className="input w-full" {...register('place_of_supply')}>
+                <option value="">Select state</option>
+                {Object.entries(STATE_CODES).map(([v, l]) => (
+                  <option key={v} value={v}>{v} - {l}</option>
+                ))}
+              </select>
+            </div>
+          </div>
           </div>
         </div>
 
