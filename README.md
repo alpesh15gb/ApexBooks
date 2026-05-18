@@ -1,17 +1,26 @@
-# Indian GST Accounting API Engine
+# ApexBooks GST Accounting Engine
 
-FastAPI based multi-tenant GST accounting API. All clients consume `/api/v1/*`; business logic lives server-side.
+FastAPI based multi-tenant GST accounting API with a React/Vite frontend. All clients consume `/api/v1/*`; business logic lives server-side.
 
-## Run
+## Local Backend
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -e .[dev]
 uvicorn app.main:app --reload
 ```
 
-## Docker
+## Local Frontend
 ```bash
-docker compose up --build
+cd gst-frontend
+npm install
+npm run dev
+```
+
+## Production Docker
+```bash
+cp .env.example .env
+# Edit .env and set real secrets before starting.
+docker compose up --build -d
 ```
 
 Docs: http://localhost:8000/docs and `/redoc`.
@@ -32,8 +41,39 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Run tests in Python 3.11:
+## Verification
+
+Backend:
 ```bash
-make install
-make test
+python -m pytest tests
+python -m py_compile app/core/config.py app/core/security.py app/core/rate_limit.py app/services/email_service.py app/services/otp_service.py app/services/audit_service.py app/api/v1/auth/router.py
 ```
+
+Frontend:
+```bash
+cd gst-frontend
+npm audit
+npm test
+npm run build
+```
+
+## Production Checklist
+
+- Use `ENVIRONMENT=production`.
+- Use PostgreSQL and Redis, not SQLite.
+- Set strong `POSTGRES_PASSWORD`, MinIO credentials, and SMTP password in `.env`.
+- Store JWT RSA keys under `./secrets` and keep `JWT_ALGORITHM=RS256`.
+- Keep `.env` out of source control and rotate any leaked credentials.
+- Configure nginx so `api.apexbooks.in` proxies to `127.0.0.1:8000`.
+- Run `docker compose ps` and verify `api`, `worker`, `scheduler`, `db`, `redis`, and `minio` are healthy.
+- Run the backend and frontend verification commands before release.
+
+## Implemented Production Features
+
+- JWT/API key authentication with token blacklist support.
+- Strong password validation for registration and reset.
+- OTP based password reset via SMTP email.
+- OTP request rate limiting with Redis and safe in-process fallback.
+- Tenant-aware API middleware with public auth and GST calculator routes.
+- Parties, items, invoices, payments, accounting, GST, settings, audit logging.
+- Frontend production build, dependency audit, and password validation tests.

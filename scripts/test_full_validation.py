@@ -3,11 +3,13 @@
 Full Validation Suite - Production Grade Verification
 Run all validation tests in sequence.
 """
-import sys
-import os
-
-sys.path.insert(0, '//Vault/ApexBooks/gst-api-engine')
-os.chdir('//Vault/ApexBooks/gst-api-engine')
+import sys, os
+POSSIBLE_ROOTS = [os.path.dirname(os.path.abspath(__file__)), '//Vault/ApexBooks/gst-api-engine', '/opt/gst-api-engine', os.getcwd()]
+for root in POSSIBLE_ROOTS:
+    if os.path.exists(os.path.join(root, 'app', 'main.py')):
+        sys.path.insert(0, root); os.chdir(root); break
+else:
+    raise RuntimeError(f'Could not find project root. Tried: {POSSIBLE_ROOTS}')
 
 print("=" * 60)
 print("  GST API ENGINE - FULL VALIDATION SUITE")

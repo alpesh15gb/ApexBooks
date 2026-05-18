@@ -22,9 +22,8 @@ app.add_middleware(TenantMiddleware)
 app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=True,
                    allow_methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], allow_headers=['*'])
 
-# Security middleware (production only)
-if settings.environment == 'production':
-    app.add_middleware(RateLimitMiddleware)
+# Security middleware (all environments)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
 from fastapi.exceptions import RequestValidationError

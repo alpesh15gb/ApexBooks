@@ -1,9 +1,24 @@
 import sys
-sys.path.insert(0, '//Vault/ApexBooks/gst-api-engine')
 import os
-os.chdir('//Vault/ApexBooks/gst-api-engine')
 
-# Test all imports
+# Determine project root dynamically — works on Linux, Windows (WSL), and any mounted path
+POSSIBLE_ROOTS = [
+    os.path.dirname(os.path.abspath(__file__)),
+    '//Vault/ApexBooks/gst-api-engine',
+    '/opt/gst-api-engine',
+    os.path.join(os.path.expanduser('~'), 'gst-api-engine'),
+    os.getcwd(),
+]
+
+for root in POSSIBLE_ROOTS:
+    if os.path.exists(os.path.join(root, 'app', 'main.py')):
+        sys.path.insert(0, root)
+        os.chdir(root)
+        break
+else:
+    raise RuntimeError(f'Could not find project root. Tried: {POSSIBLE_ROOTS}')
+
+# Now import everything
 from app.main import app
 from app.core.config import get_settings
 from app.services.settings_service import settings_service, _default_settings

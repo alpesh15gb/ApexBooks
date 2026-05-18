@@ -3,10 +3,13 @@ System Invariants Test Suite
 Run on every deploy -- these are NOT feature tests.
 They verify that the accounting system can never violate its core guarantees.
 """
-import sys
-sys.path.insert(0, '//Vault/ApexBooks/gst-api-engine')
-import os
-os.chdir('//Vault/ApexBooks/gst-api-engine')
+import sys, os
+POSSIBLE_ROOTS = [os.path.dirname(os.path.abspath(__file__)), '//Vault/ApexBooks/gst-api-engine', '/opt/gst-api-engine', os.getcwd()]
+for root in POSSIBLE_ROOTS:
+    if os.path.exists(os.path.join(root, 'app', 'main.py')):
+        sys.path.insert(0, root); os.chdir(root); break
+else:
+    raise RuntimeError(f'Could not find project root. Tried: {POSSIBLE_ROOTS}')
 
 from decimal import Decimal
 from datetime import date, datetime
@@ -262,34 +265,33 @@ def test_invariant_7_immutability_after_posting():
 
 
 def test_invariant_8_audit_trail_completeness():
-     print('\n[INVARIANT-08] Audit trail completeness check...')
-     db = setup()
-     tid, uid = create_test_tenant(db)
+    print('\n[INVARIANT-08] Audit trail completeness check...')
+    db = setup()
+    tid, uid = create_test_tenant(db)
 
-     from app.services.audit_service import AuditLog
-     audit = AuditLog(db)
+    from app.services.audit_service import AuditLog
+    audit = AuditLog(db)
 
-     before = db.query(AuditLogRecord).filter_by(tenant_id=tid).count()
+    before = db.query(AuditLogRecord).filter_by(tenant_id=tid).count()
 
-     inv = normalized_repo.create_invoice(db, tid, 'sales', {
-         'invoice_date': date(2026, 6, 20),
-         'place_of_supply': '29',
-         'supply_type': 'B2B',
-         'line_items': [{'quantity': 1, 'unit_price': 500, 'gst_rate': 18}]
-     })
+    inv = normalized_repo.create_invoice(db, tid, 'sales', {
+        'invoice_date': date(2026, 6, 20),
+        'place_of_supply': '29',
+        'supply_type': 'B2B',
+        'line_items': [{'quantity': 1, 'unit_price': 500, 'gst_rate': 18}]
+    })
 
-     # Simulate what the API layer does: audit log after mutation
-     audit.log(tid, uid, 'INVOICE_CREATED', 'sales_invoice',
-               inv['invoice_id'], {'invoice_number': inv['invoice_number']})
-     normalized_repo.submit_invoice(db, tid, 'sales', inv['invoice_id'])
-     audit.log(tid, uid, 'INVOICE_SUBMITTED', 'sales_invoice',
-               inv['invoice_id'], {'status': 'Submitted'})
+    audit.log(tid, uid, 'INVOICE_CREATED', 'sales_invoice',
+              inv['invoice_id'], {'invoice_number': inv['invoice_number']})
+    normalized_repo.submit_invoice(db, tid, 'sales', inv['invoice_id'])
+    audit.log(tid, uid, 'INVOICE_SUBMITTED', 'sales_invoice',
+              inv['invoice_id'], {'status': 'Submitted'})
 
-     after = db.query(AuditLogRecord).filter_by(tenant_id=tid).count()
-     assert after > before, "No audit entries created for mutations"
-     assert after - before >= 2, f"Expected >=2 audit entries, got {after - before}"
-     print(f'  [PASS] {after - before} audit entries created for invoice lifecycle')
-     print('  PASS')
+    after = db.query(AuditLogRecord).filter_by(tenant_id=tid).count()
+    assert after > before, "No audit entries created for mutations"
+    assert after - before >= 2, f"Expected >=2 audit entries, got {after - before}"
+    print(f'  [PASS] {after - before} audit entries created for invoice lifecycle')
+    print('  PASS')
 
 
 if __name__ == '__main__':

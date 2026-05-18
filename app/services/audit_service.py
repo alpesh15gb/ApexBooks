@@ -32,7 +32,7 @@ class AuditLog:
     def get_logs(self, tenant_id: str, resource: str | None = None, resource_id: str | None = None, actor_id: str | None = None, limit: int = 100, offset: int = 0):
         from sqlalchemy import text
         query = "SELECT * FROM audit_logs WHERE tenant_id = :tenant_id"
-        params = {"tenant_id": tenant_id}
+        params = {"tenant_id": tenant_id, "limit": limit, "offset": offset}
         if resource:
             query += " AND resource = :resource"
             params["resource"] = resource
@@ -43,7 +43,5 @@ class AuditLog:
             query += " AND actor_id = :actor_id"
             params["actor_id"] = actor_id
         query += " ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
-        params["limit"] = limit
-        params["offset"] = offset
         result = self.db.execute(text(query), params).fetchall()
         return [dict(row._mapping) for row in result]

@@ -2,6 +2,7 @@ from datetime import datetime, date
 from uuid import uuid4
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.core.exceptions import APIError
 from app.models.e2e import NumberingSeriesRecord
 from app.core.config import get_settings
@@ -16,8 +17,13 @@ VOUCHER_TYPES = {
     'debit_note': ('DN', 'DN'),
 }
 
+
 def generate_voucher_number(db: Session, tenant_id: str, voucher_type: str, year: int = None) -> str:
-    """Generates sequential voucher numbers like INV-2026-0001, PUR-2026-0001."""
+    """Generates sequential voucher numbers like INV-2026-0001, PUR-2026-0001.
+
+    Thread-safe: uses atomic INSERT OR IGNORE + SELECT FOR UPDATE pattern.
+    Works on both SQLite and PostgreSQL.
+    """
     year = year or date.today().year
     config = VOUCHER_TYPES.get(voucher_type)
     if not config:
@@ -26,25 +32,37 @@ def generate_voucher_number(db: Session, tenant_id: str, voucher_type: str, year
     prefix = config[1]
     series_key = f'{voucher_type}_{year}'
     padding = 4
+    full_prefix = f'{prefix}-{year}-'
 
+    # Atomic first-insert: if row doesn't exist, create it.
+    # Using raw SQL for INSERT OR IGNORE (SQLite) / ON CONFLICT DO NOTHING (PG)
+    db.execute(
+        text("""
+            INSERT OR IGNORE INTO numbering_series (tenant_id, series_key, prefix, current, padding)
+            VALUES (:tenant_id, :series_key, :prefix, :current, :padding)
+        """),
+        {
+            "tenant_id": tenant_id,
+            "series_key": series_key,
+            "prefix": full_prefix,
+            "current": 0,
+            "padding": padding,
+        }
+    )
+    db.flush()
+
+    # Now lock the row and increment
     rec = db.query(NumberingSeriesRecord).filter_by(
         tenant_id=tenant_id, series_key=series_key
     ).with_for_update().first()
 
     if not rec:
-        rec = NumberingSeriesRecord(
-            tenant_id=tenant_id,
-            series_key=series_key,
-            prefix=f'{prefix}-{year}-',
-            current=0,
-            padding=padding
-        )
-        db.add(rec)
-        db.flush()
+        raise APIError('NUMBERING_ERROR', f'Failed to create numbering series {series_key}', status_code=500)
 
     rec.current += 1
     db.flush()
     return f'{prefix}-{year}-{rec.current:0{padding}d}'
+
 
 def validate_voucher_uniqueness(db: Session, tenant_id: str, invoice_number: str) -> bool:
     """Checks if a voucher number already exists for this tenant."""

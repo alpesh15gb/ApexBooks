@@ -22,9 +22,19 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 100
     rate_limit_window_seconds: int = 60
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Email configuration
+    smtp_host: str = "smtp.hostinger.com"
+    smtp_port: int = 465
+    smtp_user: str = ""
+    smtp_password: str = ""
+    from_email: str = "support@apexbooks.in"
+    from_name: str = "ApexBooks"
+
+    model_config = SettingsConfigDict(env_file=str(Path(__file__).parent.parent.parent / ".env"), extra="ignore")
 
     def get_jwt_private_key(self) -> str:
+        if self.jwt_algorithm == "HS256":
+            return self.jwt_secret
         if self.environment == "production" and self.jwt_private_key_path:
             path = Path(self.jwt_private_key_path)
             if path.exists():
@@ -32,6 +42,8 @@ class Settings(BaseSettings):
         return self._get_dev_private_key()
 
     def get_jwt_public_key(self) -> str:
+        if self.jwt_algorithm == "HS256":
+            return self.jwt_secret
         if self.environment == "production" and self.jwt_public_key_path:
             path = Path(self.jwt_public_key_path)
             if path.exists():

@@ -8,3 +8,15 @@ __pycache__/
 secrets/
 *.pem
 openapi_spec.json
+# Frontend
+gst-frontend/node_modules/
+gst-frontend/dist/
+gst-frontend/.env
+# Python
+.venv/
+# IDE
+.idea/
+.vscode/
+# OS
+.DS_Store
+Thumbs.db

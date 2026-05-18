@@ -1,0 +1,39 @@
+INFO:     127.0.0.1:50536 - "POST /api/v1/auth/login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59277 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59278 - "POST /api/v1/auth/login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:50324 - "GET / HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:50324 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:53950 - "GET / HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:53074 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53077 - "GET /api/v1/health HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:52894 - "POST /api/v1/auth/login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:53574 - "POST /api/v1/auth/register HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58453 - "POST /api/v1/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58454 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58762 - "GET /api/v1/invoices/sales?kind=sales HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49471 - "GET /api/v1/invoices/purchase?kind=purchase HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49472 - "GET /api/v1/accounts/reports/accounts-receivable HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:49473 - "GET /api/v1/accounts/reports/accounts-payable HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:49474 - "GET /api/v1/accounts/reports/gst-payable HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:50652 - "GET /api/v1/invoices/sales?kind=sales HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54718 - "GET /api/v1/parties HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57749 - "GET /api/v1/settings/ HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53961 - "GET /api/v1/parties?type=Customer HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59136 - "POST /api/v1/parties HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57463 - "GET /api/v1/parties?type=Customer HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63762 - "GET /api/v1/parties?type=Customer HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64400 - "GET /api/v1/parties HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63801 - "POST /api/v1/invoices/sales HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50743 - "GET /api/v1/invoices/sales?kind=sales HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56250 - "GET /api/v1/invoices/purchase?kind=purchase HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54683 - "GET /api/v1/parties?type=Customer HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50697 - "GET /api/v1/parties?type=Vendor HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60757 - "GET /api/v1/items HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64428 - "GET /api/v1/payments HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62774 - "POST /api/v1/payments/receive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62172 - "GET /api/v1/payments HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59192 - "GET /api/v1/payments HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53684 - "GET /api/v1/accounts/journal HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:55441 - "GET /api/v1/accounts/journal HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:60212 - "GET /api/v1/accounts/journal HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:52192 - "GET /api/v1/accounts/journal HTTP/1.1" 500 Internal Server Error

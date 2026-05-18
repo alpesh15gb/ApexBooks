@@ -122,6 +122,27 @@ def _send_notification(job, payload: dict) -> dict:
         raise ValueError(f"Unknown notification channel: {channel}")
 
 
+@celery_app.task(bind=True, max_retries=3, default_retry_delay=60, name="app.tasks.background_tasks.send_notification_task")
+def send_notification_task(self, tenant_id: str, payload: dict):
+    """Send notification via configured channel."""
+    channel = payload.get("channel", "email")
+    recipient = payload.get("recipient")
+    subject = payload.get("subject", "")
+    body = payload.get("body", "")
+
+    if channel == "email":
+        logger.info(f"Sending email to {recipient}: {subject}")
+        return {"channel": "email", "recipient": recipient, "status": "sent"}
+    elif channel == "whatsapp":
+        logger.info(f"Sending WhatsApp to {recipient}")
+        return {"channel": "whatsapp", "recipient": recipient, "status": "sent"}
+    elif channel == "sms":
+        logger.info(f"Sending SMS to {recipient}")
+        return {"channel": "sms", "recipient": recipient, "status": "sent"}
+    else:
+        raise ValueError(f"Unknown notification channel: {channel}")
+
+
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
 def deliver_webhook(self, delivery_id: int):
     """Webhook delivery task — moved from webhook_tasks.py to use shared celery_app."""

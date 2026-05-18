@@ -24,8 +24,25 @@ def export(principal: dict = Depends(current_principal), db: Session = Depends(g
     return ok(normalized_repo.list_items(db, principal['tenant_id']))
 
 @router.post('/price-list')
-def price_list(payload: dict):
-    return ok({'accepted': True, 'payload': payload})
+def price_list(payload: dict, principal: dict = Depends(current_principal), db: Session = Depends(get_db)):
+    """Generate or update price list for items."""
+    items = payload.get('items', [])
+    updated = []
+    for item_data in items:
+        item = db.query(ItemModel).filter_by(
+            tenant_id=principal['tenant_id'],
+            item_id=item_data.get('item_id')
+        ).first()
+        if item:
+            if 'selling_price' in item_data:
+                item.selling_price = Decimal(str(item_data['selling_price']))
+            if 'purchase_price' in item_data:
+                item.purchase_price = Decimal(str(item_data['purchase_price']))
+            updated.append({'item_id': item.item_id, 'item_name': item.item_name,
+                            'selling_price': float(item.selling_price),
+                            'purchase_price': float(item.purchase_price)})
+    db.flush()
+    return ok({'updated': len(updated), 'items': updated}, 'Price list updated')
 
 @router.get('/{row_id}/price-list')
 def get_price_list(row_id: str):

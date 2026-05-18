@@ -1,5 +1,10 @@
-import sys
-sys.path.insert(0, '//Vault/ApexBooks/gst-api-engine')
+import sys, os
+POSSIBLE_ROOTS = [os.path.dirname(os.path.abspath(__file__)), '//Vault/ApexBooks/gst-api-engine', '/opt/gst-api-engine', os.getcwd()]
+for root in POSSIBLE_ROOTS:
+    if os.path.exists(os.path.join(root, 'app', 'main.py')):
+        sys.path.insert(0, root); os.chdir(root); break
+else:
+    raise RuntimeError(f'Could not find project root. Tried: {POSSIBLE_ROOTS}')
 
 from datetime import date, datetime
 from decimal import Decimal
@@ -60,7 +65,6 @@ assert out['grand_total'] > 0, 'Grand total must be positive'
 print('PASS: Decimal precision edge cases')
 
 # Test 9: Verify accounting GL posting logic
-sys.path.insert(0, '//Vault/ApexBooks/gst-api-engine')
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 

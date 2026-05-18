@@ -1,0 +1,43 @@
+version: '3.9'
+
+services:
+  # ── Flutter Web Dev Server (hot-reload) ──────────────────────────
+  flutter:
+    image: ghcr.io/cirruslabs/flutter:stable
+    working_dir: /app
+    volumes:
+      - ./gst_frontend:/app
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "flutter pub get &&
+               flutter run -d web-server
+               --web-port=8080
+               --web-hostname=0.0.0.0
+               --dart-define=API_BASE_URL=http://localhost:8000/api/v1"
+    environment:
+      - PUB_CACHE=/root/.pub-cache
+    depends_on:
+      - api
+
+  # ── API (FastAPI) ─────────────────────────────────────────────────
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env.dev
+    volumes:
+      - ./app:/code/app
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=sqlite+pysqlite:///./dev.db
+      - REDIS_URL=redis://redis:6379/0
+      - ALLOWED_ORIGINS=["http://localhost:8080","http://localhost:3000"]
+    depends_on:
+      - redis
+
+  # ── Redis ─────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"

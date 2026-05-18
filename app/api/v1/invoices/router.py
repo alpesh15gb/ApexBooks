@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import date, datetime
+from decimal import Decimal
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db
@@ -10,9 +11,15 @@ from app.services.idempotency_service import acquire_idempotency, store_idempote
 from app.services.period_lock_service import check_period_locked
 from app.services.audit_service import AuditLog
 from app.services.voucher_service import void_invoice
+from app.services.payment_service import reconcile_payment, compute_party_balance
+from app.services.gst_engine import calculate_tax
 from app.tasks.background_worker import create_background_job
+from app.models.accounting import InvoiceModel, GLEntryModel
 
 router = APIRouter(prefix='/invoices', tags=['Invoices'])
+
+def dec(value):
+    return Decimal(str(value or 0))
 
 def _parse_invoice_date(inv_date):
     if inv_date is None:
@@ -96,11 +103,41 @@ for kind in ['sales', 'purchase']:
                 raise APIError('PERIOD_LOCKED',
                     f'Period {new_date.year}-{new_date.month:02d} is locked.', status_code=403)
 
-        for k, v in payload.items():
-            if hasattr(rec, k) and k not in {'id', 'tenant_id', 'invoice_id'}:
-                setattr(rec, k, v)
+        # Recalculate tax if tax-relevant fields changed
+        tax_fields = {'line_items', 'seller_state_code', 'place_of_supply',
+                      'supply_type', 'reverse_charge', 'composition_scheme'}
+        needs_recalc = any(k in payload for k in tax_fields)
 
-        return ok(normalized_repo.invoice_dict(rec))
+        if needs_recalc:
+            line_items = payload.get('line_items')
+            if line_items:
+                calc = calculate_tax(
+                    payload.get('seller_state_code', '27'),
+                    payload.get('place_of_supply', '27'),
+                    payload.get('supply_type', 'B2B'),
+                    line_items,
+                    payload.get('reverse_charge', False),
+                    payload.get('composition_scheme', False),
+                )
+                rec.subtotal = dec(calc.get('subtotal', 0))
+                rec.total_discount = dec(calc.get('total_discount', 0))
+                rec.total_cgst = dec(calc.get('total_cgst', 0))
+                rec.total_sgst = dec(calc.get('total_sgst', 0))
+                rec.total_igst = dec(calc.get('total_igst', 0))
+                rec.total_cess = dec(calc.get('total_cess', 0))
+                rec.round_off = dec(calc.get('round_off', 0))
+                rec.grand_total = dec(calc.get('grand_total', 0))
+                rec.outstanding_amount = rec.grand_total - rec.amount_paid
+
+            for k, v in payload.items():
+                if hasattr(rec, k) and k not in {'id', 'tenant_id', 'invoice_id',
+                                                 'line_items', 'seller_state_code',
+                                                 'place_of_supply', 'supply_type',
+                                                 'reverse_charge', 'composition_scheme'}:
+                    setattr(rec, k, v)
+
+            db.flush()
+            return ok(normalized_repo.invoice_dict(rec))
 
     router.add_api_route(f'/{kind}', create, methods=['POST'])
     router.add_api_route(f'/{kind}', list_rows, methods=['GET'])
@@ -147,6 +184,45 @@ def cancel_sales(row_id: str, payload: dict | None = None,
               {'invoice_number': rec.invoice_number})
 
     return ok(normalized_repo.invoice_dict(rec), 'Invoice cancelled')
+
+
+@router.post('/purchase/{row_id}/submit')
+def submit_purchase(row_id: str, principal: dict = Depends(current_principal), db: Session = Depends(get_db)):
+    """Submit purchase bill and post GL entries atomically."""
+    rec = normalized_repo.get_invoice(db, principal['tenant_id'], 'purchase', row_id)
+    if rec.status != 'Draft':
+        raise APIError('SUBMIT_NOT_ALLOWED', 'Only draft bills can be submitted', status_code=400)
+
+    result = normalized_repo.submit_invoice(db, principal['tenant_id'], 'purchase', row_id)
+
+    audit = AuditLog(db)
+    audit.log(
+        principal['tenant_id'], principal['user_id'],
+        'INVOICE_SUBMITTED', 'purchase_invoice', row_id,
+        {'invoice_number': result.get('invoice_number'), 'grand_total': str(result.get('grand_total'))}
+    )
+
+    return ok(result, 'Purchase bill submitted and ledger posted')
+
+
+@router.post('/purchase/{row_id}/cancel')
+def cancel_purchase(row_id: str, payload: dict | None = None,
+                    principal: dict = Depends(current_principal), db: Session = Depends(get_db)):
+    """Cancel a draft purchase bill."""
+    rec = normalized_repo.get_invoice(db, principal['tenant_id'], 'purchase', row_id)
+    if rec.status != 'Draft':
+        raise APIError('CANCEL_NOT_ALLOWED',
+            f'Only draft bills can be cancelled. Current status: {rec.status}', status_code=400)
+
+    rec.status = 'Cancelled'
+    db.flush()
+
+    audit = AuditLog(db)
+    audit.log(principal['tenant_id'], principal['user_id'],
+              'INVOICE_CANCELLED', 'purchase_invoice', row_id,
+              {'invoice_number': rec.invoice_number})
+
+    return ok(normalized_repo.invoice_dict(rec), 'Purchase bill cancelled')
 
 
 @router.post('/sales/{row_id}/amend')
@@ -258,11 +334,15 @@ def bulk_submit(payload: dict, principal: dict = Depends(current_principal), db:
     return ok(result, 'Bulk submit completed')
 
 @router.post('/credit-notes')
-def credit_note(payload: dict):
+def credit_note(payload: dict, principal: dict = Depends(current_principal), db: Session = Depends(get_db)):
     payload['note_type'] = 'Credit Note'
-    return ok(payload)
+    result = _post_credit_debit_note(db, principal['tenant_id'], 'sales', payload, principal['user_id'])
+    return ok(result, 'Credit note created and ledger posted')
+
 
 @router.post('/debit-notes')
-def debit_note(payload: dict):
+def debit_note(payload: dict, principal: dict = Depends(current_principal), db: Session = Depends(get_db)):
     payload['note_type'] = 'Debit Note'
-    return ok(payload)
+    result = _post_credit_debit_note(db, principal['tenant_id'], 'sales', payload, principal['user_id'])
+    return ok(result, 'Debit note created and ledger posted')
+

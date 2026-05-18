@@ -1,0 +1,6 @@
+INFO:     Will watch for changes in these directories: ['\\\\Vault\\ApexBooks\\gst-api-engine']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [11428] using WatchFiles
+INFO:     Started server process [29536]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.

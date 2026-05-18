@@ -38,7 +38,11 @@ class TenantMiddleware:
 
             # Validate tenant is set for API routes (excluding auth/register)
             path = scope['path'].lower()
-            is_public = '/auth/' in path or '/register' in path or '/login' in path
+            public_paths = (
+                '/api/v1/auth/',
+                '/api/v1/gst/tax-calculate',
+            )
+            is_public = path.startswith(public_paths)
             if scope['path'].startswith('/api/') and not tenant_id and not is_public:
                 response = JSONResponse(
                     status_code=401,
