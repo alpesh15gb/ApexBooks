@@ -217,6 +217,35 @@ class NormalizedAccountingRepository:
         # Accept both 'line_items' and 'lines' keys from frontend
         line_items = p.get('line_items') or p.get('lines', [])
 
+        # Auto-create items on the fly
+        for line in line_items:
+            item_name = line.get('item_name') or line.get('item_code')
+            if item_name and not line.get('item_id'):
+                existing = db.query(ItemModel).filter_by(
+                    tenant_id=tenant_id, item_name=item_name, is_deleted=False
+                ).first()
+                if existing:
+                    line['item_id'] = existing.item_id
+                    if not line.get('hsn_code') and existing.hsn_code:
+                        line['hsn_code'] = existing.hsn_code
+                    if not line.get('unit_price') and existing.selling_price:
+                        line['unit_price'] = float(existing.selling_price)
+                else:
+                    line['item_id'] = str(uuid4())
+                    new_item = ItemModel(
+                        tenant_id=tenant_id,
+                        item_id=line['item_id'],
+                        item_code=f'OTF-{uuid4().hex[:6].upper()}',
+                        item_name=item_name,
+                        item_type='Goods',
+                        hsn_code=line.get('hsn_code'),
+                        gst_rate=dec(line.get('gst_rate', 18)),
+                        unit_of_measure=line.get('unit', 'Nos'),
+                        selling_price=dec(line.get('unit_price', 0)),
+                    )
+                    db.add(new_item)
+                    db.flush()
+
         calc = calculate_tax(
             p.get('seller_state_code', '27'),
             p.get('place_of_supply', '27'),
