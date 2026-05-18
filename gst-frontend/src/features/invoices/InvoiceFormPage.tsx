@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { Input, Select } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { useCreateInvoice, useUpdateInvoice, useInvoice, useParties, useSettings } from '@/lib/hooks';
+import { useCreateInvoice, useUpdateInvoice, useInvoice, useParties, useSettings, useItems } from '@/lib/hooks';
 import { apiErrorToString, STATE_CODES, SUPPLY_TYPES } from '@/utils/validation';
 import { formatCurrency, formatDate } from '@/utils/format';
 import { Trash2, Plus, ArrowLeft, Save } from 'lucide-react';
@@ -48,8 +48,10 @@ export function InvoiceFormPage() {
   const { data: existingInvoice, isLoading: loadingInvoice } = useInvoice(kind as 'sales' | 'purchase', id || '');
   const { data: partiesData } = useParties();
   const { data: settingsData } = useSettings();
+  const { data: itemsData } = useItems();
 
   const parties = (partiesData as any)?.items || partiesData || [];
+  const items = (itemsData as any)?.items || itemsData || [];
   const sellerStateCode = String(settingsData?.business?.state_code || '27');
 
   const {
@@ -86,6 +88,21 @@ export function InvoiceFormPage() {
       }
     }
   }, [selectedPartyId, parties, setValue]);
+
+  // Auto-fill item details when item name matches
+  const handleItemSelect = useCallback((index: number, itemName: string) => {
+    if (!items || items.length === 0 || !itemName) return;
+    const item = items.find((i: any) =>
+      i.item_name?.toLowerCase() === itemName.toLowerCase() ||
+      i.item_code?.toLowerCase() === itemName.toLowerCase()
+    );
+    if (item) {
+      setValue(`lines.${index}.hsn_code`, item.hsn_code || '');
+      setValue(`lines.${index}.unit_price`, String(item.selling_price || 0));
+      setValue(`lines.${index}.gst_rate`, String(item.gst_rate || 18));
+      setValue(`lines.${index}.unit`, item.unit_of_measure || 'Nos');
+    }
+  }, [items, setValue]);
 
   // Load existing invoice data when editing
   useEffect(() => {
@@ -277,7 +294,15 @@ export function InvoiceFormPage() {
                   return (
                     <tr key={field.id}>
                       <td>
-                        <input className="input text-sm" placeholder="Item name" {...register(`lines.${i}.item_name`)} />
+                        <input className="input text-sm" placeholder="Item name" list="item-suggestions"
+                          {...register(`lines.${i}.item_name`)}
+                          onBlur={(e) => handleItemSelect(i, e.target.value)}
+                        />
+                        <datalist id="item-suggestions">
+                          {items.map((item: any) => (
+                            <option key={item.item_id} value={item.item_name} data-hsn={item.hsn_code} data-rate={item.gst_rate} data-price={item.selling_price} />
+                          ))}
+                        </datalist>
                         {errors.lines?.[i]?.item_name && <p className="text-xs text-red-600">{errors.lines[i]?.item_name?.message}</p>}
                       </td>
                       <td><input className="input text-sm" placeholder="HSN" {...register(`lines.${i}.hsn_code`)} /></td>
