@@ -1,14 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useInvoice, useSubmitInvoice, useCancelInvoice } from '@/lib/hooks';
+import { useInvoice, useSubmitInvoice, useCancelInvoice, useAuditLogs } from '@/lib/hooks';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Badge, StatusBadge } from '@/components/ui/Badge';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { formatCurrency, formatDate, formatNumber } from '@/utils/format';
-import { ArrowLeft, Send, XCircle, FileText, Download } from 'lucide-react';
+import { formatCurrency, formatDate, formatNumber, formatDateTime } from '@/utils/format';
+import { ArrowLeft, Send, XCircle, FileText, Download, Clock, Activity } from 'lucide-react';
 
 export function InvoiceDetailPage() {
   const { kind, id } = useParams<{ kind: 'sales' | 'purchase'; id: string }>();
@@ -195,6 +195,9 @@ export function InvoiceDetailPage() {
         </div>
       )}
 
+      {/* Activity Timeline */}
+      <ActivityTimeline invoiceId={id} kind={kind} />
+
       <ConfirmDialog
         isOpen={showSubmit}
         onConfirm={async () => {
@@ -225,6 +228,79 @@ export function InvoiceDetailPage() {
         confirmLabel="Cancel Invoice"
         loading={cancelMutation.isPending}
       />
+    </div>
+  );
+}
+
+function ActivityTimeline({ invoiceId, kind }: { invoiceId?: string; kind?: string }) {
+  const [activities, setActivities] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!invoiceId || !kind) return;
+    setLoading(true);
+    fetch(`/api/v1/admin/audit-logs?resource=${kind}_invoice&resource_id=${invoiceId}&limit=20`)
+      .then(r => r.json())
+      .then(data => {
+        const items = data?.data?.items || data?.data || [];
+        setActivities(Array.isArray(items) ? items : []);
+      })
+      .catch(() => setActivities([]))
+      .finally(() => setLoading(false));
+  }, [invoiceId, kind]);
+
+  if (loading) return <Skeleton className="h-24" />;
+  if (activities.length === 0) return null;
+
+  const actionColors: Record<string, string> = {
+    INVOICE_CREATED: 'bg-blue-100 text-blue-700',
+    INVOICE_SUBMITTED: 'bg-emerald-100 text-emerald-700',
+    INVOICE_CANCELLED: 'bg-red-100 text-red-700',
+    INVOICE_AMENDED: 'bg-amber-100 text-amber-700',
+    PAYMENT_RECONCILED: 'bg-purple-100 text-purple-700',
+    SETTINGS_UPDATED: 'bg-gray-100 text-gray-700',
+  };
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+          <Activity className="h-4 w-4" /> Activity Timeline
+        </h3>
+      </div>
+      <div className="card-body">
+        <div className="relative pl-6 space-y-4">
+          {activities.map((act: any, i: number) => {
+            const colorClass = actionColors[act.action] || 'bg-gray-100 text-gray-700';
+            return (
+              <div key={i} className="relative pb-1">
+                {i < activities.length - 1 && (
+                  <div className="absolute left-0 top-3 bottom-0 w-px bg-gray-200" />
+                )}
+                <div className="flex items-start gap-3">
+                  <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${colorClass.split(' ')[0].replace('bg-', 'bg-')}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${colorClass}`}>
+                        {act.action?.replace(/_/g, ' ')}
+                      </span>
+                      {act.created_at && (
+                        <span className="text-xs text-gray-400">{formatDateTime(act.created_at)}</span>
+                      )}
+                    </div>
+                    {act.details && (
+                      <p className="text-xs text-gray-500 mt-0.5">{JSON.stringify(act.details)}</p>
+                    )}
+                    {act.actor_id && (
+                      <p className="text-xs text-gray-400 mt-0.5">by {act.actor_id?.split('-')[0]}...</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

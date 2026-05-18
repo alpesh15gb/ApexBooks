@@ -11,9 +11,11 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Table, MobileCards } from '@/components/ui/Table';
 import type { Column } from '@/components/ui/Table';
 import { Tabs } from '@/components/ui/Tabs';
-import { Plus, FileText, Receipt } from 'lucide-react';
+import { Plus, FileText, Receipt, CheckSquare, Send, Loader } from 'lucide-react';
 import { formatCurrency, formatDate, daysOverdue } from '@/utils/format';
 import type { Invoice } from '@/types';
+import { api } from '@/lib/api';
+import toast from 'react-hot-toast';
 
 const STATUS_TABS = [
   { id: '', label: 'All' },
@@ -32,6 +34,43 @@ export function InvoicesPage() {
   const search = searchParams.get('search') || '';
 
   const { data, isLoading, error, refetch } = useInvoices(kind, status);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    if (!data?.items?.length) return;
+    if (selectedIds.size === data.items.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(data.items.map((i: Invoice) => i.invoice_id || '').filter(Boolean)));
+    }
+  }, [data, selectedIds]);
+
+  const handleBulkSubmit = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setBulkSubmitting(true);
+    try {
+      const res = await api.post('/invoices/bulk-submit', { invoice_ids: ids });
+      const results = (res as any)?.results || [];
+      const success = results.filter((r: any) => r.status === 'submitted').length;
+      toast.success(`${success} of ${ids.length} submitted`);
+      refetch();
+      setSelectedIds(new Set());
+    } catch (err: any) {
+      toast.error(err?.message || 'Bulk submit failed');
+    } finally {
+      setBulkSubmitting(false);
+    }
+  }, [selectedIds, refetch]);
 
   const handleSearch = useCallback(
     (s: string) => {
@@ -52,6 +91,11 @@ export function InvoicesPage() {
   ];
 
   const columns: Column<Invoice>[] = [
+    { key: 'select', header: '', render: (inv) => (
+      <input type="checkbox" className="rounded border-gray-300" checked={selectedIds.has(inv.invoice_id || '')}
+             onChange={(e) => { e.stopPropagation(); toggleSelect(inv.invoice_id || ''); }}
+             onClick={(e) => e.stopPropagation()} />
+    ), className: 'w-10' },
     { key: 'number', header: 'Invoice', render: (inv) => (
       <div>
         <p className="font-medium text-gray-900">{inv.invoice_number || 'N/A'}</p>
@@ -125,6 +169,16 @@ export function InvoicesPage() {
         />
       ) : (
         <>
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-3 px-4 py-2 bg-brand-50 rounded-lg border border-brand-200">
+              <CheckSquare className="h-4 w-4 text-brand-600" />
+              <span className="text-sm font-medium text-brand-700">{selectedIds.size} selected</span>
+              <Button size="sm" onClick={handleBulkSubmit} loading={bulkSubmitting}>
+                <Send className="h-4 w-4" /> Submit Selected
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+            </div>
+          )}
           <div className="hidden lg:block">
             <Table
               columns={columns}
