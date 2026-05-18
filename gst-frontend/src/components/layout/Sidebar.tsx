@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Building2, Package, FileText,
   Receipt, ArrowRightLeft, BookOpen, BarChart3, Settings,
   Shield, ClipboardList, ChevronLeft, X, Calculator,
-  Banknote, FileSpreadsheet,
+  Banknote, FileSpreadsheet, Download,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useSidebarStore } from '@/lib/store';
@@ -21,6 +21,7 @@ const navigation = [
   { label: 'GST', href: '/gst', icon: FileSpreadsheet },
   { label: 'Reports', href: '/reports', icon: BarChart3 },
   { label: 'Admin', href: '/admin', icon: Shield },
+  { label: 'Import', href: '/import', icon: Download },
   { label: 'Settings', href: '/settings', icon: Settings },
 ];
 

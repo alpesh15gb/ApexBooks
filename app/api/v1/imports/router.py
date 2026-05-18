@@ -1,124 +1,89 @@
+"""Import API endpoints supporting Vyapar, Tally, CSV, and future formats."""
+
+import os
+import tempfile
 from fastapi import APIRouter, Depends, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from app.api.v1.deps import current_tenant
 from app.core.database import get_db
 from app.core.exceptions import ok, APIError
-from app.services.vyapar_importer import import_vyapar_data
-import tempfile
-import os
+from app.services.import_engine import list_import_formats, import_data, dry_run
 
 router = APIRouter(prefix='/import', tags=['Import'])
 
 
-@router.post('/vyapar')
-def import_vyapar(
+@router.get('/formats')
+def get_import_formats():
+    """List all available import formats and their details."""
+    return ok({'formats': list_import_formats()})
+
+
+@router.post('/upload')
+def upload_import(
     file: UploadFile = File(...),
+    import_format: str = Form(...),
     tenant_id: str = Depends(current_tenant),
     db: Session = Depends(get_db),
 ):
-    """Import a Vyapar .vyb backup file into the accounting engine."""
-    # Validate file type
-    if not file.filename.endswith('.vyb'):
-        raise APIError('INVALID_FILE',
-                        'Only .vyb (Vyapar backup) files are accepted',
-                        status_code=400)
+    """Upload and import data from supported file formats.
 
-    # Save uploaded file to temp location
-    with tempfile.NamedTemporaryFile(
-        delete=False, suffix='.vyb', prefix='vyapar_'
-    ) as tmp:
+    Supports: vyapar (.vyb), tally (.csv/.xml), and future formats.
+    """
+    # Validate format
+    formats = {f['id']: f for f in list_import_formats()}
+    fmt = formats.get(import_format)
+    if not fmt:
+        raise APIError('INVALID_FORMAT', f'Unsupported import format: {import_format}', status_code=400)
+
+    # Validate extension
+    ext = os.path.splitext(file.filename or '')[1].lower()
+    if ext not in fmt['extensions']:
+        raise APIError('INVALID_EXTENSION',
+            f'Expected {fmt["extensions"]} file, got {ext}', status_code=400)
+
+    if not fmt['available']:
+        raise APIError('NOT_AVAILABLE',
+            f'Import format "{fmt["name"]}" is not yet available', status_code=400)
+
+    # Save to temp
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext, prefix=f'import_{import_format}_') as tmp:
         content = file.file.read()
         tmp.write(content)
         tmp_path = tmp.name
 
     try:
-        result = import_vyapar_data(tenant_id, 'import_user', tmp_path, db)
-
-        return ok(result, 'Vyapar import completed')
+        result = import_data(tenant_id, 'import_user', tmp_path, import_format, db)
+        return ok(result, f'{fmt["name"]} import completed')
     except Exception as e:
         raise APIError('IMPORT_FAILED', str(e), status_code=500)
     finally:
-        # Clean up temp file
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
 
 @router.post('/dry-run')
-def import_vyapar_dry_run(
+def dry_run_import(
     file: UploadFile = File(...),
+    import_format: str = Form(...),
     tenant_id: str = Depends(current_tenant),
 ):
-    """Preview what a Vyapar import would produce (no DB writes)."""
-    if not file.filename.endswith('.vyb'):
-        raise APIError('INVALID_FILE',
-                        'Only .vyb files accepted', status_code=400)
+    """Preview what an import would produce without writing to the database."""
+    formats = {f['id']: f for f in list_import_formats()}
+    fmt = formats.get(import_format)
+    if not fmt:
+        raise APIError('INVALID_FORMAT', f'Unsupported format: {import_format}', status_code=400)
 
-    import zipfile
-    import sqlite3
+    ext = os.path.splitext(file.filename or '')[1].lower()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext, prefix=f'dry_{import_format}_') as tmp:
+        content = file.file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
 
-    # Extract to temp
-    with tempfile.TemporaryDirectory() as tmpdir:
-        with zipfile.ZipFile(file.file, 'r') as zf:
-            zf.extractall(tmpdir)
-
-        # Find SQLite file
-        db_file = None
-        for root, _, files in os.walk(tmpdir):
-            for f in files:
-                path = os.path.join(root, f)
-                try:
-                    with open(path, 'rb') as fh:
-                        if fh.read(6) == b'SQLite':
-                            db_file = path
-                            break
-                except:
-                    pass
-
-        if not db_file:
-            raise APIError('INVALID_FILE', 'No SQLite DB in Vyapar backup')
-
-        conn = sqlite3.connect(db_file)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        # Count data
-        cursor.execute("SELECT COUNT(*) FROM kb_transactions WHERE txn_type IN (1, 27)")
-        inv_count = cursor.fetchone()[0]
-
-        cursor.execute("SELECT COUNT(*) FROM kb_lineitems")
-        line_count = cursor.fetchone()[0]
-
-        cursor.execute("SELECT COUNT(*) FROM kb_names WHERE name_type IN (1, 2)")
-        party_count = cursor.fetchone()[0]
-
-        cursor.execute("SELECT COUNT(*) FROM kb_items")
-        item_count = cursor.fetchone()[0]
-
-        cursor.execute("SELECT COUNT(*) FROM txn_payment_mapping")
-        pmt_count = cursor.fetchone()[0]
-
-        # Transaction type breakdown
-        cursor.execute("""
-            SELECT txn_type, COUNT(*), SUM(txn_balance_amount)
-            FROM kb_transactions
-            GROUP BY txn_type
-        """)
-        type_breakdown = [
-            {'txn_type': r['txn_type'], 'count': r['COUNT(*)'],
-             'total': r['SUM(txn_balance_amount)']}
-            for r in cursor.fetchall()
-        ]
-
-        conn.close()
-
-        return ok({
-            'source_file': file.filename,
-            'stats': {
-                'invoices': inv_count,
-                'line_items': line_count,
-                'parties': party_count,
-                'items': item_count,
-                'payments': pmt_count,
-            },
-            'type_breakdown': type_breakdown,
-        }, 'Dry run analysis')
+    try:
+        result = dry_run(tenant_id, tmp_path, import_format, db=None)
+        return ok(result, 'Dry run analysis complete')
+    except Exception as e:
+        raise APIError('DRY_RUN_FAILED', str(e), status_code=500)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)

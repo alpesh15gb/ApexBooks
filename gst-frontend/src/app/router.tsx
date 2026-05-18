@@ -19,6 +19,7 @@ import { ReportsPage } from '@/features/reports/ReportsPage';
 import { GstPage } from '@/features/gst/GstPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
 import { AdminPage } from '@/features/admin/AdminPage';
+import { ImportsPage } from '@/features/imports/ImportsPage';
 import { lazy } from 'react';
 
 // Code-split heavier routes
@@ -59,6 +60,7 @@ export const router = createBrowserRouter([
       { path: 'gst', element: <GstPageLazy /> },
       { path: 'settings', element: <SettingsPageLazy /> },
       { path: 'admin', element: <AdminPageLazy /> },
+      { path: 'import', element: <ImportsPage /> },
     ],
   },
 ]);
