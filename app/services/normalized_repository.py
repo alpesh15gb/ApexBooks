@@ -180,7 +180,7 @@ class NormalizedAccountingRepository:
         invoice_date = d(p.get('invoice_date'), date.today()) or date.today()
 
         # Resolve party: prefer party_id, fallback to party_name lookup/creation
-        party_id = p.get('customer_id') or p.get('supplier_id') or p.get('party_id')
+        party_id = p.get('customer_id') or p.get('supplier_id') or p.get('party_id') or None
         party_name = p.get('party_name')
         party_gstin = p.get('party_gstin') or p.get('buyer_gstin')
 
@@ -197,7 +197,7 @@ class NormalizedAccountingRepository:
                 new_party = PartyModel(
                     tenant_id=tenant_id,
                     party_id=party_id,
-                    party_type='Customer' if kind == 'sales' else 'Supplier',
+                    party_type='Customer' if kind == 'sales' else 'Vendor',
                     party_name=party_name,
                     gstin=party_gstin,
                     state_code=p.get('place_of_supply'),

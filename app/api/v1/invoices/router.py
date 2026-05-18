@@ -109,7 +109,7 @@ for kind in ['sales', 'purchase']:
         needs_recalc = any(k in payload for k in tax_fields)
 
         if needs_recalc:
-            line_items = payload.get('line_items')
+            line_items = payload.get('line_items') or payload.get('lines', [])
             if line_items:
                 calc = calculate_tax(
                     payload.get('seller_state_code', '27'),
@@ -129,15 +129,16 @@ for kind in ['sales', 'purchase']:
                 rec.grand_total = dec(calc.get('grand_total', 0))
                 rec.outstanding_amount = rec.grand_total - rec.amount_paid
 
-            for k, v in payload.items():
-                if hasattr(rec, k) and k not in {'id', 'tenant_id', 'invoice_id',
-                                                 'line_items', 'seller_state_code',
-                                                 'place_of_supply', 'supply_type',
-                                                 'reverse_charge', 'composition_scheme'}:
-                    setattr(rec, k, v)
+        # Apply all non-system fields from payload
+        skip_fields = {'id', 'tenant_id', 'invoice_id', 'invoice_kind',
+                       'line_items', 'lines', 'status', 'payment_status',
+                       'created_at', 'updated_at'}
+        for k, v in payload.items():
+            if hasattr(rec, k) and k not in skip_fields:
+                setattr(rec, k, v)
 
-            db.flush()
-            return ok(normalized_repo.invoice_dict(rec))
+        db.flush()
+        return ok(normalized_repo.invoice_dict(rec))
 
     router.add_api_route(f'/{kind}', create, methods=['POST'])
     router.add_api_route(f'/{kind}', list_rows, methods=['GET'])
