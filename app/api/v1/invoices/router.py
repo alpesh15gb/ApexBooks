@@ -336,14 +336,18 @@ def bulk_submit(payload: dict, principal: dict = Depends(current_principal), db:
 
 @router.post('/credit-notes')
 def credit_note(payload: dict, principal: dict = Depends(current_principal), db: Session = Depends(get_db)):
-    payload['note_type'] = 'Credit Note'
-    result = _post_credit_debit_note(db, principal['tenant_id'], 'sales', payload, principal['user_id'])
-    return ok(result, 'Credit note created and ledger posted')
+    """Create a credit note (negative sales invoice)."""
+    payload['invoice_kind'] = 'sales'
+    payload['invoice_type'] = 'Credit Note'
+    result = normalized_repo.create_invoice(db, principal['tenant_id'], 'sales', payload)
+    return ok(result, 'Credit note created')
 
 
 @router.post('/debit-notes')
 def debit_note(payload: dict, principal: dict = Depends(current_principal), db: Session = Depends(get_db)):
-    payload['note_type'] = 'Debit Note'
-    result = _post_credit_debit_note(db, principal['tenant_id'], 'sales', payload, principal['user_id'])
-    return ok(result, 'Debit note created and ledger posted')
+    """Create a debit note (negative purchase invoice)."""
+    payload['invoice_kind'] = 'purchase'
+    payload['invoice_type'] = 'Debit Note'
+    result = normalized_repo.create_invoice(db, principal['tenant_id'], 'purchase', payload)
+    return ok(result, 'Debit note created')
 

@@ -7,7 +7,7 @@ from app.core.database import get_db
 from app.core.exceptions import ok, APIError
 from app.core.security import current_principal
 from app.api.v1.deps import current_tenant
-from app.models.accounting import PaymentModel, InvoiceModel, GLEntryModel
+from app.models.accounting import PaymentModel, InvoiceModel, GLEntryModel, PartyModel
 from app.services.audit_service import AuditLog
 
 router = APIRouter(prefix='/tds', tags=['TDS'])
@@ -140,7 +140,6 @@ def compute_26q(quarter: int, year: int,
                 tenant_id: str = Depends(current_tenant),
                 db: Session = Depends(get_db)):
     """Compute Form 26Q - TDS quarterly return."""
-    from app.models.e2e import PartyModel
 
     start_date, end_date = _quarter_range(quarter, year)
 
@@ -210,7 +209,7 @@ def get_26q_json(quarter: int, year: int = None,
     ).all()
 
     # Get deductee details
-    from app.models.e2e import PartyModel
+
     deductees = {}
     for entry in tds_entries:
         if entry.party_id not in deductees:
@@ -244,7 +243,7 @@ def tds_certificate(party_id: str,
                     tenant_id: str = Depends(current_tenant),
                     db: Session = Depends(get_db)):
     """Get TDS certificate summary for a party."""
-    from app.models.e2e import PartyModel
+
 
     party = db.query(PartyModel).filter_by(
         tenant_id=tenant_id, party_id=party_id
@@ -286,7 +285,7 @@ def generate_tds_certificate(payload: dict,
     if not party_id:
         raise APIError('MISSING_PARTY', 'party_id is required', status_code=400)
 
-    from app.models.e2e import PartyModel
+
     party = db.query(PartyModel).filter_by(
         tenant_id=tenant_id, party_id=party_id
     ).first()

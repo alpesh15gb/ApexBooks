@@ -250,7 +250,7 @@ def rec_2a(month: int, principal: dict = Depends(current_principal), db: Session
 def rec_2b(month: int, principal: dict = Depends(current_principal), db: Session = Depends(get_db)):
     """Reconcile GSTR-2B with books."""
     result = rec_2a(month, principal, db)  # Similar logic for mock
-    return ok({**result.get_json(), 'source': 'GSTR-2B'})
+    return ok({**result.get('data', {}), 'source': 'GSTR-2B'})
 
 
 @router.get('/itc-available/{month}/{year}')
@@ -290,7 +290,7 @@ def g3b_file(month: int, year: int, principal: dict = Depends(current_principal)
     tenant_id = principal['tenant_id']
     result = normalized_repo.gstr3b(db, tenant_id, month, year)
 
-    from app.models.e2e import GSTReturnModel
+    from app.models.accounting import GSTReturnModel
     existing = db.query(GSTReturnModel).filter_by(
         tenant_id=tenant_id, return_type='GSTR3B',
         period_month=month, period_year=year
@@ -338,12 +338,13 @@ def liability(month: int | None = None, year: int | None = None,
     result = normalized_repo.gstr3b(db, principal['tenant_id'], m, y)
 
     sup = result.get('sup_details', {})
-    itc = result.get('itc_elg', {}).get('itc_avl', {})
+    itc_elg = result.get('itc_elg', {})
 
     net_liability = {}
-    for key in ['igst', 'cgst', 'sgst', 'cess']:
-        outward_tax = sup.get(key.upper(), 0)
-        available_itc = itc.get(key, 0)
+    key_map = {'igst': 'iamt', 'cgst': 'camt', 'sgst': 'samt', 'cess': 'csamt'}
+    for key, sup_key in key_map.items():
+        outward_tax = sup.get(sup_key, 0)
+        available_itc = itc_elg.get(sup_key, 0)
         net = float(outward_tax) - float(available_itc)
         net_liability[key] = round(max(net, 0), 2)
 

@@ -123,7 +123,7 @@ class InventoryValuationEngine:
 
     def compute_closing_stock(self, item_id: str) -> dict:
         """Compute closing stock quantity and value using FIFO."""
-        from app.models.e2e import ItemModel
+        from app.models.accounting import ItemModel
 
         item = self.db.query(ItemModel).filter_by(
             tenant_id=self.tenant_id, item_id=item_id, is_deleted=False
@@ -166,7 +166,7 @@ class InventoryValuationEngine:
 
     def compute_all_valuations(self) -> list[dict]:
         """Compute closing stock for all active stock-keeping items."""
-        from app.models.e2e import ItemModel
+        from app.models.accounting import ItemModel
 
         items = self.db.query(ItemModel).filter_by(
             tenant_id=self.tenant_id, is_deleted=False, stock_keeping_unit=True
@@ -190,7 +190,7 @@ class ReorderService:
 
     def check_reorder_levels(self) -> list[dict]:
         """Check which items have fallen below reorder level."""
-        from app.models.e2e import ItemModel, ResourceRecord
+        from app.models.accounting import ItemModel, ResourceRecord
         from decimal import Decimal
 
         items = self.db.query(ItemModel).filter_by(
@@ -230,7 +230,7 @@ def auto_post_cogs(db: Session, tenant_id: str, invoice_id: str, item_id: str, q
 
     if result['cogs_value'] > 0:
         from app.models.accounting import GLEntryModel
-        from app.models.e2e import InvoiceModel
+        from app.models.accounting import InvoiceModel
 
         inv = db.query(InvoiceModel).filter_by(
             tenant_id=tenant_id, invoice_id=invoice_id

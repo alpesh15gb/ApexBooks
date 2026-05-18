@@ -128,6 +128,8 @@ def login(payload: Login, db: Session = Depends(get_db),
 @router.post('/refresh')
 def refresh(principal: dict = Depends(current_principal), db: Session = Depends(get_db)):
     user = db.query(UserRecord).filter_by(user_id=principal['user_id']).first()
+    if not user:
+        raise APIError('USER_NOT_FOUND', 'User not found', status_code=404)
     return ok({
         'access_token': create_access_token(user),
         'refresh_token': create_refresh_token(user),

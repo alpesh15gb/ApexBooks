@@ -459,7 +459,7 @@ def gst_payable(tenant_id: str = Depends(current_tenant), db: Session = Depends(
 
 @router.get('/reports/tds-summary')
 def tds_summary(tenant_id: str = Depends(current_tenant), db: Session = Depends(get_db)):
-    from app.models.e2e import PaymentModel
+    from app.models.accounting import PaymentModel
     from sqlalchemy import func
     payments = db.query(PaymentModel).filter_by(tenant_id=tenant_id, tds_applicable=True).all()
     total_tds = sum(p.tds_amount for p in payments)

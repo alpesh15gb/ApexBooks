@@ -92,8 +92,7 @@ def update(row_id: str, payload: dict, principal: dict = Depends(current_princip
             elif k in ('amount', 'tds_amount'):
                 val = float(v)
                 setattr(rec, k, val)
-                if k == 'tds_amount' or 'amount':
-                    rec.net_amount = float(rec.amount) - float(rec.tds_amount or 0)
+                rec.net_amount = float(rec.amount) - float(rec.tds_amount or 0)
             else:
                 setattr(rec, k, v)
 
