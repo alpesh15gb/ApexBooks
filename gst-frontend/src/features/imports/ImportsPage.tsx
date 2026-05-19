@@ -6,6 +6,18 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { CheckCircle, XCircle, Upload, FileText, AlertTriangle, Database, Download } from 'lucide-react';
 import { apiErrorToString } from '@/utils/validation';
 import toast from 'react-hot-toast';
+import { getAccessToken } from '@/lib/api';
+
+function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const token = getAccessToken();
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...options.headers,
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+  });
+}
 
 interface ImportFormat {
   id: string;
@@ -28,7 +40,7 @@ export function ImportsPage() {
 
   // Fetch formats on mount
   useEffect(() => {
-    fetch('/api/v1/import/formats')
+    authFetch('/api/v1/import/formats')
       .then(r => r.json())
       .then(d => setFormats(d?.data?.formats || []))
       .catch(() => toast.error('Could not load import formats'))
@@ -70,7 +82,7 @@ export function ImportsPage() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('import_format', selectedFormat);
-      const res = await fetch('/api/v1/import/dry-run', { method: 'POST', body: formData });
+      const res = await authFetch('/api/v1/import/dry-run', { method: 'POST', body: formData });
       const json = await res.json();
       if (json.success) {
         setResult({ ...json.data, dryRun: true });
@@ -92,7 +104,7 @@ export function ImportsPage() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('import_format', selectedFormat);
-      const res = await fetch('/api/v1/import/upload', { method: 'POST', body: formData });
+      const res = await authFetch('/api/v1/import/upload', { method: 'POST', body: formData });
       const json = await res.json();
       if (json.success) {
         setResult({ ...json.data, dryRun: false });
