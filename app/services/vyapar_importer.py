@@ -261,6 +261,7 @@ class VyaparImporter:
                 for line in lines:
                     rate = self._get_tax_rate(cursor, line['lineitem_tax_id'])
                     line_items.append({
+                        'item_name': line['item_name'] or 'Item',
                         'description': line['item_name'] or 'Item',
                         'quantity': float(line['quantity'] or 0),
                         'unit_price': float(line['priceperunit'] or 0),
@@ -277,6 +278,7 @@ class VyaparImporter:
                 # Build payload matching import format
                 payload = {
                     'invoice_date': str(txn['txn_date'] or date.today()),
+                    'party_name': party_name,
                     'place_of_supply': pos,
                     'supply_type': 'B2B',
                     'invoice_type': 'Regular',
