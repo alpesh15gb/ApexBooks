@@ -147,6 +147,12 @@ class CSVImportEngine:
 
     def import_csv(self, template_id: str, file_content: bytes, dry_run: bool = False) -> dict:
         """Import data from CSV content."""
+        # Rollback any failed session state from previous operations
+        try:
+            self.db.rollback()
+        except Exception:
+            pass
+
         template = IMPORT_TEMPLATES.get(template_id)
         if not template:
             raise APIError("INVALID_TEMPLATE", f"Unknown template: {template_id}", status_code=400)
@@ -206,7 +212,11 @@ class CSVImportEngine:
             try:
                 import_method(row, row_num)
             except Exception as e:
-                self.stats["errors"].append(f"Row {row_num}: {str(e)}")
+                self.stats["errors"].append(f"Row {row_num}: {str(e)[:200]}")
+                try:
+                    self.db.rollback()
+                except Exception:
+                    pass
 
         return self.stats
 
@@ -221,9 +231,21 @@ class CSVImportEngine:
     # ─── Import Handlers ──────────────────────────────────────────
 
     def _import_items(self, row: dict, row_num: int):
+        item_code = row.get("item_code", "").strip()
+        if not item_code:
+            item_code = f"IMP-{uuid.uuid4().hex[:6].upper()}"
+        # Check for duplicate code and append suffix if needed
+        from app.models.e2e import ItemModel
+        existing = self.db.query(ItemModel).filter_by(
+            tenant_id=self.tenant_id, item_code=item_code, is_deleted=False
+        ).first()
+        if existing:
+            item_code = f"{item_code}-{uuid.uuid4().hex[:3].upper()}"
+
         payload = {
             "item_name": row.get("item_name", ""),
-            "item_code": row.get("item_code", f"IMP-{uuid.uuid4().hex[:6].upper()}"),
+            "item_code": item_code,
+            "item_type": row.get("item_type", "Goods"),
             "item_type": row.get("item_type", "Goods"),
             "hsn_code": row.get("hsn_code") or None,
             "sac_code": row.get("sac_code") or None,
