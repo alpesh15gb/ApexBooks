@@ -6,7 +6,7 @@ def calculate_tax(seller_state_code: str, buyer_state_code: str, supply_type: st
     lines=[]; totals={k:Decimal('0.00') for k in ['subtotal','total_discount','total_cgst','total_sgst','total_igst','total_cess']}
     zero_rated = any(supply_type.upper().startswith(x) for x in ['EXP', 'SEZ', 'EXPORT'])
     for item in item_list:
-        qty=Decimal(str(item['quantity'])); price=Decimal(str(item['unit_price'])); rate=Decimal(str(item.get('gst_rate',0)))
+        qty=Decimal(str(item.get('quantity', 0))); price=Decimal(str(item.get('unit_price', 0))); rate=Decimal(str(item.get('gst_rate',0)))
         disc_amt=Decimal(str(item.get('discount_amount',0))) + q(qty*price*Decimal(str(item.get('discount_percent',0)))/Decimal('100'))
         taxable=q(qty*price-disc_amt); cess_rate=Decimal(str(item.get('cess_rate',0)))
         cgst=sgst=igst=Decimal('0.00')
