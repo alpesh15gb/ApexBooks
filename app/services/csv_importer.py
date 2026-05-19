@@ -235,7 +235,7 @@ class CSVImportEngine:
         if not item_code:
             item_code = f"IMP-{uuid.uuid4().hex[:6].upper()}"
         # Check for duplicate code and append suffix if needed
-        from app.models.e2e import ItemModel
+        from app.models.accounting import ItemModel
         existing = self.db.query(ItemModel).filter_by(
             tenant_id=self.tenant_id, item_code=item_code, is_deleted=False
         ).first()
