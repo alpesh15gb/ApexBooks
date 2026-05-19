@@ -146,7 +146,7 @@ def download_export(export_id: str):
     from fastapi.responses import FileResponse
 
     for fname in os.listdir(export_manager.storage_path):
-        if export_id in fname:
+        if export_id in fname and fname.endswith(('.xlsx', '.csv', '.json')):
             filepath = os.path.join(export_manager.storage_path, fname)
             return FileResponse(filepath, filename=fname, media_type='application/octet-stream')
 

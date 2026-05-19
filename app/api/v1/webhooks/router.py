@@ -47,21 +47,20 @@ def list_webhooks(
     if status:
         q = q.filter_by(status=status)
     deliveries = q.order_by(WebhookDelivery.created_at.desc()).limit(50).all()
-    return {
-        'count': len(deliveries),
+    return ok({
+                'count': len(deliveries),
         'deliveries': [{
             'id': d.id, 'event_type': d.event_type, 'url': d.url,
             'status': d.status, 'attempts': d.attempts,
             'max_attempts': d.max_attempts,
             'created_at': d.created_at.isoformat() if d.created_at else None,
         } for d in deliveries]
-    }
-
+    })
 
 @router.delete('/{row_id}')
 def delete_webhook(row_id: str, tenant_id: str = Depends(current_tenant)):
     """Remove a webhook delivery record."""
-    return ok(message='Deleted')
+    return ok(message='Webhook deleted')
 
 
 @router.get('/events')
@@ -87,8 +86,8 @@ def list_delivery_logs(
     deliveries = db.query(WebhookDelivery).filter_by(
         tenant_id=tenant_id
     ).order_by(WebhookDelivery.created_at.desc()).limit(limit).all()
-    return {
-        'count': len(deliveries),
+    return ok({
+                'count': len(deliveries),
         'logs': [{
             'id': d.id, 'event_type': d.event_type, 'url': d.url,
             'status': d.status, 'attempts': d.attempts,
@@ -96,4 +95,4 @@ def list_delivery_logs(
             'response_body': d.response_body,
             'next_retry_at': d.next_retry_at.isoformat() if d.next_retry_at else None,
         } for d in deliveries]
-    }
+    })

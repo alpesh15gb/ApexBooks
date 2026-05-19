@@ -184,8 +184,7 @@ def forgot_password(payload: ForgotPassword, db: Session = Depends(get_db)):
     return ok({
         'otp_delivery': 'email',
         'ttl_minutes': 10,
-        'email': email
-    }, 'OTP sent to your email address')
+    }, 'If the account exists, an OTP has been sent to your email address')
 
 
 @router.post('/reset-password')

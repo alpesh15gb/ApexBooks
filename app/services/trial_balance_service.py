@@ -29,19 +29,6 @@ def _classify_account_type(account_type: str) -> str:
         return 'expense'
     return 'other'
 
-# Account normal side classification
-DEBIT_NORMAL_TYPES = {'Asset', 'Current Asset', 'Fixed Asset', 'Bank', 'Cash', 'Expense',
-                      'Cost of Goods Sold', 'Purchase', 'Rent', 'Salary', 'Depreciation'}
-CREDIT_NORMAL_TYPES = {'Liability', 'Current Liability', 'Long Term Liability', 'GST Payable',
-                       'TDS Payable', 'Equity', 'Capital', 'Retained Earnings',
-                       'Income', 'Revenue', 'Sales', 'Service Revenue'}
-
-
-def _get_account_types(db: Session, tenant_id: str) -> dict[str, str]:
-    """Returns mapping of account code -> account_type for a tenant."""
-    rows = db.query(AccountModel).filter_by(tenant_id=tenant_id, is_active=True).all()
-    return {r.code: r.account_type for r in rows}
-
 
 def _normal_side(account_type: str) -> str:
     """Returns 'debit' if account_type has normal debit balance, 'credit' otherwise."""

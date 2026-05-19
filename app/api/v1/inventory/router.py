@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import get_db
-from app.core.exceptions import ok
+from app.core.exceptions import ok, APIError
 from app.api.v1.deps import current_tenant
 from app.models.accounting import ItemModel, InvoiceModel, InvoiceLineModel
 
@@ -15,7 +15,7 @@ def create_warehouse(payload: dict, tenant_id: str = Depends(current_tenant), db
     """Register a warehouse location."""
     name = payload.get('name')
     if not name:
-        raise Exception('Warehouse name is required')
+        raise APIError('MISSING_FIELD', 'Warehouse name is required', status_code=400)
     from app.models.e2e import ResourceRecord
     from uuid import uuid4
     rec = ResourceRecord(
@@ -103,7 +103,7 @@ def add_stock_entry(payload: dict, tenant_id: str = Depends(current_tenant), db:
         tenant_id=tenant_id, item_id=item_id, is_deleted=False
     ).first()
     if not item:
-        raise Exception(f'Item {item_id} not found')
+        raise APIError('NOT_FOUND', f'Item {item_id} not found', status_code=404)
 
     rec = ResourceRecord(
         tenant_id=tenant_id,
@@ -218,13 +218,13 @@ def physical_count(payload: dict, tenant_id: str = Depends(current_tenant), db: 
     counted_qty = payload.get('counted_qty')
 
     if not item_id or counted_qty is None:
-        raise Exception('item_id and counted_qty are required')
+        raise APIError('MISSING_FIELDS', 'item_id and counted_qty are required', status_code=400)
 
     item = db.query(ItemModel).filter_by(
         tenant_id=tenant_id, item_id=item_id, is_deleted=False
     ).first()
     if not item:
-        raise Exception(f'Item {item_id} not found')
+        raise APIError('NOT_FOUND', f'Item {item_id} not found', status_code=404)
 
     from app.models.e2e import ResourceRecord
     from uuid import uuid4

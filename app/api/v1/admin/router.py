@@ -32,7 +32,7 @@ def audit_log_list(
     logs = audit.get_logs(tenant_id, resource=resource, actor_id=actor_id, limit=limit, offset=offset)
 
     # Apply date filter in-memory (audit service uses raw SQL without date params)
-    if start_date or end_date:
+    if start_date and end_date:
         start = datetime.fromisoformat(start_date) if start_date else datetime.min
         end = datetime.fromisoformat(end_date) if end_date else datetime.max
         logs = [l for l in logs if start <= l['created_at'] <= end]
@@ -42,7 +42,7 @@ def audit_log_list(
         logs = [l for l in logs if l['action'] == action]
 
     total = len(logs)
-    return {'total': total, 'logs': logs[offset:offset + limit]}
+    return ok({'total': total, 'logs': logs[offset:offset + limit]})
 
 
 @router.get('/audit-logs/summary')

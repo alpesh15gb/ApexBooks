@@ -117,11 +117,26 @@ def reconcile_payment(db: Session, tenant_id: str, payment_id: str,
             )
 
         # Determine accounts based on payment direction
+        # Map payment modes to proper GL accounts
+        mode_account_map = {
+            'Bank Transfer': 'Bank',
+            'NEFT': 'Bank',
+            'RTGS': 'Bank',
+            'IMPS': 'Bank',
+            'Cheque': 'Bank',
+            'UPI': 'Bank',
+            'Credit Card': 'Bank',
+            'Debit Card': 'Bank',
+            'Online Payment': 'Bank',
+            'Cash': 'Cash',
+        }
+        acct = mode_account_map.get(payment.payment_mode, 'Cash')
+
         if payment.payment_type == 'Receive':
-            cash_account = 'Cash' if payment.payment_mode != 'Bank Transfer' else 'Bank'
+            cash_account = acct
             receivable_account = 'Accounts Receivable'
         else:
-            cash_account = 'Cash' if payment.payment_mode != 'Bank Transfer' else 'Bank'
+            cash_account = acct
             receivable_account = 'Accounts Payable'
 
         # Create GL entries for this allocation
@@ -153,7 +168,7 @@ def reconcile_payment(db: Session, tenant_id: str, payment_id: str,
         gl_entries_created += 2
 
         # Update invoice outstanding amount
-        invoice.amount_paid += float(alloc_amount)
+        invoice.amount_paid += alloc_amount
         prev_status = invoice.status
         if invoice.amount_paid >= invoice.grand_total - Decimal('0.01'):
             invoice.status = 'Paid'
