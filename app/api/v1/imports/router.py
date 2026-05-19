@@ -1,89 +1,76 @@
-"""Import API endpoints supporting Vyapar, Tally, CSV, and future formats."""
+"""Import API endpoints supporting CSV/Excel templates.
+
+Data types: Items, Customers, Suppliers, Sales Invoices, Purchase Bills, Payments
+"""
 
 import os
 import tempfile
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from app.api.v1.deps import current_tenant
 from app.core.database import get_db
 from app.core.exceptions import ok, APIError
-from app.services.import_engine import list_import_formats, import_data, dry_run
+from app.services.import_engine import list_import_formats, get_template_csv, import_csv
 
 router = APIRouter(prefix='/import', tags=['Import'])
 
 
 @router.get('/formats')
 def get_import_formats():
-    """List all available import formats and their details."""
+    """List all available import templates."""
     return ok({'formats': list_import_formats()})
+
+
+@router.get('/template/{template_id}')
+def download_template(template_id: str):
+    """Download a CSV template file for the given data type."""
+    try:
+        csv_content = get_template_csv(template_id)
+    except APIError as e:
+        raise e
+
+    return Response(
+        content=csv_content,
+        media_type='text/csv',
+        headers={
+            'Content-Disposition': f'attachment; filename="{template_id}_template.csv"',
+        },
+    )
 
 
 @router.post('/upload')
 def upload_import(
     file: UploadFile = File(...),
-    import_format: str = Form(...),
+    template_id: str = Form(...),
+    dry_run: bool = Form(False),
     tenant_id: str = Depends(current_tenant),
     db: Session = Depends(get_db),
 ):
-    """Upload and import data from supported file formats.
+    """Upload a CSV file to import data.
 
-    Supports: vyapar (.vyb), tally (.csv/.xml), and future formats.
+    - template_id: items, customers, suppliers, invoices_sales, invoices_purchase, payments
+    - dry_run=true: preview without importing
     """
-    # Validate format
-    formats = {f['id']: f for f in list_import_formats()}
-    fmt = formats.get(import_format)
-    if not fmt:
-        raise APIError('INVALID_FORMAT', f'Unsupported import format: {import_format}', status_code=400)
+    # Validate template
+    formats = list_import_formats()
+    template_ids = {f['id'] for f in formats}
+    if template_id not in template_ids:
+        raise APIError('INVALID_TEMPLATE', f'Unknown template: {template_id}', status_code=400)
 
-    # Validate extension
+    # Read file content
+    content = file.file.read()
+    if not content:
+        raise APIError('EMPTY_FILE', 'Uploaded file is empty', status_code=400)
+
     ext = os.path.splitext(file.filename or '')[1].lower()
-    if ext not in fmt['extensions']:
-        raise APIError('INVALID_EXTENSION',
-            f'Expected {fmt["extensions"]} file, got {ext}', status_code=400)
-
-    if not fmt['available']:
-        raise APIError('NOT_AVAILABLE',
-            f'Import format "{fmt["name"]}" is not yet available', status_code=400)
-
-    # Save to temp
-    with tempfile.NamedTemporaryFile(delete=False, suffix=ext, prefix=f'import_{import_format}_') as tmp:
-        content = file.file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
+    if ext not in ('.csv',):
+        raise APIError('INVALID_FORMAT', 'Only .csv files are supported', status_code=400)
 
     try:
-        result = import_data(tenant_id, 'import_user', tmp_path, import_format, db)
-        return ok(result, f'{fmt["name"]} import completed')
+        result = import_csv(tenant_id, template_id, content, db, dry_run=dry_run)
+        if dry_run:
+            return ok(result, 'Preview ready')
+        return ok(result, f'Imported {result.get("imported", 0)} records')
     except Exception as e:
         raise APIError('IMPORT_FAILED', str(e), status_code=500)
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-
-
-@router.post('/dry-run')
-def dry_run_import(
-    file: UploadFile = File(...),
-    import_format: str = Form(...),
-    tenant_id: str = Depends(current_tenant),
-):
-    """Preview what an import would produce without writing to the database."""
-    formats = {f['id']: f for f in list_import_formats()}
-    fmt = formats.get(import_format)
-    if not fmt:
-        raise APIError('INVALID_FORMAT', f'Unsupported format: {import_format}', status_code=400)
-
-    ext = os.path.splitext(file.filename or '')[1].lower()
-    with tempfile.NamedTemporaryFile(delete=False, suffix=ext, prefix=f'dry_{import_format}_') as tmp:
-        content = file.file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
-
-    try:
-        result = dry_run(tenant_id, tmp_path, import_format, db=None)
-        return ok(result, 'Dry run analysis complete')
-    except Exception as e:
-        raise APIError('DRY_RUN_FAILED', str(e), status_code=500)
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
