@@ -92,6 +92,7 @@ class AccountModel(Base):
     code: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     account_type: Mapped[str] = mapped_column(String(50), default='Expense')
+    parent_code: Mapped[str | None] = mapped_column(String(32), index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     description: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

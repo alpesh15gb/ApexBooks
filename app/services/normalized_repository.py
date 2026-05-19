@@ -333,43 +333,79 @@ class NormalizedAccountingRepository:
 
     def submit_invoice(self, db: Session, tenant_id: str, kind: str, invoice_id: str) -> dict:
         from sqlalchemy import exc
+        from app.models.e2e import JournalEntryModel
+        from uuid import uuid4
+
         rec = self.get_invoice(db, tenant_id, kind, invoice_id)
         if rec.status != 'Draft':
             return self.invoice_dict(rec)
 
         rec.status = 'Submitted'
+        # Use stored invoice totals for journal (source of truth)
+        subtotal = dec(rec.subtotal)
+        grand_total = dec(rec.grand_total)
         tax_total = dec(rec.total_cgst) + dec(rec.total_sgst) + dec(rec.total_igst) + dec(rec.total_cess)
+        # Verify stored amounts balance: grand_total = subtotal + round_off + tax_total
+        expected = subtotal + dec(rec.round_off) + tax_total
+        if abs(expected - grand_total) > Decimal('0.02'):
+            # Recompute from tax fields to handle edge cases
+            grand_total = subtotal + dec(rec.round_off) + tax_total
+            rec.grand_total = grand_total
+            rec.outstanding_amount = grand_total - rec.amount_paid
 
+        # Build journal lines using stored invoice totals
         if kind == 'sales':
-            entries = [
-                ('Accounts Receivable', rec.grand_total, 0),
-                ('Sales', 0, rec.subtotal),
-                ('GST Payable', 0, tax_total),
+            lines = [
+                {'account': 'Accounts Receivable', 'debit': grand_total, 'credit': Decimal('0')},
+                {'account': 'Sales', 'debit': Decimal('0'), 'credit': subtotal},
+                {'account': 'GST Payable', 'debit': Decimal('0'), 'credit': tax_total},
             ]
         else:
-            # Purchase: debit expense and input tax credit, credit supplier
-            entries = [
-                ('Purchases', rec.subtotal, 0),
-                ('Input GST Credit', tax_total, 0),
-                ('Accounts Payable', 0, rec.grand_total),
+            lines = [
+                {'account': 'Purchases', 'debit': subtotal, 'credit': Decimal('0')},
+                {'account': 'Input GST Credit', 'debit': tax_total, 'credit': Decimal('0')},
+                {'account': 'Accounts Payable', 'debit': Decimal('0'), 'credit': grand_total},
             ]
 
+        total_dr = sum(l['debit'] for l in lines)
+        total_cr = sum(l['credit'] for l in lines)
+        if abs(total_dr - total_cr) > Decimal('0.02'):
+            # Imbalance — post difference to Suspense
+            diff = total_dr - total_cr
+            if diff > 0:
+                lines.append({'account': 'Suspense', 'debit': Decimal('0'), 'credit': diff})
+            else:
+                lines.append({'account': 'Suspense', 'debit': abs(diff), 'credit': Decimal('0')})
+
         try:
-            for account, debit, credit in entries:
+            # Step 1: Create Journal Entry (the voucher)
+            journal = JournalEntryModel(
+                tenant_id=tenant_id,
+                entry_date=rec.invoice_date,
+                reference=f'{kind}_invoice:{invoice_id}',
+                narration=f'{kind.capitalize()} invoice {rec.invoice_number}',
+                entries=[{'account': l['account'], 'debit': float(l['debit']), 'credit': float(l['credit'])} for l in lines],
+                total_debit=float(total_dr),
+                total_credit=float(total_cr),
+            )
+            db.add(journal)
+            db.flush()
+
+            # Step 2: Post GLEntries from journal lines
+            for line in lines:
                 db.add(GLEntryModel(
                     tenant_id=tenant_id,
                     posting_date=rec.invoice_date,
-                    account=account,
+                    account=line['account'],
                     party_id=rec.party_id,
                     voucher_type=f'{kind}_invoice',
                     voucher_id=invoice_id,
-                    debit=dec(debit),
-                    credit=dec(credit),
+                    debit=dec(line['debit']),
+                    credit=dec(line['credit']),
+                    remarks=f'Journal #{journal.id}: {line["account"]}',
                 ))
             db.flush()
 
-            # Auto-post to Suspense if GL is unbalanced (safety net)
-            post_suspense_if_unbalanced(db, tenant_id, rec.invoice_date, f'{kind}_invoice', invoice_id)
             db.commit()
         except Exception:
             db.rollback()

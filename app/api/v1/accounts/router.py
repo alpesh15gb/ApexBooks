@@ -75,19 +75,45 @@ def create_coa(payload: dict | None = None, tenant_id: str = Depends(current_ten
         code=code,
         name=name,
         account_type=account_type,
+        parent_code=p.get('parent_code'),
         is_active=p.get('is_active', True),
         description=p.get('description', ''),
     )
     db.add(rec)
     db.flush()
-    return ok({'code': rec.code, 'name': rec.name, 'account_type': rec.account_type}, 'Account created')
+    return ok({'code': rec.code, 'name': rec.name, 'account_type': rec.account_type,
+               'parent_code': rec.parent_code}, 'Account created')
 
 
 @router.get('/coa')
 def list_coa(tenant_id: str = Depends(current_tenant), db: Session = Depends(get_db)):
     from app.models.e2e import AccountModel
     rows = db.query(AccountModel).filter_by(tenant_id=tenant_id, is_active=True).order_by(AccountModel.code).all()
-    return ok([{'code': r.code, 'name': r.name, 'account_type': r.account_type} for r in rows])
+    return ok([{
+        'code': r.code, 'name': r.name, 'account_type': r.account_type,
+        'parent_code': r.parent_code,
+    } for r in rows])
+
+
+@router.get('/coa/tree')
+def coa_tree(tenant_id: str = Depends(current_tenant), db: Session = Depends(get_db)):
+    """Return chart of accounts as a hierarchical tree."""
+    from app.models.e2e import AccountModel
+    rows = db.query(AccountModel).filter_by(tenant_id=tenant_id, is_active=True).order_by(AccountModel.code).all()
+
+    accounts = {r.code: {
+        'code': r.code, 'name': r.name, 'account_type': r.account_type,
+        'parent_code': r.parent_code, 'children': [],
+    } for r in rows}
+
+    tree = []
+    for code, acct in accounts.items():
+        if acct['parent_code'] and acct['parent_code'] in accounts:
+            accounts[acct['parent_code']]['children'].append(acct)
+        else:
+            tree.append(acct)
+
+    return ok({'tree': tree, 'flat': list(accounts.values())})
 
 
 @router.get('/coa/{row_id}')
