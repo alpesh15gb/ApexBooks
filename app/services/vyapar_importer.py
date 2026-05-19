@@ -86,7 +86,8 @@ class VyaparImporter:
             self._import_payments(vy_cursor, db)
         except Exception as e:
             self.stats['errors'].append(str(e))
-            raise
+            import logging
+            logging.error(f"Vyapar import error: {e}")
         finally:
             # Clean up extracted files
             self._cleanup()
@@ -232,6 +233,8 @@ class VyaparImporter:
             ORDER BY t.txn_id
         """)
         transactions = cursor.fetchall()
+        import logging
+        logging.warning(f"Vyapar import: found {len(transactions)} invoices in kb_transactions")
 
         for txn in transactions:
             try:
@@ -311,6 +314,7 @@ class VyaparImporter:
     # ─── 5. IMPORT PAYMENTS ──────────────────────────────────
     def _import_payments(self, cursor: Any, db: Session):
         """Import payment records from payment mapping."""
+        import logging
         cursor.execute("""
             SELECT pm.id, pm.payment_id, pm.txn_id, pm.amount,
                    t.txn_date, t.txn_name_id, t.txn_ref_number_char,
@@ -321,7 +325,8 @@ class VyaparImporter:
             LEFT JOIN kb_names n ON t.txn_name_id = n.name_id
             WHERE pm.amount > 0
         """)
-
+        payments = cursor.fetchall()
+        logging.warning(f"Vyapar import: found {len(payments)} payments in txn_payment_mapping")
         for row in cursor.fetchall():
             try:
                 # Determine if this is a sale or purchase payment
