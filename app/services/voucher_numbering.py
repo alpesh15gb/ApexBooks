@@ -35,21 +35,24 @@ def generate_voucher_number(db: Session, tenant_id: str, voucher_type: str, year
     full_prefix = f'{prefix}-{year}-'
 
     # Atomic first-insert: if row doesn't exist, create it.
-    # Using raw SQL for INSERT OR IGNORE (SQLite) / ON CONFLICT DO NOTHING (PG)
-    db.execute(
-        text("""
-            INSERT OR IGNORE INTO numbering_series (tenant_id, series_key, prefix, current, padding)
-            VALUES (:tenant_id, :series_key, :prefix, :current, :padding)
-        """),
-        {
-            "tenant_id": tenant_id,
-            "series_key": series_key,
-            "prefix": full_prefix,
-            "current": 0,
-            "padding": padding,
-        }
-    )
-    db.flush()
+    from sqlalchemy.exc import IntegrityError
+    try:
+        db.execute(
+            text("""
+                INSERT INTO numbering_series (tenant_id, series_key, prefix, current, padding)
+                VALUES (:tenant_id, :series_key, :prefix, :current, :padding)
+            """),
+            {
+                "tenant_id": tenant_id,
+                "series_key": series_key,
+                "prefix": full_prefix,
+                "current": 0,
+                "padding": padding,
+            }
+        )
+        db.flush()
+    except IntegrityError:
+        db.rollback()
 
     # Now lock the row and increment
     rec = db.query(NumberingSeriesRecord).filter_by(

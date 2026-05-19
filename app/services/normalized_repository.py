@@ -47,17 +47,21 @@ def model_dict(obj, extra: dict | None = None):
 class NormalizedAccountingRepository:
 
     def next_number(self, db: Session, tenant_id: str, series_key: str, prefix: str, padding: int = 3) -> str:
-        # Atomic first-insert (safe for concurrent access)
+        # Try to create the series row atomically (works on SQLite + PostgreSQL)
         from sqlalchemy import text
-        db.execute(
-            text("""
-                INSERT OR IGNORE INTO numbering_series (tenant_id, series_key, prefix, current, padding)
-                VALUES (:tenant_id, :series_key, :prefix, :current, :padding)
-            """),
-            {"tenant_id": tenant_id, "series_key": series_key,
-             "prefix": prefix, "current": 0, "padding": padding}
-        )
-        db.flush()
+        from sqlalchemy.exc import IntegrityError
+        try:
+            db.execute(
+                text("""
+                    INSERT INTO numbering_series (tenant_id, series_key, prefix, current, padding)
+                    VALUES (:tenant_id, :series_key, :prefix, :current, :padding)
+                """),
+                {"tenant_id": tenant_id, "series_key": series_key,
+                 "prefix": prefix, "current": 0, "padding": padding}
+            )
+            db.flush()
+        except IntegrityError:
+            db.rollback()
 
         rec = db.query(NumberingSeriesRecord).filter_by(
             tenant_id=tenant_id, series_key=series_key
