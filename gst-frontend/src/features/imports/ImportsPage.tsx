@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { CardSkeleton } from '@/components/ui/Skeleton';
@@ -27,13 +27,13 @@ export function ImportsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch formats on mount
-  useState(() => {
+  useEffect(() => {
     fetch('/api/v1/import/formats')
       .then(r => r.json())
       .then(d => setFormats(d?.data?.formats || []))
       .catch(() => toast.error('Could not load import formats'))
       .finally(() => setLoading(false));
-  });
+  }, []);
 
   const selectedFmt = formats.find(f => f.id === selectedFormat);
 
