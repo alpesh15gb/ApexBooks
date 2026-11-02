@@ -11,12 +11,12 @@ namespace ApexBooks_Windows;
 
 public sealed partial class MainPage
 {
-    private async Task EditDocument(string kind, JsonObject? previous = null, JsonObject? conversion = null)
+    private async Task EditDocument(string kind, JsonObject? previous = null, JsonObject? conversion = null,JsonObject? returnSource=null)
     {
         var cid = CompanyId; var stamp = generation;
         if (conversion is not null) conversion = (await Api.Record(cid, conversion.Text("id"))).Object();
         if (stamp != generation) return;
-        var source = previous ?? conversion; var data = source?["data"].Object() ?? new();
+        var source = previous ?? conversion ?? returnSource; var data = source?["data"].Object() ?? new();
         var regular = Company.Text("tax_mode") == "regular"; var purchase = kind is "purchase_bill" or "purchase_order" or "debit_note" or "expense";
         var panel = Stack(16); panel.Width = Math.Clamp(((App.Window.Content as FrameworkElement)?.ActualWidth ?? 1240) - 112, 420, 1320);
         panel.Children.Add(Text(Company.Text("name") + " · " + (regular ? "GST registered" : "GST not charged on sales"), 13));
@@ -41,8 +41,8 @@ public sealed partial class MainPage
         var notes = Input("Notes", data.Text("notes"), true); var terms = Input("Terms and conditions", data.Text("terms"), true);
         notes.MaxLength=4000;terms.MaxLength=8000;gstin.MaxLength=15;phone.MaxLength=32;address.MaxLength=1000;shipping.MaxLength=1000;
         var linesPanel = Stack(12); var lines = new List<DocumentLine>(); var preview = Text("Enter items to calculate the total.", 16, true); preview.Foreground = Green;
-        var partyId = data.Text("party_id"); var appliedTo = data.Text("applied_to");
-        var retryKey = Guid.NewGuid().ToString(); CancellationTokenSource? previewRequest = null;var sourceLoading=false;
+        var partyId = data.Text("party_id"); var appliedTo = returnSource?.Text("id")??data.Text("applied_to");
+        var retryKey = Guid.NewGuid().ToString();var submission=new RetrySubmission(); CancellationTokenSource? previewRequest = null;var sourceLoading=false;
 
         JsonObject DocumentData()
         {
@@ -137,11 +137,12 @@ public sealed partial class MainPage
             if (party.Text.Trim().Length == 0) throw new Exception("Enter the customer, supplier or description.");
             if (lines.Count == 0) throw new Exception("Add at least one item.");
             if (kind is "credit_note" or "debit_note" && appliedTo.Length == 0) throw new Exception("Choose the original posted document.");
-            await Api.SaveRecord(cid, BodyValue(), retryKey, previous);
+            try{await Api.SaveRecord(cid, submission.Body(BodyValue()), retryKey, previous);submission.Succeeded();}
+            catch(Exception e){submission.Failed(e);NativeUi.SetFormEnabled(panel,!submission.Unresolved);if(submission.Unresolved)throw new Exception("The save outcome is unknown. The original values are locked; press Save again to safely recover the same document.",e);throw;}
         }
         var saved = await Dialog((previous is not null ? "Edit " : "New ") + FeatureCatalog.Singular(kind), panel, Save,
             previous is null ? "Save " + (kind=="purchase_bill"?"bill":kind=="sales_invoice"?"invoice":"document") : "Save changes",
-            canSave:()=>!sourceLoading,hasChanges:()=>BodyValue().ToJsonString()!=baseline,
+            canSave:()=>!sourceLoading,hasChanges:()=>submission.Unresolved||BodyValue().ToJsonString()!=baseline,
             saveAndNew:previous is null&&conversion is null?async()=>{await Save();keepNew=true;}:null,stickyFooter:Card(totals));
         previewRequest?.Cancel(); if (saved && cid == CompanyId) await Refresh();
         if(saved&&keepNew&&cid==CompanyId)await EditDocument(kind);

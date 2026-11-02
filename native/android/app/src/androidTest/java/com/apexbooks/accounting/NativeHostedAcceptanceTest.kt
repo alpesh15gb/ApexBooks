@@ -30,6 +30,7 @@ class NativeHostedAcceptanceTest {
         return prefix+alphabet[(36-sum%36)%36]
     }
     @Test fun imageAndHostedTransactionPipeline():Unit=runBlocking {
+        requireLocalTestOrigin()
         val context=InstrumentationRegistry.getInstrumentation().targetContext
         val result=JSONObject();val checks=JSONArray()
         fun check(name:String,condition:Boolean){assertTrue(name,condition);checks.put(name)}
@@ -50,12 +51,14 @@ class NativeHostedAcceptanceTest {
         val origin=BuildConfig.API_ORIGIN
         result.put("api_origin",origin).put("client_version",BuildConfig.VERSION_NAME)
         val stored=vault?.load(origin)
-        require(stored==null||stored.s("email")=="REPLACE_WITH_PRIVATE_QA_EMAIL"){"Another user's remembered session exists; leaving it unchanged."}
+        require(stored==null||stored.s("email").startsWith("native-pipeline-")){"Another user's remembered session exists; leaving it unchanged."}
         val api=ApexApi(origin,vault)
-        api.login("REPLACE_WITH_PRIVATE_QA_EMAIL","REPLACE_WITH_PRIVATE_QA_PASSWORD",keepSession)
+        val email="native-pipeline-${UUID.randomUUID()}@example.invalid";val password="Synthetic-device-only-2026!"
+        api.request("/api/auth/register","POST",JSONObject().put("email",email).put("password",password))
+        api.login(email,password,keepSession)
         if(keepSession){
             val restored=ApexApi(origin,vault)
-            check("normal encrypted QA session restores",restored.restore()&&restored.email=="REPLACE_WITH_PRIVATE_QA_EMAIL")
+            check("normal encrypted QA session restores",restored.restore()&&restored.email==email)
             check("restored QA session reaches its companies",restored.request("/api/companies") is JSONArray)
             context.getExternalFilesDir(null)?.let{File(it,"native-qa-session.json").writeText(JSONObject().put("ready",true).put("synthetic",true).toString())}
         }

@@ -35,7 +35,16 @@ public sealed class RecordRow(JsonObject source)
     public string Amount => Kind == "party" ? Source["data"].Text("phone") : Kind == "item" ? J.Money(Source["data"].Number("sale_rate")) : J.Money(Source.Number("amount"));
     public string Balance => Source["outstanding"] is not null ? "Due " + J.Money(Source.Number("outstanding")) : Source["credit_remaining"] is not null ? "Credit " + J.Money(Source.Number("credit_remaining")) : Source["advance_remaining"] is not null ? "Advance " + J.Money(Source.Number("advance_remaining")) : "";
     public string BalanceValue=>Source["outstanding"] is not null?J.Money(Source.Number("outstanding")):Balance;
-    public string Status => Source.Text("converted_to") is { Length: > 0 } ? "Converted" : Source.Flag("posted") ? Kind is "sales_invoice" or "purchase_bill" or "pos" && Source["outstanding"] is not null ? Source.Number("outstanding")<=0?"Settled":Source.Number("outstanding")<Source.Number("amount")?"Part settled":"Unpaid" : "Posted" : FeatureCatalog.Drafts.Contains(Kind) ? "Draft" : "";
+    public string Status {
+        get {
+            if(Source.Text("converted_to").Length>0)return "Converted";
+            if(!Source.Flag("posted"))return FeatureCatalog.Drafts.Contains(Kind)?"Draft":"";
+            if(Source["data"].Flag("is_advance"))return Source.Number("advance_remaining")>0?"Advance available":"Advance settled";
+            if(Kind is "credit_note" or "debit_note")return Source.Number("credit_remaining")>0?"Credit available":"Credit settled";
+            if(Kind is "sales_invoice" or "purchase_bill" or "pos"&&Source["outstanding"] is not null)return Source.Number("outstanding")<=0?"Settled":Source.Number("outstanding")<Source.Number("amount")?"Part settled":"Unpaid";
+            return "Posted";
+        }
+    }
     public Microsoft.UI.Xaml.Media.SolidColorBrush StatusBrush => new(Status switch { "Unpaid"=>Windows.UI.Color.FromArgb(255,166,100,24),"Part settled"=>Windows.UI.Color.FromArgb(255,50,104,161),"Draft"=>Windows.UI.Color.FromArgb(255,103,123,134),_=>Windows.UI.Color.FromArgb(255,18,124,102) });
     public override string ToString()=>$"{Name}, {Reference}, {Category}, {Date}, {Amount}, {Status}, {Balance}";
 }

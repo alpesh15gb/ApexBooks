@@ -8,9 +8,15 @@ from sqlalchemy import select
 def receive(service, session, connection, payload, party, external_id, issued):
     from commerce import decimal
     m = service.m; cid = connection['company_id']
+    issued_date = date.fromisoformat(issued)
+    m.require_open_period(cid, issued_date, session)
+    if not party or party.company_id != cid or party.kind != 'party':
+        raise HTTPException(422, 'Return party must belong to this company')
     credit = service.link(session, connection, 'credit', payload.get('credit_id', ''))
     if not credit: raise HTTPException(503, 'Waiting for the source credit note')
     note = session.get(m.Record, credit['record_id'])
+    if not note or note.company_id != cid or note.kind != 'credit_note':
+        raise HTTPException(422, 'Return credit must belong to this company')
     source = session.get(m.Record, note.data.get('applied_to'))
     if credit['snapshot'].get('order_id') != payload['order_id'] or note.name != party.name or not source or source.company_id != cid or date.fromisoformat(issued) < note.date:
         raise HTTPException(422, 'Return must use its original credit, party and accounting date')
@@ -21,7 +27,10 @@ def receive(service, session, connection, payload, party, external_id, issued):
     for entry in payload.get('lines', []):
         link = service.link(session, connection, 'product', str(entry.get('product_id', '')))
         if not link: raise HTTPException(422, 'Map the returned product before receipt')
-        item = session.get(m.Record, link['record_id']); qty = decimal(entry.get('quantity'), positive=True)
+        item = session.get(m.Record, link['record_id'])
+        if not item or item.company_id != cid or item.kind != 'item':
+            raise HTTPException(422, 'Returned item must belong to this company')
+        qty = decimal(entry.get('quantity'), positive=True)
         if qty.as_tuple().exponent < -3 or item.id in seen or not item.data.get('track_stock'):
             raise HTTPException(422, 'Choose each stock item once with at most three quantity decimals')
         seen.add(item.id)

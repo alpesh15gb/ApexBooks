@@ -7,8 +7,8 @@ from collections import Counter, defaultdict
 from decimal import Decimal, ROUND_HALF_UP
 
 TYPE_MAP = {1: ('Sale', 'sales_invoice'), 2: ('Purchase', 'purchase_bill'),
-            3: ('Payment-In', 'payment_in'), 27: ('Estimate', 'estimate'),
-            28: ('Purchase Order', 'purchase_order')}
+            3: ('Payment-In', 'payment_in'), 4: ('Payment-Out', 'payment_out'), 27: ('Estimate', 'estimate'),
+            28: ('Purchase Order', 'purchase_order'), 24: ('Sale Order', 'sales_order'), 83: ('Proforma Invoice', 'proforma'), 65: ('Cancelled Sale', 'cancelled_sales_invoice')}
 
 def decimal(value):
     result = Decimal(str(value or 0))
@@ -35,17 +35,19 @@ def transaction_audit(tables):
     for link in tables.get('kb_txn_links', []):
         first, second = transactions.get(link.get('txn_links_txn_1_id')), transactions.get(link.get('txn_links_txn_2_id'))
         issue = ''
+        # Link endpoints are not directional across Vyapar versions. Normalize by type.
+        if first and second and (first.get('txn_type'), second.get('txn_type')) in ((3, 1), (4, 2)):
+            first, second = second, first
         if not first or not second: issue = 'Missing linked transaction'
-        elif first.get('txn_type') != 1 or second.get('txn_type') != 3: issue = 'Unsupported payment link types'
+        elif (first.get('txn_type'), second.get('txn_type')) not in ((1, 3), (2, 4)): issue = 'Unsupported payment link types'
         elif first.get('txn_name_id') != second.get('txn_name_id'): issue = 'Linked party mismatch'
-        elif str(second.get('txn_date',''))[:10] < str(first.get('txn_date',''))[:10]: issue = 'Receipt predates invoice'
         amount = decimal(link.get('txn_links_amount'))
         if amount <= 0: issue = 'Invalid allocation amount'
         if not issue:
             applied[first['txn_id']] += amount
             applied[second['txn_id']] += amount
         else: global_issues.append('Payment link ' + str(link.get('txn_links_id')) + ': ' + issue)
-        links.append({'invoice_id':link.get('txn_links_txn_1_id'), 'payment_id':link.get('txn_links_txn_2_id'), 'amount':str(rounded(amount)), 'issue':issue})
+        links.append({'invoice_id':first['txn_id'] if first else link.get('txn_links_txn_1_id'), 'payment_id':second['txn_id'] if second else link.get('txn_links_txn_2_id'), 'amount':str(rounded(amount)), 'issue':issue})
     for link in tables.get('kb_linked_transactions', []):
         conversions[link['txn_source_id']].append(link['txn_destination_id'])
         if link['txn_source_id'] not in transactions or link['txn_destination_id'] not in transactions:
@@ -55,7 +57,7 @@ def transaction_audit(tables):
         code=row.get('txn_type'); label, kind=TYPE_MAP.get(code, ('Unknown','unsupported'))
         issues=[]
         if kind=='unsupported': issues.append('Unknown transaction type')
-        expected_statuses={1:{1},2:{1},3:{1},27:{2,4},28:{2}}
+        expected_statuses={1:{1},2:{1},3:{1},4:{1},27:{2,4},28:{2},24:{2,4},83:{2,4},65:{1}}
         if code in expected_statuses and row.get('txn_status') not in expected_statuses[code]: issues.append('Unverified source status')
         party=parties.get(row.get('txn_name_id'))
         if not party: issues.append('Missing party')
@@ -66,19 +68,19 @@ def transaction_audit(tables):
         line_tax=sum((decimal(line.get('lineitem_tax_amount')) for line in source_lines),Decimal(0))
         charges=sum((decimal(row.get('txn_ac'+str(i)+'_amount')) for i in (1,2,3)),Decimal(0))
         round_off=decimal(row.get('txn_round_off_amount'))
-        if code in {1,2,27,28}:
-            if not source_lines: issues.append('Missing document lines')
-            if abs(rounded(line_total+charges+round_off)-rounded(amount)) > Decimal('.01'): issues.append('Line totals and document amount do not reconcile')
+        if code in {1,2,24,27,28,65,83}:
+            if not source_lines and amount: issues.append('Missing document lines')
+            if abs(rounded(line_total+charges+round_off-decimal(row.get('txn_discount_amount')))-rounded(amount)) > Decimal('.01'): issues.append('Line totals and document amount do not reconcile')
         for line in source_lines:
             if line.get('item_id') not in items: issues.append('Missing linked item')
         mapped_cash=sum((decimal(p.get('amount')) for p in payments[source_id]),Decimal(0))
         if abs(rounded(mapped_cash)-rounded(cash)) > Decimal('.01'): issues.append('Payment mapping does not reconcile')
         if any(p.get('payment_id') not in banks for p in payments[source_id]): issues.append('Missing payment account')
-        converted=code==27 and row.get('txn_status')==4
+        converted=code in (24,27,83) and row.get('txn_status')==4
         destinations=conversions[source_id]
         if converted and not destinations: issues.append('Converted estimate has no destination link')
-        if converted and any(transactions.get(i,{}).get('txn_type')!=1 for i in destinations): issues.append('Unexpected conversion destination type')
-        if applied[source_id] > (balance if code==1 else cash) + Decimal('.01'): issues.append('Allocations exceed source amount')
+        if converted and any(transactions.get(i,{}).get('txn_type') not in (1,24,83) for i in destinations): issues.append('Unexpected conversion destination type')
+        if applied[source_id] > (balance if code in (1,2) else cash+decimal(row.get('txn_discount_amount'))) + Decimal('.01'): issues.append('Allocations exceed source amount')
         prefix=row.get('txn_invoice_prefix') or prefixes.get(row.get('txn_prefix_id'),'')
         ref=str(row.get('txn_ref_number_char') or '')
         reference=prefix+ref if prefix and not ref.startswith(prefix) else ref

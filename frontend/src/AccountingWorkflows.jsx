@@ -1,3 +1,4 @@
+import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import React, { useEffect, useState } from "react";
 const today = () => new Date().toLocaleDateString("en-CA");
 const money = (n) =>
@@ -28,8 +29,9 @@ export function CreditSettlements({
     }),
     [banks, setBanks] = useState([]),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
     [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
+  const posting = usePostingRequest();
+  const { busy, pending } = posting;
   useEffect(() => {
     let live = true;
     api(`/companies/${companyId}/bank-accounts`)
@@ -55,10 +57,10 @@ export function CreditSettlements({
   async function submit(e) {
     e.preventDefault();
     if (busy) return;
-    setBusy(true);
     setError("");
     try {
-      await api(`/companies/${companyId}/credits/${note.id}/settle`, {
+      const path = `/companies/${companyId}/credits/${note.id}/settle`;
+      const options = {
         method: "POST",
         headers: { "Idempotency-Key": requestKey },
         body: JSON.stringify({
@@ -72,14 +74,13 @@ export function CreditSettlements({
             bank_account_id: form.bank,
           },
         }),
-      });
+      };
+      if (!await posting.run(() => api(path, options))) return;
       await refresh();
       setForm({ ...form, note: "", amount: "", target: "" });
       setRequestKey(crypto.randomUUID());
     } catch (e) {
       setError(e.message);
-    } finally {
-      setBusy(false);
     }
   }
   if (!notes.length) return null;
@@ -95,6 +96,7 @@ export function CreditSettlements({
       </p>
       {canWrite && (
         <form className="form-grid" onSubmit={submit}>
+          <fieldset className="form-grid full submission-fields" disabled={busy || pending}>
           <label>
             Credit balance
             <select
@@ -201,6 +203,8 @@ export function CreditSettlements({
               onChange={(e) => setForm({ ...form, date: e.target.value })}
             />
           </label>
+          </fieldset>
+          {pending && !busy && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
           <button className="button primary full" disabled={busy || !note}>
             {busy
               ? "Saving…"

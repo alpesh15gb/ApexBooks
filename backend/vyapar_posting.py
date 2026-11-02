@@ -1,7 +1,8 @@
 """Build a deterministic, fail-closed posting plan from supported Vyapar data.
 
 Source totals are authoritative. No source SQL or network calls are executed.
-The initial posting adapter supports the five types verified in Apex Integrations.
+Source-evidenced types, FIFO costs, discounts and financial events are supported.
+Unmapped signs and unverified costs remain blocking errors.
 """
 from collections import defaultdict
 from datetime import date
@@ -10,11 +11,11 @@ from vyapar_audit import transaction_audit, decimal as D, rounded as M
 
 def posting_plan(tables):
     audit=transaction_audit(tables); errors=list(audit['global_issues']); warnings=[]
-    for table in ('kb_item_adjustments','kb_cash_adjustments','kb_bank_adjustments','party_to_party_transfer','kb_item_stock_tracking','loan_accounts','loan_transactions','store_transactions','journal_entry','journal_entry_line_items'):
+    for table in ('party_to_party_transfer','store_transactions','journal_entry','journal_entry_line_items'):
         if tables.get(table): errors.append('Posting adapter does not yet support populated '+table)
     firm=tables['kb_firms'][0]
     gstin=firm.get('firm_gstin_number') or ''
-    if not gstin: errors.append('This posting adapter requires a registered source company')
+    tax_mode='regular' if gstin else 'unregistered'
     tax_codes={r['tax_code_id']:r for r in tables.get('kb_tax_code',[])}
     tax_mapping=defaultdict(list)
     for r in tables.get('kb_tax_mapping',[]): tax_mapping[r['tax_mapping_group_id']].append(r['tax_mapping_code_id'])
@@ -36,14 +37,16 @@ def posting_plan(tables):
             else: errors.append(f'Source {sid}: {issue}')
         try: issued=date.fromisoformat(row['date'])
         except ValueError: errors.append(f'Source {sid}: invalid date');continue
-        if code not in (1,2,3,27,28):continue
-        if any(D(original.get(k)) for k in ('txn_discount_amount','txn_discount_percent','txn_tcs_tax_amount','txn_tds_tax_amount','loyalty_amount')):
+        if code not in (1,2,3,4,24,27,28,65,83):continue
+        if any(D(original.get(k)) for k in ('txn_tcs_tax_amount','txn_tds_tax_amount','loyalty_amount')):
             errors.append(f'Source {sid}: document discount, withholding or loyalty requires a separate adapter')
         if original.get('txn_reverse_charge'):errors.append(f'Source {sid}: reverse charge is unsupported')
         amount=M(row['amount']); party_id=original.get('txn_name_id')
-        if not Decimal(0)<amount<=Decimal('9999999999999.99'):errors.append(f'Source {sid}: document amount outside supported range')
+        discount=M(original.get('txn_discount_amount'))
+        if discount<0:errors.append(f'Source {sid}: negative source discount')
+        if not Decimal(0)<=amount<=Decimal('9999999999999.99'):errors.append(f'Source {sid}: document amount outside supported range')
         if code in (1,2):party_net[party_id]+=amount*(1 if code==1 else -1)
-        if code==3:party_net[party_id]-=amount
+        if code in (3,4):party_net[party_id]+=(amount+discount)*(-1 if code==3 else 1)
         clean=[]; tax_totals=defaultdict(Decimal)
         for line in line_groups[sid]:
             item=masters.get(line.get('item_id'),{});qty=D(line.get('quantity'));tax=M(line.get('lineitem_tax_amount'));base=M(D(line.get('total_amount'))-D(line.get('lineitem_tax_amount')))
@@ -82,14 +85,20 @@ def posting_plan(tables):
             clean[-1]['tax']=str(D(clean[-1]['tax'])+tax-sum((D(line['tax']) for line in clean),Decimal(0)))
         fees=M(row['additional_charges'])
         if fees and code in (1,2):errors.append(f'Source {sid}: financial-document additional charges need tax classification')
-        rounding=amount-taxable-tax-fees if code!=3 else Decimal(0)
+        rounding=amount+discount-taxable-tax-fees if code not in (3,4) else Decimal(0)
         if code!=3 and abs(rounding-M(original.get('txn_round_off_amount'))) > Decimal('.03'):errors.append(f'Source {sid}: rounding residual exceeds source rounding')
-        if code!=3:
-            documents.append({**row,'party_source_id':party_id,'lines':clean,'taxable':str(taxable),'taxes':{k:str(tax_totals.get(k,Decimal(0))) for k in ('cgst','sgst','igst')},
-                'rounding':str(rounding),'fees':str(fees),'original':original})
-        if code in (1,2,3,28):
+        if code not in (3,4):
+            # Names encountered in verified sources; GST portal's state-code table:
+            # https://tutorial.gst.gov.in/downloads/news/monthly_gst_data_for_publishing_dec_2025_final_01jan2026.pdf
+            raw_place=str(original.get('txn_place_of_supply') or '').strip()
+            place={'telangana':'36','karnataka':'29'}.get(raw_place.casefold(),raw_place if len(raw_place)==2 and raw_place.isdigit() else '')
+            if raw_place and not place:errors.append(f'Source {sid}: unrecognized place of supply; explicit state-code mapping required')
+            if not raw_place and tax_totals.get('igst',Decimal(0)):errors.append(f'Source {sid}: missing interstate place of supply requires review')
+            documents.append({**row,'party_source_id':party_id,'place_of_supply':place,'lines':clean,'taxable':str(taxable),'taxes':{k:str(tax_totals.get(k,Decimal(0))) for k in ('cgst','sgst','igst')},
+                'rounding':str(rounding),'fees':str(fees),'discount':str(discount),'original':original})
+        if code in (1,2,3,4,28):
             mappings=payments[sid]
-            if code==3 and len(mappings)!=1:errors.append(f'Source {sid}: standalone receipt needs one supported payment channel')
+            if code in (3,4) and len(mappings)!=1:errors.append(f'Source {sid}: standalone receipt needs one supported payment channel')
             for pay in mappings:
                 channel=channels.get(pay.get('payment_id'),{});value=M(pay.get('amount'))
                 if value==0:continue
@@ -98,25 +107,90 @@ def posting_plan(tables):
                 bank_net[pay.get('payment_id')]+=value*(1 if code in (1,3) else -1)
                 if code in (1,2):party_net[party_id]-=value*(1 if code==1 else -1)
                 allocations=[{'document_source_id':sid,'amount':str(value)}] if code in (1,2) else [{'document_source_id':link['invoice_id'],'amount':link['amount']} for link in audit['payment_links'] if link['payment_id']==sid and not link['issue']]
-                if code==3 and sum((D(a['amount']) for a in allocations),Decimal(0))!=value:errors.append(f'Source {sid}: unapplied standalone receipt needs advance handling')
-                receipts.append({'source_id':sid,'source_payment_mapping_id':pay.get('id'),'kind':'payment_out' if code in (2,28) else 'payment_in','is_advance':code==28,
+                allocated=sum((D(a['amount']) for a in allocations),Decimal(0))
+                if code in (3,4) and allocated>value+discount:errors.append(f'Source {sid}: allocations exceed payment and discount')
+                discount_allocations=[]
+                if code in (3,4) and discount:
+                    if allocated!=value+discount:errors.append(f'Source {sid}: settlement discount must be fully allocated')
+                    remaining=value;cash_allocations=[]
+                    for allocation in allocations:
+                        cash=min(remaining,D(allocation['amount']));remaining-=cash
+                        if cash:cash_allocations.append({**allocation,'amount':str(cash)})
+                        noncash=D(allocation['amount'])-cash
+                        if noncash:discount_allocations.append({**allocation,'amount':str(noncash)})
+                    allocations=cash_allocations;allocated=sum((D(a['amount']) for a in allocations),Decimal(0))
+                payment={'source_id':sid,'source_payment_mapping_id':pay.get('id'),'kind':'payment_out' if code in (2,4,28) else 'payment_in','is_advance':code==28,
                     'party_source_id':party_id,'date':row['date'],'amount':str(value),'channel_id':pay.get('payment_id'),'allocations':allocations,
-                    'standalone':code==3,'reference':row['reference']})
+                    'standalone':code in (3,4),'reference':row['reference']}
+                if code in (3,4) and allocated<value:
+                    if allocated:receipts.append({**payment,'amount':str(allocated)})
+                    receipts.append({**payment,'amount':str(value-allocated),'allocations':[],'is_advance':True})
+                else:receipts.append(payment)
+                if discount_allocations:receipts.append({**payment,'kind':'credit_note' if code==3 else 'debit_note','amount':str(discount),'allocations':discount_allocations,'settlement_discount':True,'is_advance':False})
     # These Vyapar fields hold current balances, not opening balances. Do not post them twice.
     for pid,party in parties.items():
         if party.get('name_type')!=1:continue
         if abs(M(party.get('amount'))-M(party_net[pid]))>Decimal('.01'):errors.append(f'Party {pid}: closing balance implies an unsupported opening/adjustment')
+    # FIFO is independently reconciled to source closing values; never plug a difference.
+    quantity_net=defaultdict(Decimal); value_net=defaultdict(Decimal); lots=defaultdict(list)
+    for doc in sorted(documents,key=lambda d:(d['date'],d['source_id'])):
+        if doc['source_type'] not in (1,2):continue
+        for line in sorted(doc['lines'],key=lambda l:l['source_line_id']):
+            iid=line['source_item_id'];qty=D(line['quantity']);cost=Decimal(0)
+            if doc['source_type']==2:
+                base=D(line['taxable']);remaining=max(Decimal(0),qty+min(quantity_net[iid],Decimal(0)))
+                cost=M(base*remaining/qty) if qty else Decimal(0)
+                lots[iid].append([remaining,cost]);quantity_net[iid]+=qty
+                line['legacy_shortage_cost']=str(base-cost)
+                value_net[iid]+=cost
+            else:
+                remaining=qty
+                for lot in lots[iid]:
+                    if not remaining:break
+                    take=min(lot[0],remaining)
+                    used=lot[1] if take==lot[0] else M(lot[1]*take/lot[0]) if lot[0] else Decimal(0)
+                    lot[0]-=take;lot[1]-=used;remaining-=take;cost+=used
+                quantity_net[iid]-=qty;value_net[iid]-=cost
+            line['inventory_cost']=str(cost)
+    adjustments=[]
+    for adjustment in tables.get('kb_item_adjustments',[]):
+        iid=adjustment.get('item_adj_item_id');item=masters.get(iid,{});qty=D(adjustment.get('item_adj_quantity'))
+        # Narrow, source-verified zero-cost addition/opening adapter. Unknown costs remain blocked.
+        if item.get('item_type')==3 or adjustment.get('item_adj_type') not in (10,11) or qty<=0 or D(adjustment.get('item_adj_atprice')) not in (Decimal(-1),Decimal(0)) or D(item.get('item_purchase_unit_price')) or D(item.get('item_stock_value')) or value_net[iid] or any(d['source_type']==2 and any(l['source_item_id']==iid and D(l['taxable']) for l in d['lines']) for d in documents):
+            errors.append('Stock adjustment '+str(adjustment.get('item_adj_id'))+': unsupported direction or valuation');continue
+        try:issued=date.fromisoformat(str(adjustment.get('item_adj_date'))[:10]).isoformat()
+        except ValueError:errors.append('Stock adjustment has invalid date');continue
+        quantity_net[iid]+=qty
+        adjustments.append({'source_id':adjustment['item_adj_id'],'source_item_id':iid,'date':issued,'quantity':str(qty),'value':'0','kind':'stock_opening' if adjustment['item_adj_type']==10 else 'stock_adjustment','original':adjustment})
+    for tracking in tables.get('kb_item_stock_tracking',[]):
+        if tracking.get('ist_item_id') not in masters or D(tracking.get('ist_opening_quantity')):errors.append('Serialized stock opening or missing item requires review')
+    if adjustments:warnings.append('Explicit source stock additions preserve the source zero valuation; no missing purchase cost is invented')
     stock=[]
     for iid,item in masters.items():
-        if item.get('item_type') not in (None,1):errors.append(f'Item {iid}: unverified item type')
+        if item.get('item_type')==3 and (D(item.get('item_stock_value')) or any(d['source_type']==2 and any(l['source_item_id']==iid and (D(l['taxable']) or D(l['tax'])) for l in d['lines']) for d in documents)):
+            errors.append(f'Item {iid}: purchased service cost requires explicit expense mapping; cannot capitalize untracked service inventory')
+        if item.get('item_type') not in (None,1,3):errors.append(f'Item {iid}: unverified item type')
         if abs(D(item.get('item_stock_quantity'))-quantity_net[iid])>Decimal('.000001'):errors.append(f'Item {iid}: opening/adjustment or unit mapping does not reconcile')
         if abs(M(item.get('item_stock_value'))-M(value_net[iid]))>Decimal('.01'):errors.append(f'Item {iid}: source stock value needs cost reconstruction')
+        if item.get('item_type')==3:continue # Source service activity is preserved in master metadata, not stock.
         stock.append({'source_item_id':iid,'quantity':str(quantity_net[iid]),'value':str(M(value_net[iid]))})
+    from vyapar_financial import financial_events
+    events,financial_errors=financial_events(tables,channels);errors.extend(financial_errors)
+    for event in events:
+        bank_net[event['debit_channel']]+=D(event['amount'])
+        if 'credit_channel' in event:bank_net[event['credit_channel']]-=D(event['amount'])
+    openings=[]
     for cid,channel in channels.items():
-        if D(channel.get('paymentType_opening_balance')):errors.append(f'Payment channel {cid}: nonzero opening is not yet supported')
+        value=M(channel.get('paymentType_opening_balance'))
+        if value:
+            try:opened=date.fromisoformat(str(channel.get('paymentType_opening_date'))[:10]).isoformat()
+            except ValueError:errors.append(f'Payment channel {cid}: invalid opening date');continue
+            if channel.get('paymentType_type') not in ('BANK','CASH'):errors.append(f'Payment channel {cid}: unsupported opening channel');continue
+            openings.append({'channel_id':cid,'date':opened,'amount':str(value)})
+            bank_net[cid]+=value
     if any(D(r.get('opening_balance')) for r in tables.get('other_accounts',[])):errors.append('Nonzero source account openings require mapping')
     if any(D(r['quantity'])<0 for r in stock):warnings.append('Source negative quantities are preserved with their source cost values; no opening stock or missing costs are invented')
-    return {'adapter':'vyapar-verified-five-types-v1','source_company':firm,'documents':documents,'payments':receipts,'stock':stock,
-        'banks':list(channels.values()),'bank_movement':{str(k):str(M(v)) for k,v in bank_net.items()},
+    return {'adapter':'vyapar-source-verified-v2','source_company':firm,'tax_mode':tax_mode,'documents':documents,'payments':receipts,'stock':stock,
+        'financial_events':events,'stock_adjustments':adjustments,'openings':openings,'banks':list(channels.values()),'bank_movement':{str(k):str(M(v)) for k,v in bank_net.items()},
         'source_audit':audit,'errors':list(dict.fromkeys(errors)),'warnings':list(dict.fromkeys(warnings)),
         'totals':audit['totals'],'ready':not errors,'converted_unresolved':[r['source_id'] for r in audit['rows'] if r['converted'] and not r['conversion_destinations']]}

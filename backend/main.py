@@ -445,19 +445,21 @@ class StockAdjustmentInput(BaseModel):
 
 def lock_company(company_id, user, session):
     company = company_for(company_id, user, session)
-    require_write(company, user, session)
     session.execute(select(Company.id).where(Company.id == company_id).with_for_update()).scalar_one()
+    # Recheck access after waiting for the same lock used by membership changes.
+    # A revoked editor must not resume a queued posting with stale authorization.
+    require_write(company, user, session)
     return company
 def require_open_period(company_id, date, session):
     period_lock = session.get(PeriodLock, company_id)
     if period_lock and date <= period_lock.locked_through:
         raise HTTPException(409, 'Date is in a locked accounting period')
 
-KINDS = {'party', 'item', 'sales_invoice', 'estimate', 'proforma', 'payment_in', 'credit_note', 'pos', 'purchase_bill', 'payment_out', 'expense', 'purchase_order', 'debit_note', 'bank_account', 'bank_transfer'}
-DOCUMENTS = {'sales_invoice', 'estimate', 'proforma', 'credit_note', 'pos', 'purchase_bill', 'purchase_order', 'debit_note', 'expense'}
+KINDS = {'party', 'item', 'sales_invoice', 'estimate', 'proforma', 'sales_order', 'payment_in', 'credit_note', 'pos', 'purchase_bill', 'payment_out', 'expense', 'purchase_order', 'debit_note', 'bank_account', 'bank_transfer'}
+DOCUMENTS = {'sales_invoice', 'estimate', 'proforma', 'sales_order', 'credit_note', 'pos', 'purchase_bill', 'purchase_order', 'debit_note', 'expense'}
 POSTED_KINDS = {'sales_invoice', 'pos', 'purchase_bill', 'payment_in', 'payment_out', 'expense', 'credit_note', 'debit_note', 'bank_transfer'}
 NUMBERED_KINDS = DOCUMENTS | {'payment_in', 'payment_out', 'expense', 'bank_transfer'}
-DEFAULT_PREFIXES = {'sales_invoice': 'INV', 'estimate': 'EST', 'proforma': 'PF', 'payment_in': 'PIN', 'credit_note': 'CN', 'pos': 'POS', 'purchase_bill': 'BILL', 'payment_out': 'POUT', 'expense': 'EXP', 'purchase_order': 'PO', 'debit_note': 'DN', 'bank_transfer': 'TRF'}
+DEFAULT_PREFIXES = {'sales_invoice': 'INV', 'estimate': 'EST', 'proforma': 'PF', 'sales_order': 'SO', 'payment_in': 'PIN', 'credit_note': 'CN', 'pos': 'POS', 'purchase_bill': 'BILL', 'payment_out': 'POUT', 'expense': 'EXP', 'purchase_order': 'PO', 'debit_note': 'DN', 'bank_transfer': 'TRF'}
 APPLICATION_KINDS = {'payment_in': 'sales_invoice', 'credit_note': 'sales_invoice', 'payment_out': 'purchase_bill', 'debit_note': 'purchase_bill'}
 SYSTEM_ACCOUNTS = {
     'cash': ('SYS-CASH', 'Cash on hand', 'asset'),
@@ -657,6 +659,8 @@ def calculate(data, company, tax_mode, kind, session):
             taxable += base; tax += line_tax
             supply_values[treatment] += base
             if itc_treatment == 'pending_review': pending_input_tax += line_tax
+            # Valuation is derived from stock movements, never accepted from a client.
+            line = {key: value for key, value in line.items() if key not in {'inventory_cost', 'legacy_shortage_cost'}}
             cleaned.append({**line, 'description': description, 'hsn': hsn, 'gross': str(gross),
                             'discount_percent': str(discount_percent), 'discount': str(discount),'document_discount':str(document_discount_value),
                             'taxable': str(base), 'tax': str(line_tax), 'itc_treatment': itc_treatment,
@@ -664,7 +668,7 @@ def calculate(data, company, tax_mode, kind, session):
     except (ValueError, TypeError, KeyError, ArithmeticError, InvalidOperation): raise HTTPException(422, 'Invalid item details, quantity, rate or GST rate')
     if taxable + tax > Decimal('9999999999999.99'): raise HTTPException(422, 'Document amount exceeds supported range')
     if tax_mode == 'regular' and (not company.state_code or not state): raise HTTPException(422, 'Company state code and place of supply are required for GST')
-    if tax_mode == 'composition' and kind in {'sales_invoice', 'estimate', 'proforma', 'credit_note', 'pos'} and state != company.state_code:
+    if tax_mode == 'composition' and kind in {'sales_invoice', 'estimate', 'proforma', 'sales_order', 'credit_note', 'pos'} and state != company.state_code:
         raise HTTPException(422, 'Composition outward supplies must use the company state')
     if tax_mode == 'regular' and data.get('party_gstin') and kind in {'sales_invoice', 'pos', 'credit_note'} and supply_values['taxable'] > 0 and sum((supply_values[key] for key in ('nil_rated', 'exempt', 'non_gst')), Decimal('0')) > 0:
         raise HTTPException(422, 'Issue separate taxable and non-taxable outward documents in this workflow')
@@ -685,6 +689,7 @@ def calculate(data, company, tax_mode, kind, session):
     total=money(taxable+tax)
     if data.get('round_total') not in (None,False,True):raise HTTPException(422,'Invalid rounding option')
     rounded=total.quantize(Decimal('1'),rounding=ROUND_HALF_UP) if data.get('round_total') else total
+    if rounded > Decimal('9999999999999.99'): raise HTTPException(422, 'Rounded document amount exceeds supported range')
     data={**data,'round_off':str(rounded-total)}
     return data, money(rounded)
 
@@ -1000,7 +1005,7 @@ def list_members(company_id: str, user: User = Depends(current_user), session: S
 
 @app.post('/api/companies/{company_id}/members', status_code=201)
 def add_member(company_id: str, body: MemberInput, user: User = Depends(current_user), session: Session = Depends(db)):
-    company = company_for(company_id, user, session)
+    company = lock_company(company_id, user, session)
     if company.owner_id != user.id: raise HTTPException(403, 'Only the owner can manage members')
     if body.role not in {'editor', 'viewer'}: raise HTTPException(422, 'Role must be editor or viewer')
     invitee = session.scalar(select(User).where(User.email == body.email.strip().lower()))
@@ -1017,7 +1022,7 @@ def add_member(company_id: str, body: MemberInput, user: User = Depends(current_
 
 @app.delete('/api/companies/{company_id}/members/{member_email}')
 def remove_member(company_id: str, member_email: str, user: User = Depends(current_user), session: Session = Depends(db)):
-    company = company_for(company_id, user, session)
+    company = lock_company(company_id, user, session)
     if company.owner_id != user.id: raise HTTPException(403, 'Only the owner can manage members')
     invitee = session.scalar(select(User).where(User.email == member_email.strip().lower()))
     member = session.scalar(select(CompanyMember).where(CompanyMember.company_id == company_id, CompanyMember.user_id == invitee.id)) if invitee else None
@@ -1073,8 +1078,18 @@ def records(company_id: str, kind: str = '', compact:bool=False, offset:int=Quer
             if row.kind not in {'item','party'}:data['lines']=[]
             if isinstance(data.get('document_branding'),dict):data['document_branding']={k:v for k,v in data['document_branding'].items() if k not in {'logo','signature'}}
             value['data']=data
-        result.append({**value,'posted':row.id in posted,'advance_remaining':str(row.amount-consumed.get(row.id,Decimal('0'))) if row.data.get('is_advance') and row.id in posted else None,'credit_remaining':str(Decimal(str(row.data.get('unallocated_credit',0)))-credit_used.get(row.id,Decimal('0'))) if row.kind in {'credit_note','debit_note'} and row.id in posted else None,'converted_to':conversions.get(row.id) or ('source-converted' if row.data.get('vyapar_converted') else None),'outstanding':str(row.amount-applied.get(row.id,Decimal('0'))) if row.kind in {'sales_invoice','purchase_bill','opening_receivable','opening_payable'} and row.id in posted else None})
+        result.append({**value, **record_status(row, row.id in posted,
+            applied=applied.get(row.id, Decimal('0')), consumed=consumed.get(row.id, Decimal('0')),
+            credit_used=credit_used.get(row.id, Decimal('0')), converted_to=conversions.get(row.id))})
     return result
+
+def record_status(row, posted, *, applied=Decimal('0'), consumed=Decimal('0'), credit_used=Decimal('0'), converted_to=None):
+    """Identical fresh lifecycle fields for compact lists and full detail clients."""
+    return {'posted': posted,
+        'advance_remaining': str(row.amount-consumed) if row.data.get('is_advance') and posted else None,
+        'credit_remaining': str(Decimal(str(row.data.get('unallocated_credit',0)))-credit_used) if row.kind in {'credit_note','debit_note'} and posted else None,
+        'converted_to': converted_to or ('source-converted' if row.data.get('vyapar_converted') else None),
+        'outstanding': str(row.amount-applied) if row.kind in {'sales_invoice','purchase_bill','opening_receivable','opening_payable'} and posted else None}
 
 @app.get('/api/companies/{company_id}/records/{record_id}')
 def get_record(company_id:str,record_id:str,user:User=Depends(current_user),session:Session=Depends(db)):
@@ -1083,7 +1098,16 @@ def get_record(company_id:str,record_id:str,user:User=Depends(current_user),sess
     if not row:raise HTTPException(404,'Record not found')
     allocations=[]
     for model in (PaymentAllocation,PaymentSplitAllocation):allocations += [{'document_id':r.document_id,'amount':str(r.amount)} for r in session.scalars(select(model).where(model.company_id==company_id,model.payment_id==row.id))]
-    return {**obj(row),'posted':bool(session.scalar(select(RecordPosting.id).where(RecordPosting.company_id==company_id,RecordPosting.record_id==row.id))),'allocations':allocations}
+    posted_ids = select(RecordPosting.record_id).where(RecordPosting.company_id == company_id)
+    posted = bool(session.scalar(select(RecordPosting.id).where(RecordPosting.company_id==company_id,RecordPosting.record_id==row.id)))
+    settlements = list(session.scalars(select(Record).where(Record.company_id==company_id, Record.id.in_(posted_ids),
+        Record.kind.in_(['advance_application','advance_refund','credit_application','customer_refund','supplier_refund']),
+        or_(Record.data['advance_id'].as_string()==row.id, Record.data['credit_note_id'].as_string()==row.id))))
+    consumed = sum((r.amount for r in settlements if r.data.get('advance_id')==row.id), Decimal('0'))
+    credit_used = sum((r.amount for r in settlements if r.data.get('credit_note_id')==row.id), Decimal('0'))
+    converted_to = session.scalar(select(DocumentConversion.target_record_id).where(DocumentConversion.company_id==company_id, DocumentConversion.source_record_id==row.id))
+    return {**obj(row), **record_status(row, posted, applied=applied_total(company_id,row.id,session),
+        consumed=consumed, credit_used=credit_used, converted_to=converted_to), 'allocations':allocations}
 
 @app.post('/api/companies/{company_id}/advances/{advance_id}/apply')
 def apply_advance(company_id: str, advance_id: str, body: RecordInput, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):
@@ -1299,9 +1323,9 @@ def save_record(company_id, body, request, user, session, *, commit=True):
             existing = session.get(Record, previous.record_id)
             return {**obj(existing), 'posted': bool(session.scalar(select(RecordPosting.id).where(RecordPosting.company_id == company_id, RecordPosting.record_id == existing.id)))}
     data, amount = body.data, money(body.amount)
-    if body.kind in {'payment_in','payment_out'}:
-        data={k:v for k,v in data.items() if k not in {'advance_tax','advance_tax_released','advance_tax_event','advance_taxable','lines','cgst','sgst','igst','taxable','taxable_supply_value','tax_mode','pending_input_cgst','pending_input_sgst','pending_input_igst'}}
-        data.update(cgst='0',sgst='0',igst='0',lines=[],advance_tax_event=False)
+    if body.kind in {'payment_in','payment_out','bank_transfer'}:
+        data={k:v for k,v in data.items() if k not in {'advance_tax','advance_tax_released','advance_tax_event','advance_taxable','lines','cgst','sgst','igst','taxable','taxable_supply_value','tax_mode','pending_input_cgst','pending_input_sgst','pending_input_igst','round_off'}}
+        data.update(cgst='0',sgst='0',igst='0',lines=[],round_off='0',advance_tax_event=False)
     if body.kind in DOCUMENTS|POSTED_KINDS:
         party=session.scalar(select(Record).where(Record.company_id==company_id,Record.kind=='party',func.lower(Record.name)==body.name.strip().lower()))
         if data.get('party_id') and (not party or data['party_id']!=party.id):raise HTTPException(422,'Party identity does not match this company and name')
@@ -1336,6 +1360,12 @@ def save_record(company_id, body, request, user, session, *, commit=True):
     if body.kind in DOCUMENTS and (body.kind != 'expense' or data.get('lines')):
         data, amount = calculate(data, company, tax_mode, body.kind, session)
         data = {**data, 'company_snapshot': company_obj(company, session), 'document_branding': branding_for(company_id, session)}
+    if body.kind == 'expense' and not data.get('lines'):
+        # Amount-only expenses have no reviewed supplier-tax lines. Ignore stale
+        # or forged calculated fields rather than posting unsupported input tax.
+        data = {**data, **{key: '0' for key in ('cgst', 'sgst', 'igst', 'supplier_tax',
+            'pending_input_cgst', 'pending_input_sgst', 'pending_input_igst',
+            'input_tax_ineligible', 'round_off')}, 'lines': [], 'taxable': str(amount)}
     if body.kind == 'pos':
         try: tender = money(data.get('tender_amount',amount))
         except (ValueError,TypeError,InvalidOperation): raise HTTPException(422,'Enter valid cash tendered')
@@ -1360,10 +1390,12 @@ def save_record(company_id, body, request, user, session, *, commit=True):
     source_id = data.get('source_document_id')
     if source_id:
         if not isinstance(source_id, str): raise HTTPException(422, 'Invalid source document')
-        allowed_sources = {'sales_invoice': {'estimate', 'proforma'}, 'purchase_bill': {'purchase_order'}}
+        allowed_sources = {'sales_invoice': {'estimate', 'proforma', 'sales_order'}, 'sales_order': {'estimate', 'proforma'}, 'purchase_bill': {'purchase_order'}}
         if body.kind not in allowed_sources: raise HTTPException(422, 'This document type cannot be converted')
         conversion_source = session.scalar(select(Record).where(Record.company_id == company_id, Record.id == source_id, Record.kind.in_(allowed_sources[body.kind])))
         if not conversion_source: raise HTTPException(422, 'Choose a matching source document in this company')
+        if conversion_source.name.strip().casefold() != body.name.strip().casefold(): raise HTTPException(422, 'Conversion party must match the source document')
+        if body.date < conversion_source.date: raise HTTPException(422, 'Conversion date cannot precede its source document')
         if conversion_source.data.get('vyapar_converted'): raise HTTPException(409, 'This source document was already converted in Vyapar')
         if session.scalar(select(DocumentConversion.id).where(DocumentConversion.company_id == company_id, DocumentConversion.source_record_id == source_id)):
             raise HTTPException(409, 'Source document has already been converted')
@@ -1476,8 +1508,13 @@ def save_record(company_id, body, request, user, session, *, commit=True):
     return {**obj(r), 'posted': body.kind in POSTED_KINDS}
 
 @app.post('/api/companies/{company_id}/stock/opening', status_code=201)
-def post_opening_stock(company_id: str, body: OpeningStockInput, user: User = Depends(current_user), session: Session = Depends(db)):
+def post_opening_stock(company_id: str, body: OpeningStockInput, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):
     lock_company(company_id, user, session)
+    retry_key = request.headers.get('Idempotency-Key', '').strip()
+    if retry_key:
+        from workflow_extensions import retry
+        retry_key, request_digest, previous = retry(sys.modules[__name__], company_id, body, request, session, 'stock-opening')
+        if previous: return previous
     require_open_period(company_id, body.date, session)
     item = session.scalar(select(Record).where(Record.company_id == company_id,
         Record.id == body.item_id, Record.kind == 'item'))
@@ -1509,6 +1546,8 @@ def post_opening_stock(company_id: str, body: OpeningStockInput, user: User = De
         audit(session, company_id, user, 'stock.opening_posted', 'item', item.id,
               {'quantity': str(body.quantity), 'value': str(amount), 'record_id': record.id})
         if hasattr(sys.modules[__name__], 'commerce_stock_changed'): commerce_stock_changed(company_id, session)
+        if retry_key:
+            session.add(IdempotencyKey(company_id=company_id, key=retry_key, request_hash=request_digest, record_id=record.id))
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -1516,8 +1555,13 @@ def post_opening_stock(company_id: str, body: OpeningStockInput, user: User = De
     return {**obj(record), 'posted': True}
 
 @app.post('/api/companies/{company_id}/stock/adjustments', status_code=201)
-def post_stock_adjustment(company_id: str, body: StockAdjustmentInput, user: User = Depends(current_user), session: Session = Depends(db)):
+def post_stock_adjustment(company_id: str, body: StockAdjustmentInput, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):
     lock_company(company_id, user, session)
+    retry_key = request.headers.get('Idempotency-Key', '').strip()
+    if retry_key:
+        from workflow_extensions import retry
+        retry_key, request_digest, previous = retry(sys.modules[__name__], company_id, body, request, session, 'stock-adjustment')
+        if previous: return previous
     require_open_period(company_id, body.date, session)
     if body.direction not in {'increase', 'decrease'} or not body.reason.strip():
         raise HTTPException(422, 'Choose an adjustment direction and provide a reason')
@@ -1576,6 +1620,8 @@ def post_stock_adjustment(company_id: str, body: StockAdjustmentInput, user: Use
               {'direction': body.direction, 'quantity': str(body.quantity),
                'value': str(amount), 'record_id': record.id})
         if hasattr(sys.modules[__name__], 'commerce_stock_changed'): commerce_stock_changed(company_id, session)
+        if retry_key:
+            session.add(IdempotencyKey(company_id=company_id, key=retry_key, request_hash=request_digest, record_id=record.id))
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -2503,7 +2549,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
         supplier = data.get('company_snapshot') or company_obj(session.get(Company, company_id), session)
         mode = data.get('tax_mode', supplier.get('tax_mode', 'regular'))
         bill = mode == 'composition' or mode == 'regular' and data.get('document_tax_form') == 'bill_of_supply'
-        title = {'sales_invoice': 'Bill of Supply' if bill else 'Invoice-cum-Bill of Supply' if data.get('document_tax_form') == 'invoice_cum_bill' else 'Tax Invoice' if mode == 'regular' else 'Invoice', 'purchase_bill': 'Purchase Bill', 'estimate': 'Quotation', 'proforma': 'Proforma Invoice', 'credit_note': 'Credit Note', 'debit_note': 'Debit Note', 'purchase_order': 'Purchase Order', 'expense':'Expense Voucher','payment_in':'Receipt Voucher','payment_out':'Payment Voucher','customer_refund':'Customer Refund Voucher','supplier_refund':'Supplier Refund Receipt','advance_refund':'Advance Refund Voucher', 'pos': 'Bill of Supply Receipt' if bill else 'POS Receipt'}[record.kind]
+        title = {'sales_invoice': 'Bill of Supply' if bill else 'Invoice-cum-Bill of Supply' if data.get('document_tax_form') == 'invoice_cum_bill' else 'Tax Invoice' if mode == 'regular' else 'Invoice', 'purchase_bill': 'Purchase Bill', 'estimate': 'Quotation', 'proforma': 'Proforma Invoice', 'sales_order': 'Sales Order', 'credit_note': 'Credit Note', 'debit_note': 'Debit Note', 'purchase_order': 'Purchase Order', 'expense':'Expense Voucher','payment_in':'Receipt Voucher','payment_out':'Payment Voucher','customer_refund':'Customer Refund Voucher','supplier_refund':'Supplier Refund Receipt','advance_refund':'Advance Refund Voucher', 'pos': 'Bill of Supply Receipt' if bill else 'POS Receipt'}[record.kind]
         paid = applied_total(company_id, record.id, session) if record.kind in {'sales_invoice', 'purchase_bill'} else record.amount if record.kind == 'pos' or voucher else Decimal('0')
         paid = record.amount - available_credit(sys.modules[__name__],company_id,record,session) if record.kind in {'credit_note','debit_note'} else record.amount if record.kind=='expense' else paid
         branding={**(data.get('document_branding') or {}),**{k:data[k] for k in ('notes','terms') if data.get(k)}}
@@ -2523,7 +2569,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
         from html import escape
         return escape(str(value or ''))
     bill_of_supply = tax_mode == 'composition' or tax_mode == 'regular' and data.get('document_tax_form') == 'bill_of_supply'
-    title = {'sales_invoice': 'Bill of Supply' if bill_of_supply else 'Invoice-cum-Bill of Supply' if data.get('document_tax_form') == 'invoice_cum_bill' else 'Tax Invoice' if tax_mode == 'regular' else 'Invoice', 'purchase_bill': 'Purchase Bill', 'estimate': 'Estimate', 'proforma': 'Proforma Invoice', 'credit_note': 'Credit Note', 'debit_note': 'Debit Note', 'purchase_order': 'Purchase Order', 'expense':'Expense Voucher','payment_in':'Receipt Voucher','payment_out':'Payment Voucher','customer_refund':'Customer Refund Voucher','supplier_refund':'Supplier Refund Receipt','advance_refund':'Advance Refund Voucher', 'pos': 'Bill of Supply Receipt' if bill_of_supply else 'POS Receipt'}[record.kind]
+    title = {'sales_invoice': 'Bill of Supply' if bill_of_supply else 'Invoice-cum-Bill of Supply' if data.get('document_tax_form') == 'invoice_cum_bill' else 'Tax Invoice' if tax_mode == 'regular' else 'Invoice', 'purchase_bill': 'Purchase Bill', 'estimate': 'Estimate', 'proforma': 'Proforma Invoice', 'sales_order': 'Sales Order', 'credit_note': 'Credit Note', 'debit_note': 'Debit Note', 'purchase_order': 'Purchase Order', 'expense':'Expense Voucher','payment_in':'Receipt Voucher','payment_out':'Payment Voucher','customer_refund':'Customer Refund Voucher','supplier_refund':'Supplier Refund Receipt','advance_refund':'Advance Refund Voucher', 'pos': 'Bill of Supply Receipt' if bill_of_supply else 'POS Receipt'}[record.kind]
     out = io.BytesIO()
     pdf = SimpleDocTemplate(out, pagesize=A4, leftMargin=40, rightMargin=40, topMargin=40, bottomMargin=40, title=title)
     styles = getSampleStyleSheet()

@@ -102,6 +102,7 @@ export default function WorkspaceHeader({
     ["payment_in", "Payment in", Wallet],
     ["payment_out", "Payment out", Wallet],
     ["estimate", "Estimate", FileText],
+    ["sales_order", "Sales order", FileText],
     ["proforma", "Proforma invoice", FileText],
     ["expense", "Expense", ShoppingBag],
     ["purchase_order", "Purchase order", ShoppingBag],

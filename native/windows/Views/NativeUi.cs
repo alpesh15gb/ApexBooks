@@ -9,6 +9,15 @@ namespace ApexBooks_Windows.Views;
 
 public static class NativeUi
 {
+    public static void SetFormEnabled(Panel panel,bool enabled)
+    {
+        foreach(var child in panel.Children)
+        {
+            if(child is Control control)control.IsEnabled=enabled;
+            else if(child is Panel nested)SetFormEnabled(nested,enabled);
+        }
+    }
+
     private sealed class DialogContext(ContentDialog dialog, InfoBar error, Func<bool>? canSave = null)
     {
         public ContentDialog Dialog { get; } = dialog;

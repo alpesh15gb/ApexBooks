@@ -1,3 +1,4 @@
+import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import React, { useState } from "react";
 import { downloadBlob } from "./downloadBlob.js";
 
@@ -39,7 +40,8 @@ export default function Advances({
     bank_account_id: "default",
   });
   const [key, setKey] = useState(() => crypto.randomUUID());
-  const [busy, setBusy] = useState(false);
+  const posting = usePostingRequest();
+  const { busy, pending } = posting;
   const [error, setError] = useState("");
   const [asOf, setAsOf] = useState(today);
   async function download(fmt) {
@@ -80,10 +82,10 @@ export default function Advances({
   async function submit(event) {
     event.preventDefault();
     if (busy) return;
-    setBusy(true);
     setError("");
     try {
-      await api(`/companies/${companyId}/advances/${selected}/${form.action}`, {
+      const path = `/companies/${companyId}/advances/${selected}/${form.action}`;
+      const options = {
         method: "POST",
         headers: { "Idempotency-Key": key },
         body: JSON.stringify({
@@ -97,7 +99,8 @@ export default function Advances({
             bank_account_id: form.bank_account_id,
           },
         }),
-      });
+      };
+      if (!await posting.run(() => api(path, options))) return;
       await refresh();
       setForm({
         date: today(),
@@ -110,8 +113,6 @@ export default function Advances({
       setKey(crypto.randomUUID());
     } catch (reason) {
       setError(reason.message);
-    } finally {
-      setBusy(false);
     }
   }
   if (!advances.length) return null;
@@ -151,6 +152,7 @@ export default function Advances({
           </button>
         </div>
       </div>
+      {pending && !busy && <p className="info-box" role="status">{pendingPostingMessage}</p>}
       {error && (
         <div className="error" role="alert">
           {error}
@@ -160,7 +162,7 @@ export default function Advances({
         Advance payment
         <select
           className="form-select"
-          disabled={busy}
+          disabled={busy || pending}
           value={selected}
           onChange={(event) => {
             setSelected(event.target.value);
@@ -193,6 +195,7 @@ export default function Advances({
           ))}
           {canWrite && Number(advance.advance_remaining) > 0 && (
             <form className="form-grid" onSubmit={submit}>
+              <fieldset className="form-grid full submission-fields" disabled={busy || pending}>
               <label>
                 Date
                 <input
@@ -200,7 +203,7 @@ export default function Advances({
                   required
                   min={advance.date}
                   value={form.date}
-                  disabled={busy}
+                  disabled={busy || pending}
                   onChange={(event) => change({ date: event.target.value })}
                 />
               </label>
@@ -225,7 +228,7 @@ export default function Advances({
                     className="form-select"
                     required
                     value={form.target}
-                    disabled={busy}
+                    disabled={busy || pending}
                     onChange={(event) => change({ target: event.target.value })}
                   >
                     <option value="">Choose document</option>
@@ -287,11 +290,12 @@ export default function Advances({
                     ),
                   )}
                   required
-                  disabled={busy}
+                  disabled={busy || pending}
                   value={form.amount}
                   onChange={(event) => change({ amount: event.target.value })}
                 />
               </label>
+              </fieldset>
               <button
                 className="button primary"
                 disabled={busy || (form.action === "apply" && !targets.length)}

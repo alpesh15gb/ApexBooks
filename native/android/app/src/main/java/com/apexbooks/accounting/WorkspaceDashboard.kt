@@ -63,6 +63,19 @@ import java.time.format.DateTimeFormatter
                 for((key,label)in listOf("year" to "Financial year","month" to "This month","30days" to "30 days"))FilterChip(selected=period==key,onClick={period=key},label={Text(label)})
             }
         }}
+        if(vm.records.none{it.optBoolean("posted")})item{Section("Start your books"){
+            Text("Create your first invoice or purchase. Customers and items can be added now or entered while billing.")
+            if(vm.canWrite){
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Button(onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f)){Text("First invoice")};OutlinedButton(onClick={vm.add("purchase_bill")},modifier=Modifier.weight(1f)){Text("First purchase")}}
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){TextButton(onClick={vm.add("party")}){Text("Add party · optional")};TextButton(onClick={vm.add("item")}){Text("Add item · optional")}}
+            }else Text("You have read-only access. Ask the owner to add records or invite you as an editor.",style=MaterialTheme.typography.bodySmall)
+        }}
+        val overdue=invoices.filter{it.decimal("outstanding").signum()>0&&it.o("data").s("due_date").isNotBlank()&&it.o("data").s("due_date")<today()}.sortedBy{it.o("data").s("due_date")}
+        if(overdue.isNotEmpty())item{Section("Needs attention · ${overdue.size} overdue"){
+            Text("Open an invoice to record a receipt or review the balance.",style=MaterialTheme.typography.bodySmall)
+            overdue.take(3).forEach{row->TextButton(onClick={vm.detail=row},modifier=Modifier.fillMaxWidth()){Text("${row.s("number")} · ${row.s("name")} · ${money(row.s("outstanding"))} due")}}
+            if(overdue.size>3)TextButton(onClick={vm.navigate("sales_invoice")}){Text("View all sales invoices →")}
+        }}
         item{Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF145FC4),Color(0xFF3083E8))),RoundedCornerShape(24.dp)).padding(20.dp)){
             Column(verticalArrangement=Arrangement.spacedBy(12.dp)){
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("Net sales",color=Color(0xFFDDEBFF),style=MaterialTheme.typography.labelLarge,fontWeight=FontWeight.Medium);Icon(Icons.Outlined.TrendingUp,null,tint=Color(0xFFBFE5FF))}

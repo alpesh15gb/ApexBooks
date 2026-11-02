@@ -1,3 +1,4 @@
+import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import React, { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 
@@ -10,7 +11,9 @@ export default function CashTransfer({ companyId, onSaved, role, banks = [], pre
   const [bankAccountId, setBankAccountId] = useState("default");
   const [toBankId, setToBankId] = useState("default");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const posting = usePostingRequest();
+  const { busy, pending } = posting;
+  const requestClose = () => { if (!busy && !pending) setOpen(false); };
   const [submissionKey, setSubmissionKey] = useState(() => crypto.randomUUID());
   useEffect(() => {
     setOpen(false);
@@ -22,10 +25,10 @@ export default function CashTransfer({ companyId, onSaved, role, banks = [], pre
   async function submit(event) {
     event.preventDefault();
     if (busy) return;
-    setBusy(true);
     setError("");
     try {
-      const response = await fetch(`/api/companies/${companyId}/records`, {
+      const path = `/api/companies/${companyId}/records`;
+      const options = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -43,28 +46,29 @@ export default function CashTransfer({ companyId, onSaved, role, banks = [], pre
             to_bank_account_id: toBankId,
           },
         }),
-      });
+      };
+      if (!await posting.run(async () => {
+      const response = await fetch(path, options);
       const data = await response.json();
       if (!response.ok)
-        throw Error(
+        throw Object.assign(new Error(
           typeof data.detail === "string"
             ? data.detail
             : "Could not record transfer",
-        );
+        ), { status: response.status });
+      })) return;
       setOpen(false);
       setAmount("");
       onSaved();
     } catch (err) {
       setError(err.message);
-    } finally {
-      setBusy(false);
     }
   }
   return (
     <>
       <button
         className="button secondary cash-transfer-button"
-        disabled={!companyId || role === "viewer"}
+        disabled={busy || pending || !companyId || !["owner", "editor"].includes(role)}
         onClick={() => {
           setSubmissionKey(crypto.randomUUID());
           setBankAccountId(preferredBankId);
@@ -77,7 +81,7 @@ export default function CashTransfer({ companyId, onSaved, role, banks = [], pre
         <div
           className="overlay"
           onMouseDown={(event) =>
-            event.target === event.currentTarget && setOpen(false)
+            event.target === event.currentTarget && requestClose()
           }
         >
           <div
@@ -97,12 +101,14 @@ export default function CashTransfer({ companyId, onSaved, role, banks = [], pre
               <button
                 className="icon-button"
                 aria-label="Close"
-                onClick={() => setOpen(false)}
+                onClick={requestClose}
+                  disabled={busy || pending}
               >
                 <X size={18} />
               </button>
             </div>
             <form className="form-grid" onSubmit={submit}>
+              <fieldset className="form-grid full submission-fields" disabled={busy || pending}>
               <label className="full">
                 Direction
                 <select
@@ -194,12 +200,15 @@ export default function CashTransfer({ companyId, onSaved, role, banks = [], pre
                   onChange={(event) => setAmount(event.target.value)}
                 />
               </label>
+              </fieldset>
+              {pending && !busy && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
               {error && <div className="error full">{error}</div>}
               <div className="modal-actions full">
                 <button
                   type="button"
                   className="button secondary"
-                  onClick={() => setOpen(false)}
+                  onClick={requestClose}
+                  disabled={busy || pending}
                 >
                   Cancel
                 </button>

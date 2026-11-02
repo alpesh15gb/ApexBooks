@@ -27,7 +27,7 @@ class LineState(initial:JSONObject=JSONObject(),regular:Boolean=false,val import
 class AllocationState(id:String="",amount:String="") { var documentId by mutableStateOf(id);var amount by mutableStateOf(amount) }
 
 class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,val conversion:JSONObject?=null) {
-    val companyId=vm.companyId;val regular=vm.regular
+    val companyId=vm.companyId;val workspaceStamp=vm.workspaceStamp();val regular=vm.regular
     val fields=mutableStateMapOf<String,String>()
     val lines=mutableStateListOf<LineState>()
     val allocations=mutableStateListOf<AllocationState>()
@@ -39,9 +39,11 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     private var sourceSequence=0
     var retryKey=vm.key();private set
     private var initialSignature=""
+    val submission=RetrySubmission()
+    var retryPending by mutableStateOf(false);private set
     val canSaveAndNew get()=document&&previous==null&&conversion==null
     fun changed()=body().toString()!=initialSignature
-    fun renewRetryKey(){retryKey=vm.key()}
+    fun renewRetryKey(){retryKey=vm.key();submission.succeeded();retryPending=false}
     init {
         val source=previous?:conversion?:JSONObject();val data=source.o("data")
         for(key in listOf("party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","supplier_state","due_date","notes","terms","category","payment_account","bank_account_id","applied_to","advance_supply","advance_gst_rate","document_discount_percent","tender_amount","gstin","address","phone","email","party_type","hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))fields[key]=data.s(key)
@@ -90,6 +92,26 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         if(previous!=null)values.put("version",previous.o("data").optInt("version"));if(conversion!=null)values.put("source_document_id",conversion.s("id"))
         return JSONObject().put("kind",kind).put("name",get("name")).put("number",get("number")).put("date",get("date")).put("amount",if(document||master)"0"else get("amount")).put("data",values)
     }
-    fun save(keepOpen:Boolean=false){if(saving||scanning||sourceLoading)return;saving=true;vm.task{try{if(get("name").isBlank())throw Exception("Enter a party or description.");if(payment&&!flag("is_advance")&&(allocations.isEmpty()||allocations.any{it.documentId.isBlank()}))throw Exception("Allocate the payment or record an advance.");val body=body();if(master&&previous!=null){val flat=copy(body.o("data")).put("name",get("name"));vm.api.request(vm.api.company(companyId,"/masters/${previous.s("id")}"),"PUT",flat)}else vm.api.saveRecord(companyId,body,retryKey,previous);if(vm.editor===this)vm.editor=if(keepOpen&&canSaveAndNew)EntryEditor(vm,kind)else null;if(vm.companyId==companyId)vm.refresh();vm.notice=if(keepOpen&&canSaveAndNew)"Saved. Ready for the next document."else"Saved successfully."}finally{saving=false}}}
+    fun save(keepOpen:Boolean=false){
+        if(saving||scanning||sourceLoading||!vm.inWorkspace(companyId,workspaceStamp))return
+        saving=true
+        vm.task{try{
+            if(!retryPending){
+                if(get("name").isBlank())throw Exception("Enter a party or description.")
+                if(payment&&!flag("is_advance")&&(allocations.isEmpty()||allocations.any{it.documentId.isBlank()}))throw Exception("Allocate the payment or record an advance.")
+            }
+            val body=submission.body(body())
+            try {
+                if(master&&previous!=null){val flat=copy(body.o("data")).put("name",body.s("name"));vm.api.request(vm.api.company(companyId,"/masters/${previous.s("id")}"),"PUT",flat)}
+                else vm.api.saveRecord(companyId,body,retryKey,previous)
+                submission.succeeded();retryPending=false
+            }catch(e:Exception){submission.failed(e);retryPending=submission.unresolved;throw e}
+            if(!vm.inWorkspace(companyId,workspaceStamp))return@task
+            if(vm.editor===this)vm.editor=if(keepOpen&&canSaveAndNew)EntryEditor(vm,kind)else null
+            // Saving succeeded even if the subsequent list refresh fails. Never resubmit it.
+            vm.notice=if(keepOpen&&canSaveAndNew)"Saved. Ready for the next document."else"Saved successfully."
+            vm.refresh()
+        }finally{saving=false}}
+    }
     fun scan(uri:android.net.Uri){if(scanning)return;scanning=true;vm.task{try{val image=vm.files.image(uri,3000,2_700_000);val result=vm.api.request(vm.api.company(companyId,"/ocr/purchase-draft"),"POST",JSONObject().put("image_data_url",image)) as JSONObject;if(vm.editor!==this)return@task;val draft=result.o("draft");for((target,source)in mapOf("name" to "supplier_name","party_gstin" to "supplier_gstin","party_address" to "supplier_address","number" to "invoice_number"))set(target,draft.s(source));set("date",draft.s("invoice_date").ifBlank{today()});set("place_of_supply",draft.s("place_of_supply").ifBlank{vm.company.s("state_code")});set("supplier_state",get("party_gstin").take(2).ifBlank{vm.company.s("state_code")});for(key in listOf("party_id","party_phone","shipping_address","due_date"))set(key,"");set("document_discount_percent","0");set("round_total","false");lines.clear();draft.a("items").objects().forEach{item->lines.add(LineState(JSONObject().put("description",item.s("description")).put("quantity",item.s("quantity").ifBlank{"1"}).put("rate",item.s("rate")).put("gst_rate",item.s("gst_rate")).put("hsn",item.s("hsn")),regular,importedFromOcr=true))};ocrTotal=draft.s("total");vm.notice="OCR prepared a draft. Review every field and link stock items before saving."}finally{scanning=false}}}
 }

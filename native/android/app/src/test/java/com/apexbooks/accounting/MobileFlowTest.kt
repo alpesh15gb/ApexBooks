@@ -5,7 +5,7 @@ import org.junit.Test
 
 class MobileFlowTest {
     @Test fun allTransactionKindsHaveStableNavigationAndCreationGroups() {
-        val expected = setOf("sales_invoice", "estimate", "proforma", "payment_in", "credit_note", "pos", "purchase_bill", "payment_out", "expense", "purchase_order", "debit_note")
+        val expected = setOf("sales_invoice", "estimate", "proforma", "sales_order", "payment_in", "credit_note", "pos", "purchase_bill", "payment_out", "expense", "purchase_order", "debit_note")
         assertEquals(expected, MobileNavigation.transactions.toSet())
         expected.forEach { assertEquals("transactions", MobileNavigation.tab(it)); assertTrue(MobileNavigation.group(it).contains(it)) }
         listOf("bank", "ledger", "item", "settings", "commerce").forEach { assertEquals("more", MobileNavigation.tab(it)) }

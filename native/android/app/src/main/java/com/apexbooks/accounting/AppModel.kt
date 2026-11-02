@@ -20,8 +20,8 @@ class AppModel(application:Application):AndroidViewModel(application) {
     private val catalog=JSONObject(application.assets.open("features.json").bufferedReader().use{it.readText()})
     val navigation=catalog.a("navigation").objects().map{Feature(it.s("key"),it.s("title"),it.s("group"))}
     val reports=catalog.a("reports").objects().map{Feature(it.s("key"),it.s("title"),it.s("group"),it.s("path").substringBefore("?as_of="),it.s("description"))}
-    val documentKinds=setOf("sales_invoice","purchase_bill","estimate","proforma","purchase_order","credit_note","debit_note","expense","pos")
-    val draftKinds=setOf("estimate","proforma","purchase_order")
+    val documentKinds=setOf("sales_invoice","purchase_bill","estimate","proforma","sales_order","purchase_order","credit_note","debit_note","expense","pos")
+    val draftKinds=setOf("estimate","proforma","sales_order","purchase_order")
     var signedIn by mutableStateOf(false);private set
     var companies by mutableStateOf(emptyList<JSONObject>());private set
     var company by mutableStateOf(JSONObject());private set
@@ -41,9 +41,14 @@ class AppModel(application:Application):AndroidViewModel(application) {
     var tool by mutableStateOf("")
     var toolData by mutableStateOf<JSONObject?>(null)
     private val posDrafts=mutableMapOf<String,EntryEditor>()
+    val heldSaleCount get()=posDrafts.values.count{it.lines.isNotEmpty()||it.submission.unresolved}
     fun saleDraft():EntryEditor=posDrafts.getOrPut(companyId){EntryEditor(this,"pos").also{it.lines.clear();it.set("name","Walk-in customer")}}
     val files=NativeFiles(application){error=it}
     private var generation=0
+    private var companyLoads=0
+    private var refreshSequence=0
+    fun workspaceStamp()=generation
+    fun inWorkspace(id:String,stamp:Int)=signedIn&&companyId==id&&generation==stamp
     val companyId get()=company.s("id")
     val canWrite get()=company.s("role") in setOf("owner","editor")
     val isOwner get()=company.s("role")=="owner"
@@ -53,15 +58,15 @@ class AppModel(application:Application):AndroidViewModel(application) {
     fun failure(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;notice="";error=e.message?:"The operation could not be completed.";if(e is ApiFailure&&e.status==401&&!api.signedIn)endLocalSession()}
     fun task(action:suspend()->Unit){viewModelScope.launch{busy++;error="";notice="";try{action()}catch(e:Exception){failure(e)}finally{busy--}}}
     suspend fun login(email:String,password:String,remember:Boolean){api.login(email,password,remember);signedIn=true;loadCompanies()}
-    suspend fun loadCompanies(preferred:String=companyId){companies=(api.request("/api/companies") as JSONArray).objects();val selected=companies.find{it.s("id")==preferred}?:companies.firstOrNull();if(selected!=null)chooseCompany(selected)else{company=JSONObject();companyForm=true;companyEdit=false}}
-    suspend fun chooseCompany(selected:JSONObject){val stamp=++generation;company=selected;companyForm=false;tool="";records=emptyList();banks=emptyList();editor=null;detail=null;pdf=null;statement=null;coroutineScope{val rows=async{api.records(selected.s("id"))};val accounts=async{(api.request(api.company(selected.s("id"),"/bank-accounts")) as JSONArray).objects()};val loaded=rows.await();val loadedBanks=accounts.await();if(stamp==generation){records=loaded;banks=loadedBanks;revision++}}}
-    suspend fun refresh(){val id=companyId;val stamp=generation;coroutineScope{val rows=async{api.records(id)};val accounts=async{(api.request(api.company(id,"/bank-accounts")) as JSONArray).objects()};val loaded=rows.await();val loadedBanks=accounts.await();if(stamp==generation){records=loaded;banks=loadedBanks;revision++}}}
+    suspend fun loadCompanies(preferred:String=companyId){val stamp=generation;val request=++companyLoads;val loaded=(api.request("/api/companies") as JSONArray).objects();if(!signedIn||stamp!=generation||request!=companyLoads)return;companies=loaded;val selected=companies.find{it.s("id")==preferred}?:companies.firstOrNull();if(selected!=null)chooseCompany(selected)else{generation++;refreshSequence++;company=JSONObject();records=emptyList();banks=emptyList();editor=null;detail=null;pdf=null;statement=null;tool="";toolData=null;posDrafts.clear();companyForm=true;companyEdit=false}}
+    suspend fun chooseCompany(selected:JSONObject){val stamp=++generation;val request=++refreshSequence;company=selected;companyForm=false;tool="";toolData=null;records=emptyList();banks=emptyList();editor=null;detail=null;pdf=null;statement=null;coroutineScope{val rows=async{api.records(selected.s("id"))};val accounts=async{(api.request(api.company(selected.s("id"),"/bank-accounts")) as JSONArray).objects()};val loaded=rows.await();val loadedBanks=accounts.await();if(stamp==generation&&request==refreshSequence){records=loaded;banks=loadedBanks;revision++}}}
+    suspend fun refresh(){val id=companyId;if(id.isBlank()||!signedIn)return;val stamp=generation;val request=++refreshSequence;coroutineScope{val rows=async{api.records(id)};val accounts=async{(api.request(api.company(id,"/bank-accounts")) as JSONArray).objects()};val loaded=rows.await();val loadedBanks=accounts.await();if(stamp==generation&&request==refreshSequence){records=loaded;banks=loadedBanks;revision++}}}
     fun navigate(key:String){page=key;error="";notice=""}
-    fun endLocalSession(){api.forget();signedIn=false;company=JSONObject();companies=emptyList();records=emptyList();banks=emptyList();editor=null;detail=null;statement=null;pdf=null;tool="";toolData=null;posDrafts.clear();companyForm=false;generation++}
+    fun endLocalSession(){api.forget();signedIn=false;company=JSONObject();companies=emptyList();records=emptyList();banks=emptyList();editor=null;detail=null;statement=null;pdf=null;tool="";toolData=null;posDrafts.clear();companyForm=false;page="dashboard";error="";notice="";generation++;companyLoads++;refreshSequence++}
     suspend fun logout(){try{api.logout()}finally{endLocalSession()}}
     fun add(kind:String){editor=EntryEditor(this,kind)}
     fun edit(row:JSONObject){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));if(stamp==generation)editor=EntryEditor(this,full.s("kind"),previous=full)}}
-    fun convert(row:JSONObject){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));if(stamp==generation)editor=EntryEditor(this,if(full.s("kind")=="purchase_order")"purchase_bill" else "sales_invoice",conversion=full)}}
+    fun convert(row:JSONObject,targetKind:String?=null){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));if(stamp==generation)editor=EntryEditor(this,targetKind?:if(full.s("kind")=="purchase_order")"purchase_bill" else "sales_invoice",conversion=full)}}
     fun documentPdf(row:JSONObject,template:String=""){val id=companyId;val stamp=generation;task{val bytes=api.bytes(api.company(id,"/documents/${encode(row.s("id"))}.pdf")+if(template.isBlank())"" else "?template=${encode(template)}");if(id==companyId&&stamp==generation)pdf=PdfView(bytes,"${friendly(row.s("kind"))} ${row.s("number")}.pdf",row)}}
     fun key()=UUID.randomUUID().toString()
 }

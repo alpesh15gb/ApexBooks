@@ -19,6 +19,15 @@ using var api=new ApexApi("https://apex-native-client-regression.invalid",transp
 var expired=0;api.SessionExpired+=()=>expired++;
 void Check(bool condition,string name){if(!condition)throw new Exception(name);Console.WriteLine("PASS "+name);}
 async Task Expect401(Task task){try{await task;throw new Exception("Expected unauthorized response");}catch(ApiFailure e)when(e.Status==401){}}
+var submission = new RetrySubmission();
+var original = new JsonObject { ["amount"] = "100" };
+submission.Body(original); original["amount"] = "200";
+submission.Failed(new ApiFailure(0,"timeout"));
+Check(submission.Unresolved && submission.Body(original).Text("amount")=="100", "uncertain write retries original payload after edits");
+submission.Failed(new ApiFailure(422,"invalid"));
+Check(!submission.Unresolved && submission.Body(original).Text("amount")=="200", "definitive validation permits correction");
+submission.Succeeded();
+Check(!submission.Unresolved,"successful write clears pending payload");
 await api.Login("synthetic-qa@example.invalid","test-only-password",false);
 var old=api.Send("/api/slow-records");await transport.RecordsEntered.Task;
 await api.Login("synthetic-qa@example.invalid","test-only-password",false);
@@ -34,13 +43,24 @@ Check(api.SignedIn&&expired==0,"old PDF response cannot end a newer login");
 await Expect401(api.Send("/api/expired"));
 Check(!api.SignedIn&&expired==1,"current expired session ends exactly once");
 
+transport.DelayLogin=true;
+var cancelledLogin=api.Login("synthetic-qa@example.invalid","test-only-password",false);
+await transport.LoginEntered.Task;
+api.ForgetSession();
+transport.ReleaseLogin.SetResult(true);
+try{await cancelledLogin;throw new Exception("Expected cancelled login");}catch(OperationCanceledException){}
+Check(!api.SignedIn,"signout invalidates an in-flight login response");
+
 sealed class DelayedTransport:HttpMessageHandler
 {
     public TaskCompletionSource<bool> RecordsEntered=new(TaskCreationOptions.RunContinuationsAsynchronously),ReleaseRecords=new(TaskCreationOptions.RunContinuationsAsynchronously),PdfEntered=new(TaskCreationOptions.RunContinuationsAsynchronously),ReleasePdf=new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public bool DelayLogin;
+    public TaskCompletionSource<bool> LoginEntered=new(TaskCreationOptions.RunContinuationsAsynchronously),ReleaseLogin=new(TaskCreationOptions.RunContinuationsAsynchronously);
     public string? RecordToken;private int logins;
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation)
     {
         var path=request.RequestUri!.AbsolutePath;
+        if(path=="/api/auth/login"&&DelayLogin){LoginEntered.SetResult(true);await ReleaseLogin.Task.WaitAsync(cancellation);}
         if(path=="/api/auth/login")return new(HttpStatusCode.OK){Content=new StringContent("{\"token\":\"test-session-"+Interlocked.Increment(ref logins)+"\"}",Encoding.UTF8,"application/json")};
         if(path=="/api/slow-records"){RecordToken=request.Headers.Authorization?.Parameter;RecordsEntered.SetResult(true);await ReleaseRecords.Task.WaitAsync(cancellation);}
         if(path=="/api/slow-document.pdf"){PdfEntered.SetResult(true);await ReleasePdf.Task.WaitAsync(cancellation);}

@@ -1,0 +1,128 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { build } from 'esbuild';
+import { JSDOM } from 'jsdom';
+import { act } from 'react';
+
+async function workspace(role, verify) {
+  const temporary = await mkdtemp(resolve('node_modules/.workspace-tests-'));
+  const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' });
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage, MutationObserver: dom.window.MutationObserver, requestAnimationFrame: cb => setTimeout(cb, 0), ResizeObserver: class { observe() {} disconnect() {} }, IS_REACT_ACT_ENVIRONMENT: true });
+  window.scrollTo = () => {};
+  localStorage.token = 'synthetic-token';
+  const company = { id: 'company', name: 'Synthetic company', state_code: '27', tax_mode: 'unregistered', role };
+  const invoice = { id: 'invoice', kind: 'sales_invoice', name: 'Synthetic customer', number: 'INV-1', date: '2026-11-02', posted: true, amount: '100', outstanding: '40', data: { lines: [{ description: 'Service', quantity: '1', rate: '100', gst_rate: '0' }], place_of_supply: '27' } };
+  const posts = [];
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (path, options = {}) => {
+    let data;
+    if (path === '/api/companies') data = [company];
+    else if (path.includes('/records?')) data = [invoice];
+    else if (path.endsWith('/records/invoice')) { const { outstanding, ...detail } = invoice; data = detail; }
+    else if (path.endsWith('/records') && options.method === 'POST') { posts.push(JSON.parse(options.body)); data = { id: 'saved' }; }
+    else if (path.endsWith('/bank-accounts')) data = [{ id: 'default', name: 'Synthetic bank' }];
+    else if (path.endsWith('/preferences')) data = { document_template: 'classic' };
+    else if (path.endsWith('/accounts') || path.endsWith('/journals')) data = [];
+    else if (path.includes('/trial-balance')) data = { accounts: [], total_debit: '0', total_credit: '0' };
+    else return { ok: false, status: 503, json: async () => ({ detail: 'Synthetic report unavailable' }) };
+    return { ok: true, json: async () => data };
+  };
+  try {
+    const outfile = resolve(temporary, 'app.mjs');
+    await build({ entryPoints: ['src/main.jsx'], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'react-dom/client', 'lucide-react'], loader: { '.css': 'empty' } });
+    await act(async () => { await import(pathToFileURL(outfile)); });
+    const click = async text => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text); assert.ok(button, `Button ${text}`); await act(async () => button.click()); };
+    await verify({ click, posts, invoice, dom });
+  } finally {
+    globalThis.fetch = previousFetch;
+    dom.window.close();
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
+test('invoice register launches allocated receipt and linked return without draft conversion', async () => {
+  await workspace('owner', async ({ click, posts, invoice, dom }) => {
+    await click('Sales invoices');
+    assert.match(document.querySelector('.register').textContent, /Posted/);
+    assert.match(document.querySelector('.register').textContent, /Part settled/);
+    await click('Collect payment');
+    assert.equal(document.querySelector('input[name="amount"]').value, '40');
+    await act(async () => document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.equal(posts[0].kind, 'payment_in');
+    assert.equal(posts[0].name, invoice.name);
+    assert.deepEqual(posts[0].data.allocations, [{ document_id: invoice.id, amount: '40' }]);
+    await click('Sales invoices');
+    await click('Sales return');
+    assert.match(document.querySelector('.modal').textContent, /Linked to INV-1/);
+    await act(async () => document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.equal(posts[1].kind, 'credit_note');
+    assert.equal(posts[1].data.applied_to, invoice.id);
+    assert.equal(posts[1].data.source_document_id, undefined);
+    assert.equal(posts[1].data.lines[0].description, 'Service');
+  });
+});
+
+test('viewer can inspect ledger but cannot initiate financial mutations', async () => {
+  await workspace('viewer', async ({ click }) => {
+    await click('Sales invoices');
+    assert.equal([...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Collect payment'), false);
+    assert.equal([...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Sales return'), false);
+    await click('Ledger');
+    assert.match(document.body.textContent, /Read-only access/);
+    assert.ok([...document.querySelectorAll('.ledger-form fieldset')].every(fieldset => fieldset.disabled));
+  });
+});
+
+test('viewer document reference opens a read-only detail with fresh actions safely hidden', async () => {
+  await workspace('viewer', async ({ click }) => {
+    await click('Sales invoices');
+    await click('INV-1');
+    const detail = document.querySelector('.transaction-detail');
+    assert.ok(detail);
+    assert.match(detail.textContent, /Read-only overview/);
+    assert.match(detail.textContent, /Still outstanding/);
+    assert.match(detail.textContent, /₹40\.00/);
+    assert.equal([...detail.querySelectorAll('button')].some(button => /Edit details|Collect payment|Sales return/.test(button.textContent)), false);
+    await click('Back to register');
+    assert.equal(document.querySelector('.transaction-detail'), null);
+    assert.match(document.querySelector('.register').textContent, /INV-1/);
+  });
+});
+
+test('cancelling a contextual receipt returns to its source register and filter', async () => {
+  await workspace('owner', async ({ click, dom }) => {
+    await click('Sales invoices');
+    const search = document.querySelector('input[aria-label="Search this register"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(search, 'INV-1');
+      search.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+      search.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    });
+    await click('Collect payment');
+    assert.equal(document.querySelector('input[aria-label="Search this register"]').value, '');
+    await click('Cancel');
+    assert.match(document.querySelector('.workspace-location').textContent, /Sales invoices/);
+    assert.match(document.querySelector('.register').textContent, /INV-1/);
+    await click('Sales return');
+    assert.equal(document.querySelector('.save-new'), null, 'Linked workflows cannot reopen stale Save & new drafts');
+  });
+});
+
+test('dirty editor protects reload and browser-back dismissal asks before discarding', async () => {
+  await workspace('owner', async ({ click, dom }) => {
+    await click('Sales invoices');
+    await click('Sales return');
+    const field = document.querySelector('.modal input');
+    await act(async () => field.dispatchEvent(new dom.window.Event('input', { bubbles: true })));
+    const unload = new dom.window.Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    assert.equal(unload.defaultPrevented, true);
+    await act(async () => window.dispatchEvent(new dom.window.PopStateEvent('popstate')));
+    assert.match(document.body.textContent, /Discard unsaved changes/);
+    await click('Keep editing');
+    assert.ok(document.querySelector('.modal form'));
+  });
+});

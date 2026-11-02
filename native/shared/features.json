@@ -45,6 +45,11 @@
       "group": "Sales"
     },
     {
+      "key": "sales_order",
+      "title": "Sales orders",
+      "group": "Sales"
+    },
+    {
       "key": "payment_in",
       "title": "Payment in",
       "group": "Sales"
@@ -222,12 +227,14 @@
   "draft_kinds": [
     "estimate",
     "proforma",
+    "sales_order",
     "purchase_order"
   ],
   "document_kinds": [
     "sales_invoice",
     "estimate",
     "proforma",
+    "sales_order",
     "credit_note",
     "pos",
     "purchase_bill",

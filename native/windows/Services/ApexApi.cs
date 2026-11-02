@@ -34,6 +34,7 @@ public sealed class ApexApi : IDisposable
     private readonly string resource;
     private readonly object sessionGate=new();
     private string sessionToken="";
+    private int loginSequence;
     public string Origin { get; }
     public string Email { get; private set; } = "";
     public bool SignedIn {get{lock(sessionGate)return sessionToken.Length>0;}}
@@ -67,9 +68,10 @@ public sealed class ApexApi : IDisposable
 
     public async Task Login(string email, string password, bool remember)
     {
+        int attempt;lock(sessionGate)attempt=++loginSequence;
         var result = await Send("/api/auth/login", HttpMethod.Post, new JsonObject { ["email"] = email, ["password"] = password });
         var token = result.Text("token"); if (string.IsNullOrWhiteSpace(token)) throw new ApiFailure(502, "The server did not return a sign-in session.");
-        lock(sessionGate){ClearStoredSession();SetSession(email,token);if(remember)vault.Add(new PasswordCredential(resource,email,token));}
+        lock(sessionGate){if(attempt!=loginSequence)throw new OperationCanceledException("Sign-in was cancelled.");ClearStoredSession();SetSession(email,token);if(remember)vault.Add(new PasswordCredential(resource,email,token));}
     }
 
     public async Task Logout()
@@ -77,7 +79,7 @@ public sealed class ApexApi : IDisposable
         var token=SessionToken();try { await Send("/api/auth/logout", HttpMethod.Post); }
         finally { lock(sessionGate){if(sessionToken==token)ForgetSession();} }
     }
-    public void ForgetSession(){lock(sessionGate){ClearStoredSession();sessionToken="";Email="";}}
+    public void ForgetSession(){lock(sessionGate){loginSequence++;ClearStoredSession();sessionToken="";Email="";}}
     private string SessionToken(){lock(sessionGate)return sessionToken;}
 
     public void ClearStoredSession()
@@ -143,7 +145,7 @@ public sealed class ApexApi : IDisposable
     public Task<JsonNode> SaveRecord(string companyId, JsonObject body, string retryKey, JsonNode? previous = null)
     {
         var kind = body.Text("kind");
-        var suffix = previous is null ? "/records" : new[] { "estimate", "proforma", "purchase_order" }.Contains(kind) ? "/drafts/" + previous.Text("id") : "/documents/" + previous.Text("id");
+        var suffix = previous is null ? "/records" : new[] { "estimate", "proforma", "sales_order", "purchase_order" }.Contains(kind) ? "/drafts/" + previous.Text("id") : "/documents/" + previous.Text("id");
         return Send(CompanyPath(companyId, suffix), previous is null ? HttpMethod.Post : HttpMethod.Put, body, retryKey);
     }
 

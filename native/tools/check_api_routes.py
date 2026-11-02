@@ -71,8 +71,10 @@ def compatible(native, contract):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path, default=ROOT / 'NATIVE_API_ROUTE_AUDIT.json')
+    parser.add_argument('--contract', type=Path, default=ROOT / 'native/shared/openapi.json',
+                        help='OpenAPI contract; CI supplies the contract generated from the current API.')
     args = parser.parse_args()
-    paths = json.loads((ROOT / 'native/shared/openapi.json').read_text(encoding='utf-8'))['paths']
+    paths = json.loads(args.contract.read_text(encoding='utf-8'))['paths']
     files = [p for p in (ROOT / 'native/windows').rglob('*.cs')
              if not {'bin', 'obj', 'artifacts'}.intersection(p.relative_to(ROOT).parts)]
     files += list((ROOT / 'native/android/app/src/main/java').rglob('*.kt'))

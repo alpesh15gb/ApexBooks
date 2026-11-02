@@ -14,7 +14,8 @@ import java.util.UUID
 /** Checks the Android HTTP/JSON sign-in path without user credentials or company writes. */
 class LoginTransportAcceptanceTest {
     @Test fun webCreatedPasswordSignsInOnAndroid():Unit=runBlocking {
-        val web=ApexApi("https://apexbooks.in")
+        requireLocalTestOrigin()
+        val web=ApexApi(BuildConfig.API_ORIGIN)
         val android=ApexApi(BuildConfig.API_ORIGIN)
         val email="login-transport-${UUID.randomUUID()}@example.invalid"
         val password="  Apex ₹ \"&+\\ 2026!  "
@@ -32,16 +33,19 @@ class LoginTransportAcceptanceTest {
             }
         }finally{if(web.signedIn)web.logout();if(android.signedIn)android.logout()}
     }
-    @Test fun productionSignIn():Unit=runBlocking {
+    @Test fun isolatedLocalSignIn():Unit=runBlocking {
+        requireLocalTestOrigin()
         val api=ApexApi(BuildConfig.API_ORIGIN)
-        assertEquals("https://api.apexbooks.in",api.origin)
+        val email="native-signin-${UUID.randomUUID()}@example.invalid"
+        val password="Synthetic-device-only-2026!"
+        api.request("/api/auth/register","POST",JSONObject().put("email",email).put("password",password))
         try {
             try {
-                api.login("REPLACE_WITH_PRIVATE_QA_EMAIL","Deliberately-Wrong-QA-Password",false)
+                api.login(email,"Deliberately-Wrong-QA-Password",false)
                 fail("Invalid credentials must be rejected")
             } catch(failure:ApiFailure) { assertEquals(401,failure.status) }
             assertFalse(api.signedIn)
-            api.login(" NATIVE-RELEASE-20261101@EXAMPLE.INVALID ","REPLACE_WITH_PRIVATE_QA_PASSWORD",false)
+            api.login(" ${email.uppercase()} ",password,false)
             assertTrue(api.signedIn)
             assertTrue(api.request("/api/companies") is JSONArray)
             val result=JSONObject().put("all_pass",true).put("api_origin",api.origin)

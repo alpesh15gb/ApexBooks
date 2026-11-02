@@ -6,6 +6,8 @@ import com.apexbooks.accounting.data.*
 fun registerStatus(row:JSONObject):String {
     if(row.s("converted_to").isNotBlank())return "Converted"
     if(row.optBoolean("posted")){
+        if(row.o("data").optBoolean("is_advance"))return if(row.decimal("advance_remaining").signum()>0)"Advance available"else"Advance settled"
+        if(row.s("kind") in setOf("credit_note","debit_note"))return if(row.decimal("credit_remaining").signum()>0)"Credit available"else"Credit settled"
         if(row.s("kind") in setOf("sales_invoice","purchase_bill","pos")&&row.has("outstanding")&&!row.isNull("outstanding")){
             val due=row.s("outstanding").toBigDecimalOrNull()?:return "Posted"
             val amount=row.s("amount").toBigDecimalOrNull()?:return "Posted"
@@ -13,7 +15,7 @@ fun registerStatus(row:JSONObject):String {
         }
         return "Posted"
     }
-    return if(row.s("kind") in setOf("estimate","proforma","purchase_order"))"Draft"else""
+    return if(row.s("kind") in setOf("estimate","proforma","sales_order","purchase_order"))"Draft"else""
 }
 
 fun filterRegister(records:List<JSONObject>,kind:String,query:String,start:String,end:String,party:String,status:String,sort:String):List<JSONObject>{

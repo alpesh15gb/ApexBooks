@@ -2,7 +2,7 @@ package com.apexbooks.accounting
 
 /** Stable destinations shared by the mobile shell, transaction filters and create sheet. */
 object MobileNavigation {
-    val sales = listOf("sales_invoice", "estimate", "proforma", "payment_in", "credit_note", "pos")
+    val sales = listOf("sales_invoice", "estimate", "proforma", "sales_order", "payment_in", "credit_note", "pos")
     val purchases = listOf("purchase_bill", "payment_out", "expense", "purchase_order", "debit_note")
     val transactions = sales + purchases
     fun tab(page: String) = when (page) {

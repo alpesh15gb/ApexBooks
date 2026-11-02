@@ -80,14 +80,37 @@ def validate(payload):
         if row.get('ledger_account_id') not in indexes['accounts'] or row['ledger_account_id'] in bank_ledgers:raise ValueError('Invalid bank ledger')
         if indexes['accounts'][row['ledger_account_id']]['category']!='asset':raise ValueError('Bank must map to an asset ledger')
         bank_ids.add(row['id']);bank_ledgers.add(row['ledger_account_id'])
-    links=set();allocated=defaultdict(Decimal)
+    historical_plans={}
+    def verified_source_plan(digest):
+        if not digest:return None
+        if digest not in historical_plans:
+            archives=[r for r in groups['records'] if r['kind']=='vyapar_backup_archive' and r['data'].get('digest')==digest and r['data'].get('scope')=='full_posting']
+            if len(archives)!=1:return None
+            from vyapar_posting import posting_plan
+            plan=posting_plan(archives[0]['data'].get('tables',{}))
+            if not plan['ready']:return None
+            historical_plans[digest]=plan
+        return historical_plans[digest]
+    def verified_historical_allocation(payment, document, amount):
+        data=payment['data'];target=document['data'];digest=data.get('vyapar_digest')
+        if not data.get('vyapar_historical_allocation') or not digest or target.get('vyapar_digest')!=digest:return False
+        plan=verified_source_plan(digest)
+        if plan is None:return False
+        source_doc=next((r for r in plan['documents'] if r['source_id']==target.get('vyapar_source_id')),None)
+        if not source_doc or source_doc['apex_kind']!=document['kind'] or source_doc['date']!=document['date'] or number(source_doc['amount'])!=number(document['amount']):return False
+        for source in plan['payments']:
+            if (source['source_id'],source['source_payment_mapping_id'],source['kind'],source['date'],number(source['amount'])) != (data.get('vyapar_source_id'),data.get('vyapar_payment_mapping_id'),payment['kind'],payment['date'],number(payment['amount'])):continue
+            if any(a['document_source_id']==source_doc['source_id'] and number(a['amount'])==amount for a in source['allocations']):return True
+        return False
+    links=set();allocated=defaultdict(Decimal);payment_totals=defaultdict(Decimal)
     for row in groups['payment_allocations']:
         pid,did=row.get('payment_id'),row.get('document_id');amount=number(row['amount'])
         if pid not in posted or did not in posted or pid==did or amount<=0 or (pid,did) in links:raise ValueError('Invalid payment allocation')
-        if indexes['records'][pid]['name'].casefold()!=indexes['records'][did]['name'].casefold():raise ValueError('Allocation party mismatch')
-        if indexes['records'][pid]['date']<indexes['records'][did]['date']:raise ValueError('Allocation predates document')
-        links.add((pid,did));allocated[did]+=amount
+        if indexes['records'][pid]['name'].strip().casefold()!=indexes['records'][did]['name'].strip().casefold():raise ValueError('Allocation party mismatch')
+        if indexes['records'][pid]['date']<indexes['records'][did]['date'] and not verified_historical_allocation(indexes['records'][pid],indexes['records'][did],amount):raise ValueError('Allocation predates document without verified source lineage')
+        links.add((pid,did));allocated[did]+=amount;payment_totals[pid]+=amount
     if any(value>number(indexes['records'][rid]['amount']) for rid,value in allocated.items()):raise ValueError('Overallocated document')
+    if any(value>number(indexes['records'][rid]['amount']) for rid,value in payment_totals.items()):raise ValueError('Overallocated payment')
     sources=set();targets=set()
     for row in groups['document_conversions']:
         src,dst=row.get('source_record_id'),row.get('target_record_id')
@@ -107,11 +130,27 @@ def validate(payload):
         if row.get('statement_line_id') not in indexes['bank_statement_lines'] or row.get('record_id') not in posted:raise ValueError('Invalid bank matching link')
         amount=number(row['amount']);statement_totals[row['statement_line_id']]+=amount;record_totals[(row['record_id'],indexes['bank_statement_lines'][row['statement_line_id']].get('bank_account_id','default'))]+=amount
     if any(v>abs(number(indexes['bank_statement_lines'][i]['amount'],signed=True)) for i,v in statement_totals.items()) or any(v>number(indexes['records'][i[0]]['amount']) for i,v in record_totals.items()):raise ValueError('Bank matching exceeds source amount')
+    verified_zero_stock=set()
+    def verified_zero_source_stock(source, movement):
+        if not source or source['kind'] not in ('stock_opening','stock_adjustment') or number(source['amount'])!=0:return False
+        data=source['data'];digest=data.get('vyapar_digest')
+        if not data.get('source_zero_valuation') or movement.get('cost_value') is None or number(movement['cost_value'],signed=True)!=0:return False
+        item=indexes['records'].get(movement.get('item_id'))
+        if not item or item['kind']!='item' or not item['data'].get('track_stock') or item['data'].get('vyapar_digest')!=digest or data.get('item_id')!=item['id']:return False
+        plan=verified_source_plan(digest)
+        if plan is None:return False
+        for original in plan['stock_adjustments']:
+            if original['source_id']!=data.get('vyapar_stock_adjustment_id'):continue
+            matched=(original['source_item_id']==item['data'].get('vyapar_source_id') and original['kind']==source['kind'] and original['date']==source['date']==movement['date'] and movement.get('line_index')==0 and number(original['quantity'],3,True)==number(movement['quantity'],3,True)==number(data.get('quantity'),3,True) and number(original['value'],signed=True)==0)
+            identity=(digest,original['source_id'])
+            if not matched or identity in verified_zero_stock:return False
+            verified_zero_stock.add(identity);return True
+        return False
     movements=set()
     for row in groups['stock_movements']:
         source=indexes['records'].get(row.get('source_record_id'))
         zero_inventory_only=source and source['kind']=='stock_return' and number(source['amount'])==0 and row.get('cost_value') is not None and number(row['cost_value'],signed=True)==0
-        if row.get('item_id') not in indexes['records'] or indexes['records'][row['item_id']]['kind']!='item' or not source or (source['id'] not in posted and not zero_inventory_only):raise ValueError('Orphan stock movement')
+        if row.get('item_id') not in indexes['records'] or indexes['records'][row['item_id']]['kind']!='item' or not source or (source['id'] not in posted and not zero_inventory_only and not verified_zero_source_stock(source,row)):raise ValueError('Orphan stock movement')
         if row.get('date')!=source['date']:raise ValueError('Stock movement date mismatch')
         number(row['quantity'],3,True)
         if row.get('cost_value') is not None:number(row['cost_value'],signed=True)

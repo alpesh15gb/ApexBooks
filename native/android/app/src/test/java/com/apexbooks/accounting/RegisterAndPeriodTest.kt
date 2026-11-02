@@ -6,6 +6,12 @@ import org.junit.Test
 
 class RegisterAndPeriodTest {
     private fun row(id:String,date:String,amount:String,due:String,kind:String="sales_invoice")=JSONObject().put("id",id).put("kind",kind).put("name","Customer QA").put("number",id).put("date",date).put("amount",amount).put("outstanding",due).put("posted",true).put("data",JSONObject())
+    @Test fun advancesAndCreditsHaveActionableBalanceStates(){
+        val advance=row("advance","2026-11-01","100","0","payment_in").put("data",JSONObject().put("is_advance",true)).put("advance_remaining","40")
+        assertEquals("Advance available",registerStatus(advance));advance.put("advance_remaining","0");assertEquals("Advance settled",registerStatus(advance))
+        val credit=row("credit","2026-11-01","100","0","credit_note").put("credit_remaining","25")
+        assertEquals("Credit available",registerStatus(credit));credit.put("credit_remaining","0");assertEquals("Credit settled",registerStatus(credit))
+    }
     @Test fun inclusivePeriodAndServerBalances(){
         val rows=listOf(row("a","2026-10-01","100","100"),row("b","2026-10-31","100","40"),row("c","2026-11-01","100","0"),row("p","2026-10-15","30","30","purchase_bill"))
         val selected=filterRegister(rows,"sales_invoice","","2026-10-01","2026-10-31","all","all","old")

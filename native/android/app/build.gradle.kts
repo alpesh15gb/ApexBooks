@@ -47,6 +47,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
     androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     androidTestImplementation("junit:junit:4.13.2")
     androidTestImplementation("com.google.errorprone:error_prone_annotations:2.42.0")
 }

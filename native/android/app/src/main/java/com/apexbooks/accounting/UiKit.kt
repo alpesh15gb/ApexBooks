@@ -120,13 +120,16 @@ fun ActionDialog(
     vm: AppModel,
     confirm: String = "Save",
     enabled: Boolean = true,
+    hasChanges: () -> Boolean = { false },
     onSave: suspend () -> Unit,
     onDismiss: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
     var saving by remember { mutableStateOf(false) }
+    var discard by remember { mutableStateOf(false) }
+    fun close(){if(!saving){if(hasChanges())discard=true else onDismiss()}}
     Dialog(
-        onDismissRequest = { if (!saving) onDismiss() },
+        onDismissRequest = { close() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         BoxWithConstraints(
@@ -141,7 +144,7 @@ fun ActionDialog(
                 Column {
                     Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        IconButton(enabled = !saving, onClick = onDismiss) { Icon(Icons.Outlined.Close, "Close") }
+                        IconButton(enabled = !saving, onClick = { close() }) { Icon(Icons.Outlined.Close, "Close") }
                     }
                     Column(
                         Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp),
@@ -154,7 +157,7 @@ fun ActionDialog(
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Message(vm.error, true) { vm.error = "" }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
-                                TextButton(enabled = !saving, onClick = onDismiss) { Text("Cancel") }
+                                TextButton(enabled = !saving, onClick = { close() }) { Text("Cancel") }
                                 Button(
                                     enabled = enabled && !saving && vm.busy == 0,
                                     onClick = { saving = true; vm.task { try { onSave() } finally { saving = false } } }
@@ -168,4 +171,6 @@ fun ActionDialog(
             }
         }
     }
+    if(discard)AlertDialog(onDismissRequest={discard=false},title={Text("Discard unsaved changes?")},text={Text("These changes have not been saved. Keep editing or discard them.")},confirmButton={TextButton(onClick={discard=false;onDismiss()}){Text("Discard changes")}},dismissButton={TextButton(onClick={discard=false}){Text("Keep editing")}})
+
 }

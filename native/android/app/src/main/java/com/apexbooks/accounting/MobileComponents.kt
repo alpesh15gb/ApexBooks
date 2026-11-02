@@ -32,6 +32,7 @@ import com.apexbooks.accounting.data.*
 
 @Composable fun MoreScreen(vm: AppModel) {
     var query by remember { mutableStateOf("") }
+    var confirmSignOut by remember { mutableStateOf(false) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { SearchBarField("Find a workspace", query) { query = it } }
         item { Section {
@@ -46,9 +47,10 @@ import com.apexbooks.accounting.data.*
                 Surface(shape = RoundedCornerShape(20.dp), color = Color.White) { Column { features.forEachIndexed { index, feature -> NativeActionRow(feature.title, icon = featureIcon(feature.key), onClick = { vm.navigate(feature.key) }); if (index < features.lastIndex) HorizontalDivider(Modifier.padding(start = 74.dp)) } } }
             } }
         }
-        item { OutlinedButton(onClick = { vm.task { vm.logout() } }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.AutoMirrored.Outlined.Logout, null); Spacer(Modifier.width(8.dp)); Text("Sign out") } }
+        item { OutlinedButton(onClick = { if(vm.heldSaleCount>0)confirmSignOut=true else vm.task { vm.logout() } }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.AutoMirrored.Outlined.Logout, null); Spacer(Modifier.width(8.dp)); Text("Sign out") } }
         item { Text("Apex Books ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
+    if(confirmSignOut)AlertDialog(onDismissRequest={confirmSignOut=false},title={Text("Discard held carts and sign out?")},text={Text("${vm.heldSaleCount} company cart(s) are held only in this session. Signing out discards them. Resolve any sale with an unknown save outcome before leaving.")},confirmButton={TextButton(onClick={confirmSignOut=false;vm.task{vm.logout()}}){Text("Sign out and discard")}},dismissButton={TextButton(onClick={confirmSignOut=false}){Text("Keep working")}})
 }
 
 @Composable fun CreateTransactionSheet(vm: AppModel, close: () -> Unit) {

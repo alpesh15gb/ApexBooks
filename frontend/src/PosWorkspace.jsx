@@ -1,3 +1,4 @@
+import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import React, { useEffect, useMemo, useState } from "react";
 import { Plus, Minus, Trash2, Search, ReceiptIndianRupee } from "lucide-react";
 const money = (n) =>
@@ -23,9 +24,10 @@ export default function PosWorkspace({
     [round, setRound] = useState(false),
     [preview, setPreview] = useState(null),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
     [key, setKey] = useState(() => crypto.randomUUID()),
     [receipt, setReceipt] = useState(null);
+  const posting = usePostingRequest();
+  const { busy, pending } = posting;
   const [billing,setBilling]=useState({address:"",gstin:"",phone:"",place:company.state_code});
   const items = records.filter((r) => r.kind === "item"),
     filtered = items
@@ -102,6 +104,7 @@ export default function PosWorkspace({
     };
   }, [lines, round, company.id, company.state_code, api, customer,billing]);
   function add(item) {
+    if (busy || pending) return;
     setCart((current) => {
       const found = current.find((row) => row.item.id === item.id);
       return found
@@ -137,10 +140,10 @@ export default function PosWorkspace({
   async function checkout(e) {
     e.preventDefault();
     if (busy || !preview) return;
-    setBusy(true);
     setError("");
     try {
-      const result = await api(`/companies/${company.id}/records`, {
+      const path = `/companies/${company.id}/records`;
+      const options = {
         method: "POST",
         headers: { "Idempotency-Key": key },
         body: JSON.stringify({
@@ -157,16 +160,16 @@ export default function PosWorkspace({
               method === "cash" ? tender || preview.amount : preview.amount,
           },
         }),
-      });
-      setReceipt(result);
+      };
+      const result = await posting.run(() => api(path, options));
+      if (!result) return;
+      setReceipt(result.value);
       setCart([]);
       setTender("");
       setKey(crypto.randomUUID());
       await refresh();
     } catch (e) {
       setError(e.message);
-    } finally {
-      setBusy(false);
     }
   }
   const daySales = records.filter(
@@ -207,6 +210,7 @@ export default function PosWorkspace({
             <Search size={16} />
             <input
               aria-label="Search POS items or scan barcode"
+              disabled={busy || pending}
               placeholder="Search name, HSN or scan barcode"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -229,7 +233,7 @@ export default function PosWorkspace({
                 className="pos-product"
                 key={item.id}
                 onClick={() => add(item)}
-                disabled={busy}
+                disabled={busy || pending}
               >
                 {item.data?.image_thumbnail&&<img src={item.data.image_thumbnail} alt={item.name} loading="lazy"/>}
               <strong>{item.name}</strong>
@@ -250,6 +254,7 @@ export default function PosWorkspace({
         <section className="panel settings-panel">
           <h2>Current sale</h2>
           <form className="form-grid" onSubmit={checkout}>
+            <fieldset className="form-grid full submission-fields" disabled={busy || pending}>
             <label className="full">
               Customer
               <input
@@ -431,6 +436,8 @@ export default function PosWorkspace({
                 </p>
               </div>
             )}
+            </fieldset>
+            {pending && !busy && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
             <button
               className="button primary full"
               disabled={

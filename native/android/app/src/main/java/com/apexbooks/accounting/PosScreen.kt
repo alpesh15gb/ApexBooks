@@ -26,7 +26,7 @@ import kotlinx.coroutines.delay
 import org.json.JSONObject
 import java.math.BigDecimal
 
-@Composable fun PosScreen(vm:AppModel){val cid=vm.companyId;val editor=remember(cid){vm.saleDraft()};var search by remember(cid){mutableStateOf("")};var historySearch by remember(cid){mutableStateOf("")};var tab by remember(cid){mutableIntStateOf(0)};var advanced by remember{mutableStateOf(false)};var saving by remember{mutableStateOf(false)};var receipt by remember{mutableStateOf<JSONObject?>(null)};val products=vm.records.filter{it.s("kind")=="item"};var preview by remember{mutableStateOf<JSONObject?>(null)};var previewError by remember{mutableStateOf("")}
+@Composable fun PosScreen(vm:AppModel){val cid=vm.companyId;val editor=remember(cid){vm.saleDraft()};var search by remember(cid){mutableStateOf("")};var historySearch by remember(cid){mutableStateOf("")};var tab by remember(cid){mutableIntStateOf(0)};var advanced by remember{mutableStateOf(false)};var saving by remember(cid){mutableStateOf(false)};var retryPending by remember(cid){mutableStateOf(editor.submission.unresolved)};val stamp=remember(cid){vm.workspaceStamp()};var receipt by remember(cid){mutableStateOf<JSONObject?>(null)};val products=vm.records.filter{it.s("kind")=="item"};var preview by remember{mutableStateOf<JSONObject?>(null)};var previewError by remember{mutableStateOf("")}
     fun add(item:JSONObject){if(saving||!vm.canWrite)return;val existing=editor.lines.find{it.get("item_id")==item.s("id")};if(existing!=null)existing.set("quantity",((existing.get("quantity").toBigDecimalOrNull()?:BigDecimal.ZERO)+BigDecimal.ONE).toPlainString())else{val line=LineState(regular=vm.regular);editor.chooseItem(line,item.s("id"));editor.lines.add(line)}}
     val serialized=editor.body().toString()
     LaunchedEffect(serialized){preview=null;previewError="";if(editor.lines.isEmpty())return@LaunchedEffect;delay(300);try{preview=vm.api.request(vm.api.company(cid,"/documents/preview"),"POST",JSONObject(serialized))as JSONObject}catch(e:Exception){currentCoroutineContext().ensureActive();if(e is kotlinx.coroutines.CancellationException)throw e;previewError=e.message?:"Total is unavailable.";if(e is ApiFailure&&e.status==401)vm.failure(e)}}
@@ -60,6 +60,7 @@ import java.math.BigDecimal
                 }else if(tab==0)catalog(Modifier.weight(1f))else cart(Modifier.weight(1f))
                 Surface(tonalElevation=2.dp,shadowElevation=3.dp){
                     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                        Text("Cart held for this company while you navigate. It posts only when you complete the sale; signing out discards it.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                         if(previewError.isNotBlank())Text(previewError,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
                         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
                             Text("Total",style=MaterialTheme.typography.titleMedium)
@@ -70,26 +71,30 @@ import java.math.BigDecimal
                             val difference=tender-preview!!.decimal("amount")
                             Text((if(difference.signum()<0)"Still due "else"Change ")+money(difference.abs()),style=MaterialTheme.typography.bodySmall)
                         }
-                        Button(enabled=vm.canWrite&&!saving&&preview!=null,onClick={
+                        if(retryPending)Text("Retry submits the original sale, not subsequent cart edits. Resolve this sale before starting another.",color=MaterialTheme.colorScheme.error)
+                        Button(enabled=vm.canWrite&&!saving&&(retryPending||preview!=null),onClick={
                             if(!wide&&tab==0){tab=1;return@Button}
                             saving=true
                             vm.task{
                                 try{
                                     editor.set("date",today())
-                                    val body=editor.body()
-                                    if(editor.get("tender_amount").isBlank())body.o("data").put("tender_amount",preview!!.s("amount"))
-                                    val result=vm.api.saveRecord(cid,body,editor.retryKey)
+                                    val candidate=editor.body()
+                                    if(editor.get("tender_amount").isBlank())candidate.o("data").put("tender_amount",preview?.s("amount")?:"")
+                                    val body=editor.submission.body(candidate)
+                                    val result=try{vm.api.saveRecord(cid,body,editor.retryKey)}catch(e:Exception){editor.submission.failed(e);retryPending=editor.submission.unresolved;throw e}
+                                    editor.submission.succeeded();retryPending=false
                                     receipt=result
                                     editor.lines.clear()
                                     editor.set("tender_amount","")
                                     editor.renewRetryKey()
+                                    if(!vm.inWorkspace(cid,stamp))return@task
                                     preview=null
-                                    vm.refresh()
                                     vm.notice="Sale ${result.s("number")} posted."
+                                    vm.refresh()
                                 }finally{saving=false}
                             }
                         },modifier=Modifier.fillMaxWidth()){
-                            Text(if(saving)"Posting…"else if(!wide&&tab==0)"Review cart"else"Complete sale")
+                            Text(if(saving)"Posting…"else if(!wide&&tab==0)"Review cart"else if(retryPending)"Retry original sale"else"Complete sale")
                         }
                         receipt?.let{row->
                             TextButton(onClick={vm.documentPdf(row)},modifier=Modifier.fillMaxWidth()){

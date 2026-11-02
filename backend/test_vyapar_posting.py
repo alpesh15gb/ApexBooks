@@ -1,6 +1,7 @@
 """Synthetic migration lifecycle tests. Contains no customer backup data."""
 import base64,copy,io,sqlite3,unittest,zipfile
 from unittest.mock import patch
+from uuid import uuid4
 from decimal import Decimal
 import test_api
 from main import app
@@ -35,7 +36,7 @@ def encode(tables):
 
 class VyaparPostingTest(unittest.TestCase):
     def test_posting_allocations_tax_stock_conversions_and_retry(self):
-        with TestClient(app) as client:
+        with TestClient(app,client=("vyapar-"+uuid4().hex,50000)) as client:
             cred={'email':'full-vyapar@example.invalid','password':'synthetic-strong-password'};client.post('/api/auth/register',json=cred)
             headers={'Authorization':'Bearer '+client.post('/api/auth/login',json=cred).json()['token']}
             company=client.post('/api/companies',headers=headers,json={'name':'Synthetic migration target','tax_mode':'unregistered'}).json();base='/api/companies/'+company['id']

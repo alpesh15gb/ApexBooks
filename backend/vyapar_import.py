@@ -69,7 +69,7 @@ def inspect_backup(encoded):
 
 def master_candidates(tables):
     tax = {r['tax_code_id']: r for r in tables['kb_tax_code']}
-    units = {r['unit_id']: r.get('unit_short_name') or r.get('unit_name', '') for r in tables['kb_item_units']}
+    units = {r['unit_id']: r.get('unit_short_name') or r.get('unit_name', '') for r in tables.get('kb_item_units',[])}
     candidates = []
     for row in tables['kb_names']:
         if row.get('name_type') != 1: continue  # expense categories are not parties
@@ -83,5 +83,30 @@ def master_candidates(tables):
         candidates.append(('item', row['item_id'], {'name': row.get('item_name') or '',
             'hsn': row.get('item_hsn_sac_code') or '', 'unit': units.get(row.get('base_unit_id'), ''),
             'sale_rate': row.get('item_sale_unit_price') or 0, 'purchase_rate': row.get('item_purchase_unit_price') or 0,
-            'gst_rate': rate, 'track_stock': False}, row))
+            'gst_rate': rate, 'item_type':'services' if row.get('item_type')==3 else 'goods', 'track_stock': False}, row))
     return candidates
+
+def canonical_master_names(candidates):
+    """Bound display identities without conflating same-prefix source masters.
+
+    Source IDs remain the real identity. Full names stay in vyapar_source.
+    Reserve unambiguous short names first so generated suffixes cannot collide
+    with an existing literal source name (including case/whitespace variants).
+    """
+    from collections import Counter
+    counts=Counter((kind,str(values['name']).strip().casefold()) for kind,_,values,_ in candidates)
+    result={};used=set();pending=[]
+    for kind,sid,values,_ in candidates:
+        raw=str(values['name']).strip();key=(kind,raw.casefold())
+        if len(raw)<=120 and counts[key]==1:
+            result[(kind,sid)]=raw;used.add(key)
+        else:pending.append((kind,sid,raw))
+    for kind,sid,raw in sorted(pending,key=lambda row:(row[0],str(row[1]))):
+        counter=0
+        while True:
+            suffix=f' [VYP-{sid}'+(f'-{counter}' if counter else '')+']'
+            name=raw[:120-len(suffix)]+suffix
+            if (kind,name.casefold()) not in used:break
+            counter+=1
+        result[(kind,sid)]=name;used.add((kind,name.casefold()))
+    return result

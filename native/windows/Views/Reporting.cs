@@ -65,8 +65,8 @@ public sealed partial class MainPage
         string Path()=>Api.CompanyPath(cid,$"/parties/{party.Text("id")}/statement");
         async Task Load(){var request=++sequence;var result=await Api.Send(Path()+Query());if(stamp!=generation||request!=sequence)return;rows.Children.Clear();var balances=result["balances"].Object();AddMetrics(rows,("Receivable",balances.Number("receivable")),("Payable",balances.Number("payable")),("Customer advances",balances.Number("customer_advance")),("Supplier advances",balances.Number("supplier_advance")),("Customer credits",balances.Number("customer_credit")),("Supplier credits",balances.Number("supplier_credit")));Table(rows,result["transactions"].Array(),"Transactions");}
         var actions=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};actions.Children.Add(AsyncButton("Apply dates",Load,Error,true));
-        foreach(var format in new[]{"pdf","xlsx"})actions.Children.Add(AsyncButton("Export "+format.ToUpperInvariant(),async()=>{var bytes=await Api.Download(Path()+"."+format+Query());await ApexFiles.Save(bytes,"party-statement."+format);},Error));
-        panel.Children.Add(Columns(from.View,to.View));panel.Children.Add(actions);panel.Children.Add(rows);await Load();await Dialog(party.Text("name")+" · statement",panel,()=>Task.CompletedTask,"Done");
+        foreach(var format in new[]{"pdf","xlsx"})actions.Children.Add(AsyncButton("Export "+format.ToUpperInvariant(),async()=>{var bytes=await Api.Download(Path()+"."+format+Query());if(stamp!=generation||cid!=CompanyId)return;await ApexFiles.Save(bytes,"party-statement."+format);},Error));
+        panel.Children.Add(Columns(from.View,to.View));panel.Children.Add(actions);panel.Children.Add(rows);await Load();if(stamp!=generation||cid!=CompanyId)return;await Dialog(party.Text("name")+" · statement",panel,()=>Task.CompletedTask,"Done");
     }
 
     private Task PreviewDocument(JsonObject row)=>ShowDocumentPdf(row,"");
@@ -78,6 +78,7 @@ public sealed partial class MainPage
     private async Task ShowPdf(byte[] bytes,string filename,JsonObject? record=null)
     {
         async Task<BitmapImage> Render(byte[] source,int page){var png=(await ApexPrinter.Raster(source,1400,page))[0];using var bitmapStream=new InMemoryRandomAccessStream();using(var writer=new DataWriter(bitmapStream)){writer.WriteBytes(png);await writer.StoreAsync();writer.DetachStream();}bitmapStream.Seek(0);var bitmap=new BitmapImage();await bitmap.SetSourceAsync(bitmapStream);return bitmap;}
+        var cid=CompanyId;var stamp=generation;
         var count=await ApexPrinter.PageCount(bytes);var image=new Image{Source=await Render(bytes,0),Width=720,Stretch=Stretch.Uniform};var caption=Text($"Page 1 of {count}");var index=0;var renderSequence=0;var panel=Stack();panel.MinWidth=760;var toolbar=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};
         Button? previousButton=null,nextButton=null;string? externalAction=null;
         void Paging(){if(previousButton is not null)previousButton.IsEnabled=index>0;if(nextButton is not null)nextButton.IsEnabled=index+1<count;}
@@ -87,9 +88,10 @@ public sealed partial class MainPage
         toolbar.Children.Add(AsyncButton("Save PDF",async()=>{await ApexFiles.Save(bytes,filename);},Error));
         toolbar.Children.Add(Button("Share PDF",()=>{externalAction="share";CloseDialog();}));
         toolbar.Children.Add(Button("Print",()=>{externalAction="print";CloseDialog();}));panel.Children.Add(toolbar);
-        if(record is not null){var template=Select("Document format",[("","Company default"),("modern","Modern"),("vintage","Vintage"),("mrp_discount","MRP + discount"),("elegant","Elegant"),("evergreen","Evergreen")]);panel.Children.Add(template);template.SelectionChanged+=async(_,_)=>{template.IsEnabled=false;++renderSequence;foreach(var action in toolbar.Children.OfType<Button>())action.IsEnabled=false;caption.Text="Loading format…";try{var selection=Value(template);var next=await Api.Download(PathFor($"/documents/{record.Text("id")}.pdf")+(selection.Length>0?"?template="+selection:""));var bitmap=await Render(next,0);var pageCount=await ApexPrinter.PageCount(next);bytes=next;count=pageCount;index=0;image.Source=bitmap;}catch(Exception e){Error(e);}finally{template.IsEnabled=true;caption.Text=$"Page {index+1} of {count}";foreach(var action in toolbar.Children.OfType<Button>())action.IsEnabled=true;Paging();}};}
-        panel.Children.Add(image);await Dialog(filename,panel,()=>Task.CompletedTask,"Done");
+        if(record is not null){var template=Select("Document format",[("","Company default"),("modern","Modern"),("vintage","Vintage"),("mrp_discount","MRP + discount"),("elegant","Elegant"),("evergreen","Evergreen")]);panel.Children.Add(template);template.SelectionChanged+=async(_,_)=>{template.IsEnabled=false;++renderSequence;foreach(var action in toolbar.Children.OfType<Button>())action.IsEnabled=false;caption.Text="Loading format…";try{var selection=Value(template);var next=await Api.Download(Api.CompanyPath(cid,$"/documents/{record.Text("id")}.pdf")+(selection.Length>0?"?template="+selection:""));var bitmap=await Render(next,0);var pageCount=await ApexPrinter.PageCount(next);bytes=next;count=pageCount;index=0;image.Source=bitmap;}catch(Exception e){Error(e);}finally{template.IsEnabled=true;caption.Text=$"Page {index+1} of {count}";foreach(var action in toolbar.Children.OfType<Button>())action.IsEnabled=true;Paging();}};}
+        panel.Children.Add(image);if(stamp!=generation||cid!=CompanyId)return;await Dialog(filename,panel,()=>Task.CompletedTask,"Done");
         // Release the WinUI modal before opening a separate OS modal surface.
+        if(stamp!=generation||cid!=CompanyId)return;
         if(externalAction=="share")await ApexShare.Show(bytes,filename);
         else if(externalAction=="print")await ApexPrinter.Print(bytes,filename);
     }

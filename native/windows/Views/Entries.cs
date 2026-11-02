@@ -20,6 +20,8 @@ public sealed partial class MainPage
         var state = Input("State code", edit ? original.Text("state_code") : ""); state.MaxLength = 2;
         var address = Input("Address", edit ? original.Text("address") : "", true);
         foreach (var control in new UIElement[] { name, mode, gstin, state, address }) panel.Children.Add(control);
+        panel.Children.Add(Text("Each company keeps separate books. Choose the tax mode carefully; it cannot be changed here after creation.",12));
+        string Signature()=>new JsonObject{["name"]=name.Text,["mode"]=Value(mode),["gstin"]=gstin.Text,["state"]=state.Text,["address"]=address.Text}.ToJsonString();var baseline=Signature();
         var saved = await Dialog(edit ? "Edit company details" : "Create company", panel, async () =>
         {
             if (string.IsNullOrWhiteSpace(name.Text)) throw new Exception("Enter a company name.");
@@ -27,7 +29,7 @@ public sealed partial class MainPage
             if (!edit) body["tax_mode"] = Value(mode);
             var response = await Api.Send(edit ? Api.CompanyPath(original.Text("id")) : "/api/companies", edit ? HttpMethod.Patch : HttpMethod.Post, body);
             CompanyId = response.Text("id");
-        }, edit ? "Save details" : "Create company");
+        }, edit ? "Save details" : "Create company",hasChanges:()=>Signature()!=baseline);
         if (saved) await LoadCompanies();
     }
 
@@ -62,6 +64,7 @@ public sealed partial class MainPage
             }, Error));
             buttons.Children.Add(Button("Remove image", () => { data["image_data_url"] = ""; data["image_thumbnail"] = ""; preview.Source = null; })); panel.Children.Add(buttons);
         }
+        string Signature(){var values=data.Copy().Object();values["name"]=name.Text;foreach(var field in fields)values[field.Key]=field.Value.Text;if(partyType is not null)values["party_type"]=Value(partyType);if(itemType is not null)values["item_type"]=Value(itemType);if(treatment is not null)values["tax_treatment"]=Value(treatment);if(tracked is not null)values["track_stock"]=tracked.IsChecked==true;return values.ToJsonString();}var baseline=Signature();
         var saved = await Dialog((existing is null ? "New " : "Edit ") + kind, panel, async () =>
         {
             if (string.IsNullOrWhiteSpace(name.Text)) throw new Exception("Enter a name.");
@@ -74,7 +77,7 @@ public sealed partial class MainPage
             var body = existing is null ? new JsonObject { ["kind"] = kind, ["name"] = name.Text.Trim(), ["date"] = J.Today, ["data"] = data.Copy() } : data.Copy().Object();
             if (existing is not null) body["name"] = name.Text.Trim();
             await Api.Send(Api.CompanyPath(cid, existing is null ? "/records" : "/masters/" + existing.Text("id")), existing is null ? HttpMethod.Post : HttpMethod.Put, body);
-        });
+        },hasChanges:()=>Signature()!=baseline);
         if (saved && cid == CompanyId) await Refresh();
     }
 

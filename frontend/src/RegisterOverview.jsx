@@ -7,7 +7,7 @@ const money = (value) =>
 export default function RegisterOverview({ page, records, filter, onFilter }) {
   const rows = records.filter((r) => r.kind === page),
     invoice = ["sales_invoice", "purchase_bill"].includes(page),
-    draft = ["estimate", "proforma", "purchase_order"].includes(page);
+    draft = ["estimate", "proforma", "sales_order", "purchase_order"].includes(page);
   const transaction = [
     "payment_in",
     "payment_out",

@@ -24,10 +24,11 @@ public sealed partial class MainPage : Page
     private readonly InfoBar notice = new() { IsClosable = true, Margin = new Thickness(24, 8, 24, 0) };
     private readonly ProgressBar progress = new() { IsIndeterminate = true, Height = 3, Visibility = Visibility.Collapsed };
     private bool changingCompanies, shellReady;
-    private int generation;
-    private sealed record PosDraft(JsonObject Body,string Key);
+    private int generation, workspaceGeneration, companyLoads, refreshSequence;
+    private sealed record PosDraft(JsonObject Body,string Key,RetrySubmission Submission);
     private readonly Dictionary<string,PosDraft> posDrafts=new();
     private Action? leavePage;
+    private Func<bool>? hasUnsavedPage;
 
     public MainPage()
     {
@@ -59,7 +60,7 @@ public sealed partial class MainPage : Page
 
     private void ShowLogin()
     {
-        leavePage=null;posDrafts.Clear();CompanyId = ""; Company = new(); Records = new(); Banks = new(); Companies = new(); generation++; Body.Children.Clear(); NativeUi.CloseDialog();
+        leavePage=null;hasUnsavedPage=null;posDrafts.Clear();CompanyId = ""; Company = new(); Records = new(); Banks = new(); Companies = new(); generation++;workspaceGeneration++;companyLoads++;refreshSequence++;CurrentPage="dashboard"; Body.Children.Clear(); NativeUi.CloseDialog();
         var card = Stack(20); card.Width = 380;
         card.Children.Add(AppLogo(340));
         card.Children.Add(Text("Your business, in balance.", 18));
@@ -96,14 +97,17 @@ public sealed partial class MainPage : Page
 
     internal async Task LoadCompanies()
     {
-        Companies = (await Api.Send("/api/companies")).Array();
+        var stamp=workspaceGeneration;var request=++companyLoads;
+        var loaded=(await Api.Send("/api/companies")).Array();
+        if(!Api.SignedIn||stamp!=workspaceGeneration||request!=companyLoads)return;
+        Companies=loaded;
         if (!shellReady) BuildShell(); else host.Content=navigation;
         changingCompanies = true; companyPicker.Items.Clear();
-        foreach (var company in Companies) companyPicker.Items.Add(new ComboBoxItem { Content = company.Text("name"), Tag = company.Text("id") });
+        foreach (var company in Companies) companyPicker.Items.Add(new ComboBoxItem { Content = company.Text("name")+" · "+Friendly(company.Text("role")), Tag = company.Text("id") });
         SelectValue(companyPicker, CompanyId); if (companyPicker.SelectedIndex < 0 && companyPicker.Items.Count > 0) companyPicker.SelectedIndex = 0;
         changingCompanies = false;
         if (companyPicker.SelectedIndex >= 0) await ChooseCompany();
-        else { Body.Children.Clear(); Body.Children.Add(Text("Welcome to Apex Books", 30, true)); Body.Children.Add(Text("Create your first company to start recording transactions.")); Body.Children.Add(AsyncButton("Create company", () => CompanyForm(), Error, true)); }
+        else { CompanyId="";Company=new();Records=new();Banks=new();posDrafts.Clear();leavePage=null;hasUnsavedPage=null;generation++;workspaceGeneration++;refreshSequence++;NativeUi.CloseDialog();Body.Children.Clear(); Body.Children.Add(Text("Welcome to Apex Books", 30, true)); Body.Children.Add(Text("Create your first company to start recording transactions.")); Body.Children.Add(AsyncButton("Create company", () => CompanyForm(), Error, true)); }
     }
 
     private void BuildShell()
@@ -134,7 +138,7 @@ public sealed partial class MainPage : Page
         navigation.ItemInvoked += async (_, args) => await Run(async () =>
         {
             var key = (args.InvokedItemContainer as NavigationViewItem)?.Tag?.ToString();
-            if (key == "logout") {try{await Api.Logout();}finally{ShowLogin();}}
+            if (key == "logout") {if(posDrafts.Count>0||hasUnsavedPage?.Invoke()==true){var prompt=Stack();prompt.Children.Add(Text("Held POS carts exist only in this session. Signing out discards them. Resolve any sale with an unknown save outcome before leaving."));if(!await Dialog("Discard held carts and sign out?",prompt,()=>Task.CompletedTask,"Sign out and discard"))return;}try{await Api.Logout();}finally{ShowLogin();}}
             else if (key == "new_company") await CompanyForm();
             else if (key is not null && CompanyId.Length > 0) await Navigate(key);
         });
@@ -146,22 +150,22 @@ public sealed partial class MainPage : Page
     private async Task ChooseCompany()
     {
         var id = Value(companyPicker); if (id.Length == 0) return;
-        var leave=leavePage;leavePage=null;leave?.Invoke();
-        CompanyId = id; Company = Companies.OfType<JsonObject>().First(r => r.Text("id") == id);Records=new();Banks=new();var current = ++generation;
+        var leave=leavePage;leavePage=null;leave?.Invoke();hasUnsavedPage=null;
+        CompanyId = id; Company = Companies.OfType<JsonObject>().First(r => r.Text("id") == id);Records=new();Banks=new();++generation;var current=++workspaceGeneration;var request=++refreshSequence;NativeUi.CloseDialog();
         Body.Children.Clear(); Body.Children.Add(Text("Loading " + Company.Text("name") + "…", 22, true));
         var records = Api.Records(id); var banks = Api.Send(Api.CompanyPath(id, "/bank-accounts")); await Task.WhenAll(records, banks);
-        if (current != generation) return;
+        if (current != workspaceGeneration||request!=refreshSequence) return;
         Records = await records; Banks = (await banks).Array(); await Navigate(CurrentPage);
     }
 
     internal async Task Refresh()
     {
-        var cid = CompanyId; var current = generation; var rows = Api.Records(cid);var banks=Api.Send(Api.CompanyPath(cid,"/bank-accounts"));await Task.WhenAll(rows,banks); if (current != generation) return; Records = await rows;Banks=(await banks).Array(); await Navigate(CurrentPage);
+        var cid = CompanyId;if(cid.Length==0||!Api.SignedIn)return;var current=workspaceGeneration;var request=++refreshSequence; var rows = Api.Records(cid);var banks=Api.Send(Api.CompanyPath(cid,"/bank-accounts"));await Task.WhenAll(rows,banks); if (current != workspaceGeneration||request!=refreshSequence) return; Records = await rows;Banks=(await banks).Array(); await Navigate(CurrentPage);
     }
 
     internal async Task Navigate(string page)
     {
-        var leave=leavePage;leavePage=null;leave?.Invoke();
+        var leave=leavePage;leavePage=null;leave?.Invoke();hasUnsavedPage=null;
         ++generation;CurrentPage = page; Body.Children.Clear(); notice.IsOpen = false; workspaceCompany.Text = Company.Text("name");
         navigation.SelectedItem=FindNavigation(page);
         var heading=Stack(6);
@@ -192,7 +196,9 @@ public sealed partial class MainPage : Page
         if(CanWrite && kind is "payment_in" or "payment_out" or "credit_note" or "debit_note")Body.Children.Add(AsyncButton(kind is "payment_in" or "payment_out"?"Apply / refund advance":"Apply / refund note credit",()=>SettleBalance(kind is "credit_note" or "debit_note"),Error));
         var master=kind is "party" or "item";var page=0;const int size=50;
         var period=Select("Period",[("all","All dates"),("month","This month"),("fy","This financial year"),("custom","Custom dates")]);var from=new DateInput("From",J.FinancialStart);var to=new DateInput("To",J.Today);
-        var party=Select("Customer / supplier",new[]{("all","All parties")}.Concat(Records.OfType<JsonObject>().Where(r=>r.Text("kind")==kind).Select(r=>r.Text("name")).Distinct().Order().Select(n=>(n,n))));var status=Select("Status",new[]{"All statuses","Unpaid","Part settled","Settled","Draft","Converted","Posted"}.Select(n=>(n,n)));var sort=Select("Sort",[("new","Newest first"),("old","Oldest first"),("name","Name A–Z"),("amount","Highest amount")]);
+        var party=Select("Customer / supplier",new[]{("all","All parties")}.Concat(Records.OfType<JsonObject>().Where(r=>r.Text("kind")==kind).Select(r=>r.Text("name")).Distinct().Order().Select(n=>(n,n))));var status=Select("Status",new[]{"All statuses","Unpaid","Part settled","Settled","Draft","Converted","Posted","Advance available","Advance settled","Credit available","Credit settled"}.Select(n=>(n,n)));var sort=Select("Sort",[("new","Newest first"),("old","Oldest first"),("name","Name A–Z"),("amount","Highest amount")]);
+        toolbar.Children.Add(Button("Clear filters",()=>{search.Text="";SelectValue(period,"all");SelectValue(party,"all");SelectValue(status,"All statuses");SelectValue(sort,"new");}));
+        if(!CanWrite)Body.Children.Add(Text("Read-only access · you can inspect records and export documents. Ask an owner for editor access to make changes.",12));
         if(!master){var filters=Stack();filters.Children.Add(Columns(period,party,status,sort));filters.Children.Add(Columns(from.View,to.View));Body.Children.Add(new Expander{Header="Filter documents",Content=filters,IsExpanded=false,HorizontalContentAlignment=HorizontalAlignment.Stretch,HorizontalAlignment=HorizontalAlignment.Stretch});}else Body.Children.Add(sort);
         var metrics=Stack();var holder=Stack();var caption=Text("",12);var pager=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};Button previous=null!,next=null!;Body.Children.Add(metrics);Body.Children.Add(holder);Body.Children.Add(pager);
         void Draw(bool reset=true){if(reset)page=0;holder.Children.Clear();metrics.Children.Clear();var range=Value(period);from.View.Visibility=to.View.Visibility=!master&&range=="custom"?Visibility.Visible:Visibility.Collapsed;var start=range=="fy"?J.FinancialStart:range=="month"?DateTime.Today.ToString("yyyy-MM-01"):range=="custom"?from.Value:"";var end=range is "month" or "fy"?J.Today:range=="custom"?to.Value:"";
@@ -211,7 +217,7 @@ public sealed partial class MainPage : Page
         foreach(var row in rows){
             row.EditCommand=new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(()=>Run(()=>EditRow(row.Source)),()=>Editable(row));
             row.PdfCommand=new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(()=>Run(()=>PreviewDocument(row.Source)),()=>Printable(row));row.PdfVisibility=Printable(row)?Visibility.Visible:Visibility.Collapsed;
-            row.OpenCommand=new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(()=>Run(async()=>{if(row.Kind=="party")await PartyStatement(row.Source);else if(Editable(row))await EditRow(row.Source);else if(Printable(row))await PreviewDocument(row.Source);}),()=>row.Kind=="party"||Editable(row)||Printable(row));
+            row.OpenCommand=new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(()=>Run(async()=>{if(row.Kind=="party")await PartyStatement(row.Source);else if(row.Kind=="item"&&Editable(row))await EditRow(row.Source);else await TransactionDetails(row.Source);}),()=>true);
         }
         var list = new ListView { ItemsSource = rows, SelectionMode = ListViewSelectionMode.Single, MaxHeight = 650, IsItemClickEnabled = true, CornerRadius=new CornerRadius(14), BorderBrush=Brush(0xDF,0xE7,0xEB),BorderThickness=new Thickness(1), Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White) };
         list.ItemContainerStyle=new Style(typeof(ListViewItem)){Setters={new Setter(Control.HorizontalContentAlignmentProperty,HorizontalAlignment.Stretch),new Setter(Control.PaddingProperty,new Thickness(0)),new Setter(FrameworkElement.MarginProperty,new Thickness(0))}};
@@ -226,7 +232,7 @@ public sealed partial class MainPage : Page
         bool Printable(RecordRow row)=>FeatureCatalog.Documents.Contains(row.Kind)||row.Kind is "payment_in" or "payment_out" or "customer_refund" or "supplier_refund" or "advance_refund";
         list.SelectionChanged += (_, _) => { var row = list.SelectedItem as RecordRow; edit.IsEnabled = row is not null && Editable(row); pdf.IsEnabled = row is not null && Printable(row); convert.IsEnabled = row is not null && CanWrite && FeatureCatalog.Drafts.Contains(row.Kind) && row.Source.Text("converted_to").Length == 0; };
         list.ItemClick += async (_, args) => await Run(async () => { if (args.ClickedItem is RecordRow row) { if (row.Kind == "party") await PartyStatement(row.Source); else if (row.Kind=="item"&&Editable(row)) await EditRow(row.Source); } });
-        list.DoubleTapped+=async(_,args)=>{for(var source=args.OriginalSource as DependencyObject;source is not null;source=Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(source))if(source is Microsoft.UI.Xaml.Controls.Primitives.ButtonBase)return;await Run(async()=>{if(list.SelectedItem is RecordRow row&&row.Kind is not("party" or "item")){if(Editable(row))await EditRow(row.Source);else if(Printable(row))await PreviewDocument(row.Source);}});};
+        list.DoubleTapped+=async(_,args)=>{for(var source=args.OriginalSource as DependencyObject;source is not null;source=Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(source))if(source is Microsoft.UI.Xaml.Controls.Primitives.ButtonBase)return;await Run(async()=>{if(list.SelectedItem is RecordRow row&&row.Kind is not("party" or "item")){await TransactionDetails(row.Source);}});};
         actions.Children.Add(edit); if(rows.Any(Printable))actions.Children.Add(pdf);if(rows.Any(r=>FeatureCatalog.Drafts.Contains(r.Kind)))actions.Children.Add(convert);target.Children.Add(actions);
         var headings=new Grid{ColumnSpacing=10,Padding=new Thickness(12,10,12,10),Background=Brush(0xF0,0xF5,0xF7)};foreach(var width in new[]{new GridLength(82),new GridLength(2,GridUnitType.Star),new GridLength(72),new GridLength(100),new GridLength(110),new GridLength(132)})headings.ColumnDefinitions.Add(new ColumnDefinition{Width=width});var master=rows.Select(r=>r.Kind).Distinct().Count()==1?rows[0].Kind:"";var labels=new[]{"DATE",master=="party"?"PARTY / GSTIN":master=="item"?"ITEM / HSN":"DOCUMENT / PARTY","STATUS",master=="party"?"PHONE":master=="item"?"SALE PRICE":"AMOUNT","BALANCE","ACTIONS"};for(var i=0;i<labels.Length;i++){var label=Text(labels[i],9,true);label.Foreground=Muted;if(i is 3 or 4)label.HorizontalAlignment=HorizontalAlignment.Right;Grid.SetColumn(label,i);headings.Children.Add(label);}target.Children.Add(headings);target.Children.Add(list);
     }

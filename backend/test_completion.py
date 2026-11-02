@@ -185,7 +185,7 @@ class CompletionTest(unittest.TestCase):
 
     def client_context(self,mode='unregistered'):
         import os,httpx
-        client=httpx.Client(base_url=os.environ['ACCEPTANCE_BASE'],timeout=30) if os.getenv('ACCEPTANCE_BASE') else TestClient(app)
+        client=httpx.Client(base_url=os.environ['ACCEPTANCE_BASE'],timeout=30) if os.getenv('ACCEPTANCE_BASE') else TestClient(app, client=('completion-'+uuid4().hex, 50000))
         self.addCleanup(client.close)
         credentials={'email':'complete-'+uuid4().hex+'@example.invalid','password':'test-only-strong-password'}
         self.credentials=credentials

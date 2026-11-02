@@ -1,3 +1,6 @@
+import TransactionDetail from "./TransactionDetail.jsx";
+import { relatedRecordActions, settlementLabel } from "./recordLifecycle.js";
+import { createRequestScope } from "./requestScope.js";
 import RegisterControls from "./RegisterControls.jsx";
 import { compareRegisterRecords } from "./registerOrder.js";
 import SettingsWorkspace from "./SettingsWorkspace.jsx";
@@ -69,6 +72,7 @@ const sections = [
     children: [
       ["sales_invoice", "Sales invoices"],
       ["estimate", "Estimates"],
+      ["sales_order", "Sales orders"],
       ["proforma", "Proforma invoices"],
       ["payment_in", "Payment in"],
       ["credit_note", "Credit notes"],
@@ -100,6 +104,7 @@ labels.stock_opening = "Opening stock";
 labels.stock_adjustment = "Stock adjustment";
 const EMPTY_RECORDS = [];
 const documentKinds = [
+  "sales_order",
   "sales_invoice",
   "estimate",
   "proforma",
@@ -277,20 +282,30 @@ function CompanyModal({ close, save }) {
       address: "",
       tax_mode: "unregistered",
     }),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
+  const requestClose = () => { if (!submitting.current) close(); };
   async function submit(e) {
     e.preventDefault();
+    if (submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
+    setError("");
     try {
       await save(form);
     } catch (err) {
       setError(err.message);
+    } finally {
+      submitting.current = false;
+      setBusy(false);
     }
   }
   return (
     <Modal
       title="Add a company"
       subtitle="Set up a separate workspace for your business."
-      close={close}
+      close={requestClose}
     >
       <form onSubmit={submit} className="form-grid">
         <label className="full">
@@ -349,10 +364,10 @@ function CompanyModal({ close, save }) {
         </label>
         {error && <div className="error full">{error}</div>}
         <div className="modal-actions full">
-          <button type="button" className="button secondary" onClick={close}>
+          <button type="button" className="button secondary" onClick={requestClose} disabled={busy}>
             Cancel
           </button>
-          <button className="button primary">Create company</button>
+          <button className="button primary" disabled={busy}>{busy ? "Creating…" : "Create company"}</button>
         </div>
       </form>
     </Modal>
@@ -392,7 +407,7 @@ function App() {
     [rawRecords, setRecords] = useState([]),
     [recordsCompanyId, setRecordsCompanyId] = useState(""),
     [recordsLoadError, setRecordsLoadError] = useState(""),
-    [page, setPage] = useState("dashboard"),
+    [page, setPage] = useState(() => labels[window.location.hash.slice(2)] ? window.location.hash.slice(2) : "dashboard"),
     [expanded, setExpanded] = useState("Sales"),
     [modal, setModal] = useState(""),
     [editorCycle, setEditorCycle] = useState(0),
@@ -411,6 +426,11 @@ function App() {
     [error, setError] = useState(""),
     [docTemplate, setDocTemplate] = useState("classic"),
     [conversionSource, setConversionSource] = useState(null),
+    [relatedSource, setRelatedSource] = useState(null),
+    [detail, setDetail] = useState(null),
+    [detailLoading, setDetailLoading] = useState(false),
+    [detailError, setDetailError] = useState(""),
+    [editorReturn, setEditorReturn] = useState(null),
     [editingMaster, setEditingMaster] = useState(null),
     [editingDraft, setEditingDraft] = useState(null),
     [activeParty, setActiveParty] = useState(null);
@@ -419,6 +439,11 @@ function App() {
   }, [page, companyId]);
   const company = companies.find((c) => c.id === companyId);
   const activeCompany = useRef(companyId);
+  activeCompany.current = companyId;
+  const workspaceScope = useRef(createRequestScope(companyId));
+  workspaceScope.current.setContext(companyId);
+  const editorRequests = useRef(createRequestScope(companyId));
+  editorRequests.current.setContext(companyId);
   const recordsReady = recordsCompanyId === companyId;
   const records = recordsReady ? rawRecords : EMPTY_RECORDS;
   async function loadCompanies() {
@@ -441,7 +466,8 @@ function App() {
     }
   }
   async function loadRecords(id = companyId) {
-    if (!id) return;
+    if (!id || activeCompany.current !== id) return;
+    const isCurrent = workspaceScope.current.latest();
     setRecordsLoadError("");
     try {
       const rows = [];
@@ -449,16 +475,16 @@ function App() {
         const batch = await api(
           `/companies/${id}/records?compact=true&limit=100&offset=${offset}`,
         );
-        if (activeCompany.current !== id) return;
+        if (!isCurrent()) return;
         rows.push(...batch);
         if (batch.length < 100) break;
       }
-      if (activeCompany.current === id) {
+      if (isCurrent()) {
         setRecords(rows);
         setRecordsCompanyId(id);
       }
     } catch (e) {
-      if (activeCompany.current === id) {
+      if (isCurrent()) {
         setError(e.message);
         setRecordsLoadError(e.message);
       }
@@ -474,7 +500,10 @@ function App() {
     setRecordsCompanyId("");
     setRecordsLoadError("");
     setConversionSource(null);
+    setRelatedSource(null);
     setActiveParty(null);
+    setDetail(null);
+    setEditorReturn(null);
     setSearch("");
     setRegisterFilter({ page: "", value: "all" });
     setRegisterQuery({
@@ -488,7 +517,7 @@ function App() {
     setRegisterPage(1);
     setEditingMaster(null);
     setEditingDraft(null);
-    setModal("");
+    if (companyId) setModal("");
     if (companyId) {
       localStorage.companyId = companyId;
       loadRecords(companyId);
@@ -561,9 +590,10 @@ function App() {
     setModal("");
   }
   async function saveRecord(body, key, { keepOpen = false } = {}) {
+    const isCurrent = workspaceScope.current.capture();
     await api(
       editingDraft
-        ? ["estimate", "proforma", "purchase_order"].includes(editingDraft.kind)
+        ? ["estimate", "proforma", "sales_order", "purchase_order"].includes(editingDraft.kind)
           ? `/companies/${companyId}/drafts/${editingDraft.id}`
           : `/companies/${companyId}/documents/${editingDraft.id}`
         : `/companies/${companyId}/records`,
@@ -573,72 +603,139 @@ function App() {
         body: JSON.stringify(body),
       },
     );
+    if (!isCurrent()) return;
     await loadRecords();
-    if (keepOpen && !editingDraft && !conversionSource) {
+    if (!isCurrent()) return;
+    if (keepOpen && !editingDraft && !conversionSource && !relatedSource) {
       setEditorCycle((n) => n + 1);
       return;
     }
-    setConversionSource(null);
-    setEditingDraft(null);
-    setModal("");
+    closeRecord();
   }
   async function saveMaster(body) {
+    const isCurrent = workspaceScope.current.capture();
     if (editingMaster) {
       await api(`/companies/${companyId}/masters/${editingMaster.id}`, {
         method: "PUT",
         body: JSON.stringify({ name: body.name, ...body.data }),
       });
+      if (!isCurrent()) return;
       await loadRecords();
+      if (!isCurrent()) return;
       setEditingMaster(null);
       setModal("");
     } else await saveRecord(body);
   }
-  async function saveOpening(body) {
+  async function saveOpening(body, key) {
+    const isCurrent = workspaceScope.current.capture();
     await api(`/companies/${companyId}/stock/opening`, {
       method: "POST",
+      headers: { "Idempotency-Key": key },
       body: JSON.stringify(body),
     });
+    if (!isCurrent()) return;
     await loadRecords();
+    if (!isCurrent()) return;
     setModal("");
   }
-  async function saveStockAdjustment(body) {
+  async function saveStockAdjustment(body, key) {
+    const isCurrent = workspaceScope.current.capture();
     await api(`/companies/${companyId}/stock/adjustments`, {
       method: "POST",
+      headers: { "Idempotency-Key": key },
       body: JSON.stringify(body),
     });
+    if (!isCurrent()) return;
     await loadRecords();
+    if (!isCurrent()) return;
     setModal("");
   }
-  async function beginEdit(record) {
+  function closeRecord() {
+    setConversionSource(null);
+    setRelatedSource(null);
+    setEditingDraft(null);
+    setModal("");
+    if (editorReturn) {
+      setPage(editorReturn.page);
+      setSearch(editorReturn.search);
+      setRegisterFilter(editorReturn.filter);
+      setRegisterQuery(editorReturn.query);
+      if (editorReturn.detail) beginDetail(editorReturn.detail);
+    }
+    setEditorReturn(null);
+  }
+  function rememberEditorContext() {
+    setEditorReturn({ page, search, filter: registerFilter, query: registerQuery, detail });
+    setDetail(null);
+    setSearch("");
+  }
+  async function beginDetail(record) {
+    const isCurrent = editorRequests.current.latest();
+    setDetail(record);
+    setDetailLoading(true);
+    setDetailError("");
     try {
-      const cid = companyId;
-      if (["party", "item"].includes(record.kind)) {
-        setEditingMaster(await api(`/companies/${cid}/records/${record.id}`));
-      } else {
-        const full = await api(`/companies/${cid}/records/${record.id}`);
-        if (activeCompany.current !== cid) return;
-        setEditingDraft(full);
-        setConversionSource(null);
-        setPage(record.kind);
-      }
-      if (activeCompany.current === cid) setModal("record");
-    } catch (e) {
-      setError(e.message);
+      const full = await api(`/companies/${companyId}/records/${record.id}`);
+      if (isCurrent()) setDetail({ ...record, ...full });
+    } catch (reason) {
+      if (isCurrent()) setDetailError(reason.message);
+    } finally {
+      if (isCurrent()) setDetailLoading(false);
     }
   }
-  async function beginConversion(record) {
+  function closeDetail() { editorRequests.current.latest(); setDetail(null); }
+  async function beginEdit(record) {
+    if (!["owner", "editor"].includes(company?.role)) return;
+    const isCurrent = editorRequests.current.latest();
     try {
-      const cid = companyId,
-        full = await api(`/companies/${cid}/records/${record.id}`);
-      if (activeCompany.current !== cid) return;
+      const full = await api(`/companies/${companyId}/records/${record.id}`);
+      if (!isCurrent()) return;
+      rememberEditorContext();
+      if (["party", "item"].includes(record.kind)) setEditingMaster(full);
+      else {
+        setEditingDraft(full);
+        setConversionSource(null);
+        setRelatedSource(null);
+        setPage(record.kind);
+      }
+      setEditorCycle(n => n + 1);
+      setModal("record");
+    } catch (reason) {
+      if (isCurrent()) setError(reason.message);
+    }
+  }
+  async function beginConversion(record, targetKind) {
+    if (!["owner", "editor"].includes(company?.role)) return;
+    const isCurrent = editorRequests.current.latest();
+    try {
+      const full = await api(`/companies/${companyId}/records/${record.id}`);
+      if (!isCurrent()) return;
+      rememberEditorContext();
       setEditingDraft(null);
       setConversionSource(full);
-      setPage(
-        record.kind === "purchase_order" ? "purchase_bill" : "sales_invoice",
-      );
+      setRelatedSource(null);
+      setPage(targetKind || (record.kind === "purchase_order" ? "purchase_bill" : "sales_invoice"));
+      setEditorCycle(n => n + 1);
       setModal("record");
-    } catch (e) {
-      setError(e.message);
+    } catch (reason) {
+      if (isCurrent()) setError(reason.message);
+    }
+  }
+  async function beginRelated(record, kind) {
+    if (!["owner", "editor"].includes(company?.role)) return;
+    const isCurrent = editorRequests.current.latest();
+    try {
+      const full = await api(`/companies/${companyId}/records/${record.id}`);
+      if (!isCurrent()) return;
+      rememberEditorContext();
+      setRelatedSource({ ...record, ...full });
+      setEditingDraft(null);
+      setConversionSource(null);
+      setPage(kind);
+      setEditorCycle(n => n + 1);
+      setModal("record");
+    } catch (reason) {
+      if (isCurrent()) setError(reason.message);
     }
   }
   async function downloadDocument(record) {
@@ -688,6 +785,8 @@ function App() {
     setSigned(false);
   }
   function navigateWorkspace(kind, reference = "", filter = "all") {
+    editorRequests.current.latest();
+    setDetail(null);
     const routes = {
       bank_transfer: "bank_account",
       opening_cash: "bank_account",
@@ -712,12 +811,42 @@ function App() {
   }
   function createWorkspace(kind) {
     if (!["owner", "editor"].includes(company?.role)) return;
+    setEditorReturn(null);
     setEditingDraft(null);
     setEditingMaster(null);
     setConversionSource(null);
+    setRelatedSource(null);
     navigateWorkspace(kind);
     if (kind !== "pos") setModal("record");
   }
+  const historyStarted = useRef(false);
+  const fromHistory = useRef(false);
+  useEffect(() => {
+    const target = `#/${page}`;
+    if (!historyStarted.current) {
+      window.history.replaceState({ apexPage: page }, "", target);
+      historyStarted.current = true;
+    } else if (fromHistory.current) fromHistory.current = false;
+    else if (window.location.hash !== target) window.history.pushState({ apexPage: page }, "", target);
+  }, [page]);
+  useEffect(() => {
+    const back = () => {
+      if (modal === "record" || detail) {
+        window.history.pushState({ apexPage: page }, "", `#/${page}`);
+        if (modal === "record") window.dispatchEvent(new window.Event("apex-close-editor"));
+        else closeDetail();
+        return;
+      }
+      const requested = window.location.hash.slice(2);
+      fromHistory.current = true;
+      editorRequests.current.latest();
+      setPage(labels[requested] ? requested : "dashboard");
+      setSearch("");
+      setMenu(false);
+    };
+    window.addEventListener("popstate", back);
+    return () => window.removeEventListener("popstate", back);
+  }, [page, modal, detail]);
   if (!signed) return <Auth onLogin={() => setSigned(true)} />;
   return (
     <div className="app">
@@ -752,12 +881,11 @@ function App() {
               <button
                 className={`nav-item ${page === s.key || s.children?.some(([key]) => key === page) ? "active" : ""}`}
                 onClick={() => {
+                  editorRequests.current.latest();
                   if (s.children)
                     setExpanded(expanded === s.label ? "" : s.label);
                   else {
-                    setPage(s.key);
-                    setSearch("");
-                    setMenu(false);
+                    navigateWorkspace(s.key);
                   }
                 }}
               >
@@ -777,9 +905,7 @@ function App() {
                       key={k}
                       className={page === k ? "active" : ""}
                       onClick={() => {
-                        setPage(k);
-                        setSearch("");
-                        setMenu(false);
+                        navigateWorkspace(k);
                       }}
                     >
                       {l}
@@ -821,10 +947,22 @@ function App() {
               {error} · Click to dismiss
             </div>
           )}
-          {page === "ledger" ? (
-            <Ledger companyId={companyId} />
+          {!companyId ? (
+            <section className="panel settings-panel">
+              <div className="eyebrow green">WELCOME TO APEX BOOKS</div>
+              <h1>Set up your first company</h1>
+              <p>Create a separate workspace for your business, choose its tax profile, then add parties, items and opening balances.</p>
+              <button className="button primary" onClick={() => setModal("company")}>
+                <Plus size={17} /> Create company
+              </button>
+              <p>If you were invited to an existing company, ask its owner to add this registered email, then refresh.</p>
+              <button className="button secondary" onClick={loadCompanies}>Refresh company access</button>
+            </section>
+          ) : page === "ledger" ? (
+            <Ledger key={companyId} companyId={companyId} role={company?.role} />
           ) : page === "bank_account" ? (
             <BankWorkspace
+              key={companyId}
               companyId={companyId}
               records={records}
               onParty={setActiveParty}
@@ -967,21 +1105,21 @@ function App() {
                         ].map((t) => (
                           <a
                             key={t}
-                            href={`/document-templates/${t}.pdf`}
+                            href={`/document-templates/${t}.png`}
                             target="_blank"
                             rel="noreferrer"
                           >
                             <img
                               loading="lazy"
                               src={`/document-templates/${t}.png`}
-                              alt={`${t.replace("_", " ")} synthetic PDF preview`}
+                              alt={`${t.replace("_", " ")} synthetic layout preview`}
                             />
                             <strong>
                               {t === "mrp_discount"
                                 ? "MRP + Discount"
                                 : t[0].toUpperCase() + t.slice(1)}
                             </strong>
-                            <small>Open sample PDF</small>
+                            <small>Open sample preview</small>
                           </a>
                         ))}
                       </div>
@@ -1112,7 +1250,7 @@ function App() {
                       {page === "item" && (
                         <button
                           disabled={
-                            !records.some(
+                            !["owner", "editor"].includes(company?.role) || !records.some(
                               (r) => r.kind === "item" && r.data?.track_stock,
                             )
                           }
@@ -1125,7 +1263,7 @@ function App() {
                       {page === "item" && (
                         <button
                           disabled={
-                            !records.some(
+                            !["owner", "editor"].includes(company?.role) || !records.some(
                               (r) => r.kind === "item" && r.data?.track_stock,
                             )
                           }
@@ -1283,7 +1421,9 @@ function App() {
                               records={records}
                               onParty={setActiveParty}
                               onPdf={downloadDocument}
-                              onConvert={beginConversion}
+                              onOpen={beginDetail}
+                              onConvert={["owner", "editor"].includes(company?.role) ? beginConversion : null}
+                              onRelated={beginRelated}
                               onEdit={
                                 ["owner", "editor"].includes(company?.role)
                                   ? beginEdit
@@ -1305,9 +1445,10 @@ function App() {
                               ? "No matching records"
                               : "No transactions in this view"}
                           </strong>
-                          <p>
-                            Choose another period or add your first document.
-                          </p>
+                          <p>{scopedRecords.length || search || activeRegisterFilter !== "all"
+                            ? "No records match these filters. Clear them to see your existing transactions."
+                            : ["owner", "editor"].includes(company?.role) ? "Create your first document to start this register."
+                            : "There are no transactions here yet. Your company owner can add them."}</p>
                           <button
                             className="button secondary"
                             onClick={() => {
@@ -1377,6 +1518,9 @@ function App() {
           )}
         </div>
       </main>
+      {detail && <TransactionDetail record={detail} records={records} company={company} labels={labels}
+        loading={detailLoading} error={detailError} onClose={closeDetail} onRetry={() => beginDetail(detail)}
+        onEdit={beginEdit} onRelated={beginRelated} onConvert={beginConversion} onPdf={downloadDocument} onOpen={beginDetail} />}
       {activeParty && (
         <PartyStatement
           key={companyId + activeParty.id}
@@ -1429,12 +1573,9 @@ function App() {
             records={records}
             onParty={setActiveParty}
             source={editingDraft || conversionSource}
+            relatedSource={relatedSource}
             edit={!!editingDraft}
-            close={() => {
-              setConversionSource(null);
-              setEditingDraft(null);
-              setModal("");
-            }}
+            close={closeRecord}
             save={saveRecord}
           />
         ))}
@@ -1465,6 +1606,7 @@ function Prefixes({ companyId, role }) {
     defaults = {
       sales_invoice: "INV",
       estimate: "EST",
+      sales_order: "SO",
       proforma: "PF",
       payment_in: "PIN",
       credit_note: "CN",
@@ -1482,17 +1624,21 @@ function Prefixes({ companyId, role }) {
     [error, setError] = useState(""),
     [saved, setSaved] = useState("");
   const activeCompany = useRef(companyId);
+  activeCompany.current = companyId;
+  const workspaceScope = useRef(createRequestScope(companyId));
+  workspaceScope.current.setContext(companyId);
   async function load() {
     if (!companyId) return;
     const id = companyId;
+    const isCurrent = workspaceScope.current.latest();
     try {
       const rows = await api(`/companies/${id}/number-series`);
-      if (activeCompany.current === id) {
+      if (isCurrent()) {
         setSeries(rows);
         setError("");
       }
     } catch (e) {
-      if (activeCompany.current === id) setError(e.message);
+      if (isCurrent()) setError(e.message);
     }
   }
   useEffect(() => {
@@ -1568,17 +1714,21 @@ function Members({ companyId, role }) {
     [newRole, setNewRole] = useState("viewer"),
     [error, setError] = useState("");
   const activeCompany = useRef(companyId);
+  activeCompany.current = companyId;
+  const workspaceScope = useRef(createRequestScope(companyId));
+  workspaceScope.current.setContext(companyId);
   async function load() {
     if (!companyId) return;
     const id = companyId;
+    const isCurrent = workspaceScope.current.latest();
     try {
       const rows = await api(`/companies/${id}/members`);
-      if (activeCompany.current === id) {
+      if (isCurrent()) {
         setMembers(rows);
         setError("");
       }
     } catch (e) {
-      if (activeCompany.current === id) setError(e.message);
+      if (isCurrent()) setError(e.message);
     }
   }
   useEffect(() => {
@@ -1664,7 +1814,10 @@ function Members({ companyId, role }) {
   );
 }
 
-function Ledger({ companyId }) {
+function Ledger({ companyId, role }) {
+  const canWrite = ["owner", "editor"].includes(role);
+  const submitting = useRef(false);
+  const [busy, setBusy] = useState(false);
   const [accounts, setAccounts] = useState([]),
     [journals, setJournals] = useState([]),
     [account, setAccount] = useState({ code: "", name: "", category: "asset" }),
@@ -1686,22 +1839,26 @@ function Ledger({ companyId }) {
       reason: "",
     });
   const activeCompany = useRef(companyId);
+  activeCompany.current = companyId;
+  const workspaceScope = useRef(createRequestScope(companyId));
+  workspaceScope.current.setContext(companyId);
   async function load() {
     if (!companyId) return;
     const id = companyId;
+    const isCurrent = workspaceScope.current.latest();
     try {
       const [a, j, b] = await Promise.all([
         api(`/companies/${id}/accounts`),
         api(`/companies/${id}/journals`),
         api(`/companies/${id}/trial-balance?through=${through}`),
       ]);
-      if (activeCompany.current === id) {
+      if (isCurrent()) {
         setAccounts(a);
         setJournals(j);
         setBalance(b);
       }
     } catch (e) {
-      if (activeCompany.current === id) setError(e.message);
+      if (isCurrent()) setError(e.message);
     }
   }
   useEffect(() => {
@@ -1714,6 +1871,9 @@ function Ledger({ companyId }) {
   }, [companyId, through]);
   async function addAccount(e) {
     e.preventDefault();
+    if (!canWrite || submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
     setError("");
     try {
       await api(`/companies/${companyId}/accounts`, {
@@ -1723,11 +1883,17 @@ function Ledger({ companyId }) {
       setAccount({ code: "", name: "", category: "asset" });
       await load();
     } catch (err) {
-      setError(err.message);
+      setError(err.message + (err instanceof TypeError || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
+    } finally {
+      submitting.current = false;
+      setBusy(false);
     }
   }
   async function postJournal(e) {
     e.preventDefault();
+    if (!canWrite || submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
     setError("");
     try {
       if (entry.debit_account === entry.credit_account)
@@ -1754,11 +1920,17 @@ function Ledger({ companyId }) {
       });
       await load();
     } catch (err) {
-      setError(err.message);
+      setError(err.message + (err instanceof TypeError || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
+    } finally {
+      submitting.current = false;
+      setBusy(false);
     }
   }
   async function reverseEntry(e) {
     e.preventDefault();
+    if (!canWrite || submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
     setError("");
     try {
       await api(`/companies/${companyId}/journals/${reversing.id}/reverse`, {
@@ -1769,7 +1941,10 @@ function Ledger({ companyId }) {
       setReversal({ date: today(), reference: "", reason: "" });
       await load();
     } catch (err) {
-      setError(err.message);
+      setError(err.message + (err instanceof TypeError || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
+    } finally {
+      submitting.current = false;
+      setBusy(false);
     }
   }
   const accountName = (id) =>
@@ -1780,7 +1955,8 @@ function Ledger({ companyId }) {
         <div>
           <div className="eyebrow green">ACCOUNTING FOUNDATION</div>
           <h1>Ledger</h1>
-          <p>Create accounts and record balanced manual journal entries.</p>
+          <p>{canWrite ? "Create accounts and record balanced manual journal entries." : "Read-only access: review accounts, journals and trial balance."}</p>
+          <button className="button secondary" disabled={busy} onClick={load}>Refresh journal history</button>
         </div>
       </div>
       {error && <div className="error banner">{error}</div>}
@@ -1791,8 +1967,9 @@ function Ledger({ companyId }) {
       <div className="ledger-grid">
         <section className="panel settings-panel">
           <h2>Chart of accounts</h2>
-          <p>Add the accounts you need for manual entries.</p>
-          <form className="form-grid ledger-form" onSubmit={addAccount}>
+          <p>{canWrite ? "Add the accounts you need for manual entries." : "Accounts used by your company’s posted transactions."}</p>
+          {canWrite && <form className="form-grid ledger-form" onSubmit={addAccount}>
+            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy}>
             <label>
               Account code
               <input
@@ -1838,7 +2015,8 @@ function Ledger({ companyId }) {
             <button className="button primary full" disabled={!companyId}>
               Add account
             </button>
-          </form>
+          </fieldset>
+          </form>}
           <div className="ledger-list">
             {accounts.map((a) => (
               <div key={a.id}>
@@ -1851,10 +2029,11 @@ function Ledger({ companyId }) {
             {!accounts.length && <p>No accounts added yet.</p>}
           </div>
         </section>
-        <section className="panel settings-panel">
+        {canWrite && <section className="panel settings-panel">
           <h2>New journal entry</h2>
           <p>Each entry has an equal debit and credit.</p>
           <form className="form-grid ledger-form" onSubmit={postJournal}>
+            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy}>
             <label>
               Date
               <input
@@ -1923,8 +2102,9 @@ function Ledger({ companyId }) {
             >
               Post journal
             </button>
+          </fieldset>
           </form>
-        </section>
+        </section>}
       </div>
       <section className="panel settings-panel journal-history">
         <h2>Journal history</h2>
@@ -1941,7 +2121,7 @@ function Ledger({ companyId }) {
                     ? " · Reversal"
                     : ""}
               </span>
-              {!j.reversed_by && !j.reversal_of && !j.source_record_id && (
+              {canWrite && !j.reversed_by && !j.reversal_of && !j.source_record_id && (
                 <button className="link" onClick={() => setReversing(j)}>
                   Reverse entry
                 </button>
@@ -2019,9 +2199,10 @@ function Ledger({ companyId }) {
         <Modal
           title="Reverse journal"
           subtitle={`Create an opposite entry for ${reversing.reference}. The original stays in history.`}
-          close={() => setReversing(null)}
+          close={() => { if (!busy) setReversing(null); }}
         >
           <form className="form-grid" onSubmit={reverseEntry}>
+            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy}>
             <label>
               Date
               <input
@@ -2066,6 +2247,7 @@ function Ledger({ companyId }) {
               </button>
               <button className="button primary">Create reversal</button>
             </div>
+          </fieldset>
           </form>
         </Modal>
       )}
@@ -2098,13 +2280,17 @@ function PaymentAllocationSummary({ record, records }) {
     </details>
   );
 }
-function RecordActions({ r, onEdit, onPdf, onConvert }) {
+function RecordActions({ r, onEdit, onPdf, onConvert, onRelated }) {
   return (
     <div className="record-actions">
+      {onRelated && relatedRecordActions(r, !!onEdit).map(action => (
+        <button className="link" key={action.kind} onClick={() => onRelated(r, action.kind)}>{action.label}</button>
+      ))}
       {onEdit &&
         (["party", "item"].includes(r.kind) ||
           ([
             "estimate",
+            "sales_order",
             "proforma",
             "purchase_order",
             "sales_invoice",
@@ -2141,7 +2327,7 @@ function RecordActions({ r, onEdit, onPdf, onConvert }) {
           </button>
         )}
       {onConvert &&
-        ["estimate", "proforma", "purchase_order"].includes(r.kind) && (
+        ["estimate", "proforma", "sales_order", "purchase_order"].includes(r.kind) && (
           <button
             className="link convert-link"
             disabled={!!r.converted_to}
@@ -2153,23 +2339,17 @@ function RecordActions({ r, onEdit, onPdf, onConvert }) {
     </div>
   );
 }
-function RecordRow({ r, onPdf, onConvert, onEdit, records, onParty }) {
+function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, records, onParty }) {
   if (!["party", "item"].includes(r.kind)) {
     const invoice = ["sales_invoice", "purchase_bill", "pos"].includes(r.kind);
     const balance = Number(r.outstanding || 0);
     const status = r.converted_to
       ? "Converted"
-      : ["estimate", "proforma", "purchase_order"].includes(r.kind)
+      : ["estimate", "proforma", "sales_order", "purchase_order"].includes(r.kind)
         ? "Open draft"
-        : r.posted === false
-          ? "Legacy · unposted"
-          : invoice
-            ? balance > 0
-              ? balance < Number(r.amount)
-                ? "Part settled"
-                : "Unpaid"
-              : "Settled"
-            : "Posted";
+        : r.posted === false ? "Legacy · unposted" : "Posted";
+    const settlement = settlementLabel(r);
+    const destination = records?.find(row => row.id === r.converted_to);
     const party = records?.find(
       (p) =>
         p.kind === "party" &&
@@ -2187,8 +2367,8 @@ function RecordRow({ r, onPdf, onConvert, onEdit, records, onParty }) {
         </td>
         <td data-label="Document / party">
           <div className="transaction-reference">
-            {onEdit && !r.converted_to ? (
-              <button className="link" onClick={() => onEdit(r)}>
+            {onOpen ? (
+              <button className="link" onClick={() => onOpen(r)}>
                 {r.number || "No reference"}
               </button>
             ) : (
@@ -2207,6 +2387,7 @@ function RecordRow({ r, onPdf, onConvert, onEdit, records, onParty }) {
             {r.data?.due_date && <small>Due {r.data.due_date}</small>}
           </div>
           <PaymentAllocationSummary record={r} records={records} />
+          {destination && <small>Converted to {destination.number || destination.name}</small>}
         </td>
         <td data-label="Status">
           <span
@@ -2214,6 +2395,7 @@ function RecordRow({ r, onPdf, onConvert, onEdit, records, onParty }) {
           >
             {status}
           </span>
+          {settlement && <small className="settlement-state">{settlement}</small>}
         </td>
         <td data-label="Amount" className="right amount">
           {money(r.amount)}
@@ -2230,6 +2412,7 @@ function RecordRow({ r, onPdf, onConvert, onEdit, records, onParty }) {
             onEdit={onEdit}
             onPdf={onPdf}
             onConvert={onConvert}
+            onRelated={onRelated}
           />
         </td>
       </tr>

@@ -1,5 +1,7 @@
 # Apex Books
 
+Current source verification: [cross-client release checklist](docs/RELEASE_CHECKLIST.md). Run `scripts/check.sh` for the full isolated web/API/contract suite and `tests/e2e/run-local.sh` for live local HTTP workflows. Historical acceptance documents linked below are not all present in this source snapshot; do not interpret those links as current test evidence.
+
 > Android UI update: [1.4.0 APK](deliverables/Apex-Books-Android-1.4.0-Release.apk). Native navigation, transaction details, guided documents and report/settings libraries have been redesigned. Automated checks pass; manual screen and print/share acceptance remains pending after Computer Use was stopped. See [acceptance evidence](ANDROID_1_4_0_ACCEPTANCE.md).
 
 

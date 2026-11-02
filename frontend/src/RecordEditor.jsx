@@ -1,3 +1,4 @@
+import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import { purchaseDraftForm } from "./purchaseDraft.js";
 import { linkCatalogueItem, OCR_LINE } from "./itemLink.js";
 import {
@@ -15,6 +16,7 @@ export default function RecordEditor({
   companyId,
   records,
   source,
+  relatedSource,
   close,
   save,
   api,
@@ -35,11 +37,13 @@ export default function RecordEditor({
       "expense",
     ].includes(kind),
     showTax = company.tax_mode === "regular" || purchase;
+  const initial = source || relatedSource;
+  const canWrite = ["owner", "editor"].includes(company.role);
   const isPayment = ["payment_in", "payment_out"].includes(kind);
   const [dirty, setDirty] = useState(false),
     [confirmClose, setConfirmClose] = useState(false);
   const requestClose = () => {
-    if (saving || scanning) return;
+    if (saving || scanning || pending) return;
     if (dirty) setConfirmClose(true);
     else close();
   };
@@ -56,7 +60,9 @@ export default function RecordEditor({
               },
             ]
           : [{ document_id: "", amount: "" }])
-      : [{ document_id: "", amount: "" }]),
+      : relatedSource && isPayment
+        ? [{ document_id: relatedSource.id, amount: String(relatedSource.outstanding || "") }]
+        : [{ document_id: "", amount: "" }]),
   ]);
   const appliesTo = {
     payment_in: "sales_invoice",
@@ -103,38 +109,38 @@ export default function RecordEditor({
     itc_treatment: "pending_review",
   });
   const [form, setForm] = useState({
-      name: source?.name || "",
-      number: edit ? source?.number || "" : "",
-      date: edit ? source?.date || today() : today(),
-      due_date: source?.data?.due_date || "",
-      notes: source?.data?.notes || "",
-      terms: source?.data?.terms || "",
-      document_discount_percent: source?.data?.document_discount_percent || "0",
-      round_total: source?.data?.round_total || false,
+      name: initial?.name || "",
+      number: edit ? initial?.number || "" : "",
+      date: edit ? initial?.date || today() : today(),
+      due_date: initial?.data?.due_date || "",
+      notes: initial?.data?.notes || "",
+      terms: initial?.data?.terms || "",
+      document_discount_percent: initial?.data?.document_discount_percent || "0",
+      round_total: initial?.data?.round_total || false,
       return_stock: true,
-      category: source?.data?.category || "General",
+      category: initial?.data?.category || "General",
       supplier_state:
-        source?.data?.supplier_state ||
-        source?.data?.party_gstin?.slice(0, 2) ||
+        initial?.data?.supplier_state ||
+        initial?.data?.party_gstin?.slice(0, 2) ||
         company.state_code,
       advance_supply: "",
       advance_gst_rate: "18",
-      amount: edit ? String(source?.amount || "") : "",
-      tender_amount: source?.data?.tender_amount || "",
-      place_of_supply: source?.data?.place_of_supply || company.state_code,
-      applied_to: edit ? source?.data?.applied_to || "" : "",
-      payment_account: edit ? source?.data?.payment_account || "cash" : "cash",
+      amount: edit ? String(initial?.amount || "") : isPayment && relatedSource ? String(relatedSource.outstanding || "") : "",
+      tender_amount: initial?.data?.tender_amount || "",
+      place_of_supply: initial?.data?.place_of_supply || company.state_code,
+      applied_to: edit ? initial?.data?.applied_to || "" : !isPayment && relatedSource ? relatedSource.id : "",
+      payment_account: edit ? initial?.data?.payment_account || "cash" : "cash",
       bank_account_id: edit
-        ? source?.data?.bank_account_id || "default"
+        ? initial?.data?.bank_account_id || "default"
         : "default",
-      party_id: source?.data?.party_id || "",
-      party_address: source?.data?.party_address || "",
-      party_phone: source?.data?.party_phone || "",
-      shipping_address: source?.data?.shipping_address || "",
-      party_gstin: source?.data?.party_gstin || "",
+      party_id: initial?.data?.party_id || "",
+      party_address: initial?.data?.party_address || "",
+      party_phone: initial?.data?.party_phone || "",
+      shipping_address: initial?.data?.shipping_address || "",
+      party_gstin: initial?.data?.party_gstin || "",
     }),
     [lines, setLines] = useState(
-      source?.data?.lines?.map((line) => ({
+      initial?.data?.lines?.map((line) => ({
         ...line,
         description: line.description || "",
         item_id: line.item_id || "",
@@ -191,8 +197,19 @@ export default function RecordEditor({
     };
   }, [kind]);
   const saveAction = useRef("close");
-  const [submissionKey] = useState(() => crypto.randomUUID()),
-    [saving, setSaving] = useState(false);
+  const [submissionKey] = useState(() => crypto.randomUUID());
+  const posting = usePostingRequest();
+  const { busy: saving, pending } = posting;
+  useEffect(() => {
+    const unload = event => {
+      if (dirty || saving || pending) { event.preventDefault(); event.returnValue = ""; }
+    };
+    const back = () => requestClose();
+    window.addEventListener("beforeunload", unload);
+    window.addEventListener("apex-close-editor", back);
+    return () => { window.removeEventListener("beforeunload", unload); window.removeEventListener("apex-close-editor", back); };
+  }, [dirty, saving, pending, scanning]);
+
   async function scan(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -354,11 +371,10 @@ export default function RecordEditor({
   }
   async function submit(e) {
     e.preventDefault();
-    if (saving || scanning || loadingSource) return;
-    setSaving(true);
+    if (!canWrite || saving || scanning || loadingSource) return;
+    setError("");
     try {
-      await save(
-        {
+      const payload = {
           kind,
           name: form.name,
           number: form.number,
@@ -412,14 +428,11 @@ export default function RecordEditor({
                     ? form.bank_account_id
                     : undefined,
               },
-        },
-        submissionKey,
-        { keepOpen: saveAction.current === "new" },
-      );
+        };
+      const options = { keepOpen: saveAction.current === "new" };
+      await posting.run(() => save(payload, submissionKey, options));
     } catch (err) {
       setError(err.message);
-    } finally {
-      setSaving(false);
     }
   }
   const preview = useDocumentPreview({
@@ -435,6 +448,7 @@ export default function RecordEditor({
       sales_invoice: "invoice",
       purchase_bill: "bill",
       estimate: "estimate",
+      sales_order: "sales order",
       proforma: "proforma",
       purchase_order: "purchase order",
       credit_note: "credit note",
@@ -467,6 +481,11 @@ export default function RecordEditor({
             }
           }}
         >
+          <fieldset className="form-grid full submission-fields" disabled={!canWrite || saving || scanning || pending}>
+          {!canWrite && <p className="info-box full">You have read-only access to this company.</p>}
+          {relatedSource && (
+            <p className="info-box full">Linked to {relatedSource.number || relatedSource.name}. {isPayment ? "Review the amount and allocation before posting; this does not mark the bank statement as matched." : "Review the quantities and tax before posting a linked return. The original document stays in history."}</p>
+          )}
           {source && (
             <div className="info-box full">
               {edit ? "Editing" : "Converting"} {source.number || source.name}.
@@ -901,6 +920,8 @@ export default function RecordEditor({
               />
             </label>
           )}
+          </fieldset>
+          {pending && !saving && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
           {error && <div className="error full">{error}</div>}
           <div className="modal-actions full document-actions">
             {doc && (
@@ -915,12 +936,12 @@ export default function RecordEditor({
             <button
               type="button"
               className="button secondary"
-              disabled={saving || scanning}
+              disabled={saving || scanning || pending}
               onClick={requestClose}
             >
               Cancel
             </button>
-            {doc && !edit && !source && (
+            {doc && !edit && !source && !relatedSource && (
               <button
                 className="button secondary save-new"
                 type="button"
@@ -929,14 +950,14 @@ export default function RecordEditor({
                   e.currentTarget.form.requestSubmit();
                   saveAction.current = "close";
                 }}
-                disabled={saving || scanning || loadingSource}
+                disabled={!canWrite || saving || scanning || loadingSource || pending}
               >
                 Save & new
               </button>
             )}
             <button
               className="button primary"
-              disabled={saving || scanning || loadingSource}
+              disabled={!canWrite || saving || scanning || loadingSource}
             >
               {loadingSource
                 ? "Loading document…"

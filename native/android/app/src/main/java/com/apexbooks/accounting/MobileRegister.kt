@@ -34,6 +34,7 @@ import java.math.BigDecimal
     val transaction = vm.page in MobileNavigation.transactions
     val from = when (period) { "month" -> today().take(7) + "-01"; "fy" -> financialStart(); "custom" -> start; else -> "" }
     val to = if (period == "all") "" else if (period == "custom") end else today()
+    val filtered=search.isNotBlank()||period!="all"||party!="all"||status!="all"
     val rows = filterRegister(vm.records, vm.page, search, from, to, party, status, sort)
     LaunchedEffect(search, period, start, end, party, status, sort) { count = 50 }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 100.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -49,6 +50,11 @@ import java.math.BigDecimal
             Box(Modifier.weight(1f)) { SearchBarField(if (master) "Search name, phone or barcode" else "Search party or reference", search) { search = it } }
             FilledTonalIconButton(onClick = { filters = true }, modifier = Modifier.size(52.dp), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Outlined.Tune, "Filter and sort") }
         } }
+        if(filtered)item { Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
+            Text("Filtered · ${rows.size} results",style=MaterialTheme.typography.labelMedium)
+            TextButton(onClick={search="";period="all";party="all";status="all"}){Text("Clear filters")}
+        } }
+        if(period=="custom"&&start>end)item{Message("The start date must be on or before the end date.",true)}
         if (!master) item {
             val total = rows.fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("amount") }
             Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(20.dp)) { Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -61,7 +67,7 @@ import java.math.BigDecimal
         if (rows.isEmpty()) item { Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(featureIcon(vm.page), null, Modifier.size(52.dp), tint = ApexGreen)
             Text(if (search.isBlank() && period == "all" && status == "all") "No ${vm.title(vm.page).lowercase()} yet" else "No matching records", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Use Create to add a record, or adjust your filters.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            Text(if(!vm.canWrite)"You have read-only access. Adjust filters or ask an owner to add records."else if(filtered)"Clear or adjust filters to see your records."else"Create your first record to start this register.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             if (vm.canWrite) Button(onClick = { vm.add(vm.page) }) { Text("Add ${if (vm.page == "party") "party" else if (vm.page == "item") "item" else "transaction"}") }
         } }
         items(rows.take(count), key = { it.s("id") }) { RecordCard(vm, it) }
@@ -73,7 +79,7 @@ import java.math.BigDecimal
             Choice("Period", period, listOf("all" to "All dates", "month" to "This month", "fy" to "Financial year", "custom" to "Custom dates"), { period = it })
             if (period == "custom") { DateField("From", start, { start = it }); DateField("To", end, { end = it }) }
             Choice("Party", party, listOf("all" to "All parties") + vm.records.filter { it.s("kind") == vm.page }.map { it.s("name") }.distinct().sorted().map { it to it }, { party = it })
-            Choice("Status", status, listOf("all" to "All statuses") + listOf("Unpaid", "Part settled", "Settled", "Draft", "Converted", "Posted").map { it to it }, { status = it })
+            Choice("Status", status, listOf("all" to "All statuses") + listOf("Unpaid", "Part settled", "Settled", "Draft", "Converted", "Posted", "Advance available", "Advance settled", "Credit available", "Credit settled").map { it to it }, { status = it })
         }
         Choice("Sort", sort, listOf("new" to "Newest first", "old" to "Oldest first", "name" to "Name A–Z", "amount" to "Highest amount"), { sort = it })
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { OutlinedButton(onClick = { period = "all"; party = "all"; status = "all"; sort = "new"; search = "" }, modifier = Modifier.weight(1f)) { Text("Reset") }; Button(onClick = { filters = false }, modifier = Modifier.weight(1f)) { Text("Show ${rows.size} records") } }

@@ -509,7 +509,7 @@ def install(app, m):
     m.commerce_stock_changed = service.stock_changed
     root = '/api/companies/{company_id}/commerce'
     def company(cid, user, session, owner=False, write=False):
-        c = m.company_for(cid, user, session)
+        c = m.lock_company(cid, user, session) if owner or write else m.company_for(cid, user, session)
         if owner and c.owner_id != user.id: raise HTTPException(403, 'Only the company owner can configure store connections')
         if write: m.require_write(c, user, session)
         return c

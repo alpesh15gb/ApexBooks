@@ -32,6 +32,7 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
     companion object { const val PRODUCTION = "https://api.apexbooks.in" }
     var email: String = ""; private set
     private val sessionLock=Any()
+    private var loginSequence=0
     @Volatile private var token: String = ""
     val signedIn: Boolean get() = token.isNotEmpty()
 
@@ -41,13 +42,14 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
     }
 
     suspend fun login(emailAddress: String, password: String, remember: Boolean) {
+        val attempt=synchronized(sessionLock){++loginSequence}
         val result = request("/api/auth/login", "POST", JSONObject().put("email", emailAddress.trim()).put("password", password)) as JSONObject
         val session = result.s("token"); if (session.isBlank()) throw ApiFailure(502, "The server did not return a sign-in session.")
-        withContext(Dispatchers.IO){synchronized(sessionLock){vault?.clear(origin);token=session;email=emailAddress.trim();if(remember)vault?.save(origin,JSONObject().put("email",email).put("token",token))}}
+        withContext(Dispatchers.IO){synchronized(sessionLock){if(attempt!=loginSequence)throw kotlinx.coroutines.CancellationException("Sign-in was cancelled.");vault?.clear(origin);token=session;email=emailAddress.trim();if(remember)vault?.save(origin,JSONObject().put("email",email).put("token",token))}}
     }
 
     suspend fun logout() {val sentToken=token;try { request("/api/auth/logout", "POST") } finally {invalidate(sentToken)} }
-    fun forget() {synchronized(sessionLock){token="";email="";vault?.clear(origin)}}
+    fun forget() {synchronized(sessionLock){loginSequence++;token="";email="";vault?.clear(origin)}}
     private fun invalidate(sentToken:String):Boolean=synchronized(sessionLock){if(sentToken.isBlank()||token!=sentToken)false else{forget();true}}
     fun company(id: String, suffix: String = ""): String = "/api/companies/${encode(id)}$suffix"
 
@@ -93,7 +95,7 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
     }
     suspend fun record(companyId: String, id: String): JSONObject = request(company(companyId, "/records/${encode(id)}")) as JSONObject
     suspend fun saveRecord(companyId: String, body: JSONObject, retryKey: String, previous: JSONObject? = null): JSONObject {
-        val suffix = if (previous == null) "/records" else if (body.s("kind") in setOf("estimate", "proforma", "purchase_order")) "/drafts/${previous.s("id")}" else "/documents/${previous.s("id")}"
+        val suffix = if (previous == null) "/records" else if (body.s("kind") in setOf("estimate", "proforma", "sales_order", "purchase_order")) "/drafts/${previous.s("id")}" else "/documents/${previous.s("id")}"
         return request(company(companyId, suffix), if (previous == null) "POST" else "PUT", body, retryKey) as JSONObject
     }
 }

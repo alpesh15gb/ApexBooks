@@ -83,7 +83,7 @@ def install(app,m):
     def edit_draft(company_id:str,record_id:str,body:m.RecordInput,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
         company=m.lock_company(company_id,user,session)
         record=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==record_id))
-        if not record or record.kind not in ('estimate','proforma','purchase_order'):raise HTTPException(404,'Editable document not found')
+        if not record or record.kind not in ('estimate','proforma','sales_order','purchase_order'):raise HTTPException(404,'Editable document not found')
         if record.kind!=body.kind:raise HTTPException(422,'Document type cannot change')
         if record.data.get('vyapar_converted') or session.scalar(select(m.DocumentConversion.id).where(m.DocumentConversion.company_id==company_id,m.DocumentConversion.source_record_id==record.id)):
             raise HTTPException(409,'Converted documents cannot be edited')
@@ -94,7 +94,9 @@ def install(app,m):
         if session.scalar(select(m.Record.id).where(m.Record.company_id==company_id,m.Record.kind==record.kind,m.Record.number==number,m.Record.id!=record.id)):raise HTTPException(409,'Reference already exists')
         profile=session.get(m.CompanyTaxProfile,company_id)
         previous={'name':record.name,'number':record.number,'date':record.date.isoformat(),'amount':str(record.amount),'data':{k:v for k,v in record.data.items() if k!='document_branding'}}
-        data,amount=m.calculate({**record.data,**body.data},company,profile.mode if profile else 'regular',record.kind,session)
+        # Source lineage is established by conversion/import, never by a draft edit.
+        submitted={key:value for key,value in body.data.items() if key not in {'source_document_id','created_at'} and not key.startswith('vyapar_')}
+        data,amount=m.calculate({**record.data,**submitted},company,profile.mode if profile else 'regular',record.kind,session)
         record.name=body.name.strip();record.number=number;record.date=body.date;record.amount=amount
         record.data={**data,'version':record.data.get('version',0)+1,'company_snapshot':m.company_obj(company,session),'document_branding':m.branding_for(company_id,session)}
         m.audit(session,company_id,user,'draft.updated',record.kind,record.id,{'version':record.data['version'],'previous':previous});session.commit()

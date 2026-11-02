@@ -69,7 +69,24 @@ def install(app,m):
         if record.kind in {'payment_in','payment_out'} and 'allocations' in body.data:
             existing=[]
             for model in (m.PaymentAllocation,m.PaymentSplitAllocation):existing += [(r.document_id,r.amount) for r in session.scalars(select(model).where(model.company_id==company_id,model.payment_id==record.id))]
-            proposed=[(r.get('document_id'),Decimal(str(r.get('amount',0)))) for r in body.data.get('allocations',[])]
+            requested = body.data['allocations']
+            if not isinstance(requested, list) or len(requested) > 100 or (not requested and not data.get('is_advance')):
+                raise HTTPException(422, 'Choose one or more invoices or bills')
+            proposed = []
+            seen = set()
+            for allocation in requested:
+                if not isinstance(allocation, dict):raise HTTPException(422, 'Invalid payment allocation')
+                target_id = allocation.get('document_id')
+                if not isinstance(target_id, str) or not target_id or target_id in seen:
+                    raise HTTPException(422, 'Each document must be selected once')
+                seen.add(target_id)
+                try:
+                    value = Decimal(str(allocation.get('amount')))
+                    if not value.is_finite() or value <= 0 or value > Decimal('9999999999999.99') or value.as_tuple().exponent < -2:
+                        raise ValueError()
+                except (ValueError, ArithmeticError):
+                    raise HTTPException(422, 'Enter a positive allocation with at most two decimal places')
+                proposed.append((target_id, value))
             intent=intent or sorted(existing)!=sorted(proposed)
         intent=intent or (record.kind not in m.DOCUMENTS and m.money(body.amount)!=record.amount)
         if record.data.get('commerce_connection_id') and (intent or any(data.get(k) != record.data.get(k) for k in metadata-{'notes','terms','due_date'})):
