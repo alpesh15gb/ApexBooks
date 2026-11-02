@@ -15,6 +15,8 @@ import { WorkspaceBoundary, DialogFocus } from "./WorkspaceBoundary.jsx";
 import { RecoveryCodes, RecoverAccount } from "./RecoveryAccess.jsx";
 import PosWorkspace from "./PosWorkspace.jsx";
 import { OpeningBalances, CreditSettlements } from "./AccountingWorkflows.jsx";
+import { reorderDraft } from "./reorderDraft.js";
+import ReorderWorkspace from "./ReorderWorkspace.jsx";
 import RecordEditor from "./RecordEditor.jsx";
 import BackupRestore from "./BackupRestore.jsx";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -101,6 +103,7 @@ const sections = [
 const labels = Object.fromEntries(
   sections.flatMap((s) => s.children || (s.key ? [[s.key, s.label]] : [])),
 );
+labels.reorder = "Low stock & reorder";
 labels.bank_transfer = "Cash/bank transfer";
 labels.stock_opening = "Opening stock";
 labels.stock_adjustment = "Stock adjustment";
@@ -432,6 +435,7 @@ function App() {
     [docTemplate, setDocTemplate] = useState("classic"),
     [conversionSource, setConversionSource] = useState(null),
     [relatedSource, setRelatedSource] = useState(null),
+    [draftSeed, setDraftSeed] = useState(null),
     [detail, setDetail] = useState(null),
     [detailLoading, setDetailLoading] = useState(false),
     [detailError, setDetailError] = useState(""),
@@ -523,6 +527,7 @@ function App() {
     setRecordsLoadError("");
     setConversionSource(null);
     setRelatedSource(null);
+    setDraftSeed(null);
     setActiveParty(null);
     setDetail(null);
     setEditorReturn(null);
@@ -688,6 +693,7 @@ function App() {
   function closeRecord(refreshed) {
     setConversionSource(null);
     setRelatedSource(null);
+    setDraftSeed(null);
     setEditingDraft(null);
     setModal("");
     if (editorReturn) {
@@ -703,6 +709,15 @@ function App() {
     setEditorReturn({ page, search, filter: registerFilter, query: registerQuery, detail });
     setDetail(null);
     setSearch("");
+  }
+  function startReorder(rows) {
+    if (!["owner", "editor"].includes(company?.role)) return;
+    let seed;
+    try { seed = reorderDraft(rows, records); } catch (reason) { setError(reason.message); return; }
+    rememberEditorContext();
+    setEditingDraft(null); setConversionSource(null); setRelatedSource(null);
+    setDraftSeed(seed);
+    setPage("purchase_order"); setEditorCycle(n => n + 1); setModal("record");
   }
   async function beginDetail(record) {
     const isCurrent = editorRequests.current.latest();
@@ -731,6 +746,7 @@ function App() {
         setEditingDraft(full);
         setConversionSource(null);
         setRelatedSource(null);
+    setDraftSeed(null);
         setPage(record.kind);
       }
       setEditorCycle(n => n + 1);
@@ -749,6 +765,7 @@ function App() {
       setEditingDraft(null);
       setConversionSource(full);
       setRelatedSource(null);
+    setDraftSeed(null);
       setPage(targetKind || (record.kind === "purchase_order" ? "purchase_bill" : "sales_invoice"));
       setEditorCycle(n => n + 1);
       setModal("record");
@@ -853,6 +870,7 @@ function App() {
     setEditingMaster(null);
     setConversionSource(null);
     setRelatedSource(null);
+    setDraftSeed(null);
     navigateWorkspace(kind);
     if (kind !== "pos") setModal("record");
   }
@@ -999,6 +1017,8 @@ function App() {
               <p>If you were invited to an existing company, ask its owner to add this registered email, then refresh.</p>
               <button className="button secondary" onClick={loadCompanies}>Refresh company access</button>
             </section>
+          ) : page === "reorder" ? (
+            <ReorderWorkspace key={companyId} companyId={companyId} role={company.role} api={api} onReview={startReorder} onBack={() => navigateWorkspace("item")} />
           ) : page === "ledger" ? (
             <Ledger key={companyId} companyId={companyId} role={company?.role} />
           ) : page === "bank_account" ? (
@@ -1290,6 +1310,7 @@ function App() {
                     </>
                   ) : (
                     <>
+                      {page === "item" && <button className="button secondary" onClick={() => navigateWorkspace("reorder")}>Low stock & reorder</button>}
                       {page === "item" && (
                         <button
                           disabled={
@@ -1618,6 +1639,7 @@ function App() {
             onParty={setActiveParty}
             source={editingDraft || conversionSource}
             relatedSource={relatedSource}
+            draftSeed={draftSeed}
             edit={!!editingDraft}
             close={closeRecord}
             save={saveRecord}

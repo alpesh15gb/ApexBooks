@@ -225,6 +225,7 @@ export function DocumentIdentity({
 }
 
 export function DocumentItems({
+  onPriceHistory,
   lines,
   setLines,
   changeLine,
@@ -285,6 +286,7 @@ export function DocumentItems({
               <small>
                 #{index + 1}
                 {line.item_id ? " · linked to item" : " · custom line"}
+                {line.item_id && onPriceHistory && <button type="button" className="button secondary price-history-trigger" onClick={() => onPriceHistory(index)}>Previous prices</button>}
               </small>
             </label>
             <label>

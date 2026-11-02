@@ -35,6 +35,37 @@ class LiveAccountingWorkflow(unittest.TestCase):
             return json.loads(body)
         return body
 
+    def test_reorder_prices_and_terms_are_explicit_nonposting_suggestions(self):
+        credentials = {'email': f'everyday-{uuid4().hex}@example.invalid', 'password': 'Synthetic-only-password-42'}
+        self.request('POST', '/api/auth/register', credentials)
+        self.token = self.request('POST', '/api/auth/login', credentials)['token']
+        company = self.request('POST', '/api/companies', {'name': 'Synthetic everyday workflow', 'tax_mode': 'unregistered'})
+        root = '/api/companies/' + company['id']
+        def post(kind, name, data):
+            return self.request('POST', root + '/records', {'kind': kind, 'name': name, 'date': '2026-04-02', 'data': data}, key=uuid4().hex)
+        party = post('party', 'Terms party', {'payment_terms_days': 30})
+        item = post('item', 'Threshold item', {'track_stock': True, 'low_stock_threshold': '5', 'purchase_rate': '80'})
+        reorder = self.request('GET', root + '/reports/reorder?as_of=2026-04-02')
+        self.assertEqual(reorder['total_low_stock'], 1)
+        self.assertEqual(Decimal(reorder['rows'][0]['suggested_quantity']), 5)
+        before = self.request('GET', root + '/journals')
+        post('purchase_order', party['name'], {'party_id': party['id'], 'lines': [{'item_id': item['id'], 'description': item['name'], 'quantity': 5, 'rate': 80, 'gst_rate': 0}]})
+        self.assertEqual(self.request('GET', root + '/journals'), before)
+        self.assertEqual(self.request('GET', root + '/reports/reorder?as_of=2026-04-02'), reorder)
+        terms = self.request('GET', root + '/parties/' + party['id'] + '/due-date?document_date=2024-01-31')
+        self.assertEqual(terms['suggested_due_date'], '2024-03-01')
+        service = post('item', 'Price service', {'item_type': 'services', 'sale_rate': 120})
+        invoice = post('sales_invoice', party['name'], {'party_id': party['id'], 'due_date': '2026-04-10', 'lines': [{'item_id': service['id'], 'description': service['name'], 'quantity': 1, 'rate': 137, 'gst_rate': 0, 'price_includes_tax': True}]})
+        post('estimate', party['name'], {'party_id': party['id'], 'lines': [{'item_id': service['id'], 'description': service['name'], 'quantity': 1, 'rate': 999, 'gst_rate': 0}]})
+        before = self.request('GET', root + '/journals')
+        prices = self.request('GET', root + '/parties/' + party['id'] + '/item-prices?item_id=' + service['id'] + '&side=sales')
+        self.assertEqual(len(prices['history']), 1)
+        self.assertEqual(Decimal(prices['suggested_rate']), 137)
+        self.assertTrue(prices['requires_confirmation'])
+        self.assertTrue(prices['suggested_price_includes_tax'])
+        self.assertEqual(self.request('GET', root + '/journals'), before)
+        self.assertEqual(self.request('GET', root + '/records/' + invoice['id'])['data']['due_date'], '2026-04-10')
+
     def test_sale_collection_reports_exports_and_access(self):
         suffix = uuid4().hex
         credentials = {'email': f'e2e-{suffix}@example.invalid', 'password': 'Synthetic-only-password-42'}

@@ -80,6 +80,11 @@ public sealed class DocumentLine
         View = Card(panel);View.Padding=new Thickness(14);
     }
 
+    public void ApplySuggestedPrice(string rate,bool includesTax)
+    {
+        Rate.Text=rate;inclusive.IsChecked=includesTax;Changed?.Invoke();
+    }
+
     public JsonObject Data() => new()
     {
         ["description"] = Description.Text.Trim(), ["item_id"] = itemId, ["quantity"] = Quantity.Text.Trim(), ["rate"] = Rate.Text.Trim(),

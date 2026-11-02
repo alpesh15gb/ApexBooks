@@ -57,6 +57,12 @@ transport.ReleaseLogin.SetResult(true);
 try{await cancelledLogin;throw new Exception("Expected cancelled login");}catch(OperationCanceledException){}
 Check(!api.SignedIn,"signout invalidates an in-flight login response");
 
+Check(WorkflowMasterValues.PaymentTerms(" ") is null && WorkflowMasterValues.LowStockThreshold("") is null,"blank workflow defaults disable suggestions");
+Check(WorkflowMasterValues.PaymentTerms("0")!.GetValue<int>()==0&&WorkflowMasterValues.PaymentTerms("3650")!.GetValue<int>()==3650,"payment terms boundary days accepted");
+Check(WorkflowMasterValues.LowStockThreshold("0")!.GetValue<string>()=="0"&&WorkflowMasterValues.LowStockThreshold("999999999999.999")!.GetValue<string>()=="999999999999.999","threshold boundaries preserve exact decimal text");
+foreach(var invalid in new[]{"-1","3651","1.5","+1","1e2","NaN"}){try{WorkflowMasterValues.PaymentTerms(invalid);throw new Exception("Invalid terms accepted");}catch(FormatException){}Check(true,$"invalid payment terms {invalid} rejected locally");}
+foreach(var invalid in new[]{"-1","1000000000000","0.0001","1.0000","1e2","NaN","1,000"}){try{WorkflowMasterValues.LowStockThreshold(invalid);throw new Exception("Invalid threshold accepted");}catch(FormatException){}Check(true,$"invalid threshold {invalid} rejected locally");}
+
 var paging=new PagingTransport();using var pagingApi=new ApexApi("https://synthetic-paging.invalid",paging);
 var timer=System.Diagnostics.Stopwatch.StartNew();for(var offset=0;offset<1250;offset+=100)await pagingApi.Send(pagingApi.CompanyPath("test",$"/records?compact=true&limit=100&offset={offset}"));var baselineMs=timer.ElapsedMilliseconds;
 Check(paging.Calls==13,"baseline 1250 records uses 13 small-page requests");paging.Calls=0;timer.Restart();var allRows=await pagingApi.Records("test");var improvedMs=timer.ElapsedMilliseconds;

@@ -5,6 +5,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OcrProductMappingTest {
+    @Test fun reorderLinesPreserveExemptAndNonGstClassifications(){
+        for(treatment in listOf("exempt","non_gst","nil_rated")){
+            val item=catalogue();item.getJSONObject("data").put("tax_treatment",treatment).put("gst_rate","0")
+            val line=LineState(regular=true);line.linkProduct(item,purchase=true,regular=true)
+            assertEquals(treatment,line.get("tax_treatment"));assertEquals("0",line.get("gst_rate"))
+            assertEquals("pending_review",line.get("itc_treatment"));assertEquals("stock-item",line.get("item_id"))
+            val ineligible=LineState(JSONObject().put("itc_treatment","ineligible"),regular=true);ineligible.linkProduct(item,purchase=true,regular=true);assertEquals("ineligible",ineligible.get("itc_treatment"))
+        }
+    }
+
     private fun catalogue()=JSONObject().put("id","stock-item").put("name","Catalogue adapter")
         .put("data",JSONObject().put("purchase_rate","50").put("sale_rate","100").put("gst_rate","5")
             .put("hsn","8517").put("unit","NOS").put("tax_treatment","taxable"))

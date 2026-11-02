@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows10.0.26100.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
-  <ItemGroup><Compile Include="../../windows/Services/ApexApi.cs" Link="ApexApi.cs" /><Compile Include="../../windows/Services/RetrySubmission.cs" Link="RetrySubmission.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../windows/Services/ApexApi.cs" Link="ApexApi.cs" /><Compile Include="../../windows/Services/RetrySubmission.cs" Link="RetrySubmission.cs" />    <Compile Include="../../windows/Services/WorkflowMasterValues.cs" Link="WorkflowMasterValues.cs" />
+  </ItemGroup>
 </Project>

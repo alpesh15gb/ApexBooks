@@ -6,6 +6,8 @@ export default function MasterForm({ kind, close, save, record }) {
   const isParty = kind === "party";
   const [form, setForm] = useState({
     party_type: "both",
+    payment_terms_days: "",
+    low_stock_threshold: "",
     gstin: "",
     address: "",
     phone: "",
@@ -36,6 +38,7 @@ export default function MasterForm({ kind, close, save, record }) {
             address: form.address,
             phone: form.phone,
             email: form.email,
+            payment_terms_days: form.payment_terms_days === "" || form.payment_terms_days == null ? null : Number(form.payment_terms_days),
           }
         : {
             ...(form.image_data_url!==undefined?{image_data_url:form.image_data_url}:{}),image_thumbnail:form.image_thumbnail||"",
@@ -47,6 +50,7 @@ export default function MasterForm({ kind, close, save, record }) {
             track_stock: form.track_stock,
             barcode: form.barcode,
             item_type: form.item_type,tax_treatment:form.tax_treatment,
+            low_stock_threshold: form.track_stock && form.item_type !== "services" && form.low_stock_threshold !== "" && form.low_stock_threshold != null ? String(form.low_stock_threshold) : null,
           };
       await save({ kind, name: form.name, data });
     } catch (err) {
@@ -143,6 +147,7 @@ export default function MasterForm({ kind, close, save, record }) {
                   onChange={update}
                 />
               </label>
+              <label className="full">Default payment terms (days)<input name="payment_terms_days" type="number" min="0" max="3650" step="1" value={form.payment_terms_days ?? ""} onChange={update} placeholder="No default" /><small>Optional. Net 0 means due on the document date. Existing documents keep their saved due dates.</small></label>
               <label className="full">
                 Address
                 <input
@@ -243,6 +248,8 @@ export default function MasterForm({ kind, close, save, record }) {
                 Track stock quantities for this item
                 {record && " (fixed after creation)"}
               </label>
+              {form.track_stock && form.item_type !== "services" && <label className="full">Low-stock threshold<input name="low_stock_threshold" type="number" min="0" step="0.001" value={form.low_stock_threshold ?? ""} onChange={update} placeholder="Disabled" /><small>Alerts when on-hand stock is at or below this quantity. Blank disables alerts. Changing this never posts stock or accounting entries.</small></label>}
+
             </>
           )}
           {error && <div className="error full">{error}</div>}

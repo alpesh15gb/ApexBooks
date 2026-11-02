@@ -410,6 +410,15 @@ class MasterRow(BaseModel):
     item_type: str = Field(default='goods',pattern=r'^(goods|services)$')
     tax_treatment: str = Field(default='taxable',pattern=r'^(taxable|nil_rated|exempt|non_gst)$')
     track_stock: bool = False
+    low_stock_threshold: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3, allow_inf_nan=False)
+    payment_terms_days: int | None = Field(default=None, ge=0, le=3650, strict=True)
+
+def validate_master_defaults(master, kind):
+    if master.low_stock_threshold is not None and (kind != 'item' or not master.track_stock or master.item_type != 'goods'):
+        raise HTTPException(422, 'Low-stock thresholds require a stock-tracked goods item')
+    if master.payment_terms_days is not None and kind != 'party':
+        raise HTTPException(422, 'Payment terms belong to a party')
+
 def validate_item_image(master):
     from PIL import Image as PillowImage
     for value in (master.image_data_url,master.image_thumbnail):
@@ -1301,6 +1310,9 @@ def import_masters(company_id: str, body: MasterImport, user: User = Depends(cur
             errors.append({'row': index, 'message': 'Name is required'}); continue
         if key in existing or key in seen:
             duplicates += 1; continue
+        try:validate_master_defaults(row, body.kind)
+        except HTTPException as exc:
+            errors.append({'row': index, 'message': exc.detail});continue
         data = row.model_dump(mode='json', exclude={'name'})
         if body.kind == 'party':
             if row.party_type not in {'customer', 'supplier', 'both'}:
@@ -1309,9 +1321,9 @@ def import_masters(company_id: str, body: MasterImport, user: User = Depends(cur
                 errors.append({'row': index, 'message': 'GSTIN must contain 15 characters'}); continue
             if row.email.strip() and not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', row.email.strip()):
                 errors.append({'row': index, 'message': 'Enter a valid email'}); continue
-            data = {'party_type': row.party_type, 'gstin': row.gstin.upper(), 'address': row.address, 'phone': row.phone.strip(), 'email': row.email.strip()}
+            data = {'party_type': row.party_type, 'gstin': row.gstin.upper(), 'address': row.address, 'phone': row.phone.strip(), 'email': row.email.strip(), 'payment_terms_days': row.payment_terms_days}
         else:
-            data = {key: data[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail')}
+            data = {key: data[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold')}
         seen.add(key)
         ready.append((name, data))
     result = {'dry_run': body.dry_run, 'ready': len(ready), 'duplicates': duplicates, 'errors': errors}
@@ -1330,6 +1342,7 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
     master = session.scalar(select(Record).where(Record.company_id == company_id,
         Record.id == master_id, Record.kind.in_(['party', 'item'])))
     if not master: raise HTTPException(404, 'Party or item not found')
+    validate_master_defaults(body, master.kind)
     if body.name.strip() != master.name: raise HTTPException(422, 'Names cannot be changed after creation')
     if master.kind == 'party':
         if body.party_type not in {'customer', 'supplier', 'both'}: raise HTTPException(422, 'Choose a valid party type')
@@ -1337,11 +1350,12 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
         if body.email.strip() and not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', body.email.strip()): raise HTTPException(422, 'Enter a valid email')
         master.data = {**(master.data or {}), 'party_type': body.party_type, 'gstin': body.gstin.upper(), 'address': body.address,
                        'phone': body.phone.strip(), 'email': body.email.strip()}
+        if 'payment_terms_days' in body.model_fields_set:master.data={**master.data,'payment_terms_days':body.payment_terms_days}
     else:
         if body.track_stock != bool(master.data.get('track_stock', False)):
             raise HTTPException(422, 'Stock tracking cannot be changed after item creation')
         values = body.model_dump(mode='json')
-        master.data = {**(master.data or {}), **{key: values[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail') if key not in {'image_data_url','image_thumbnail'} or key in body.model_fields_set}}
+        master.data = {**(master.data or {}), **{key: values[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold') if key not in {'image_data_url','image_thumbnail','low_stock_threshold'} or key in body.model_fields_set}}
     audit(session, company_id, user, 'master.updated', master.kind, master.id)
     if master.kind == 'item' and hasattr(sys.modules[__name__], 'commerce_stock_changed'): commerce_stock_changed(company_id, session)
     session.commit(); session.refresh(master)
@@ -1385,6 +1399,7 @@ def save_record(company_id, body, request, user, session, *, commit=True):
         try: master = MasterRow.model_validate({**data, 'name': body.name})
         except ValidationError: raise HTTPException(422, 'Invalid party or item details')
         validate_item_image(master)
+        validate_master_defaults(master, body.kind)
         if not master.name.strip(): raise HTTPException(422, 'Name is required')
         if session.scalar(select(Record.id).where(Record.company_id == company_id, Record.kind == body.kind, func.lower(Record.name) == master.name.strip().lower())):
             raise HTTPException(409, 'A party or item with this name already exists')
@@ -1392,9 +1407,9 @@ def save_record(company_id, body, request, user, session, *, commit=True):
             if master.party_type not in {'customer', 'supplier', 'both'}: raise HTTPException(422, 'Party type must be customer, supplier or both')
             if master.gstin and not re.fullmatch(r'\d{2}[A-Z0-9]{13}', master.gstin.upper()): raise HTTPException(422, 'GSTIN must contain 15 characters')
             if master.email.strip() and not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', master.email.strip()): raise HTTPException(422, 'Enter a valid email')
-            data = {'party_type': master.party_type, 'gstin': master.gstin.upper(), 'address': master.address, 'phone': master.phone.strip(), 'email': master.email.strip()}
+            data = {'party_type': master.party_type, 'gstin': master.gstin.upper(), 'address': master.address, 'phone': master.phone.strip(), 'email': master.email.strip(), 'payment_terms_days': master.payment_terms_days}
         else:
-            data = {key: value for key, value in master.model_dump(mode='json').items() if key in {'hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail'}}
+            data = {key: value for key, value in master.model_dump(mode='json').items() if key in {'hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold'}}
         body.name = master.name.strip()
     profile = session.get(CompanyTaxProfile, company_id)
     tax_mode = profile.mode if profile else 'regular'
@@ -2758,3 +2773,6 @@ install_party_statements(app, sys.modules[__name__])
 
 from commerce import install as install_commerce
 install_commerce(app, sys.modules[__name__])
+
+from everyday_features import install as install_everyday_features
+install_everyday_features(app, sys.modules[__name__])

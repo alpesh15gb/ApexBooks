@@ -46,7 +46,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     fun renewRetryKey(){retryKey=vm.key();submission.succeeded();retryPending=false}
     init {
         val source=previous?:conversion?:JSONObject();val data=source.o("data")
-        for(key in listOf("party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","supplier_state","due_date","notes","terms","category","payment_account","bank_account_id","applied_to","advance_supply","advance_gst_rate","document_discount_percent","tender_amount","gstin","address","phone","email","party_type","hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))fields[key]=data.s(key)
+        for(key in listOf("payment_terms_days","low_stock_threshold","party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","supplier_state","due_date","notes","terms","category","payment_account","bank_account_id","applied_to","advance_supply","advance_gst_rate","document_discount_percent","tender_amount","gstin","address","phone","email","party_type","hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))fields[key]=data.s(key)
         fields["name"]=source.s("name");fields["number"]=previous?.s("number")?:"";fields["date"]=previous?.s("date")?:today();fields["amount"]=previous?.s("amount")?:""
         if(purchase&&get("supplier_state").isBlank())fields["supplier_state"]=supplierOrigin(data)
         for((key,value)in mapOf("place_of_supply" to vm.company.s("state_code"),"supplier_state" to vm.company.s("state_code"),"payment_account" to "cash","bank_account_id" to "default","advance_supply" to "goods","advance_gst_rate" to "18","document_discount_percent" to "0","category" to "General","party_type" to "both","item_type" to "goods","tax_treatment" to "taxable","sale_rate" to "0","purchase_rate" to "0","gst_rate" to "0"))if(get(key).isBlank())fields[key]=value
@@ -82,7 +82,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     fun chooseSource(id:String){set("applied_to",id);if(id.isBlank()){sourceSequence++;sourceLoading=false;return};sourceLoading=true;val request=++sourceSequence;vm.task{try{val row=vm.api.record(companyId,id);if(vm.editor!==this||sourceSequence!=request)return@task;set("name",row.s("name"));val data=row.o("data");for(key in listOf("party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","supplier_state"))set(key,data.s(key));if(purchase)set("supplier_state",supplierOrigin(data));lines.clear();data.a("lines").objects().forEach{lines.add(LineState(it,regular))}}finally{if(request==sourceSequence)sourceLoading=false}}}
     fun body():JSONObject {
         val values=JSONObject()
-        if(master){for(key in if(kind=="party")listOf("gstin","address","phone","email","party_type")else listOf("hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))values.put(key,get(key));if(kind=="item")values.put("track_stock",flag("track_stock"))}
+        if(master){for(key in if(kind=="party")listOf("gstin","address","phone","email","party_type")else listOf("hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))values.put(key,get(key));if(kind=="item"){values.put("track_stock",flag("track_stock"));values.put("low_stock_threshold",get("low_stock_threshold").ifBlank{null}?:JSONObject.NULL)}else values.put("payment_terms_days",if(get("payment_terms_days").isBlank())JSONObject.NULL else get("payment_terms_days").toIntOrNull()?:get("payment_terms_days"))}
         else {
             for(key in listOf("party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","due_date","notes","terms","category"))values.put(key,get(key))
             if(payment||kind in setOf("expense","pos")){values.put("payment_account",get("payment_account"));if(get("payment_account")=="bank")values.put("bank_account_id",get("bank_account_id"))}
@@ -98,6 +98,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         vm.task{try{
             if(!retryPending){
                 if(get("name").isBlank())throw Exception("Enter a party or description.")
+                if(master)masterPlanningIssue(kind,get("payment_terms_days"),get("low_stock_threshold"))?.let{throw Exception(it)}
                 if(payment&&!flag("is_advance")&&(allocations.isEmpty()||allocations.any{it.documentId.isBlank()}))throw Exception("Allocate the payment or record an advance.")
             }
             val body=submission.body(body())

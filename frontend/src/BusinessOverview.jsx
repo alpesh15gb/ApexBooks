@@ -361,6 +361,7 @@ export default function BusinessOverview({
         <button onClick={() => onNavigate("purchase_bill")}>
           Purchases <ArrowUpRight size={14} />
         </button>
+        <button onClick={() => onNavigate("reorder")}>Low stock <ArrowUpRight size={14} /></button>
         <button onClick={() => onNavigate("reports")}>
           Reports & GST <ArrowUpRight size={14} />
         </button>

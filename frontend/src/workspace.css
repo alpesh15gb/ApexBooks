@@ -2002,3 +2002,18 @@ h2 {
 .brand-wordmark{display:block;width:180px;height:auto;max-width:100%;padding:10px;background:#fff;border-radius:7px;box-sizing:content-box;flex-shrink:0;object-fit:contain}
 .sidebar .brand{padding-left:0}
 .auth-story .brand-wordmark{width:280px;max-width:calc(100% - 24px)}
+
+/* Inventory planning and explicit party price suggestions */
+.reorder-workspace { max-width: 1180px; margin: auto; padding: 28px; }
+.reorder-summary,.reorder-review,.price-history-row { display:flex; align-items:center; gap:16px; padding:20px; justify-content:space-between; }
+.reorder-summary>div { display:flex; gap:16px; align-items:center; }
+.reorder-summary strong { font-size:28px; }
+.reorder-summary small,.reorder-row small,.price-history-row small { display:block; color:var(--muted,#64748b); }
+.reorder-row { display:grid; grid-template-columns:24px minmax(180px,2fr) 1fr 1fr minmax(120px,1fr); align-items:center; gap:18px; padding:18px 22px; border-top:1px solid #e5eaf0; }
+.reorder-row>div>strong { display:block; margin-top:5px; }
+.reorder-row input[type=checkbox] { width:20px; height:20px; }
+.reorder-review { position:sticky; bottom:0; background:var(--surface,#fff); border:1px solid #dbe5e3; border-radius:14px; margin-top:20px; }
+.price-history-row { border-bottom:1px solid #e5eaf0; flex-wrap:wrap; }
+.price-history-row>div { flex:1; min-width:150px; }
+.price-history-trigger { margin-top:6px; min-height:44px; }
+@media(max-width:650px) { .reorder-workspace { padding:16px; } .reorder-summary,.reorder-review { flex-wrap:wrap; } .reorder-row { grid-template-columns:24px 1fr 1fr; gap:12px; } .reorder-item { grid-column:span 2; } .reorder-row label { grid-column:span 2; } }

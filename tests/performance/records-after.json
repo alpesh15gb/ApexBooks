@@ -1,0 +1,57 @@
+{
+  "database": "isolated SQLite",
+  "results": [
+    {
+      "records": 100,
+      "page_size": 100,
+      "http_requests": 2,
+      "sql_queries": 11,
+      "payload_bytes": 31596,
+      "median_ms": 35.59,
+      "samples_ms": [
+        30.96,
+        35.94,
+        35.59
+      ]
+    },
+    {
+      "records": 100,
+      "page_size": 500,
+      "http_requests": 1,
+      "sql_queries": 7,
+      "payload_bytes": 31594,
+      "median_ms": 16.26,
+      "samples_ms": [
+        18.73,
+        16.14,
+        16.26
+      ]
+    },
+    {
+      "records": 1000,
+      "page_size": 100,
+      "http_requests": 11,
+      "sql_queries": 74,
+      "payload_bytes": 316905,
+      "median_ms": 672.0,
+      "samples_ms": [
+        672.0,
+        740.96,
+        612.3
+      ]
+    },
+    {
+      "records": 1000,
+      "page_size": 500,
+      "http_requests": 3,
+      "sql_queries": 18,
+      "payload_bytes": 316897,
+      "median_ms": 202.07,
+      "samples_ms": [
+        202.07,
+        208.91,
+        171.8
+      ]
+    }
+  ]
+}

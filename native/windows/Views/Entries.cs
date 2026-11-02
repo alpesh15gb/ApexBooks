@@ -45,6 +45,7 @@ public sealed partial class MainPage
             foreach (var (key, label) in new[] { ("phone", "Phone"), ("email", "Email"), ("gstin", "GSTIN"), ("address", "Address") }) fields[key]=Input(label,data.Text(key),key=="address");
             fields["gstin"].MaxLength=15;fields["phone"].MaxLength=32;fields["address"].MaxLength=1000;
             panel.Children.Add(Columns(partyType,fields["phone"]));panel.Children.Add(Columns(fields["email"],fields["gstin"]));panel.Children.Add(fields["address"]);
+            fields["payment_terms_days"]=Input("Payment terms · days (blank disables)",data.Text("payment_terms_days"));panel.Children.Add(fields["payment_terms_days"]);panel.Children.Add(Text("0 means due on the document date. Due dates are suggested for review, never silently replaced.",12));
         }
         else
         {
@@ -53,6 +54,7 @@ public sealed partial class MainPage
             fields["hsn"].MaxLength=16;fields["unit"].MaxLength=24;
             panel.Children.Add(Columns(itemType,fields["barcode"]));panel.Children.Add(Columns(fields["hsn"],fields["unit"]));panel.Children.Add(Columns(fields["sale_rate"],fields["purchase_rate"],fields["gst_rate"]));
             treatment = Select("GST treatment", [("taxable", "Taxable"), ("nil_rated", "Nil rated"), ("exempt", "Exempt"), ("non_gst", "Non-GST supply")], data.Text("tax_treatment") is { Length: > 0 } value ? value : Company.Text("tax_mode") == "regular" ? "taxable" : "nil_rated"); panel.Children.Add(treatment);
+            fields["low_stock_threshold"]=Input("Low-stock threshold · quantity (blank disables)",data.Text("low_stock_threshold"));panel.Children.Add(fields["low_stock_threshold"]);panel.Children.Add(Text("Reorder suggestions apply only to stock-tracked goods. Review quantities before creating a purchase order draft.",12));
             tracked = new CheckBox { Content = "Track stock quantities", IsChecked = data.Flag("track_stock"), IsEnabled = existing is null }; panel.Children.Add(tracked);
             var preview = new Image { MaxWidth = 180, MaxHeight = 120, HorizontalAlignment = HorizontalAlignment.Left };
             if (data.Text("image_thumbnail").Length > 0) preview.Source = await Bitmap(data.Text("image_thumbnail")); panel.Children.Add(preview);
@@ -69,6 +71,8 @@ public sealed partial class MainPage
         {
             if (string.IsNullOrWhiteSpace(name.Text)) throw new Exception("Enter a name.");
             foreach (var (key, field) in fields) data[key] = field.Text.Trim();
+            if(kind=="party")data["payment_terms_days"]=WorkflowMasterValues.PaymentTerms(fields["payment_terms_days"].Text);
+            else data["low_stock_threshold"]=WorkflowMasterValues.LowStockThreshold(fields["low_stock_threshold"].Text);
             if (partyType is not null) data["party_type"] = Value(partyType);
             if (itemType is not null) data["item_type"] = Value(itemType);
             if (treatment is not null) data["tax_treatment"] = Value(treatment);

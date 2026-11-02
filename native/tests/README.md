@@ -34,3 +34,21 @@ merely because initial history finished, and hides history-derived charts and
 billing until history is complete. Windows retains a complete-history loading
 state before its full dashboard. Neither implementation uses a cross-company
 record cache or presents partial-page balances as complete financial totals.
+
+## Planning workflows to verify on a device
+
+- Edit a saved party: optional payment terms accept 0–3650 whole days.
+  Invoice/bill **Check party payment terms** fetches the API suggestion;
+  only **Use suggested due date** / **Replace due date** changes the draft.
+- Link a saved party and item: **Check this party’s item prices** shows up to
+  five posted exact-ID matches. **Apply suggested price & tax basis** changes
+  only rate and inclusive/exclusive basis, with the current GST/discounts left
+  visible for review. Changing party/item invalidates the displayed suggestion.
+- Edit tracked goods: optional nonnegative threshold (three decimal places)
+  enables **Low stock & reorder review**. Search and inspect authoritative
+  dated stock, then prepare a purchase-order draft. Supplier/quantity/rate
+  review and explicit save remain required; opening the report or draft never
+  posts stock or sends an order.
+
+`PlanningToolsTest` covers Android optional-field boundaries. These are new
+UI flows: local build/unit checks do not replace device acceptance evidence.

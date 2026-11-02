@@ -11,12 +11,12 @@ namespace ApexBooks_Windows;
 
 public sealed partial class MainPage
 {
-    private async Task EditDocument(string kind, JsonObject? previous = null, JsonObject? conversion = null,JsonObject? returnSource=null)
+    private async Task EditDocument(string kind, JsonObject? previous = null, JsonObject? conversion = null,JsonObject? returnSource=null,JsonObject? draftSeed=null)
     {
         var cid = CompanyId; var stamp = generation;
         if (conversion is not null) conversion = (await Api.Record(cid, conversion.Text("id"))).Object();
         if (stamp != generation) return;
-        var source = previous ?? conversion ?? returnSource; var data = source?["data"].Object() ?? new();
+        var source = previous ?? conversion ?? returnSource ?? draftSeed; var data = source?["data"].Object() ?? new();
         var regular = Company.Text("tax_mode") == "regular"; var purchase = kind is "purchase_bill" or "purchase_order" or "debit_note" or "expense";
         var panel = Stack(16); panel.Width = Math.Clamp(((App.Window.Content as FrameworkElement)?.ActualWidth ?? 1240) - 112, 420, 1320);
         panel.Children.Add(Text(Company.Text("name") + " · " + (regular ? "GST registered" : "GST not charged on sales"), 13));
@@ -78,6 +78,20 @@ public sealed partial class MainPage
         void AddLine(JsonObject? initial = null, bool preserveImportedValues = false)
         {
             var line = new DocumentLine(Records.OfType<JsonObject>().Where(r => r.Text("kind") == "item"), purchase, regular, initial, preserveImportedValues); var holder = Stack(6); holder.Children.Add(line.View);
+            var history=Stack(8);
+            if(kind is "sales_invoice" or "purchase_bill" or "estimate" or "proforma" or "sales_order" or "purchase_order"){
+                holder.Children.Add(AsyncButton("Party price history / suggestion",async()=>{
+                    var selectedParty=partyId;var item=line.Data().Text("item_id");
+                    if(selectedParty.Length==0||item.Length==0)throw new Exception("Choose a saved party and a linked item to review price history.");
+                    var result=await Api.Send(Api.CompanyPath(cid,$"/parties/{Uri.EscapeDataString(selectedParty)}/item-prices?item_id={Uri.EscapeDataString(item)}&side={(purchase?"purchase":"sales")}"));
+                    if(stamp!=generation||cid!=CompanyId||partyId!=selectedParty||line.Data().Text("item_id")!=item||!lines.Contains(line))return;
+                    history.Children.Clear();var rate=result.Text("suggested_rate");var includes=result.Flag("suggested_price_includes_tax");
+                    history.Children.Add(Text($"Suggested {J.Money(result.Number("suggested_rate"))} · {(includes?"includes GST":"excludes GST")} · {(result.Text("source")=="last_posted"?"last posted price":"item default")}",13,true));
+                    foreach(var row in result["history"].Array())history.Children.Add(Text($"{row.Text("date")} · {row.Text("number")} · qty {row.Text("quantity")} · {J.Money(row.Number("rate"))} · {(row.Flag("price_includes_tax")?"GST included":"GST extra")} · GST {row.Text("gst_rate")}% · discount {row.Text("discount_percent")}% / {row.Text("discount_amount")}",12));
+                    history.Children.Add(Text("Applying changes only this line's rate and tax-inclusive basis. Current quantity, GST rate and discount remain for your review.",12));
+                    history.Children.Add(Button("Apply suggested rate and tax basis",()=>{if(stamp!=generation||partyId!=selectedParty||line.Data().Text("item_id")!=item||submission.Unresolved)return;line.ApplySuggestedPrice(rate,includes);history.Children.Clear();}));
+                },LocalError));holder.Children.Add(history);
+            }
             holder.Children.Add(Button("Remove this item", () => { lines.Remove(line); linesPanel.Children.Remove(holder); _ = Calculate(); }));
             lines.Add(line); linesPanel.Children.Add(holder); line.Changed += () => _ = Calculate();_ = Calculate();
         }
@@ -88,6 +102,18 @@ public sealed partial class MainPage
         var metadata=Stack(10);metadata.Children.Add(Columns(number,date.View));
         if(kind is "sales_invoice" or "purchase_bill")metadata.Children.Add(regular||purchase?Columns(due.View,supply):due.View);else if(regular||purchase)metadata.Children.Add(supply);
         if(purchase)metadata.Children.Add(supplierState);
+        if(kind is "sales_invoice" or "purchase_bill"){
+            var suggestion=Stack(6);metadata.Children.Add(AsyncButton("Suggest due date from party terms",async()=>{
+                var selectedParty=partyId;var selectedDate=date.Value;
+                if(selectedParty.Length==0)throw new Exception("Choose a saved party to use its payment terms.");
+                var result=await Api.Send(Api.CompanyPath(cid,$"/parties/{Uri.EscapeDataString(selectedParty)}/due-date?document_date={selectedDate}"));
+                if(stamp!=generation||cid!=CompanyId||partyId!=selectedParty||date.Value!=selectedDate)return;
+                suggestion.Children.Clear();var proposed=result.Text("suggested_due_date");
+                if(proposed.Length==0){suggestion.Children.Add(Text("This party has no saved payment terms. Edit its master or enter a due date manually.",12));return;}
+                suggestion.Children.Add(Text($"{result.Text("payment_terms_days")} days · suggested due {proposed}. Your existing date is unchanged until you apply.",12));
+                suggestion.Children.Add(Button("Apply suggested due date",()=>{if(stamp!=generation||partyId!=selectedParty||date.Value!=selectedDate||submission.Unresolved)return;due.Picker.Date=new DateTimeOffset(DateTime.Parse(proposed,System.Globalization.CultureInfo.InvariantCulture));suggestion.Children.Clear();}));
+            },LocalError));metadata.Children.Add(suggestion);
+        }
         panel.Children.Add(Card(Columns(identity,metadata)));
         if (kind is "credit_note" or "debit_note")
         {

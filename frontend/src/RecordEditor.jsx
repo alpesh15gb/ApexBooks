@@ -9,6 +9,7 @@ import {
 } from "./DocumentWorkbench.jsx";
 import { prepareInvoiceImage } from "./prepareInvoiceImage.js";
 import React, { useState, useEffect, useRef } from "react";
+import PriceHistory from "./PriceHistory.jsx";
 import PaymentAllocations from "./PaymentAllocations.jsx";
 export default function RecordEditor({
   kind,
@@ -17,6 +18,7 @@ export default function RecordEditor({
   records,
   source,
   relatedSource,
+  draftSeed,
   close,
   save,
   api,
@@ -37,7 +39,8 @@ export default function RecordEditor({
       "expense",
     ].includes(kind),
     showTax = company.tax_mode === "regular" || purchase;
-  const initial = source || relatedSource;
+  const initial = source || relatedSource || draftSeed;
+  const [priceLine, setPriceLine] = useState(null), [termsSuggestion, setTermsSuggestion] = useState(null), [termsError, setTermsError] = useState("");
   const canWrite = ["owner", "editor"].includes(company.role);
   const isPayment = ["payment_in", "payment_out"].includes(kind);
   const [dirty, setDirty] = useState(false),
@@ -250,6 +253,14 @@ export default function RecordEditor({
       e.target.value = "";
     }
   }
+  useEffect(() => {
+    let active = true; setTermsSuggestion(null); setTermsError("");
+    if (form.party_id && form.date && ["sales_invoice", "purchase_bill"].includes(kind)) {
+      api(`/companies/${companyId}/parties/${form.party_id}/due-date?document_date=${form.date}`)
+        .then(result => { if (active) setTermsSuggestion(result); }).catch(reason => { if (active) setTermsError(reason.message); });
+    }
+    return () => { active = false; };
+  }, [companyId, form.party_id, form.date, kind]);
   const change = (e) => {
     const value = e.target.value;
     const matched =
@@ -720,6 +731,9 @@ export default function RecordEditor({
           )}
           {doc ? (
             <>
+              {draftSeed && <p className="info-box full">Reorder draft only. Choose a supplier and review quantities, prices and tax. Saving this purchase order does not move stock or money.</p>}
+              {termsError && <p className="error full">Payment-term suggestion unavailable: {termsError}. You can still set a due date manually.</p>}
+              {termsSuggestion?.suggested_due_date && <div className="info-box full">Party terms: Net {termsSuggestion.payment_terms_days} days · suggested due date {termsSuggestion.suggested_due_date}. <button type="button" className="button secondary" onClick={() => { setDirty(true); setForm(current => ({ ...current, due_date: termsSuggestion.suggested_due_date })); }}>Apply payment terms</button></div>}
               <DocumentIdentity
                 form={form}
                 setForm={setForm}
@@ -752,6 +766,7 @@ export default function RecordEditor({
                   setLines(next);
                 }}
                 changeLine={changeLine}
+                onPriceHistory={form.party_id && !source && !relatedSource ? index => setPriceLine({ index, item: { ...lines[index] }, party: { id: form.party_id, name: form.name } }) : null}
                 emptyLine={emptyLine}
                 showTax={showTax}
                 purchase={purchase}
@@ -941,7 +956,7 @@ export default function RecordEditor({
             >
               Cancel
             </button>
-            {doc && !edit && !source && !relatedSource && (
+            {doc && !edit && !source && !relatedSource && !draftSeed && (
               <button
                 className="button secondary save-new"
                 type="button"
@@ -968,6 +983,10 @@ export default function RecordEditor({
           </div>
         </form>
       </Modal>
+      {priceLine && <PriceHistory api={api} companyId={companyId} party={priceLine.party} item={priceLine.item} side={purchase ? "purchase" : "sales"} Modal={Modal} close={() => setPriceLine(null)} apply={price => {
+        setLines(current => current.map((line, index) => index === priceLine.index && line.item_id === priceLine.item.item_id ? { ...line, ...price } : line));
+        setDirty(true); setPriceLine(null);
+      }} />}
       {confirmClose && (
         <Modal
           title="Discard unsaved changes?"
