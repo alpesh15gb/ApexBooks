@@ -25,10 +25,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - name: Use preconfigured hosted Android SDK
+        run: |
+          test -d "$ANDROID_HOME/licenses"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
       - uses: gradle/actions/setup-gradle@v4
       - run: python -m pip install -r backend/requirements-dev.txt
-      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      # EOF prevents accepting any new license; missing approval fails this step.
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' < /dev/null
       - name: Start isolated synthetic API
         run: |
           export DATABASE_URL="sqlite:///$RUNNER_TEMP/native-device-isolated.sqlite3"
@@ -40,22 +46,35 @@ jobs:
           done
           cat "$RUNNER_TEMP/native-device-api.log"
           exit 1
-      # Setup follows the emulator action's documented Linux KVM configuration.
-      - name: Enable hardware acceleration
+      - name: Check hardware acceleration
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
           test -e /dev/kvm
-      - uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 29
-          target: google_apis
-          arch: x86_64
-          profile: pixel_2
-          disable-animations: true
-          disable-linux-hw-accel: false
-          script: bash native/tools/run_android_device_checks.sh
+          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            echo 'Hosted runner lacks preconfigured KVM read/write access; device checks require an approved accelerated runner.' >&2
+            exit 1
+          fi
+          emulator -accel-check
+      # Do not use emulator-runner: it unconditionally accepts all SDK licenses.
+      - name: Run hardware-accelerated local device checks
+        timeout-minutes: 25
+        run: |
+          sdkmanager 'emulator' 'platform-tools' 'system-images;android-29;google_apis;x86_64' < /dev/null
+          printf 'no\n' | avdmanager create avd --force --name ApexLocal --package 'system-images;android-29;google_apis;x86_64' --device pixel_2
+          emulator -avd ApexLocal -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel on > "$RUNNER_TEMP/native-emulator.log" 2>&1 &
+          emulator_pid=$!
+          trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
+          adb start-server
+          booted=false
+          for attempt in $(seq 1 120); do
+            if [ "$(adb -e shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; then booted=true; break; fi
+            kill -0 "$emulator_pid" || { cat "$RUNNER_TEMP/native-emulator.log"; exit 1; }
+            sleep 2
+          done
+          $booted || { cat "$RUNNER_TEMP/native-emulator.log"; exit 1; }
+          adb -e shell settings put global window_animation_scale 0
+          adb -e shell settings put global transition_animation_scale 0
+          adb -e shell settings put global animator_duration_scale 0
+          bash native/tools/run_android_device_checks.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -65,3 +84,4 @@ jobs:
             native/android/app/build/outputs/androidTest-results
             native/android/app/build/device-evidence
             ${{ runner.temp }}/native-device-api.log
+            ${{ runner.temp }}/native-emulator.log
