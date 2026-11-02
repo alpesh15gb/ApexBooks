@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           # One explicitly approved run tests this immutable published candidate.
-          ref: ${{ github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.number == 1 && github.head_ref == 'codex/end-to-end-hardening' && github.event.pull_request.head.repo.full_name == github.repository && github.run_number == '13' && github.run_attempt == '1' && '87ee6f3a9276f6992fc18425323b21cb52592d79' || github.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.number == 1 && github.head_ref == 'codex/end-to-end-hardening' && github.event.pull_request.head.repo.full_name == github.repository && github.run_number == '14' && github.run_attempt == '1' && '87ee6f3a9276f6992fc18425323b21cb52592d79' || github.sha }}
       - name: Record checked-out build revision
         shell: bash
         run: |
@@ -64,15 +64,27 @@ jobs:
           exit 1
       - name: Install and verify device-test prerequisites before privileged access
         run: |
+          export ANDROID_USER_HOME="$RUNNER_TEMP/apex-android-user"
+          export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo "ANDROID_USER_HOME=$ANDROID_USER_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_EMULATOR_HOME=$ANDROID_EMULATOR_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
           sdkmanager 'emulator' 'platform-tools' 'system-images;android-29;google_apis;x86_64' < /dev/null
           test -x "$ANDROID_HOME/emulator/emulator"
+          "$ANDROID_HOME/emulator/emulator" -version
           command -v adb
           command -v avdmanager
           test -f "$ANDROID_HOME/system-images/android-29/google_apis/x86_64/package.xml"
-          printf 'no\n' | avdmanager create avd --force --name ApexLocal --package 'system-images;android-29;google_apis;x86_64' --device pixel_2
+          printf 'no\n' | avdmanager create avd --force --name ApexLocal --package 'system-images;android-29;google_apis;x86_64' --device pixel_2 --path "$ANDROID_AVD_HOME/ApexLocal.avd"
+          test -s "$ANDROID_AVD_HOME/ApexLocal.ini"
+          test -s "$ANDROID_AVD_HOME/ApexLocal.avd/config.ini"
+          grep -Fx "path=$ANDROID_AVD_HOME/ApexLocal.avd" "$ANDROID_AVD_HOME/ApexLocal.ini"
+          "$ANDROID_HOME/emulator/emulator" -list-avds | tr -d '\r' | grep -Fx 'ApexLocal'
       - name: Grant approved one-run runner access to KVM
         id: kvm_access
-        if: ${{ github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.number == 1 && github.head_ref == 'codex/end-to-end-hardening' && github.event.pull_request.head.repo.full_name == github.repository && github.run_number == '13' && github.run_attempt == '1' }}
+        if: ${{ github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.number == 1 && github.head_ref == 'codex/end-to-end-hardening' && github.event.pull_request.head.repo.full_name == github.repository && github.run_number == '14' && github.run_attempt == '1' }}
         run: |
           test "$(git rev-parse HEAD)" = "87ee6f3a9276f6992fc18425323b21cb52592d79"
           test -c /dev/kvm
@@ -96,20 +108,23 @@ jobs:
       - name: Run hardware-accelerated local device checks
         timeout-minutes: 25
         run: |
-          "$ANDROID_HOME/emulator/emulator" -avd ApexLocal -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel on > "$RUNNER_TEMP/native-emulator.log" 2>&1 &
+          test -s "$ANDROID_AVD_HOME/ApexLocal.ini"
+          "$ANDROID_HOME/emulator/emulator" -list-avds | tr -d '\r' | grep -Fx 'ApexLocal'
+          export ANDROID_SERIAL=emulator-5554
+          "$ANDROID_HOME/emulator/emulator" -port 5554 -avd ApexLocal -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel on > "$RUNNER_TEMP/native-emulator.log" 2>&1 &
           emulator_pid=$!
-          trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
+          trap 'kill "$emulator_pid" 2>/dev/null || true; wait "$emulator_pid" 2>/dev/null || true' EXIT
           adb start-server
           booted=false
           for attempt in $(seq 1 120); do
-            if [ "$(adb -e shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; then booted=true; break; fi
+            if [ "$(adb -s "$ANDROID_SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; then booted=true; break; fi
             kill -0 "$emulator_pid" || { cat "$RUNNER_TEMP/native-emulator.log"; exit 1; }
             sleep 2
           done
           $booted || { cat "$RUNNER_TEMP/native-emulator.log"; exit 1; }
-          adb -e shell settings put global window_animation_scale 0
-          adb -e shell settings put global transition_animation_scale 0
-          adb -e shell settings put global animator_duration_scale 0
+          adb -s "$ANDROID_SERIAL" shell settings put global window_animation_scale 0
+          adb -s "$ANDROID_SERIAL" shell settings put global transition_animation_scale 0
+          adb -s "$ANDROID_SERIAL" shell settings put global animator_duration_scale 0
           bash native/tools/run_android_device_checks.sh
       - name: Restore original virtualization-device permissions
         if: ${{ always() && steps.kvm_access.outputs.changed == 'true' }}
