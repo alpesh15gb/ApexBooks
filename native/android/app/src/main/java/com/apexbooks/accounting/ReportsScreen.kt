@@ -38,6 +38,7 @@ import org.json.JSONObject
             Scaffold(topBar = { TopAppBar(title = { Text("Party statement") }, navigationIcon = { IconButton(onClick = { vm.statement = null }) { Icon(Icons.Outlined.Close, "Close statement") } }) }) { padding ->
                 LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                     item { Heading(party.s("name"), party.o("data").s("phone")) }
+                    item { CustomerCreditStatus(vm,party.s("id"),today(),"0") }
                     data?.o("balances")?.let { balances ->
                         item { Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { Metric("To collect", money(balances.s("receivable")), Modifier.weight(1f)); Metric("To pay", money(balances.s("payable")), Modifier.weight(1f)) } }
                         item { FoldSection("Advances & credits") { for (key in listOf("customer_advance", "supplier_advance", "customer_credit", "supplier_credit")) DetailValue(friendly(key), money(balances.s(key))) } }

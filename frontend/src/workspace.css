@@ -2017,3 +2017,11 @@ h2 {
 .price-history-row>div { flex:1; min-width:150px; }
 .price-history-trigger { margin-top:6px; min-height:44px; }
 @media(max-width:650px) { .reorder-workspace { padding:16px; } .reorder-summary,.reorder-review { flex-wrap:wrap; } .reorder-row { grid-template-columns:24px 1fr 1fr; gap:12px; } .reorder-item { grid-column:span 2; } .reorder-row label { grid-column:span 2; } }
+.credit-status { padding:18px; border:1px solid #dce8e5; border-radius:12px; background:#f5faf8; }
+.credit-status>div small,.credit-status>small { display:block; color:#52665f; margin-top:5px; }
+.credit-status dl { display:flex; flex-wrap:wrap; gap:14px 28px; margin:16px 0 8px; }
+.credit-status dt { color:#52665f; font-size:12px; }
+.credit-status dd { margin:5px 0; font-weight:700; font-size:18px; }
+.credit-status p { font-size:12px; color:#52665f; }
+.credit-limit-warning { border-color:#edc984; background:#fff8e8; }
+.credit-limit-warning>div>strong { color:#86520c; }

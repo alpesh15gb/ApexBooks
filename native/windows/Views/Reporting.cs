@@ -63,7 +63,17 @@ public sealed partial class MainPage
         var cid=CompanyId;var stamp=generation;var panel=Stack(18);panel.MinWidth=850;var from=new DateInput("From",J.FinancialStart);var to=new DateInput("To",J.Today);var rows=Stack(16);var sequence=0;
         string Query()=>"?from_date="+from.Value+"&to_date="+to.Value;
         string Path()=>Api.CompanyPath(cid,$"/parties/{party.Text("id")}/statement");
-        async Task Load(){var request=++sequence;var result=await Api.Send(Path()+Query());if(stamp!=generation||request!=sequence)return;rows.Children.Clear();var balances=result["balances"].Object();AddMetrics(rows,("Receivable",balances.Number("receivable")),("Payable",balances.Number("payable")),("Customer advances",balances.Number("customer_advance")),("Supplier advances",balances.Number("supplier_advance")),("Customer credits",balances.Number("customer_credit")),("Supplier credits",balances.Number("supplier_credit")));Table(rows,result["transactions"].Array(),"Transactions");}
+        async Task Load()
+        {
+            var request=++sequence;var asOf=to.Value;var path=Path()+Query();
+            async Task<JsonNode?> Credit(){try{return await Api.Send(Api.CompanyPath(cid,$"/parties/{party.Text("id")}/credit-status?as_of={asOf}&proposed_amount=0"));}catch{return null;}}
+            var creditTask=Credit();var result=await Api.Send(path);var status=await creditTask;
+            if(stamp!=generation||request!=sequence||cid!=CompanyId)return;
+            rows.Children.Clear();var balances=result["balances"].Object();AddMetrics(rows,("Receivable",balances.Number("receivable")),("Payable",balances.Number("payable")),("Customer advances",balances.Number("customer_advance")),("Supplier advances",balances.Number("supplier_advance")),("Customer credits",balances.Number("customer_credit")),("Supplier credits",balances.Number("supplier_credit")));
+            if(status is not null)rows.Children.Add(new InfoBar{IsOpen=true,IsClosable=false,Severity=status.Flag("exceeded")?InfoBarSeverity.Warning:InfoBarSeverity.Informational,Message=WorkflowMasterValues.CreditStatusText(status,false)});
+            else rows.Children.Add(Text("Credit status unavailable. Statement balances remain available; this is not credit approval.",12));
+            Table(rows,result["transactions"].Array(),"Transactions");
+        }
         var actions=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};actions.Children.Add(AsyncButton("Apply dates",Load,Error,true));
         foreach(var format in new[]{"pdf","xlsx"})actions.Children.Add(AsyncButton("Export "+format.ToUpperInvariant(),async()=>{var bytes=await Api.Download(Path()+"."+format+Query());if(stamp!=generation||cid!=CompanyId)return;await ApexFiles.Save(bytes,"party-statement."+format);},Error));
         panel.Children.Add(Columns(from.View,to.View));panel.Children.Add(actions);panel.Children.Add(rows);await Load();if(stamp!=generation||cid!=CompanyId)return;await Dialog(party.Text("name")+" · statement",panel,()=>Task.CompletedTask,"Done");

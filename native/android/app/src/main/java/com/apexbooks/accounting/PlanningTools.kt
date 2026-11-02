@@ -11,7 +11,8 @@ import kotlinx.coroutines.ensureActive
 import org.json.JSONObject
 import java.math.BigDecimal
 
-fun masterPlanningIssue(kind:String,days:String,threshold:String):String? {
+fun masterPlanningIssue(kind:String,days:String,threshold:String,creditLimit:String=""):String? {
+    if(kind=="party"&&creditLimit.isNotBlank()){val number=creditLimit.toBigDecimalOrNull();if(number==null||number<BigDecimal.ZERO||number>BigDecimal("9999999999999.99")||number.stripTrailingZeros().scale()>2)return "Credit limit must be nonnegative, at most 9999999999999.99, with at most 2 decimal places, or blank."}
     if(kind=="party"&&days.isNotBlank()&&(days.toIntOrNull() !in 0..3650))return "Payment terms must be a whole number from 0 to 3650 days, or blank."
     if(kind=="item"&&threshold.isNotBlank()) {
         val number=threshold.toBigDecimalOrNull()

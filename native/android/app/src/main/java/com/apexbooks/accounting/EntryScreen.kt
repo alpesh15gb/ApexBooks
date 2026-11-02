@@ -149,6 +149,10 @@ import org.json.JSONObject
                             }
                             DetailValue("Total", editor.preview?.let { money(it.s("amount")) } ?: "Calculating…")
                         }
+                        if(editor.previous==null&&editor.kind in setOf("sales_invoice","estimate","proforma","sales_order")){
+                            if(editor.get("party_id").isBlank())Text("Select a saved customer to check their credit limit.",style=MaterialTheme.typography.bodySmall)
+                            else editor.preview?.s("amount")?.takeIf{it.isNotBlank()}?.let{CustomerCreditStatus(vm,editor.get("party_id"),editor.get("date"),it)}
+                        }
                         FoldSection("Discounts, notes & terms") {
                             Field("Document discount (%)", editor.get("document_discount_percent"), { change("document_discount_percent", it) }, number = true)
                             Toggle("Round total to nearest rupee", editor.flag("round_total"), { change("round_total", it.toString()) })
@@ -191,6 +195,7 @@ import org.json.JSONObject
 
 @Composable private fun MasterFields(editor:EntryEditor){val vm=editor.vm;Section(if(editor.kind=="party")"Party details"else"Item details"){Field("Name",editor.get("name"),{editor.set("name",it)},readOnly=editor.previous!=null,maximum=120);Toggle("Active for new transactions",editor.flag("is_active"),{editor.set("is_active",it.toString())});Text("Inactive masters stay in history but cannot be selected for new transactions. Reactivate here when needed.",style=MaterialTheme.typography.bodySmall);if(editor.kind=="party"){
     Choice("Party type",editor.get("party_type"),listOf("both" to "Customer and supplier","customer" to "Customer","supplier" to "Supplier"),{editor.set("party_type",it)});for((key,label)in listOf("gstin" to "GSTIN","phone" to "Phone","email" to "Email","address" to "Address","shipping_address" to "Default shipping address"))Field(label,editor.get(key),{editor.set(key,if(key=="gstin")it.uppercase()else it)},multiline=key in setOf("address","shipping_address"),maximum=if(key=="gstin")15 else if(key in setOf("address","shipping_address"))500 else if(key=="phone")32 else 254)
+        Field("Customer credit limit · optional (₹)",editor.get("credit_limit"),{editor.set("credit_limit",it)},number=true,maximum=18);Text("Blank disables warnings; zero warns for any positive exposure. Warnings never block a sale.",style=MaterialTheme.typography.bodySmall)
         Field("Payment terms · days (optional)",editor.get("payment_terms_days"),{editor.set("payment_terms_days",it)},number=true,maximum=4);Text("0 means due on the document date. Blank disables suggestions; saved document dates are never changed automatically.",style=MaterialTheme.typography.bodySmall)
     }else{
         DataImage(editor.get("image_data_url"),Modifier.fillMaxWidth().height(130.dp));Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){OutlinedButton(onClick={vm.files.pick(arrayOf("image/*")){uri->vm.task{editor.set("image_data_url",vm.files.image(uri));editor.set("image_thumbnail",vm.files.image(uri,140,15000))}}}){Text("Upload item image")};TextButton(onClick={editor.set("image_data_url","");editor.set("image_thumbnail","")}){Text("Remove")}}

@@ -69,6 +69,15 @@ class AccountingIntegrityTest(unittest.TestCase):
         self.assertEqual(Decimal(stock['rows'][0]['closing_quantity']),12)
         self.assertEqual(Decimal(stock['rows'][0]['closing_value']),60)
 
+    def test_postgres_compact_empty_lines_binds_as_json_array_not_string(self):
+        import json
+        from sqlalchemy.dialects.postgresql import dialect,JSONB
+        import main
+        compiled=main.compact_record_data('postgresql').compile(dialect=dialect())
+        values=[bind for bind in compiled.binds.values() if isinstance(bind.type,JSONB) and bind.value==[]]
+        self.assertTrue(values,'The empty lines replacement must be a typed Python list')
+        for bind in values:self.assertIsInstance(json.loads(bind.type.bind_processor(dialect())(bind.value)),list)
+
     def test_transfer_ignores_inapplicable_document_calculations(self):
         client,h,base=self.context()
         r=client.post(base+'/records',headers=h,json={'kind':'bank_transfer','name':'Synthetic transfer','date':'2026-04-02','amount':'100','data':{'direction':'cash_to_bank','cgst':'invalid','round_off':{'invalid':True},'lines':['invalid']}})
@@ -90,6 +99,8 @@ class AccountingIntegrityTest(unittest.TestCase):
         def detail_matches_list(record_id,**expected):
             detail=client.get(base+'/records/'+record_id,headers=h).json()
             compact=next(r for r in client.get(base+'/records',headers=h,params={'compact':True}).json() if r['id']==record_id)
+            self.assertIsInstance(compact['data']['lines'],list)
+            self.assertEqual(compact['data']['lines'],[])
             for key in ('posted','outstanding','converted_to','advance_remaining','credit_remaining'):
                 self.assertEqual(detail[key],compact[key],key)
             for key,value in expected.items():self.assertEqual(detail[key],value,key)

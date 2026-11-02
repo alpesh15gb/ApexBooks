@@ -10,6 +10,7 @@ import {
 import { prepareInvoiceImage } from "./prepareInvoiceImage.js";
 import React, { useState, useEffect, useRef } from "react";
 import { availableMasters, partyShippingAddress, shippingForPartySelection } from "./masterLifecycle.js";
+import CreditStatus from "./CreditStatus.jsx";
 import PriceHistory from "./PriceHistory.jsx";
 import PaymentAllocations from "./PaymentAllocations.jsx";
 export default function RecordEditor({
@@ -926,6 +927,7 @@ export default function RecordEditor({
                 </details>
               </div>
               <DocumentTotals preview={preview} money={money} />
+              {!edit && ["sales_invoice", "estimate", "proforma", "sales_order"].includes(kind) && form.party_id && preview && !preview.error && <CreditStatus api={api} companyId={companyId} partyId={form.party_id} asOf={form.date} proposedAmount={preview.amount} compact />}
             </section>
           )}
           {kind === "pos" && form.payment_account === "cash" && (

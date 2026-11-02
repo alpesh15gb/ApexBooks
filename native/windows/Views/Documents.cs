@@ -41,6 +41,7 @@ public sealed partial class MainPage
         var notes = Input("Notes", data.Text("notes"), true); var terms = Input("Terms and conditions", data.Text("terms"), true);
         notes.MaxLength=4000;terms.MaxLength=8000;gstin.MaxLength=15;phone.MaxLength=32;address.MaxLength=1000;shipping.MaxLength=1000;
         var linesPanel = Stack(12); var lines = new List<DocumentLine>(); var preview = Text("Enter items to calculate the total.", 16, true); preview.Foreground = Green;
+        var creditInfo=new InfoBar{IsClosable=false};var checkCredit=WorkflowMasterValues.CreditProjectionApplies(kind,previous is not null);
         var partyId = data.Text("party_id"); var appliedTo = returnSource?.Text("id")??data.Text("applied_to");
         var retryKey = Guid.NewGuid().ToString();var submission=new RetrySubmission(); CancellationTokenSource? previewRequest = null;var sourceLoading=false;
 
@@ -58,7 +59,7 @@ public sealed partial class MainPage
         JsonObject BodyValue() => new() { ["kind"] = kind, ["name"] = party.Text.Trim(), ["number"] = number.Text.Trim(), ["date"] = date.Value, ["data"] = DocumentData() };
         async Task Calculate()
         {
-            previewRequest?.Cancel(); var request = new CancellationTokenSource(); previewRequest = request;
+            previewRequest?.Cancel(); var request = new CancellationTokenSource(); previewRequest = request;creditInfo.IsOpen=false;
             if(lines.Count==0){preview.Text="Add an item to calculate the total.";return;}
             if(lines.Any(l=>string.IsNullOrWhiteSpace(l.Description.Text)||string.IsNullOrWhiteSpace(l.Rate.Text))){preview.Text="Enter an item description and rate to calculate the total.";foreach(var line in lines)line.Amount.Text="—";return;}
             preview.Text = "Calculating…";
@@ -70,6 +71,13 @@ public sealed partial class MainPage
                 if (!request.IsCancellationRequested) {
                     var calculated=result["data"];preview.Text = "Subtotal " + J.Money(calculated.Number("taxable")) + "   ·   GST " + J.Money(calculated.Number("cgst") + calculated.Number("sgst") + calculated.Number("igst") + calculated.Number("supplier_tax")) + "   ·   Total " + J.Money(result.Number("amount"));
                     var values=calculated?["lines"].Array()??new();for(var i=0;i<Math.Min(lines.Count,values.Count);i++)lines[i].Amount.Text=J.Money(values[i].Number("taxable")+values[i].Number("tax"));
+                    if(checkCredit&&partyId.Length>0){
+                        var creditParty=partyId;var asOf=date.Value;var proposed=result.Number("amount").ToString(System.Globalization.CultureInfo.InvariantCulture);
+                        try{
+                            var status=await Api.Send(Api.CompanyPath(cid,$"/parties/{Uri.EscapeDataString(creditParty)}/credit-status?as_of={asOf}&proposed_amount={Uri.EscapeDataString(proposed)}"),cancellation:request.Token);
+                            if(!request.IsCancellationRequested&&stamp==generation&&cid==CompanyId&&partyId==creditParty&&date.Value==asOf){creditInfo.Severity=status.Flag("exceeded")?InfoBarSeverity.Warning:InfoBarSeverity.Informational;creditInfo.Message=WorkflowMasterValues.CreditStatusText(status,true);creditInfo.IsOpen=true;}
+                        }catch(OperationCanceledException){}catch(Exception){if(!request.IsCancellationRequested&&stamp==generation&&partyId==creditParty){creditInfo.Severity=InfoBarSeverity.Informational;creditInfo.Message="Credit status could not be checked. Saving is still available; review the customer's balances before offering credit.";creditInfo.IsOpen=true;}}
+                    }
                 }
             }
             catch (OperationCanceledException) { }
@@ -129,8 +137,8 @@ public sealed partial class MainPage
         }
         var contacts = Stack(); contacts.Children.Add(Columns(address, shipping));
         panel.Children.Add(new Expander { Header = "Party, billing and delivery details", Content = contacts, HorizontalContentAlignment = HorizontalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Stretch });
-        party.TextChanged += (_, args) => { if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput) { partyId = "";address.Text="";if(shipping.Text==lastShippingDefault)shipping.Text="";lastShippingDefault="";gstin.Text="";phone.Text="";supply.Text=Company.Text("state_code");supplierState.Text=Company.Text("state_code");party.ItemsSource = Records.OfType<JsonObject>().Where(r => r.Text("kind") == "party" && WorkflowMasterValues.IsActive(r) && r.Text("name").Contains(party.Text, StringComparison.OrdinalIgnoreCase)).Take(20).Select(r => r.Text("name")).ToArray(); } };
-        party.SuggestionChosen += (_, args) => { var selected = Records.OfType<JsonObject>().FirstOrDefault(r => r.Text("kind") == "party" && WorkflowMasterValues.IsActive(r) && r.Text("name") == args.SelectedItem?.ToString()); if (selected is null) return; partyId = selected.Text("id"); var values = selected["data"]; address.Text = values.Text("address"); var delivery=WorkflowMasterValues.ShippingAddress(values);if(shipping.Text.Length==0||shipping.Text==lastShippingDefault)shipping.Text=delivery;lastShippingDefault=delivery; gstin.Text = values.Text("gstin"); phone.Text = values.Text("phone"); if (gstin.Text.Length >= 2) { if (purchase) supplierState.Text = gstin.Text[..2]; else supply.Text = gstin.Text[..2]; } };
+        party.TextChanged += (sender, args) => { if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput) { partyId = "";address.Text="";if(shipping.Text==lastShippingDefault)shipping.Text="";lastShippingDefault="";gstin.Text="";phone.Text="";supply.Text=Company.Text("state_code");supplierState.Text=Company.Text("state_code");party.ItemsSource = Records.OfType<JsonObject>().Where(r => r.Text("kind") == "party" && WorkflowMasterValues.IsActive(r) && r.Text("name").Contains(party.Text, StringComparison.OrdinalIgnoreCase)).Take(20).Select(r => r.Text("name")).ToArray(); _=Calculate(); } };
+        party.SuggestionChosen += (sender, args) => { var selected = Records.OfType<JsonObject>().FirstOrDefault(r => r.Text("kind") == "party" && WorkflowMasterValues.IsActive(r) && r.Text("name") == args.SelectedItem?.ToString()); if (selected is null) return; partyId = selected.Text("id"); var values = selected["data"]; address.Text = values.Text("address"); var delivery=WorkflowMasterValues.ShippingAddress(values);if(shipping.Text.Length==0||shipping.Text==lastShippingDefault)shipping.Text=delivery;lastShippingDefault=delivery; gstin.Text = values.Text("gstin"); phone.Text = values.Text("phone"); if (gstin.Text.Length >= 2) { if (purchase) supplierState.Text = gstin.Text[..2]; else supply.Text = gstin.Text[..2]; } _=Calculate(); };
         if (kind == "purchase_bill")
         {
             var ocr = AsyncButton("Scan purchase bill", async () =>
@@ -154,7 +162,8 @@ public sealed partial class MainPage
             panel.Children.Add(Columns(method,bank));if(kind=="expense")panel.Children.Add(category);else panel.Children.Add(tender);
         }
         panel.Children.Add(new Expander{Header="Notes & terms",Content=Columns(notes,terms),HorizontalContentAlignment=HorizontalAlignment.Stretch,HorizontalAlignment=HorizontalAlignment.Stretch});
-        var totals=Stack(6);totals.Children.Add(preview);var shortcut=Text("Ctrl + Enter to save · totals calculated by Apex Books",12);shortcut.Foreground=Muted;totals.Children.Add(shortcut);
+        date.Picker.DateChanged+=(_,_)=>_=Calculate();
+        var totals=Stack(6);totals.Children.Add(preview);if(checkCredit)totals.Children.Add(creditInfo);var shortcut=Text("Ctrl + Enter to save · totals calculated by Apex Books",12);shortcut.Foreground=Muted;totals.Children.Add(shortcut);
         discount.TextChanged += (_, _) => _ = Calculate(); supply.TextChanged += (_, _) => _ = Calculate(); supplierState.TextChanged += (_, _) => _ = Calculate(); gstin.TextChanged += (_, _) => {if(purchase&&gstin.Text.Length>=2&&gstin.Text.Take(2).All(char.IsDigit))supplierState.Text=gstin.Text[..2];_=Calculate();}; round.Checked += (_, _) => _ = Calculate(); round.Unchecked += (_, _) => _ = Calculate();
         var baseline=BodyValue().ToJsonString();var keepNew=false;
         async Task Save()

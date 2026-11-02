@@ -412,10 +412,13 @@ class MasterRow(BaseModel):
     track_stock: bool = False
     low_stock_threshold: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3, allow_inf_nan=False)
     payment_terms_days: int | None = Field(default=None, ge=0, le=3650, strict=True)
+    credit_limit: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2, allow_inf_nan=False)
     is_active: bool = Field(default=True, strict=True)
     shipping_address: str = Field(default='', max_length=500)
 
 def validate_master_defaults(master, kind):
+    if master.credit_limit is not None and kind != 'party':
+        raise HTTPException(422, 'Credit limit belongs to a party')
     if master.shipping_address and kind != 'party':
         raise HTTPException(422, 'Shipping address belongs to a party')
     if master.low_stock_threshold is not None and (kind != 'item' or not master.track_stock or master.item_type != 'goods'):
@@ -1078,7 +1081,7 @@ def compact_record_data(dialect):
         data = cast(Record.data, JSONB)
         for key in ('vyapar_source', 'image_data_url', 'company_snapshot', 'document_branding'):
             data = data.op('-')(key)
-        return case((masters, data), else_=func.jsonb_set(data, cast(['lines'], ARRAY(Text)), cast('[]', JSONB)))
+        return case((masters, data), else_=func.jsonb_set(data, cast(['lines'], ARRAY(Text)), cast([], JSONB)))
     if dialect == 'sqlite':
         data = func.json_remove(Record.data, '$.vyapar_source', '$.image_data_url',
             '$.company_snapshot', '$.document_branding', type_=JSON)
@@ -1325,7 +1328,7 @@ def import_masters(company_id: str, body: MasterImport, user: User = Depends(cur
                 errors.append({'row': index, 'message': 'GSTIN must contain 15 characters'}); continue
             if row.email.strip() and not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', row.email.strip()):
                 errors.append({'row': index, 'message': 'Enter a valid email'}); continue
-            data = {'party_type': row.party_type, 'gstin': row.gstin.upper(), 'address': row.address, 'phone': row.phone.strip(), 'email': row.email.strip(), 'payment_terms_days': row.payment_terms_days, 'is_active':row.is_active, 'shipping_address':row.shipping_address}
+            data = {'party_type': row.party_type, 'gstin': row.gstin.upper(), 'address': row.address, 'phone': row.phone.strip(), 'email': row.email.strip(), 'payment_terms_days': row.payment_terms_days, 'credit_limit':str(row.credit_limit) if row.credit_limit is not None else None, 'is_active':row.is_active, 'shipping_address':row.shipping_address}
         else:
             data = {key: data[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold','is_active')}
         seen.add(key)
@@ -1355,6 +1358,7 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
         master.data = {**(master.data or {}), 'party_type': body.party_type, 'gstin': body.gstin.upper(), 'address': body.address,
                        'phone': body.phone.strip(), 'email': body.email.strip()}
         if 'payment_terms_days' in body.model_fields_set:master.data={**master.data,'payment_terms_days':body.payment_terms_days}
+        if 'credit_limit' in body.model_fields_set:master.data={**master.data,'credit_limit':str(body.credit_limit) if body.credit_limit is not None else None}
     else:
         if body.track_stock != bool(master.data.get('track_stock', False)):
             raise HTTPException(422, 'Stock tracking cannot be changed after item creation')
@@ -1460,7 +1464,7 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             if master.party_type not in {'customer', 'supplier', 'both'}: raise HTTPException(422, 'Party type must be customer, supplier or both')
             if master.gstin and not re.fullmatch(r'\d{2}[A-Z0-9]{13}', master.gstin.upper()): raise HTTPException(422, 'GSTIN must contain 15 characters')
             if master.email.strip() and not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', master.email.strip()): raise HTTPException(422, 'Enter a valid email')
-            data = {'party_type': master.party_type, 'gstin': master.gstin.upper(), 'address': master.address, 'phone': master.phone.strip(), 'email': master.email.strip(), 'payment_terms_days': master.payment_terms_days, 'is_active':master.is_active, 'shipping_address':master.shipping_address}
+            data = {'party_type': master.party_type, 'gstin': master.gstin.upper(), 'address': master.address, 'phone': master.phone.strip(), 'email': master.email.strip(), 'payment_terms_days': master.payment_terms_days, 'credit_limit':str(master.credit_limit) if master.credit_limit is not None else None, 'is_active':master.is_active, 'shipping_address':master.shipping_address}
         else:
             data = {key: value for key, value in master.model_dump(mode='json').items() if key in {'hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold','is_active'}}
         body.name = master.name.strip()

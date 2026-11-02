@@ -31,30 +31,36 @@ jobs:
             throw 'No interactive Windows desktop is available. An already-configured interactive runner is required; this job never changes login, service, UAC, or desktop-security settings.'
           }
       - run: python -m pip install -r backend/requirements-dev.txt
-      - name: Start isolated synthetic API
-        shell: pwsh
-        run: |
-          $env:DATABASE_URL='sqlite:///'+($env:RUNNER_TEMP+'/windows-ui-isolated.sqlite3').Replace('\','/')
-          Push-Location backend
-          python migrate.py
-          if ($LASTEXITCODE -ne 0) { throw 'Synthetic database migration failed.' }
-          Pop-Location
-          $api=Start-Process python -ArgumentList '-m','uvicorn','main:app','--app-dir','backend','--host','127.0.0.1','--port','8012' -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP/windows-ui-api.log" -RedirectStandardError "$env:RUNNER_TEMP/windows-ui-api-error.log"
-          $api.Id | Set-Content "$env:RUNNER_TEMP/windows-ui-api.pid"
-          for ($attempt=0;$attempt -lt 60;$attempt++) {
-            try { Invoke-RestMethod http://127.0.0.1:8012/api/ready | Out-Null; exit 0 } catch { Start-Sleep -Seconds 1 }
-          }
-          throw 'Synthetic loopback API failed to start.'
       - name: Publish unpackaged Debug app with bundled runtime
         run: dotnet publish native/windows/ApexBooks.Windows.csproj -c Debug -p:Platform=x64 -r win-x64 --self-contained true -p:ApexApiOrigin=http://127.0.0.1:8012 -o "${{ runner.temp }}/windows-ui-app"
-      - name: Exercise real login, company switching and invoice detail
-        run: dotnet run --project native/tests/WindowsUi -c Release -- "${{ runner.temp }}/windows-ui-app" http://127.0.0.1:8012 "${{ runner.temp }}/windows-ui-evidence"
-      - name: Stop synthetic API
-        if: always()
+      - name: Exercise real UI with a same-step isolated API
         shell: pwsh
         run: |
-          $pidFile="$env:RUNNER_TEMP/windows-ui-api.pid"
-          if(Test-Path $pidFile){Stop-Process -Id ([int](Get-Content $pidFile)) -ErrorAction SilentlyContinue}
+          $ErrorActionPreference='Stop'
+          $env:DATABASE_URL='sqlite:///'+($env:RUNNER_TEMP+'/windows-ui-isolated.sqlite3').Replace('\','/')
+          Push-Location backend
+          try {
+            python migrate.py
+            if ($LASTEXITCODE -ne 0) { throw 'Synthetic database migration failed.' }
+          } finally { Pop-Location }
+          $api=Start-Process python -ArgumentList '-m','uvicorn','main:app','--app-dir','backend','--host','127.0.0.1','--port','8012' -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP/windows-ui-api.log" -RedirectStandardError "$env:RUNNER_TEMP/windows-ui-api-error.log"
+          try {
+            $ready=$false
+            for ($attempt=0;$attempt -lt 60;$attempt++) {
+              $api.Refresh()
+              if ($api.HasExited) { throw "Synthetic API exited before readiness (code $($api.ExitCode))." }
+              try { Invoke-RestMethod http://127.0.0.1:8012/api/ready | Out-Null; $ready=$true; break } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ready) { throw 'Synthetic loopback API failed to become ready.' }
+            # Keep API and UI runner in this shell lifetime; never depend on a
+            # background process surviving between GitHub Actions steps.
+            Invoke-RestMethod http://127.0.0.1:8012/api/ready | Out-Null
+            dotnet run --project native/tests/WindowsUi -c Release -- "$env:RUNNER_TEMP/windows-ui-app" http://127.0.0.1:8012 "$env:RUNNER_TEMP/windows-ui-evidence"
+            if ($LASTEXITCODE -ne 0) { throw "Windows UI smoke failed (exit $LASTEXITCODE)." }
+          } finally {
+            $api.Refresh()
+            if (-not $api.HasExited) { Stop-Process -Id $api.Id -ErrorAction SilentlyContinue }
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

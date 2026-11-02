@@ -15,6 +15,29 @@ def install(app,m):
         if not row:raise HTTPException(404,kind.title()+' not found in this company')
         return row
 
+    @app.get('/api/companies/{company_id}/parties/{party_id}/credit-status')
+    def credit_status(company_id:str,party_id:str,as_of:date|None=None,
+                      proposed_amount:Decimal=Query(default=Decimal('0'),ge=0,max_digits=15,decimal_places=2,allow_inf_nan=False),
+                      user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
+        from party_statements import party_balances
+        m.company_for(company_id,user,session);party=master(company_id,party_id,'party',session);day=as_of or date.today()
+        raw=party.data.get('credit_limit');limit=None
+        if raw is not None:
+            try:
+                if isinstance(raw,bool):raise ValueError()
+                limit=Decimal(str(raw))
+                if not limit.is_finite() or limit<0 or limit>Decimal('9999999999999.99') or limit.normalize().as_tuple().exponent < -2:raise ValueError()
+            except (ValueError,ArithmeticError):raise HTTPException(409,'Review invalid legacy credit limit before using a warning')
+        _,balances=party_balances(m,company_id,party,date.min,day,user,session)
+        receivable=Decimal(balances['receivable']);credit=Decimal(balances['customer_credit']);advance=Decimal(balances['customer_advance'])
+        current=max(Decimal('0'),receivable-credit-advance)
+        projected=max(Decimal('0'),receivable+proposed_amount-credit-advance)
+        return {'party_id':party_id,'as_of':day.isoformat(),'credit_limit':str(limit) if limit is not None else None,
+                'receivable':str(receivable),'customer_credit':str(credit),'customer_advance':str(advance),
+                'current_exposure':str(current),'proposed_amount':str(proposed_amount),'projected_exposure':str(projected),
+                'remaining_credit':str(max(Decimal('0'),limit-projected)) if limit is not None else None,
+                'exceeded':limit is not None and projected>limit,'warning_only':True,'basis':'net_customer_exposure'}
+
     @app.get('/api/companies/{company_id}/reports/reorder')
     def reorder(company_id:str,as_of:date|None=None,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
         m.company_for(company_id,user,session);day=as_of or date.today()

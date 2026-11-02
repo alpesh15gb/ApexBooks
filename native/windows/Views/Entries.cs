@@ -46,6 +46,7 @@ public sealed partial class MainPage
             foreach (var (key, label) in new[] { ("phone", "Phone"), ("email", "Email"), ("gstin", "GSTIN"), ("address", "Billing address"), ("shipping_address", "Default shipping address") }) fields[key]=Input(label,data.Text(key),key is "address" or "shipping_address");
             fields["gstin"].MaxLength=15;fields["phone"].MaxLength=32;fields["address"].MaxLength=500;fields["shipping_address"].MaxLength=500;
             panel.Children.Add(Columns(partyType,fields["phone"]));panel.Children.Add(Columns(fields["email"],fields["gstin"]));panel.Children.Add(fields["address"]);panel.Children.Add(fields["shipping_address"]);panel.Children.Add(Text("Blank shipping address falls back to billing when selecting this party. Document addresses stay editable.",12));
+            fields["credit_limit"]=Input("Customer credit limit (₹) · blank disables",data.Text("credit_limit"));fields["credit_limit"].MaxLength=32;panel.Children.Add(fields["credit_limit"]);panel.Children.Add(Text("Warning only, based on receivables less available credits and advances. Zero is a valid limit; it does not block saving.",12));
             fields["payment_terms_days"]=Input("Payment terms · days (blank disables)",data.Text("payment_terms_days"));panel.Children.Add(fields["payment_terms_days"]);panel.Children.Add(Text("0 means due on the document date. Due dates are suggested for review, never silently replaced.",12));
         }
         else
@@ -73,7 +74,7 @@ public sealed partial class MainPage
             if (string.IsNullOrWhiteSpace(name.Text)) throw new Exception("Enter a name.");
             foreach (var (key, field) in fields) data[key] = field.Text.Trim();
             data["is_active"]=active.IsChecked==true;
-            if(kind=="party")data["payment_terms_days"]=WorkflowMasterValues.PaymentTerms(fields["payment_terms_days"].Text);
+            if(kind=="party"){data["payment_terms_days"]=WorkflowMasterValues.PaymentTerms(fields["payment_terms_days"].Text);data["credit_limit"]=WorkflowMasterValues.CreditLimit(fields["credit_limit"].Text);}
             else data["low_stock_threshold"]=WorkflowMasterValues.LowStockThreshold(fields["low_stock_threshold"].Text);
             if (partyType is not null) data["party_type"] = Value(partyType);
             if (itemType is not null) data["item_type"] = Value(itemType);

@@ -85,3 +85,36 @@ An explicitly empty or manually entered address is preserved. Changing a master
 never changes an existing document's shipping/billing address or print snapshot.
 Backups preserve both fields; restore rejects invalid optional field types or
 oversized addresses while accepting older backups that omit them.
+
+## Warning-only customer credit limits
+
+Party master `credit_limit` is an optional nonnegative decimal string (15 digits,
+2 meaningful decimal places). Missing/null disables warnings; zero is valid.
+Existing master PUT omission preserves the value; explicit null clears it. Items
+cannot have a credit limit. Import/export/restore preserve and validate it.
+
+`GET /parties/{id}/credit-status?as_of=YYYY-MM-DD&proposed_amount=100.00`
+uses today and zero when query values are omitted. All company members may read;
+normal master write roles apply to configuration. Response:
+
+```json
+{"party_id":"...","as_of":"2026-04-08","credit_limit":"100.00",
+ "receivable":"170.00","customer_credit":"10.00","customer_advance":"40.00",
+ "current_exposure":"120.00","proposed_amount":"25.00","projected_exposure":"145.00",
+ "remaining_credit":"0","exceeded":true,"warning_only":true,"basis":"net_customer_exposure"}
+```
+
+Balances come from the same canonical helper as the party statement. Receivable
+already includes linked returns, receipts and applications. Only **unused**
+customer credits and advances are deducted from that balance. Supplier payables
+are never netted. Current exposure is `max(0, receivable - unused credits - unused
+advances)`; projected exposure adds the proposed sale **before** clamping to zero.
+Remaining credit is clamped to zero; it and the limit are null when disabled.
+`exceeded` is strictly greater than the limit, not equal to it. All dates honor
+as-of exclusions. This is a business warning, not a journal entry or an automatic
+application of an advance/credit.
+
+Clients may show the full proposed amount for a new credit sale, an unposted
+sales draft or its conversion. Do not project paid-cash POS or historical
+amendments as new credit sales (amendments would require a separate delta policy).
+The endpoint is read-only, and exceeding a limit never rejects a posting.

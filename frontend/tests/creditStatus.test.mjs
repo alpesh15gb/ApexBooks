@@ -1,0 +1,43 @@
+import test, { after } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { build } from 'esbuild';
+import { JSDOM } from 'jsdom';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+const temporary = await mkdtemp(resolve('node_modules/.credit-tests-'));
+const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' });
+Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});
+const outfile=resolve(temporary,'component.mjs');
+await build({entryPoints:['src/CreditStatus.jsx'],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom']});
+const CreditStatus=(await import(pathToFileURL(outfile))).default;
+const wait=()=>new Promise(resolve=>setTimeout(resolve,340));
+const response=(exposure,limit='100')=>({as_of:'2026-11-02',credit_limit:limit,current_exposure:exposure,projected_exposure:exposure,remaining_credit:limit==null?null:'0',exceeded:limit!=null&&Number(exposure)>Number(limit),receivable:exposure,customer_credit:'0',customer_advance:'0'});
+after(async()=>{dom.window.close();await rm(temporary,{recursive:true,force:true});});
+test('credit warning is debounced, explanatory and advisory rather than a save restriction',async()=>{
+ const root=createRoot(document.getElementById('root'));let calls=0;
+ await act(async()=>root.render(React.createElement(CreditStatus,{api:async path=>{calls++;assert.match(path,/proposed_amount=50/);return response('150');},companyId:'c1',partyId:'p1',asOf:'2026-11-02',proposedAmount:'50'})));
+ assert.equal(calls,0);await act(wait);assert.equal(calls,1);
+ assert.match(document.body.textContent,/Credit limit would be exceeded/);assert.match(document.body.textContent,/saving is not blocked/);assert.match(document.body.textContent,/Supplier payables are not offset/);assert.equal(document.querySelector('button[disabled]'),null);
+ await act(async()=>root.unmount());
+});
+test('old party response cannot replace the new party credit exposure',async()=>{
+ const root=createRoot(document.getElementById('root'));let oldResolve;
+ const api=path=>path.includes('/p1/')?new Promise(resolve=>{oldResolve=resolve;}):Promise.resolve(response('20',null));
+ const props={api,companyId:'c1',asOf:'2026-11-02'};
+ await act(async()=>root.render(React.createElement(CreditStatus,{...props,partyId:'p1'})));await act(wait);
+ await act(async()=>root.render(React.createElement(CreditStatus,{...props,partyId:'p2'})));await act(wait);
+ await act(async()=>oldResolve(response('999')));
+ assert.match(document.body.textContent,/Not set/);assert.doesNotMatch(document.body.textContent,/999|exceeded/);
+ await act(async()=>root.unmount());
+});
+test('failed credit review has a retry and never presents a fabricated balance',async()=>{
+ const root=createRoot(document.getElementById('root'));let calls=0;
+ const api=async()=>{if(++calls===1)throw Error('Synthetic unavailable');return response('12');};
+ await act(async()=>root.render(React.createElement(CreditStatus,{api,companyId:'c1',partyId:'p1',asOf:'2026-11-02'})));await act(wait);
+ assert.match(document.body.textContent,/Credit review unavailable/);assert.equal(document.querySelector('dl'),null);
+ await act(async()=>document.querySelector('button').click());await act(wait);assert.equal(calls,2);assert.ok(document.querySelector('dl'));
+ await act(async()=>root.unmount());
+});

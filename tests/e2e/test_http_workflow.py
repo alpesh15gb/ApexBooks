@@ -73,6 +73,23 @@ class LiveAccountingWorkflow(unittest.TestCase):
         self.request('PUT', root + '/masters/' + service['id'], {'name': service['name'], 'active': True})
         historical = self.request('GET', root + '/records/' + invoice['id'])
         self.assertFalse(historical['data'].get('shipping_address'))
+        self.request('PUT', root + '/masters/' + party['id'], {'name': party['name'], 'credit_limit': '100'})
+        credit_path = root + '/parties/' + party['id'] + '/credit-status?as_of=2026-04-30&proposed_amount=50'
+        before = self.request('GET', root + '/journals')
+        credit = self.request('GET', credit_path)
+        self.assertEqual(Decimal(credit['current_exposure']), 117)
+        self.assertEqual(Decimal(credit['projected_exposure']), 167)
+        self.assertTrue(credit['exceeded'])
+        self.assertTrue(credit['warning_only'])
+        self.assertEqual(self.request('GET', root + '/journals'), before)
+        self.request('PUT', root + '/masters/' + party['id'], {'name': party['name'], 'credit_limit': '0'})
+        self.assertTrue(self.request('GET', credit_path)['exceeded'])
+        self.request('PUT', root + '/masters/' + party['id'], {'name': party['name'], 'credit_limit': None})
+        self.assertFalse(self.request('GET', credit_path)['exceeded'])
+        outsider_credentials = {'email': f'credit-outsider-{uuid4().hex}@example.invalid', 'password': credentials['password']}
+        self.request('POST', '/api/auth/register', outsider_credentials)
+        outsider = self.request('POST', '/api/auth/login', outsider_credentials)['token']
+        self.request('GET', credit_path, status=404, token=outsider)
 
     def test_sale_collection_reports_exports_and_access(self):
         suffix = uuid4().hex

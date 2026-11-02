@@ -9,6 +9,7 @@ export default function MasterForm({ kind, close, save, record }) {
     is_active: true,
     shipping_address: "",
     payment_terms_days: "",
+    credit_limit: "",
     low_stock_threshold: "",
     gstin: "",
     address: "",
@@ -42,6 +43,7 @@ export default function MasterForm({ kind, close, save, record }) {
             address: form.address,
             phone: form.phone,
             email: form.email,
+            credit_limit: form.credit_limit === "" || form.credit_limit == null ? null : String(form.credit_limit),
             payment_terms_days: form.payment_terms_days === "" || form.payment_terms_days == null ? null : Number(form.payment_terms_days),
           }
         : {
@@ -153,6 +155,7 @@ export default function MasterForm({ kind, close, save, record }) {
                   onChange={update}
                 />
               </label>
+              <label className="full">Customer credit limit (₹)<input name="credit_limit" type="number" min="0" max="9999999999999.99" step="0.01" value={form.credit_limit ?? ""} onChange={update} placeholder="No limit warning" /><small>Optional advisory only; does not block saving. Zero warns for any positive customer exposure. Unused customer credits and advances reduce exposure, not supplier payables.</small></label>
               <label className="full">Default payment terms (days)<input name="payment_terms_days" type="number" min="0" max="3650" step="1" value={form.payment_terms_days ?? ""} onChange={update} placeholder="No default" /><small>Optional. Net 0 means due on the document date. Existing documents keep their saved due dates.</small></label>
               <label className="full">Default delivery address<input name="shipping_address" maxLength="500" value={form.shipping_address} onChange={update} placeholder="Same as billing address when blank" /><small>Copied into new documents only; saved document addresses stay unchanged.</small></label>
               <label className="full">

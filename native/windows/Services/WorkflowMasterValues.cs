@@ -9,6 +9,19 @@ public static class WorkflowMasterValues
 {
     public static bool IsActive(JsonNode? row)=>row?["data"]?["is_active"] is null || row["data"].Flag("is_active");
     public static string ShippingAddress(JsonNode? data)=>data.Text("shipping_address") is {Length:>0} delivery?delivery:data.Text("address");
+    public static JsonNode? CreditLimit(string text)
+    {
+        text=text.Trim();if(text.Length==0)return null;
+        if(Regex.IsMatch(text,"^[0-9]+(\\.[0-9]+)?$")&&decimal.TryParse(text,NumberStyles.AllowDecimalPoint,CultureInfo.InvariantCulture,out var amount)&&amount<=9999999999999.99m&&decimal.Round(amount,2)==amount)return JsonValue.Create(amount.ToString("0.##",CultureInfo.InvariantCulture));
+        throw new FormatException("Credit limit must be nonnegative, at most 9999999999999.99 with no more than 2 meaningful decimal places, or blank to disable.");
+    }
+    public static bool CreditProjectionApplies(string kind,bool amendment)=>!amendment&&kind is "sales_invoice" or "estimate" or "proforma" or "sales_order";
+    public static string CreditStatusText(JsonNode status,bool projected)
+    {
+        var basis=$"Net customer exposure as of {status.Text("as_of")}: receivables less available customer credits and advances.";
+        if(status["credit_limit"] is null)return basis+$" Current exposure {J.Money(status.Number("current_exposure"))}. No credit limit configured. Informational only; not credit approval.";
+        return basis+$" Limit {J.Money(status.Number("credit_limit"))} · exposure {J.Money(status.Number("current_exposure"))}"+(projected?$" · proposed {J.Money(status.Number("proposed_amount"))} · projected {J.Money(status.Number("projected_exposure"))}":"")+$" · remaining {J.Money(status.Number("remaining_credit"))}. "+(status.Flag("exceeded")?"Credit limit exceeded. ":"")+"Warning only; saving is not blocked and this is not credit approval.";
+    }
     public static JsonNode? PaymentTerms(string text)
     {
         text=text.Trim();if(text.Length==0)return null;
