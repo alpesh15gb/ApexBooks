@@ -9,10 +9,7 @@ from sqlalchemy import select,func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-def business_today(now=None):
-    """India business date, independent of the server/desktop process timezone."""
-    instant=now or datetime.now(timezone.utc)
-    return instant.astimezone(timezone(timedelta(hours=5,minutes=30))).date()
+from business_calendar import business_today
 
 DRAFT_KINDS={'estimate','proforma','sales_order','purchase_order'}
 HEADER_FIELDS={'party_id','party_gstin','party_address','party_phone','shipping_address','place_of_supply','supplier_state','notes','terms','category','document_discount_percent','round_total'}

@@ -1,26 +1,8 @@
+import { businessPeriodDates as periodDates } from "./businessDate.js";
 import React from "react";
 import { CalendarDays } from "lucide-react";
 
-export function localDate(date = new Date()) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-export function periodDates(period, now = new Date()) {
-  const year = now.getFullYear(),
-    month = now.getMonth();
-  if (period === "all") return { from: "", to: "" };
-  if (period === "today") return { from: localDate(now), to: localDate(now) };
-  if (period === "month")
-    return {
-      from: localDate(new Date(year, month, 1)),
-      to: localDate(new Date(year, month + 1, 0)),
-    };
-  if (period === "last_month")
-    return {
-      from: localDate(new Date(year, month - 1, 1)),
-      to: localDate(new Date(year, month, 0)),
-    };
-  return { from: `${year - (month < 3 ? 1 : 0)}-04-01`, to: localDate(now) };
-}
+export { businessDate as localDate, businessPeriodDates as periodDates } from "./businessDate.js";
 export default function DateRangeFilter({ value, onChange, allowAll = true }) {
   return (
     <div

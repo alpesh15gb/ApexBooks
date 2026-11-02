@@ -1,3 +1,4 @@
+import { supportsFeature } from "./capabilities.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import { purchaseDraftForm } from "./purchaseDraft.js";
 import { linkCatalogueItem, OCR_LINE } from "./itemLink.js";
@@ -15,6 +16,7 @@ import PriceHistory from "./PriceHistory.jsx";
 import PaymentAllocations from "./PaymentAllocations.jsx";
 export default function RecordEditor({
   kind,
+  features = [],
   company,
   companyId,
   records,
@@ -31,6 +33,8 @@ export default function RecordEditor({
   today,
   edit = false,
 }) {
+  const supported = feature => supportsFeature(features, feature);
+  const termsSupported = supported("party_payment_terms");
   const doc = documentKinds.includes(kind),
     party = kind === "party",
     item = kind === "item",
@@ -262,12 +266,12 @@ export default function RecordEditor({
   }
   useEffect(() => {
     let active = true; setTermsSuggestion(null); setTermsError("");
-    if (form.party_id && form.date && ["sales_invoice", "purchase_bill"].includes(kind)) {
+    if (termsSupported && form.party_id && form.date && ["sales_invoice", "purchase_bill"].includes(kind)) {
       api(`/companies/${companyId}/parties/${form.party_id}/due-date?document_date=${form.date}`)
         .then(result => { if (active) setTermsSuggestion(result); }).catch(reason => { if (active) setTermsError(reason.message); });
     }
     return () => { active = false; };
-  }, [companyId, form.party_id, form.date, kind]);
+  }, [companyId, form.party_id, form.date, kind, termsSupported]);
   const change = (e) => {
     const value = e.target.value;
     const matched =
@@ -774,7 +778,7 @@ export default function RecordEditor({
                   setLines(next);
                 }}
                 changeLine={changeLine}
-                onPriceHistory={form.party_id && !source && !relatedSource ? index => setPriceLine({ index, item: { ...lines[index] }, party: { id: form.party_id, name: form.name } }) : null}
+                onPriceHistory={supported("party_price_history") && form.party_id && !source && !relatedSource ? index => setPriceLine({ index, item: { ...lines[index] }, party: { id: form.party_id, name: form.name } }) : null}
                 emptyLine={emptyLine}
                 showTax={showTax}
                 purchase={purchase}
@@ -927,7 +931,7 @@ export default function RecordEditor({
                 </details>
               </div>
               <DocumentTotals preview={preview} money={money} />
-              {!edit && ["sales_invoice", "estimate", "proforma", "sales_order"].includes(kind) && form.party_id && preview && !preview.error && <CreditStatus api={api} companyId={companyId} partyId={form.party_id} asOf={form.date} proposedAmount={preview.amount} compact />}
+              {supported("party_credit_limits") && !edit && ["sales_invoice", "estimate", "proforma", "sales_order"].includes(kind) && form.party_id && preview && !preview.error && <CreditStatus api={api} companyId={companyId} partyId={form.party_id} asOf={form.date} proposedAmount={preview.amount} compact />}
             </section>
           )}
           {kind === "pos" && form.payment_account === "cash" && (

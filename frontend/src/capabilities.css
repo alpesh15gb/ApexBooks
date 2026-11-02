@@ -1,0 +1,2 @@
+.company-text .company-book-label { display:block; white-space:normal; overflow-wrap:anywhere; font-size:11px; line-height:1.35; margin-top:4px; text-transform:none; letter-spacing:normal; }
+.workspace-book-label { max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }

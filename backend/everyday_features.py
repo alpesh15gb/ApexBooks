@@ -2,6 +2,7 @@
 
 Metadata edits never post journals; suggestions never silently change documents.
 """
+from business_calendar import business_today
 from datetime import date,timedelta
 from decimal import Decimal
 from fastapi import Depends,HTTPException,Query
@@ -20,7 +21,7 @@ def install(app,m):
                       proposed_amount:Decimal=Query(default=Decimal('0'),ge=0,max_digits=15,decimal_places=2,allow_inf_nan=False),
                       user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
         from party_statements import party_balances
-        m.company_for(company_id,user,session);party=master(company_id,party_id,'party',session);day=as_of or date.today()
+        m.company_for(company_id,user,session);party=master(company_id,party_id,'party',session);day=as_of or business_today()
         raw=party.data.get('credit_limit');limit=None
         if raw is not None:
             try:
@@ -40,7 +41,7 @@ def install(app,m):
 
     @app.get('/api/companies/{company_id}/reports/reorder')
     def reorder(company_id:str,as_of:date|None=None,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
-        m.company_for(company_id,user,session);day=as_of or date.today()
+        m.company_for(company_id,user,session);day=as_of or business_today()
         items=list(session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind=='item')))
         items=[r for r in items if r.data.get('is_active',True) is not False and r.data.get('track_stock') and r.data.get('item_type','goods')=='goods' and r.data.get('low_stock_threshold') is not None]
         totals={}

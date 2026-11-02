@@ -16,12 +16,13 @@ fun masterPlanningIssue(kind:String,days:String,threshold:String,creditLimit:Str
     if(kind=="party"&&days.isNotBlank()&&(days.toIntOrNull() !in 0..3650))return "Payment terms must be a whole number from 0 to 3650 days, or blank."
     if(kind=="item"&&threshold.isNotBlank()) {
         val number=threshold.toBigDecimalOrNull()
-        if(number==null||number<BigDecimal.ZERO||number>BigDecimal("999999999999.999")||number.scale()>3)return "Low-stock threshold must be nonnegative, with at most 3 decimal places, or blank."
+        if(number==null||number<BigDecimal.ZERO||number>BigDecimal("999999999999.999")||number.stripTrailingZeros().scale()>3)return "Low-stock threshold must be nonnegative, with at most 3 decimal places, or blank."
     }
     return null
 }
 
 @Composable fun PartyTermsSuggestion(editor:EntryEditor) {
+    if(!editor.vm.supports("party_payment_terms")){FeatureUpgradeHint(editor.vm);return}
     val party=editor.get("party_id");val date=editor.get("date");val vm=editor.vm
     if(party.isBlank())return
     var suggestion by remember(party,date){mutableStateOf<JSONObject?>(null)}
@@ -37,6 +38,7 @@ fun masterPlanningIssue(kind:String,days:String,threshold:String,creditLimit:Str
 }
 
 @Composable fun ItemPriceSuggestion(editor:EntryEditor,line:LineState) {
+    if(!editor.vm.supports("party_price_history")){FeatureUpgradeHint(editor.vm);return}
     val party=editor.get("party_id");val item=line.get("item_id");val vm=editor.vm
     if(party.isBlank()||item.isBlank())return
     var result by remember(party,item){mutableStateOf<JSONObject?>(null)}

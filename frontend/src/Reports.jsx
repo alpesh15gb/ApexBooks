@@ -1,3 +1,4 @@
+import { businessDate, businessFinancialYear } from "./businessDate.js";
 import ReportLibrary, { reportInfo, reportGroups } from "./ReportLibrary.jsx";
 import DateRangeFilter from "./DateRangeFilter.jsx";
 import GstReturnView from "./GstReturnView.jsx";
@@ -9,7 +10,7 @@ const rupees = (value) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(
     Number(value || 0),
   );
-const today = () => new Date().toLocaleDateString("en-CA");
+const today = () => businessDate();
 const gstViews = ["gstr1", "gstr2a", "gstr3b"];
 function returnDates(month, quarterly = false) {
   const [year, selectedMonth] = month.split("-").map(Number);
@@ -17,10 +18,10 @@ function returnDates(month, quarterly = false) {
     ? Math.floor((selectedMonth - 1) / 3) * 3
     : selectedMonth - 1;
   const from = `${year}-${String(start + 1).padStart(2, "0")}-01`;
-  const end = new Date(year, start + (quarterly ? 3 : 1), 0);
+  const end = new Date(Date.UTC(year, start + (quarterly ? 3 : 1), 0));
   return [
     from,
-    `${year}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`,
+    `${year}-${String(end.getUTCMonth() + 1).padStart(2, "0")}-${String(end.getUTCDate()).padStart(2, "0")}`,
   ];
 }
 const api = async (path) => {
@@ -35,8 +36,7 @@ const api = async (path) => {
 };
 
 export default function Reports({ companyId, records }) {
-  const now = new Date();
-  const financialYear = now.getFullYear() - (now.getMonth() < 3 ? 1 : 0);
+  const financialYear = businessFinancialYear();
   const [from, setFrom] = useState(`${financialYear}-04-01`);
   const [to, setTo] = useState(today());
   const [view, setView] = useState("summary");

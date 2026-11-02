@@ -14,18 +14,22 @@ public sealed partial class MainPage
     private async Task CompanyForm(bool edit = false)
     {
         var original = Company.Copy().Object(); var panel = Stack(); panel.MinWidth = 440;
-        var name = Input("Company name", edit ? original.Text("name") : "");
+        var name = Input("Company legal name", edit ? original.Text("name") : "");
+        var bookLabel=Input("Book label · optional",edit?original.Text("book_label"):"");bookLabel.MaxLength=80;bookLabel.IsEnabled=Supports("company_book_labels");
         var mode = Select("Tax registration", [("unregistered", "Not GST registered"), ("regular", "GST registered · regular"), ("composition", "GST registered · composition")], edit ? original.Text("tax_mode") : "unregistered"); mode.IsEnabled = !edit;
         var gstin = Input("GSTIN · required for regular GST", edit ? original.Text("gstin") : ""); gstin.MaxLength = 15;
         var state = Input("State code", edit ? original.Text("state_code") : ""); state.MaxLength = 2;
         var address = Input("Address", edit ? original.Text("address") : "", true);
-        foreach (var control in new UIElement[] { name, mode, gstin, state, address }) panel.Children.Add(control);
+        foreach (var control in new UIElement[] { name, mode, gstin, state, address }) panel.Children.Add(control);if(Supports("company_book_labels"))panel.Children.Insert(1,bookLabel);
+        panel.Children.Add(Text("Book labels distinguish workspaces in the company picker/search only; they do not change the legal name printed on invoices or tax documents.",12));if(!Supports("company_book_labels"))panel.Children.Add(CapabilityNotice());
         panel.Children.Add(Text("Each company keeps separate books. Choose the tax mode carefully; it cannot be changed here after creation.",12));
-        string Signature()=>new JsonObject{["name"]=name.Text,["mode"]=Value(mode),["gstin"]=gstin.Text,["state"]=state.Text,["address"]=address.Text}.ToJsonString();var baseline=Signature();
+        string Signature()=>new JsonObject{["name"]=name.Text,["book_label"]=bookLabel.Text,["mode"]=Value(mode),["gstin"]=gstin.Text,["state"]=state.Text,["address"]=address.Text}.ToJsonString();var baseline=Signature();
         var saved = await Dialog(edit ? "Edit company details" : "Create company", panel, async () =>
         {
             if (string.IsNullOrWhiteSpace(name.Text)) throw new Exception("Enter a company name.");
+            Api.Capabilities.RequireBookLabelSupported(edit?original.Text("book_label"):"",bookLabel.Text);
             var body = new JsonObject { ["name"] = name.Text.Trim(), ["gstin"] = gstin.Text.Trim().ToUpperInvariant(), ["state_code"] = state.Text.Trim(), ["address"] = address.Text.Trim() };
+            if(Supports("company_book_labels"))body["book_label"]=ClientCapabilities.BookLabel(bookLabel.Text);
             if (!edit) body["tax_mode"] = Value(mode);
             var response = await Api.Send(edit ? Api.CompanyPath(original.Text("id")) : "/api/companies", edit ? HttpMethod.Patch : HttpMethod.Post, body);
             CompanyId = response.Text("id");
@@ -36,18 +40,18 @@ public sealed partial class MainPage
     private async Task MasterForm(string kind, JsonObject? existing = null)
     {
         var cid = CompanyId; var panel = Stack(); panel.MinWidth = 580;
-        var data = existing?["data"].Copy().Object() ?? new JsonObject();
+        var data = existing?["data"].Copy().Object() ?? new JsonObject();var initialMasterData=data.Copy().Object();
         var name = Input(kind == "party" ? "Party name" : "Item name", existing.Text("name")); name.MaxLength=120;name.IsReadOnly = existing is not null; panel.Children.Add(name);
-        var active=new CheckBox{Content="Active · available for new documents",IsChecked=WorkflowMasterValues.IsActive(existing)};panel.Children.Add(active);panel.Children.Add(Text("Archiving removes this master from new-entry pickers without deleting its historical records. Reactivate here when needed.",12));
+        var active=new CheckBox{Content="Active · available for new documents",IsChecked=WorkflowMasterValues.IsActive(existing),IsEnabled=Supports("master_lifecycle")};panel.Children.Add(active);if(!Api.Capabilities.HasCoreAdditions)panel.Children.Add(CapabilityNotice());panel.Children.Add(Text("Archiving removes this master from new-entry pickers without deleting its historical records. Reactivate here when needed.",12));
         var fields = new Dictionary<string, TextBox>(); ComboBox? partyType = null, itemType = null, treatment = null; CheckBox? tracked = null;
         if (kind == "party")
         {
             partyType = Select("Party type", [("both", "Customer and supplier"), ("customer", "Customer"), ("supplier", "Supplier")], data.Text("party_type") is { Length: > 0 } t ? t : "both");
             foreach (var (key, label) in new[] { ("phone", "Phone"), ("email", "Email"), ("gstin", "GSTIN"), ("address", "Billing address"), ("shipping_address", "Default shipping address") }) fields[key]=Input(label,data.Text(key),key is "address" or "shipping_address");
-            fields["gstin"].MaxLength=15;fields["phone"].MaxLength=32;fields["address"].MaxLength=500;fields["shipping_address"].MaxLength=500;
+            fields["gstin"].MaxLength=15;fields["phone"].MaxLength=32;fields["address"].MaxLength=500;fields["shipping_address"].MaxLength=500;fields["shipping_address"].IsEnabled=Supports("party_shipping_address");
             panel.Children.Add(Columns(partyType,fields["phone"]));panel.Children.Add(Columns(fields["email"],fields["gstin"]));panel.Children.Add(fields["address"]);panel.Children.Add(fields["shipping_address"]);panel.Children.Add(Text("Blank shipping address falls back to billing when selecting this party. Document addresses stay editable.",12));
-            fields["credit_limit"]=Input("Customer credit limit (₹) · blank disables",data.Text("credit_limit"));fields["credit_limit"].MaxLength=32;panel.Children.Add(fields["credit_limit"]);panel.Children.Add(Text("Warning only, based on receivables less available credits and advances. Zero is a valid limit; it does not block saving.",12));
-            fields["payment_terms_days"]=Input("Payment terms · days (blank disables)",data.Text("payment_terms_days"));panel.Children.Add(fields["payment_terms_days"]);panel.Children.Add(Text("0 means due on the document date. Due dates are suggested for review, never silently replaced.",12));
+            fields["credit_limit"]=Input("Customer credit limit (₹) · blank disables",data.Text("credit_limit"));fields["credit_limit"].MaxLength=32;fields["credit_limit"].IsEnabled=Supports("party_credit_limits");panel.Children.Add(fields["credit_limit"]);panel.Children.Add(Text("Warning only, based on receivables less available credits and advances. Zero is a valid limit; it does not block saving.",12));
+            fields["payment_terms_days"]=Input("Payment terms · days (blank disables)",data.Text("payment_terms_days"));fields["payment_terms_days"].IsEnabled=Supports("party_payment_terms");panel.Children.Add(fields["payment_terms_days"]);panel.Children.Add(Text("0 means due on the document date. Due dates are suggested for review, never silently replaced.",12));
         }
         else
         {
@@ -56,7 +60,7 @@ public sealed partial class MainPage
             fields["hsn"].MaxLength=16;fields["unit"].MaxLength=24;
             panel.Children.Add(Columns(itemType,fields["barcode"]));panel.Children.Add(Columns(fields["hsn"],fields["unit"]));panel.Children.Add(Columns(fields["sale_rate"],fields["purchase_rate"],fields["gst_rate"]));
             treatment = Select("GST treatment", [("taxable", "Taxable"), ("nil_rated", "Nil rated"), ("exempt", "Exempt"), ("non_gst", "Non-GST supply")], data.Text("tax_treatment") is { Length: > 0 } value ? value : Company.Text("tax_mode") == "regular" ? "taxable" : "nil_rated"); panel.Children.Add(treatment);
-            fields["low_stock_threshold"]=Input("Low-stock threshold · quantity (blank disables)",data.Text("low_stock_threshold"));panel.Children.Add(fields["low_stock_threshold"]);panel.Children.Add(Text("Reorder suggestions apply only to stock-tracked goods. Review quantities before creating a purchase order draft.",12));
+            fields["low_stock_threshold"]=Input("Low-stock threshold · quantity (blank disables)",data.Text("low_stock_threshold"));fields["low_stock_threshold"].IsEnabled=Supports("low_stock_reorder");panel.Children.Add(fields["low_stock_threshold"]);panel.Children.Add(Text("Reorder suggestions apply only to stock-tracked goods. Review quantities before creating a purchase order draft.",12));
             tracked = new CheckBox { Content = "Track stock quantities", IsChecked = data.Flag("track_stock"), IsEnabled = existing is null }; panel.Children.Add(tracked);
             var preview = new Image { MaxWidth = 180, MaxHeight = 120, HorizontalAlignment = HorizontalAlignment.Left };
             if (data.Text("image_thumbnail").Length > 0) preview.Source = await Bitmap(data.Text("image_thumbnail")); panel.Children.Add(preview);
@@ -72,10 +76,11 @@ public sealed partial class MainPage
         var saved = await Dialog((existing is null ? "New " : "Edit ") + kind, panel, async () =>
         {
             if (string.IsNullOrWhiteSpace(name.Text)) throw new Exception("Enter a name.");
+            Api.Capabilities.RequireMasterEditsSupported(initialMasterData,JsonNode.Parse(Signature()).Object());
             foreach (var (key, field) in fields) data[key] = field.Text.Trim();
             data["is_active"]=active.IsChecked==true;
-            if(kind=="party"){data["payment_terms_days"]=WorkflowMasterValues.PaymentTerms(fields["payment_terms_days"].Text);data["credit_limit"]=WorkflowMasterValues.CreditLimit(fields["credit_limit"].Text);}
-            else data["low_stock_threshold"]=WorkflowMasterValues.LowStockThreshold(fields["low_stock_threshold"].Text);
+            if(kind=="party"){if(Supports("party_payment_terms"))data["payment_terms_days"]=WorkflowMasterValues.PaymentTerms(fields["payment_terms_days"].Text);if(Supports("party_credit_limits"))data["credit_limit"]=WorkflowMasterValues.CreditLimit(fields["credit_limit"].Text);}
+            else if(Supports("low_stock_reorder"))data["low_stock_threshold"]=WorkflowMasterValues.LowStockThreshold(fields["low_stock_threshold"].Text);
             if (partyType is not null) data["party_type"] = Value(partyType);
             if (itemType is not null) data["item_type"] = Value(itemType);
             if (treatment is not null) data["tax_treatment"] = Value(treatment);

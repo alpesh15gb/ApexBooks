@@ -81,6 +81,38 @@ Check(WorkflowMasterValues.RecurringOccurrenceAllowed(true,"2026-11-02","2026-11
 Check(WorkflowMasterValues.RecurringOccurrenceAllowed(true,"2026-11-03","2026-11-03")&&!WorkflowMasterValues.RecurringOccurrenceAllowed(true,"2026-11-03","2026-11-02")&&!WorkflowMasterValues.RecurringOccurrenceAllowed(true,"2026-11-03",""),"recurring eligibility follows supplied server business date and fails closed without it");
 var recurringRetry=new RetrySubmission();recurringRetry.Body(new JsonObject{["occurrence_date"]="2026-10-31"});WorkflowMasterValues.RecurringWriteFailed(recurringRetry,new ApiFailure(0,"timeout"));Check(recurringRetry.Unresolved&&recurringRetry.Body(new JsonObject{["occurrence_date"]="2026-11-30"}).Text("occurrence_date")=="2026-10-31","uncertain recurring write retains original occurrence date");WorkflowMasterValues.RecurringWriteFailed(recurringRetry,new ApiFailure(409,"definitive stale version"));Check(!recurringRetry.Unresolved,"recurring API definitive conflict permits close and reload");
 
+var unsupported=ClientCapabilities.Parse(new JsonObject{["capabilities_version"]=2,["supported_features"]=new JsonArray("party_credit_limits")});
+Check(!unsupported.Supports("party_credit_limits")&&!ClientCapabilities.Parse(null).Supports("recurring_drafts")&&!ClientCapabilities.Parse(new JsonObject{["capabilities_version"]="1",["supported_features"]=new JsonArray("recurring_drafts")}).Supports("recurring_drafts"),"missing or unknown capability versions fail closed");
+var supported=ClientCapabilities.Parse(new JsonObject{["capabilities_version"]=1,["supported_features"]=new JsonArray("party_credit_limits","party_shipping_address","company_book_labels","unknown_future_feature")});
+Check(supported.Supports("party_credit_limits")&&!supported.Supports("party_payment_terms")&&!supported.Supports("unknown_future_feature"),"only advertised known features are enabled");
+var masterMetadata=new JsonObject{["phone"]="123",["credit_limit"]="0",["shipping_address"]="Delivery",["is_active"]=false,["payment_terms_days"]=30,["low_stock_threshold"]="10"};var filtered=supported.MasterData(masterMetadata);
+Check(filtered.ContainsKey("credit_limit")&&filtered.ContainsKey("shipping_address")&&!filtered.ContainsKey("is_active")&&!filtered.ContainsKey("payment_terms_days")&&!filtered.ContainsKey("low_stock_threshold")&&filtered["phone"]!.GetValue<string>()=="123"&&masterMetadata.ContainsKey("is_active"),"unsupported master metadata omitted without mutating draft or core fields");
+ClientCapabilities.Unavailable.RequireMasterEditsSupported(new JsonObject(),new JsonObject{["is_active"]=true,["credit_limit"]=""});Check(true,"legacy untouched master defaults remain savable");
+try{ClientCapabilities.Unavailable.RequireMasterEditsSupported(new JsonObject(),new JsonObject{["credit_limit"]="0"});throw new Exception("Unsupported credit input silently discarded");}catch(InvalidOperationException){}Check(true,"changed unsupported master input rejected rather than silently dropped");
+try{ClientCapabilities.Unavailable.RequireBookLabelSupported("","Entered label");throw new Exception("Unsupported label silently discarded");}catch(InvalidOperationException){}Check(true,"changed unsupported book label rejected rather than silently dropped");
+Check(ClientCapabilities.CompanyLabel(new JsonObject{["name"]="Legal Name",["book_label"]="Retail"})=="Legal Name · Retail"&&ClientCapabilities.CompanyLabel(new JsonObject{["name"]="Legal Name"})=="Legal Name","company labels supplement rather than replace legal names");
+Check(ClientCapabilities.BookLabel(new string('x',80)).Length==80,"book label maximum length accepted");try{ClientCapabilities.BookLabel(new string('x',81));throw new Exception("Overlong label accepted");}catch(FormatException){}Check(true,"overlong book label rejected");
+Check(BusinessCalendar.IndiaDate(DateTimeOffset.Parse("2026-12-31T18:30:00Z"))==new DateTime(2027,1,1)&&BusinessCalendar.IndiaDate(DateTimeOffset.Parse("2026-12-31T18:29:59Z"))==new DateTime(2026,12,31),"default business date follows IST midnight independent of device timezone");
+Check(BusinessCalendar.FinancialStart(DateTimeOffset.Parse("2026-03-31T18:29:59Z"))=="2025-04-01"&&BusinessCalendar.FinancialStart(DateTimeOffset.Parse("2026-03-31T18:30:00Z"))=="2026-04-01","financial year changes at IST April1 boundary");
+var capabilityTransport=new CapabilityTransport();using(var client=new ApexApi("https://synthetic-capabilities.invalid",capabilityTransport)){
+ await client.Login("metadata@example.invalid","synthetic",false);await Task.WhenAll(Enumerable.Range(0,10).Select(_=>client.EnsureCapabilities()));Check(capabilityTransport.CapabilityCalls==1&&!capabilityTransport.SentAuthorization&&client.Capabilities.Supports("party_credit_limits"),"public capabilities requested once across concurrent callers per session");
+ await client.Login("metadata@example.invalid","synthetic",false);Check(!client.Capabilities.Supports("party_credit_limits"),"new session immediately invalidates old capabilities");await client.EnsureCapabilities();Check(capabilityTransport.CapabilityCalls==2,"new sign-in refreshes capabilities once");client.ForgetSession();Check(!client.Capabilities.Supports("party_credit_limits"),"signout clears capability state");
+}
+
+var staleMetadata=new CapabilityTransport{Hold=true};using(var client=new ApexApi("https://synthetic-stale-metadata.invalid",staleMetadata)){
+ await client.Login("metadata@example.invalid","synthetic",false);var pending=client.EnsureCapabilities();await staleMetadata.Entered.Task;client.ForgetSession();staleMetadata.Release.SetResult(true);await pending;Check(!client.Capabilities.Supports("party_credit_limits"),"late capability response cannot restore state after signout");
+}
+
+foreach(var failure in new[]{"network","timeout","503","404","invalid"}){
+ var transient=new CapabilityTransport{Failure=failure};using var client=new ApexApi("https://synthetic-retry.invalid",transient);await client.Login("metadata@example.invalid","synthetic",false);await client.EnsureCapabilities();var retryable=failure is "network" or "timeout" or "503";
+ Check(client.Capabilities.Retryable==retryable&&!client.Capabilities.Supports("party_credit_limits"),$"capability {failure} is classified and fails closed");await client.EnsureCapabilities();Check(transient.CapabilityCalls==1,$"capability {failure} does not automatically refetch");
+ transient.Failure="";await Task.WhenAll(Enumerable.Range(0,10).Select(_=>client.RetryCapabilities()));Check(transient.CapabilityCalls==(retryable?2:1)&&client.Capabilities.Supports("party_credit_limits")==retryable,$"explicit capability retry {failure} is deduplicated and recovers only transient failures");
+}
+
+var staleRetry=new CapabilityTransport{Failure="network"};using(var client=new ApexApi("https://synthetic-stale-retry.invalid",staleRetry)){
+ await client.Login("metadata@example.invalid","synthetic",false);await client.EnsureCapabilities();staleRetry.Failure="";staleRetry.Hold=true;var retry=client.RetryCapabilities();await staleRetry.Entered.Task;client.ForgetSession();staleRetry.Release.SetResult(true);await retry;Check(!client.Capabilities.Valid&&!client.Capabilities.Retryable,"late explicit capability retry cannot restore metadata after signout");
+}
+
 var paging=new PagingTransport();using var pagingApi=new ApexApi("https://synthetic-paging.invalid",paging);
 var timer=System.Diagnostics.Stopwatch.StartNew();for(var offset=0;offset<1250;offset+=100)await pagingApi.Send(pagingApi.CompanyPath("test",$"/records?compact=true&limit=100&offset={offset}"));var baselineMs=timer.ElapsedMilliseconds;
 Check(paging.Calls==13,"baseline 1250 records uses 13 small-page requests");paging.Calls=0;timer.Restart();var allRows=await pagingApi.Records("test");var improvedMs=timer.ElapsedMilliseconds;
@@ -113,4 +145,13 @@ sealed class DelayedTransport:HttpMessageHandler
         if(path=="/api/slow-document.pdf"){PdfEntered.SetResult(true);await ReleasePdf.Task.WaitAsync(cancellation);}
         return new(HttpStatusCode.Unauthorized){Content=new StringContent("{\"detail\":\"Session rejected\"}",Encoding.UTF8,"application/json")};
     }
+}
+
+sealed class CapabilityTransport:HttpMessageHandler
+{
+ public string Failure="";public int CapabilityCalls;public bool SentAuthorization,Hold;public TaskCompletionSource<bool> Entered=new(TaskCreationOptions.RunContinuationsAsynchronously),Release=new(TaskCreationOptions.RunContinuationsAsynchronously);
+ protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation){
+  if(request.RequestUri!.AbsolutePath=="/api/capabilities"){Interlocked.Increment(ref CapabilityCalls);SentAuthorization|=request.Headers.Authorization is not null;if(Hold){Entered.SetResult(true);await Release.Task.WaitAsync(cancellation);}await Task.Delay(20,cancellation);if(Failure=="network")throw new HttpRequestException("synthetic offline");if(Failure=="timeout")throw new TaskCanceledException("synthetic timeout");if(Failure is "503" or "404")return new((HttpStatusCode)int.Parse(Failure)){Content=new StringContent("{}")};if(Failure=="invalid")return new(HttpStatusCode.OK){Content=new StringContent("not json")};return new(HttpStatusCode.OK){Content=new StringContent("{\"capabilities_version\":1,\"supported_features\":[\"party_credit_limits\"]}")};}
+  return new(HttpStatusCode.OK){Content=new StringContent("{\"token\":\"synthetic-metadata-session\"}")};
+ }
 }

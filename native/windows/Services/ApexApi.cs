@@ -20,8 +20,8 @@ public static class J
     public static decimal Number(this JsonNode? node, string key = "") => decimal.TryParse(node.Text(key), NumberStyles.Any, CultureInfo.InvariantCulture, out var value) ? value : 0m;
     public static bool Flag(this JsonNode? node, string key) => bool.TryParse(node.Text(key), out var value) && value;
     public static string Money(decimal value) => value.ToString("C2", CultureInfo.GetCultureInfo("en-IN"));
-    public static string Today => DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-    public static string FinancialStart => $"{(DateTime.Today.Month >= 4 ? DateTime.Today.Year : DateTime.Today.Year - 1)}-04-01";
+    public static string Today => BusinessCalendar.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    public static string FinancialStart => BusinessCalendar.FinancialStart(DateTimeOffset.UtcNow);
     public static JsonNode? Copy(this JsonNode? value) => value?.DeepClone();
 }
 
@@ -35,6 +35,8 @@ public sealed class ApexApi : IDisposable
     private readonly object sessionGate=new();
     private string sessionToken="";
     private int loginSequence;
+    private int capabilityGeneration;private Task? capabilityLoad;
+    public ClientCapabilities Capabilities { get; private set; }=ClientCapabilities.Unavailable;
     public string Origin { get; }
     public string Email { get; private set; } = "";
     public bool SignedIn {get{lock(sessionGate)return sessionToken.Length>0;}}
@@ -63,7 +65,7 @@ public sealed class ApexApi : IDisposable
 
     private void SetSession(string email, string token)
     {
-        lock(sessionGate){Email=email;sessionToken=token;}
+        lock(sessionGate){Email=email;sessionToken=token;capabilityGeneration++;capabilityLoad=null;Capabilities=ClientCapabilities.Unavailable;}
     }
 
     public async Task Login(string email, string password, bool remember)
@@ -79,8 +81,27 @@ public sealed class ApexApi : IDisposable
         var token=SessionToken();try { await Send("/api/auth/logout", HttpMethod.Post); }
         finally { lock(sessionGate){if(sessionToken==token)ForgetSession();} }
     }
-    public void ForgetSession(){lock(sessionGate){loginSequence++;ClearStoredSession();sessionToken="";Email="";}}
+    public void ForgetSession(){lock(sessionGate){loginSequence++;ClearStoredSession();sessionToken="";Email="";capabilityGeneration++;capabilityLoad=null;Capabilities=ClientCapabilities.Unavailable;}}
     private string SessionToken(){lock(sessionGate)return sessionToken;}
+
+    public Task EnsureCapabilities()
+    {
+        lock(sessionGate)return capabilityLoad??=LoadCapabilities(capabilityGeneration);
+    }
+    public Task RetryCapabilities()
+    {
+        lock(sessionGate){if(capabilityLoad is {IsCompleted:false})return capabilityLoad;if(!Capabilities.Retryable)return capabilityLoad??Task.CompletedTask;return capabilityLoad=LoadCapabilities(capabilityGeneration);}
+    }
+    private async Task LoadCapabilities(int generation)
+    {
+        var found=ClientCapabilities.Unavailable;
+        try{
+            using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(3));using var request=new HttpRequestMessage(HttpMethod.Get,"api/capabilities");using var response=await http.SendAsync(request,deadline.Token).ConfigureAwait(false);
+            if(response.IsSuccessStatusCode){try{found=ClientCapabilities.Parse(JsonNode.Parse(await response.Content.ReadAsStringAsync(deadline.Token).ConfigureAwait(false)));}catch(System.Text.Json.JsonException){found=ClientCapabilities.Unavailable;}}
+            else if((int)response.StatusCode>=500||(int)response.StatusCode is 408 or 429)found=ClientCapabilities.TransientFailure;
+        }catch(HttpRequestException){found=ClientCapabilities.TransientFailure;}catch(OperationCanceledException){found=ClientCapabilities.TransientFailure;}
+        lock(sessionGate){if(generation==capabilityGeneration)Capabilities=found;}
+    }
 
     public void ClearStoredSession()
     {
@@ -89,6 +110,11 @@ public sealed class ApexApi : IDisposable
 
     public async Task<JsonNode> Send(string path, HttpMethod? method = null, JsonNode? body = null, string? retryKey = null, CancellationToken cancellation = default)
     {
+        if(body is JsonObject input){
+            if(path.Contains("/masters/",StringComparison.Ordinal)&&method==HttpMethod.Put)body=Capabilities.MasterData(input);
+            else if(path.EndsWith("/records",StringComparison.Ordinal)&&input.Text("kind") is "party" or "item"){var copy=input.Copy().Object();copy["data"]=Capabilities.MasterData(input["data"].Object());body=copy;}
+            if(body is JsonObject fields&&fields.ContainsKey("book_label")&&!Capabilities.Supports("company_book_labels")){body=fields.Copy();body!.AsObject().Remove("book_label");}
+        }
         using var request = new HttpRequestMessage(method ?? HttpMethod.Get, path.TrimStart('/'));
         var sentToken=SessionToken();if(sentToken.Length>0)request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",sentToken);
         if (body is not null) request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");

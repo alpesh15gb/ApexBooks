@@ -22,7 +22,7 @@ public sealed partial class MainPage
         {
             ++sequence;Body.Children.Clear();var search=Input("Find a report · sales, GST, stock, balances…");var group=Select("Report category",new[]{("all","All reports")}.Concat(FeatureCatalog.Reports.Select(r=>r.Group).Distinct().Select(g=>(g,g))));var list=Stack(14);
             void Draw(){list.Children.Clear();foreach(var report in FeatureCatalog.Reports.Where(r=>(Value(group)=="all"||r.Group==Value(group))&&(r.Title+" "+r.Description+" "+r.Group).Contains(search.Text.Trim(),StringComparison.OrdinalIgnoreCase))){var details=Stack(5);details.Children.Add(Text(report.Group.ToUpperInvariant(),11,true));details.Children.Add(Text(report.Title,19,true));details.Children.Add(Text(report.Description,13));var button=AsyncButton(report.Title,()=>Open(report),Error);button.Content=details;button.HorizontalAlignment=HorizontalAlignment.Stretch;button.HorizontalContentAlignment=HorizontalAlignment.Left;button.Padding=new Thickness(20);if(report.Key.StartsWith("gstr")&&Company.Text("tax_mode")!="regular"){button.IsEnabled=false;details.Children.Add(Text("Requires a regular GST-registered company",12));}list.Children.Add(button);}if(list.Children.Count==0)list.Children.Add(Card(Text("No reports match this search.")));}
-            Body.Children.Add(Text("Report library",26,true));Body.Children.Add(AsyncButton("Low-stock & reorder suggestions",ReorderReport,Error,true));Body.Children.Add(AsyncButton("Recurring draft schedules",RecurringDrafts,Error));Body.Children.Add(Text("Choose a report, set its period and export the same figures you review here."));Body.Children.Add(Columns(group,search));Body.Children.Add(list);search.TextChanged+=(_,_)=>Draw();group.SelectionChanged+=(_,_)=>Draw();Draw();
+            Body.Children.Add(Text("Report library",26,true));if(!Api.Capabilities.HasCoreAdditions)Body.Children.Add(CapabilityNotice());Body.Children.Add(FeatureButton("Low-stock & reorder suggestions","low_stock_reorder",ReorderReport,true));Body.Children.Add(FeatureButton("Recurring draft schedules","recurring_drafts",RecurringDrafts));Body.Children.Add(Text("Choose a report, set its period and export the same figures you review here."));Body.Children.Add(Columns(group,search));Body.Children.Add(list);search.TextChanged+=(_,_)=>Draw();group.SelectionChanged+=(_,_)=>Draw();Draw();
         }
         async Task Open(ReportFeature feature)
         {
@@ -66,12 +66,12 @@ public sealed partial class MainPage
         async Task Load()
         {
             var request=++sequence;var asOf=to.Value;var path=Path()+Query();
-            async Task<JsonNode?> Credit(){try{return await Api.Send(Api.CompanyPath(cid,$"/parties/{party.Text("id")}/credit-status?as_of={asOf}&proposed_amount=0"));}catch{return null;}}
+            async Task<JsonNode?> Credit(){if(!Supports("party_credit_limits"))return null;try{return await Api.Send(Api.CompanyPath(cid,$"/parties/{party.Text("id")}/credit-status?as_of={asOf}&proposed_amount=0"));}catch{return null;}}
             var creditTask=Credit();var result=await Api.Send(path);var status=await creditTask;
             if(stamp!=generation||request!=sequence||cid!=CompanyId)return;
             rows.Children.Clear();var balances=result["balances"].Object();AddMetrics(rows,("Receivable",balances.Number("receivable")),("Payable",balances.Number("payable")),("Customer advances",balances.Number("customer_advance")),("Supplier advances",balances.Number("supplier_advance")),("Customer credits",balances.Number("customer_credit")),("Supplier credits",balances.Number("supplier_credit")));
             if(status is not null)rows.Children.Add(new InfoBar{IsOpen=true,IsClosable=false,Severity=status.Flag("exceeded")?InfoBarSeverity.Warning:InfoBarSeverity.Informational,Message=WorkflowMasterValues.CreditStatusText(status,false)});
-            else rows.Children.Add(Text("Credit status unavailable. Statement balances remain available; this is not credit approval.",12));
+            else rows.Children.Add(Text(Supports("party_credit_limits")?"Credit status unavailable. Statement balances remain available; this is not credit approval.":Api.Capabilities.Hint,12));
             Table(rows,result["transactions"].Array(),"Transactions");
         }
         var actions=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};actions.Children.Add(AsyncButton("Apply dates",Load,Error,true));

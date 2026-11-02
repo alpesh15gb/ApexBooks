@@ -1,6 +1,7 @@
+import { businessDate } from "./businessDate.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import React, { useEffect, useState } from "react";
-const today = () => new Date().toLocaleDateString("en-CA");
+const today = () => businessDate();
 const money = (n) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(
     Number(n || 0),

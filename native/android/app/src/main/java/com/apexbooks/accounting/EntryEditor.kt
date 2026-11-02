@@ -40,10 +40,11 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     private var sourceSequence=0
     var retryKey=vm.key();private set
     private var initialSignature=""
+    private var initialMasterFields:Map<String,String> = emptyMap()
     val submission=RetrySubmission()
     var retryPending by mutableStateOf(false);private set
     val canSaveAndNew get()=document&&previous==null&&conversion==null
-    fun changed()=body().toString()!=initialSignature
+    fun changed()=if(master)fields.toMap()!=initialMasterFields else body().toString()!=initialSignature
     fun renewRetryKey(){retryKey=vm.key();submission.succeeded();retryPending=false}
     init {
         val source=previous?:conversion?:JSONObject();val data=source.o("data")
@@ -55,7 +56,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         data.a("lines").objects().forEach{lines.add(LineState(it,regular))};if(document&&lines.isEmpty())lines.add(LineState(regular=regular))
         originalAllocations=(previous?.a("allocations")?.objects()?.takeIf{it.isNotEmpty()}?:data.a("allocations").objects()).ifEmpty{if(data.s("applied_to").isNotBlank())listOf(JSONObject().put("document_id",data.s("applied_to")).put("amount",source.s("amount")))else emptyList()}
         originalAllocations.forEach{allocations.add(AllocationState(it.s("document_id"),it.s("amount")))};if(payment&&allocations.isEmpty())allocations.add(AllocationState())
-        initialSignature=body().toString()
+        initialMasterFields=fields.toMap();initialSignature=body().toString()
     }
     private fun supplierOrigin(data:JSONObject)=data.s("supplier_state").ifBlank{data.s("party_gstin").take(2).takeIf{it.length==2&&it.all{c->c.isDigit()}}?:vm.company.s("state_code")}
     fun get(key:String)=fields[key]?:""
@@ -93,6 +94,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
             if(document){values.put("lines",JSONArray(lines.map{it.json()}));values.put("supplier_state",get("supplier_state"));values.put("document_discount_percent",get("document_discount_percent"));values.put("round_total",flag("round_total"));values.put("return_stock",flag("return_stock"));if(get("applied_to").isNotBlank())values.put("applied_to",get("applied_to"));if(kind=="pos"&&get("tender_amount").isNotBlank())values.put("tender_amount",get("tender_amount"))}
             if(payment){values.put("is_advance",flag("is_advance"));values.put("advance_supply",get("advance_supply"));values.put("advance_gst_rate",get("advance_gst_rate"));values.put("allocations",JSONArray(if(flag("is_advance"))emptyList<JSONObject>()else allocations.map{JSONObject().put("document_id",it.documentId).put("amount",it.amount)}))}
         }
+        if(master)ApiCapabilities.filterMaster(values,vm.supportedFeatures)
         if(previous!=null)values.put("version",previous.o("data").optInt("version"));if(conversion!=null)values.put("source_document_id",conversion.s("id"))
         return JSONObject().put("kind",kind).put("name",get("name")).put("number",get("number")).put("date",get("date")).put("amount",if(document||master)"0"else get("amount")).put("data",values)
     }
@@ -102,6 +104,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         vm.task{try{
             if(!retryPending){
                 if(get("name").isBlank())throw Exception("Enter a party or description.")
+                if(master&&ApiCapabilities.unsupportedChanges(initialMasterFields,fields,vm.supportedFeatures).isNotEmpty())throw Exception("Some edited settings are not supported by this server. Upgrade the API before saving these changes; they have not been saved.")
                 if(master)masterPlanningIssue(kind,get("payment_terms_days"),get("low_stock_threshold"),get("credit_limit"))?.let{throw Exception(it)}
                 if(payment&&!flag("is_advance")&&(allocations.isEmpty()||allocations.any{it.documentId.isBlank()}))throw Exception("Allocate the payment or record an advance.")
             }

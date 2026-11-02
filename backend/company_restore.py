@@ -37,6 +37,8 @@ def unpack(encoded):
 
 def validate(payload):
     groups={}
+    label=payload.get('company',{}).get('book_label','')
+    if not isinstance(label,str) or len(label.strip())>80:raise ValueError('Invalid book label')
     if payload.get('preferences',{}).get('document_template','classic') not in {'classic','modern','compact','bold','minimal','vintage','mrp_discount','elegant','evergreen'}:raise ValueError('Unknown document template')
     if payload.get('locked_through'):date.fromisoformat(payload['locked_through'])
     lists=('records','accounts','journals','journal_lines','record_postings','document_conversions','payment_allocations','bank_accounts','bank_statement_lines','bank_match_allocations','bank_reconciliation_reviews','stock_movements','audit_events','number_series','journal_reversals')
@@ -205,7 +207,7 @@ def install(app,m):
             for company in session.scalars(select(m.Company).where(m.Company.owner_id==user.id,m.Company.name==body.company_name.strip())):
                 marker=session.scalar(select(m.Record).where(m.Record.company_id==company.id,m.Record.kind=='restore_marker'))
                 if marker and marker.data.get('digest')==digest:return {**report,'restored':True,'already_restored':True,'company_id':company.id}
-            company=m.Company(owner_id=user.id,name=body.company_name.strip(),gstin=gstin,state_code=state,address=str(source.get('address',''))[:1000]);session.add(company);session.flush();cid=company.id
+            company=m.Company(owner_id=user.id,name=body.company_name.strip(),book_label=source.get('book_label','').strip(),gstin=gstin,state_code=state,address=str(source.get('address',''))[:1000]);session.add(company);session.flush();cid=company.id
             session.add(m.CompanyTaxProfile(company_id=cid,mode=mode))
             mapping={source['id']:cid}
             for rows in indexes.values():

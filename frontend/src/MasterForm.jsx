@@ -1,8 +1,10 @@
+import { supportsFeature, supportedMasterData } from "./capabilities.js";
 import {imageInput} from "./imageInput.js";
 import React, { useState } from "react";
 import { X } from "lucide-react";
 
-export default function MasterForm({ kind, close, save, record }) {
+export default function MasterForm({ kind, close, save, record, features = [] }) {
+  const supported = feature => supportsFeature(features, feature);
   const isParty = kind === "party";
   const [form, setForm] = useState({
     party_type: "both",
@@ -59,7 +61,7 @@ export default function MasterForm({ kind, close, save, record }) {
             item_type: form.item_type,tax_treatment:form.tax_treatment,
             low_stock_threshold: form.track_stock && form.item_type !== "services" && form.low_stock_threshold !== "" && form.low_stock_threshold != null ? String(form.low_stock_threshold) : null,
           };
-      await save({ kind, name: form.name, data });
+      await save({ kind, name: form.name, data: supportedMasterData(data, features) });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -93,6 +95,7 @@ export default function MasterForm({ kind, close, save, record }) {
           </button>
         </div>
         <form className="form-grid" onSubmit={submit}>
+          {!supported("master_lifecycle") && <p className="info-box full">Advanced master settings need an updated connected API. Core details can still be saved; unsupported settings will not be submitted.</p>}
           <label className="full">
             {isParty ? "Party name" : "Item name"}
             <input
@@ -109,7 +112,7 @@ export default function MasterForm({ kind, close, save, record }) {
               </small>
             )}
           </label>
-          {record && <label className="full"><span><input type="checkbox" checked={form.is_active !== false} onChange={event => setForm(current => ({ ...current, is_active: event.target.checked }))} /> Active for new transactions</span><small>Archive without deleting history. Existing invoices, balances and settlement remain available. Reactivate here any time.</small></label>}
+          {supported("master_lifecycle") && record && <label className="full"><span><input type="checkbox" checked={form.is_active !== false} onChange={event => setForm(current => ({ ...current, is_active: event.target.checked }))} /> Active for new transactions</span><small>Archive without deleting history. Existing invoices, balances and settlement remain available. Reactivate here any time.</small></label>}
           {isParty ? (
             <>
               <label>
@@ -155,9 +158,9 @@ export default function MasterForm({ kind, close, save, record }) {
                   onChange={update}
                 />
               </label>
-              <label className="full">Customer credit limit (₹)<input name="credit_limit" type="number" min="0" max="9999999999999.99" step="0.01" value={form.credit_limit ?? ""} onChange={update} placeholder="No limit warning" /><small>Optional advisory only; does not block saving. Zero warns for any positive customer exposure. Unused customer credits and advances reduce exposure, not supplier payables.</small></label>
-              <label className="full">Default payment terms (days)<input name="payment_terms_days" type="number" min="0" max="3650" step="1" value={form.payment_terms_days ?? ""} onChange={update} placeholder="No default" /><small>Optional. Net 0 means due on the document date. Existing documents keep their saved due dates.</small></label>
-              <label className="full">Default delivery address<input name="shipping_address" maxLength="500" value={form.shipping_address} onChange={update} placeholder="Same as billing address when blank" /><small>Copied into new documents only; saved document addresses stay unchanged.</small></label>
+              {supported("party_credit_limits") && <label className="full">Customer credit limit (₹)<input name="credit_limit" type="number" min="0" max="9999999999999.99" step="0.01" value={form.credit_limit ?? ""} onChange={update} placeholder="No limit warning" /><small>Optional advisory only; does not block saving. Zero warns for any positive customer exposure. Unused customer credits and advances reduce exposure, not supplier payables.</small></label>}
+              {supported("party_payment_terms") && <label className="full">Default payment terms (days)<input name="payment_terms_days" type="number" min="0" max="3650" step="1" value={form.payment_terms_days ?? ""} onChange={update} placeholder="No default" /><small>Optional. Net 0 means due on the document date. Existing documents keep their saved due dates.</small></label>}
+              {supported("party_shipping_address") && <label className="full">Default delivery address<input name="shipping_address" maxLength="500" value={form.shipping_address} onChange={update} placeholder="Same as billing address when blank" /><small>Copied into new documents only; saved document addresses stay unchanged.</small></label>}
               <label className="full">
                 Billing address
                 <input
@@ -258,7 +261,7 @@ export default function MasterForm({ kind, close, save, record }) {
                 Track stock quantities for this item
                 {record && " (fixed after creation)"}
               </label>
-              {form.track_stock && form.item_type !== "services" && <label className="full">Low-stock threshold<input name="low_stock_threshold" type="number" min="0" step="0.001" value={form.low_stock_threshold ?? ""} onChange={update} placeholder="Disabled" /><small>Alerts when on-hand stock is at or below this quantity. Blank disables alerts. Changing this never posts stock or accounting entries.</small></label>}
+              {supported("low_stock_reorder") && form.track_stock && form.item_type !== "services" && <label className="full">Low-stock threshold<input name="low_stock_threshold" type="number" min="0" step="0.001" value={form.low_stock_threshold ?? ""} onChange={update} placeholder="Disabled" /><small>Alerts when on-hand stock is at or below this quantity. Blank disables alerts. Changing this never posts stock or accounting entries.</small></label>}
 
             </>
           )}

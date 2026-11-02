@@ -43,7 +43,7 @@ import com.apexbooks.accounting.data.*
                         Text(when { vm.page == "dashboard" -> "Your business"; currentTab == "transactions" -> "Transactions"; vm.page == "more" -> "Workspace"; else -> vm.title(vm.page) }, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Row(Modifier.clickable { companyQuery = ""; companies = true }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Outlined.Business, null, Modifier.size(14.dp), tint = ApexGreen)
-                            Text(vm.company.s("name").ifBlank { "Choose company" }, Modifier.weight(1f, false).padding(horizontal = 5.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(companyDisplayName(vm.company).ifBlank { "Choose company" }, Modifier.weight(1f, false).padding(horizontal = 5.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Icon(Icons.Outlined.ExpandMore, "Switch company", Modifier.size(18.dp))
                         }
                     } }, actions = {
@@ -62,6 +62,7 @@ import com.apexbooks.accounting.data.*
                 } }
             ) { padding -> Column(Modifier.padding(padding).fillMaxSize()) {
                 if(BuildConfig.DEBUG)Text("Test workspace · ${java.net.URI(BuildConfig.API_ORIGIN).host}",Modifier.padding(horizontal=16.dp),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                if(vm.capabilityRetryable)Row(Modifier.padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically){Text(vm.capabilityHint,Modifier.weight(1f),style=MaterialTheme.typography.bodySmall);TextButton(enabled=!vm.capabilityChecking,onClick={vm.retryCapabilities()}){Text("Retry features")}}
                 if (vm.error.isNotBlank()) Box(Modifier.padding(16.dp, 6.dp)) { Message(vm.error, true) { vm.error = "" } }
                 if (vm.notice.isNotBlank()) Box(Modifier.padding(16.dp, 6.dp)) { Message(vm.notice) { vm.notice = "" } }
                 if (vm.companyId.isBlank()) Column(Modifier.padding(24.dp)) {
@@ -88,9 +89,9 @@ import com.apexbooks.accounting.data.*
             Heading("Switch company", "Each company keeps its own books and settings.")
             Spacer(Modifier.height(12.dp))
             SearchBarField("Search your companies", companyQuery) { companyQuery = it }
-            if(vm.companies.none{it.s("name").contains(companyQuery.trim(),true)})Text("No companies match this search. Clear the search or create a separate company.",Modifier.padding(vertical=16.dp),style=MaterialTheme.typography.bodyMedium)
-            LazyColumn(Modifier.weight(1f, false).padding(vertical = 12.dp)) { items(vm.companies.filter { it.s("name").contains(companyQuery.trim(), true) }, key = { it.s("id") }) { row ->
-                ListItem(headlineContent = { Text(row.s("name"), fontWeight = FontWeight.SemiBold) }, supportingContent = { Text((if (row.s("tax_mode") == "regular") row.s("gstin") else friendly(row.s("tax_mode")))+" · "+friendly(row.s("role"))) }, leadingContent = { Icon(Icons.Outlined.Business, null) }, trailingContent = { if (row.s("id") == vm.companyId) Icon(Icons.Outlined.CheckCircle, "Selected", tint = ApexGreen) }, modifier = Modifier.clickable { companies = false; vm.task { vm.chooseCompany(row) } })
+            if(vm.companies.none{companySearchText(it).contains(companyQuery.trim(),true)})Text("No companies match this search. Clear the search or create a separate company.",Modifier.padding(vertical=16.dp),style=MaterialTheme.typography.bodyMedium)
+            LazyColumn(Modifier.weight(1f, false).padding(vertical = 12.dp)) { items(vm.companies.filter { companySearchText(it).contains(companyQuery.trim(), true) }, key = { it.s("id") }) { row ->
+                ListItem(headlineContent = { Text(companyDisplayName(row), fontWeight = FontWeight.SemiBold) }, supportingContent = { Text((if (row.s("tax_mode") == "regular") row.s("gstin") else friendly(row.s("tax_mode")))+" · "+friendly(row.s("role"))) }, leadingContent = { Icon(Icons.Outlined.Business, null) }, trailingContent = { if (row.s("id") == vm.companyId) Icon(Icons.Outlined.CheckCircle, "Selected", tint = ApexGreen) }, modifier = Modifier.clickable { companies = false; vm.task { vm.chooseCompany(row) } })
             } }
             OutlinedButton(onClick = { companies = false; vm.companyEdit = false; vm.companyForm = true }, modifier = Modifier.fillMaxWidth()) { Text("Create another company") }
             Spacer(Modifier.height(24.dp))

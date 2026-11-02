@@ -1,3 +1,4 @@
+import { CORE_ENHANCEMENTS } from '../src/capabilities.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -7,7 +8,7 @@ import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import { act } from 'react';
 
-async function workspace(role, verify, additional = []) {
+async function workspace(role, verify, additional = [], capabilities = CORE_ENHANCEMENTS) {
   const temporary = await mkdtemp(resolve('node_modules/.workspace-tests-'));
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' });
   Object.assign(globalThis, { window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage, MutationObserver: dom.window.MutationObserver, requestAnimationFrame: cb => setTimeout(cb, 0), ResizeObserver: class { observe() {} disconnect() {} }, IS_REACT_ACT_ENVIRONMENT: true });
@@ -20,7 +21,8 @@ async function workspace(role, verify, additional = []) {
   globalThis.fetch = async (path, options = {}) => {
     requests.push(path);
     let data;
-    if (path === '/api/companies') data = [company, { ...company, id: 'other-company', name: 'Other company' }];
+    if (path === '/api/capabilities') { if (capabilities === null) return { ok:false,status:404,json:async()=>({detail:'Not Found'}) }; data={api_version:'synthetic',capabilities_version:1,supported_features:capabilities}; }
+    else if (path === '/api/companies') data = [company, { ...company, id: 'other-company', name: 'Other company' }];
     else if (path.includes('/records?')) data = [invoice, ...additional];
     else if (path.endsWith('/records/invoice')) { const { outstanding, ...detail } = invoice; data = detail; }
     else if (additional.some(row => path.endsWith('/records/' + row.id))) data = additional.find(row => path.endsWith('/records/' + row.id));
@@ -191,4 +193,14 @@ test('editing a master does not leave a stale origin for the next new invoice', 
   assert.match(document.querySelector('.page-heading h1')?.textContent || document.body.textContent,/Sales invoices/);
   assert.equal(window.location.hash,'#/sales_invoice');
  }, [{id:'catalog-item',kind:'item',name:'Synthetic cable',date:'2026-11-02',data:{sale_rate:'10',purchase_rate:'8'}}]);
+});
+
+test('older API disables new workflows while core invoice register remains usable', async () => {
+ await workspace('owner',async ({click, requests}) => {
+  const recurring=[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='Recurring drafts');
+  assert.equal(recurring.disabled,true);assert.match(document.body.textContent,/newer tools are unavailable/);
+  await click('Sales invoices');assert.match(document.querySelector('.register').textContent,/INV-1/);
+  await click('Items');assert.equal([...document.querySelectorAll('button')].find(button=>button.textContent.includes('Low stock & reorder')).disabled,true);
+  assert.equal(requests.filter(path=>path==='/api/capabilities').length,1);
+ },[],null);
 });

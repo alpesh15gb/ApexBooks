@@ -1,3 +1,5 @@
+import { businessDashboardRange } from "./businessDate.js";
+import { supportsFeature } from "./capabilities.js";
 import SetupChecklist from "./SetupChecklist.jsx";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -38,17 +40,7 @@ const dateText = (value) =>
   });
 const iso = (date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-function rangeFor(period) {
-  const end = new Date(),
-    start = new Date(end);
-  if (period === "month") start.setDate(1);
-  else if (period === "30days") start.setDate(start.getDate() - 29);
-  else {
-    start.setFullYear(end.getFullYear() - (end.getMonth() < 3 ? 1 : 0));
-    start.setMonth(3, 1);
-  }
-  return { start: iso(start), end: iso(end) };
-}
+function rangeFor(period) { return businessDashboardRange(period); }
 
 function Metric({ label, value, note, icon: Icon, tone = "green" }) {
   return (
@@ -232,6 +224,7 @@ function SalesChart({ records, start, end }) {
 }
 
 export default function BusinessOverview({
+  features = [],
   company,
   records,
   api,
@@ -361,8 +354,8 @@ export default function BusinessOverview({
         <button onClick={() => onNavigate("purchase_bill")}>
           Purchases <ArrowUpRight size={14} />
         </button>
-        <button onClick={() => onNavigate("recurring")}>Recurring drafts <ArrowUpRight size={14} /></button>
-        <button onClick={() => onNavigate("reorder")}>Low stock <ArrowUpRight size={14} /></button>
+        <button disabled={!supportsFeature(features,"recurring_drafts")} title={!supportsFeature(features,"recurring_drafts") ? "Connected API upgrade required" : undefined} onClick={() => onNavigate("recurring")}>Recurring drafts <ArrowUpRight size={14} /></button>
+        <button disabled={!supportsFeature(features,"low_stock_reorder")} title={!supportsFeature(features,"low_stock_reorder") ? "Connected API upgrade required" : undefined} onClick={() => onNavigate("reorder")}>Low stock <ArrowUpRight size={14} /></button>
         <button onClick={() => onNavigate("reports")}>
           Reports & GST <ArrowUpRight size={14} />
         </button>

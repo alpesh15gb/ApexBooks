@@ -10,6 +10,7 @@ public sealed partial class MainPage
 {
     private async Task ReorderReport()
     {
+        RequireFeature("low_stock_reorder");
         var cid=CompanyId;var stamp=generation;var panel=Stack(16);var rows=Stack(12);
         var search=Input("Search low-stock items");var loadedRows=new List<JsonObject>();
         var asOf=new DateInput("Stock as of",J.Today);var selected=new List<(JsonObject Row,CheckBox Choice,TextBox Quantity)>();var loadedDate="";var sequence=0;JsonObject? draft=null;

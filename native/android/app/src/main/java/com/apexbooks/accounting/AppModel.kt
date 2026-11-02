@@ -22,6 +22,16 @@ class AppModel(application:Application):AndroidViewModel(application) {
     val reports=catalog.a("reports").objects().map{Feature(it.s("key"),it.s("title"),it.s("group"),it.s("path").substringBefore("?as_of="),it.s("description"))}
     val documentKinds=setOf("sales_invoice","purchase_bill","estimate","proforma","sales_order","purchase_order","credit_note","debit_note","expense","pos")
     val draftKinds=setOf("estimate","proforma","sales_order","purchase_order")
+    var supportedFeatures by mutableStateOf(emptySet<String>());private set
+    private var sessionGeneration=0
+    private var capabilitiesLoaded=false
+    private var capabilitiesRequest:kotlinx.coroutines.Deferred<CapabilityResult>?=null
+    var capabilityChecking by mutableStateOf(false);private set
+    var capabilityRetryable by mutableStateOf(false);private set
+    val capabilityHint get()=if(capabilityChecking)"Checking optional server features…" else if(capabilityRetryable)"Unable to check server features. Retry the feature check; core accounting remains available." else "This optional setting requires a server upgrade."
+    fun retryCapabilities(){if(capabilityChecking)return;capabilitiesLoaded=false;capabilitiesRequest=null;viewModelScope.launch{loadCapabilities()}}
+    fun supports(feature:String)=feature in supportedFeatures
+    private suspend fun loadCapabilities(){if(capabilitiesLoaded)return;val stamp=sessionGeneration;capabilityChecking=true;val request=capabilitiesRequest?:viewModelScope.async{ApiCapabilities.fetchResult{api.request("/api/capabilities") as JSONObject}}.also{capabilitiesRequest=it};val result=request.await();if(signedIn&&stamp==sessionGeneration){supportedFeatures=result.features;capabilityRetryable=result.retryable;capabilityChecking=false;capabilitiesLoaded=true}}
     var signedIn by mutableStateOf(false);private set
     var companies by mutableStateOf(emptyList<JSONObject>());private set
     var company by mutableStateOf(JSONObject());private set
@@ -41,6 +51,9 @@ class AppModel(application:Application):AndroidViewModel(application) {
     var pdf by mutableStateOf<PdfView?>(null)
     var tool by mutableStateOf("")
     var toolData by mutableStateOf<JSONObject?>(null)
+    private val toolDrafts=ToolDraftStore()
+    fun toolDraft(scope:String)=toolDrafts.get(companyId,scope)
+    fun finishToolDraft(scope:String)=toolDrafts.remove(companyId,scope)
     private val recurringCommands=mutableMapOf<String,RecurringCommand>()
     fun recurringCommand(scope:String)=recurringCommands.getOrPut(companyId+":"+scope){RecurringCommand()}
     fun finishRecurring(scope:String){recurringCommands.remove(companyId+":"+scope)}
@@ -62,12 +75,12 @@ class AppModel(application:Application):AndroidViewModel(application) {
     fun failure(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;notice="";error=e.message?:"The operation could not be completed.";if(e is ApiFailure&&e.status==401&&!api.signedIn)endLocalSession()}
     fun task(action:suspend()->Unit){viewModelScope.launch{busy++;error="";notice="";try{action()}catch(e:Exception){failure(e)}finally{busy--}}}
     suspend fun login(email:String,password:String,remember:Boolean){api.login(email,password,remember);signedIn=true;loadCompanies()}
-    suspend fun loadCompanies(preferred:String=companyId){val stamp=generation;val request=++companyLoads;val loaded=(api.request("/api/companies") as JSONArray).objects();if(!signedIn||stamp!=generation||request!=companyLoads)return;companies=loaded;val selected=companies.find{it.s("id")==preferred}?:companies.firstOrNull();if(selected!=null)chooseCompany(selected)else{generation++;refreshSequence++;company=JSONObject();records=emptyList();banks=emptyList();recordsReady=false;editor=null;detail=null;pdf=null;statement=null;tool="";toolData=null;posDrafts.clear();companyForm=true;companyEdit=false}}
+    suspend fun loadCompanies(preferred:String=companyId){val stamp=generation;val request=++companyLoads;if(!capabilitiesLoaded)viewModelScope.launch{loadCapabilities()};val loaded=(api.request("/api/companies") as JSONArray).objects();if(!signedIn||stamp!=generation||request!=companyLoads)return;companies=loaded;val selected=companies.find{it.s("id")==preferred}?:companies.firstOrNull();if(selected!=null)chooseCompany(selected)else{generation++;refreshSequence++;company=JSONObject();records=emptyList();banks=emptyList();recordsReady=false;editor=null;detail=null;pdf=null;statement=null;tool="";toolData=null;posDrafts.clear();companyForm=true;companyEdit=false}}
     suspend fun chooseCompany(selected:JSONObject){val stamp=++generation;val request=++refreshSequence;company=selected;companyForm=false;tool="";toolData=null;records=emptyList();banks=emptyList();recordsReady=false;editor=null;detail=null;pdf=null;statement=null;coroutineScope{val rows=async{api.records(selected.s("id"))};val accounts=async{(api.request(api.company(selected.s("id"),"/bank-accounts")) as JSONArray).objects()};val loaded=rows.await();val loadedBanks=accounts.await();if(stamp==generation&&request==refreshSequence){records=loaded;banks=loadedBanks;recordsReady=true}}}
     suspend fun refresh(){val id=companyId;if(id.isBlank()||!signedIn)return;val stamp=generation;val request=++refreshSequence;coroutineScope{val rows=async{api.records(id)};val accounts=async{(api.request(api.company(id,"/bank-accounts")) as JSONArray).objects()};val loaded=rows.await();val loadedBanks=accounts.await();if(stamp==generation&&request==refreshSequence){records=loaded;banks=loadedBanks;recordsReady=true;revision++}}}
     fun navigate(key:String){page=key;error="";notice=""}
-    fun endLocalSession(){api.forget();signedIn=false;company=JSONObject();companies=emptyList();records=emptyList();banks=emptyList();recordsReady=false;editor=null;detail=null;statement=null;pdf=null;tool="";toolData=null;posDrafts.clear();recurringCommands.clear();companyForm=false;page="dashboard";error="";notice="";generation++;companyLoads++;refreshSequence++}
-    suspend fun logout(){check(posDrafts.values.none{it.submission.unresolved} && recurringCommands.values.none{it.unresolved} && editor?.retryPending != true){"A save may already have posted. Return to the pending entry, recurring schedule, or held Point of Sale cart and retry the original save before signing out."};try{api.logout()}finally{endLocalSession()}}
+    fun endLocalSession(){sessionGeneration++;capabilityChecking=false;capabilityRetryable=false;supportedFeatures=emptySet();capabilitiesLoaded=false;capabilitiesRequest?.cancel();capabilitiesRequest=null;api.forget();signedIn=false;company=JSONObject();companies=emptyList();records=emptyList();banks=emptyList();recordsReady=false;editor=null;detail=null;statement=null;pdf=null;tool="";toolData=null;posDrafts.clear();recurringCommands.clear();toolDrafts.clear();companyForm=false;page="dashboard";error="";notice="";generation++;companyLoads++;refreshSequence++}
+    suspend fun logout(){check(!toolDrafts.hasUnresolved && posDrafts.values.none{it.submission.unresolved} && recurringCommands.values.none{it.unresolved} && editor?.retryPending != true){"A save may already have posted. Return to the pending entry, recurring schedule, or held Point of Sale cart and retry the original save before signing out."};try{api.logout()}finally{endLocalSession()}}
     fun add(kind:String){if(!recordsReady){error="Wait for the complete company history before starting an entry.";return};editor=EntryEditor(this,kind)}
     fun edit(row:JSONObject){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));if(stamp==generation)editor=EntryEditor(this,full.s("kind"),previous=full)}}
     fun convert(row:JSONObject,targetKind:String?=null){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));if(stamp==generation)editor=EntryEditor(this,targetKind?:if(full.s("kind")=="purchase_order")"purchase_bill" else "sales_invoice",conversion=full)}}

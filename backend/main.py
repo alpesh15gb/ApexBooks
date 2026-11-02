@@ -1,3 +1,4 @@
+from business_calendar import business_today, financial_year_start
 from auth_config import require_jwt_secret
 from ocr_transport import validate_ocr_base_url
 from advance_tax import prepare as prepare_advance_tax, release as release_advance_tax
@@ -25,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from pwdlib import PasswordHash
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -43,7 +44,7 @@ if DATABASE_URL.startswith('postgres://'):
 elif DATABASE_URL.startswith('postgresql://'):
     DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+psycopg://', 1)
 SECRET = require_jwt_secret()
-engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args={'check_same_thread': False} if DATABASE_URL.startswith('sqlite') else {})
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, hide_parameters=True, connect_args={'check_same_thread': False} if DATABASE_URL.startswith('sqlite') else {})
 if DATABASE_URL.startswith('sqlite'):
     @event.listens_for(engine, 'connect')
     def enable_sqlite_foreign_keys(connection, _):
@@ -66,6 +67,7 @@ class AuthSession(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 class Company(Base):
     __tablename__ = 'companies'
+    book_label: Mapped[str] = mapped_column(String(80), nullable=False, default='', server_default='')
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     owner_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
     name: Mapped[str] = mapped_column(String)
@@ -94,7 +96,7 @@ class Record(Base):
     kind: Mapped[str] = mapped_column(String, index=True)
     name: Mapped[str] = mapped_column(String, default='')
     number: Mapped[str] = mapped_column(String, default='')
-    date: Mapped[DateType] = mapped_column(Date, default=DateType.today)
+    date: Mapped[DateType] = mapped_column(Date, default=business_today)
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=0)
     data: Mapped[dict] = mapped_column(JSON, default=dict)
 
@@ -315,14 +317,21 @@ def obj(record):
     return {'id': record.id, 'kind': record.kind, 'name': record.name, 'number': record.number, 'date': record.date.isoformat(), 'amount': str(record.amount), 'data': record.data}
 def company_obj(c, session, user=None):
     profile = session.get(CompanyTaxProfile, c.id)
-    return {'id': c.id, 'name': c.name, 'gstin': c.gstin, 'state_code': c.state_code, 'address': c.address, 'tax_mode': profile.mode if profile else 'regular', 'role': member_role(c, user, session) if user else 'owner'}
+    return {'id': c.id, 'name': c.name, 'book_label':c.book_label, 'gstin': c.gstin, 'state_code': c.state_code, 'address': c.address, 'tax_mode': profile.mode if profile else 'regular', 'role': member_role(c, user, session) if user else 'owner'}
 class Credentials(BaseModel):
     email: str
     password: str = Field(min_length=8, max_length=128)
 class PasswordChange(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8, max_length=128)
-class CompanyInput(BaseModel):
+class BookLabelInput(BaseModel):
+    book_label: str = Field(default='', max_length=80)
+    @field_validator('book_label',mode='before')
+    @classmethod
+    def trim_book_label(cls,value):
+        return value.strip() if isinstance(value,str) else value
+
+class CompanyInput(BookLabelInput):
     name: str = Field(min_length=1, max_length=120)
     gstin: str = ''
     state_code: str = ''
@@ -330,7 +339,7 @@ class CompanyInput(BaseModel):
     tax_mode: str = 'regular'
 class CompanyPreferenceInput(BaseModel):
     document_template: str
-class CompanyUpdate(BaseModel):
+class CompanyUpdate(BookLabelInput):
     name: str = Field(min_length=1, max_length=120)
     gstin: str = Field(default='', max_length=15)
     state_code: str = Field(default='', max_length=2)
@@ -339,7 +348,7 @@ class RecordInput(BaseModel):
     kind: str
     name: str = ''
     number: str = ''
-    date: DateType = Field(default_factory=DateType.today)
+    date: DateType = Field(default_factory=business_today)
     amount: Decimal = Field(default=Decimal('0'), max_digits=15, decimal_places=2, allow_inf_nan=False)
     data: dict = Field(default_factory=dict)
 class AccountInput(BaseModel):
@@ -525,7 +534,6 @@ def payment_key(data):
     if data.get('payment_account', 'cash') == 'cash': return 'cash'
     bank_id = str(data.get('bank_account_id') or 'default')
     return 'bank' if bank_id == 'default' else 'bank:' + bank_id
-def financial_year_start(value): return value.year if value.month >= 4 else value.year - 1
 def next_document_number(company_id, kind, issued, session):
     start = financial_year_start(issued)
     series = session.scalar(select(NumberSeries).where(NumberSeries.company_id == company_id, NumberSeries.kind == kind, NumberSeries.financial_year == start))
@@ -908,7 +916,7 @@ def create_company(body: CompanyInput, user: User = Depends(current_user), sessi
     if body.state_code and not re.fullmatch(r'\d{2}', body.state_code): raise HTTPException(422, 'State code must contain two digits')
     if body.gstin and body.state_code != body.gstin[:2]: raise HTTPException(422, 'GSTIN and state code must match')
     if body.tax_mode in {'regular', 'composition'} and not body.state_code: raise HTTPException(422, 'State code is required for GST registered companies')
-    values = body.model_dump(exclude={'tax_mode'}); values['gstin'] = body.gstin.upper()
+    values = body.model_dump(exclude={'tax_mode'}); values['gstin'] = body.gstin.upper(); values['book_label']=body.book_label.strip()
     c = Company(owner_id=user.id, **values); session.add(c); session.flush(); session.add(CompanyTaxProfile(company_id=c.id, mode=body.tax_mode)); session.add(CompanyPreference(company_id=c.id,document_template='modern')); audit(session, c.id, user, 'company.created', 'company', c.id, {'tax_mode': body.tax_mode}); session.commit(); session.refresh(c); return company_obj(c, session)
 
 @app.patch('/api/companies/{company_id}')
@@ -927,6 +935,7 @@ def update_company(company_id: str, body: CompanyUpdate, user: User = Depends(cu
     if mode == 'composition' and not gstin: raise HTTPException(422, 'A composition company needs its GSTIN')
     if mode == 'unregistered' and gstin: raise HTTPException(422, 'An unregistered company cannot have a GSTIN')
     company.name = body.name.strip(); company.gstin = gstin; company.state_code = state; company.address = body.address.strip()
+    if 'book_label' in body.model_fields_set:company.book_label=body.book_label.strip()
     audit(session, company_id, user, 'company.updated', 'company', company_id)
     session.commit()
     return company_obj(company, session, user)
@@ -2833,3 +2842,6 @@ install_everyday_features(app, sys.modules[__name__])
 
 from recurring_drafts import install as install_recurring_drafts
 install_recurring_drafts(app, sys.modules[__name__])
+
+from api_capabilities import install as install_api_capabilities
+install_api_capabilities(app, sys.modules[__name__])

@@ -18,6 +18,35 @@ if urlparse(BASE).hostname not in {'127.0.0.1', 'localhost', '::1'}:
 
 
 class LiveAccountingWorkflow(unittest.TestCase):
+    def test_book_labels_capabilities_and_legal_name_are_separate(self):
+        capabilities = self.request('GET', '/api/capabilities')
+        self.assertEqual(capabilities['capabilities_version'], 1)
+        self.assertEqual(capabilities['business_timezone'], 'Asia/Kolkata')
+        self.assertIn('company_book_labels', capabilities['supported_features'])
+        self.assertIn('recurring_drafts', capabilities['supported_features'])
+        self.assertNotIn('records', capabilities)
+        credentials = {'email': f'books-{uuid4().hex}@example.invalid', 'password': 'Synthetic-only-password-42'}
+        self.request('POST', '/api/auth/register', credentials)
+        self.token = self.request('POST', '/api/auth/login', credentials)['token']
+        first = self.request('POST', '/api/companies', {'name': 'Same synthetic legal name', 'book_label': 'Book A', 'tax_mode': 'unregistered'})
+        second = self.request('POST', '/api/companies', {'name': first['name'], 'book_label': 'Book B', 'tax_mode': 'unregistered'})
+        self.assertNotEqual(first['id'], second['id'])
+        root = '/api/companies/' + first['id']
+        invoice = self.request('POST', root + '/records', {'kind': 'sales_invoice', 'name': 'Synthetic buyer', 'date': '2026-04-02', 'data': {'lines': [{'description': 'Service', 'quantity': 1, 'rate': 100, 'gst_rate': 0}]}}, key=uuid4().hex)
+        before = self.request('GET', root + '/records/' + invoice['id'])
+        changed = self.request('PATCH', root, {'name': first['name'], 'book_label': 'Updated workspace alias'})
+        self.assertEqual(changed['name'], first['name'])
+        self.assertEqual(changed['book_label'], 'Updated workspace alias')
+        legacy = self.request('PATCH', root, {'name': first['name']})
+        self.assertEqual(legacy['book_label'], changed['book_label'])
+        self.assertEqual(self.request('GET', root + '/records/' + invoice['id']), before)
+        import io
+        from pypdf import PdfReader
+        pdf = self.request('GET', root + '/documents/' + invoice['id'] + '.pdf')
+        printed = ' '.join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
+        self.assertIn(first['name'], printed)
+        self.assertNotIn(changed['book_label'], printed)
+
     def test_recurring_occurrence_replay_pause_and_viewer_are_nonposting(self):
         credentials = {'email': f'recurring-{uuid4().hex}@example.invalid', 'password': 'Synthetic-only-password-42'}
         self.request('POST', '/api/auth/register', credentials)

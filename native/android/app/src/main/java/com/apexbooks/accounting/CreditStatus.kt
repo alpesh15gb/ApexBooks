@@ -10,6 +10,7 @@ import org.json.JSONObject
 
 /** Informational server-calculated exposure only: never an authority to approve or block posting. */
 @Composable fun CustomerCreditStatus(vm:AppModel,partyId:String,asOf:String,proposedAmount:String) {
+    if(!vm.supports("party_credit_limits")){FeatureUpgradeHint(vm);return}
     val cid=vm.companyId;val stamp=vm.workspaceStamp()
     var report by remember(cid,partyId,asOf,proposedAmount){mutableStateOf<JSONObject?>(null)}
     var failure by remember(cid,partyId,asOf,proposedAmount){mutableStateOf("")}

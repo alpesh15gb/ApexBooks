@@ -38,7 +38,7 @@ import com.apexbooks.accounting.data.*
         item { Section {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(16.dp)) { Icon(Icons.Outlined.Business, null, Modifier.padding(16.dp), tint = ApexGreen) }
-                Column(Modifier.weight(1f)) { Text(vm.company.s("name"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); Text(friendly(vm.company.s("tax_mode")) + " · " + friendly(vm.company.s("role")), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                Column(Modifier.weight(1f)) { Text(companyDisplayName(vm.company), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); Text(friendly(vm.company.s("tax_mode")) + " · " + friendly(vm.company.s("role")), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         } }
         vm.navigation.filter { it.key !in setOf("dashboard", "party", "reports") && (it.title + " " + it.group).contains(query.trim(), true) }.groupBy { it.group }.forEach { (group, features) ->

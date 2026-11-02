@@ -22,7 +22,7 @@ public sealed partial class MainPage
         panel.Children.Add(Text(Company.Text("name") + " · " + (regular ? "GST registered" : "GST not charged on sales"), 13));
         var info = new InfoBar { IsClosable = true };
         void LocalError(Exception e) { info.Severity = InfoBarSeverity.Error; info.Message = e.Message; info.IsOpen = true; }
-        panel.Children.Add(info);
+        panel.Children.Add(info);if(!Api.Capabilities.HasCoreAdditions)panel.Children.Add(CapabilityNotice());
         var party = new AutoSuggestBox { Header = kind == "expense" ? "Supplier / expense description" : "Customer / supplier", Text = source.Text("name"), PlaceholderText = "Choose a party or enter a name" };
         var number = Input("Reference number", previous.Text("number"));number.PlaceholderText="Assigned on save";number.MaxLength=16;
         var date = new DateInput("Document date", previous.Text("date") is { Length: > 0 } d ? d : J.Today);
@@ -41,7 +41,7 @@ public sealed partial class MainPage
         var notes = Input("Notes", data.Text("notes"), true); var terms = Input("Terms and conditions", data.Text("terms"), true);
         notes.MaxLength=4000;terms.MaxLength=8000;gstin.MaxLength=15;phone.MaxLength=32;address.MaxLength=1000;shipping.MaxLength=1000;
         var linesPanel = Stack(12); var lines = new List<DocumentLine>(); var preview = Text("Enter items to calculate the total.", 16, true); preview.Foreground = Green;
-        var creditInfo=new InfoBar{IsClosable=false};var checkCredit=WorkflowMasterValues.CreditProjectionApplies(kind,previous is not null);
+        var creditInfo=new InfoBar{IsClosable=false};var checkCredit=Supports("party_credit_limits")&&WorkflowMasterValues.CreditProjectionApplies(kind,previous is not null);
         var partyId = data.Text("party_id"); var appliedTo = returnSource?.Text("id")??data.Text("applied_to");
         var retryKey = Guid.NewGuid().ToString();var submission=new RetrySubmission(); CancellationTokenSource? previewRequest = null;var sourceLoading=false;
 
@@ -87,7 +87,7 @@ public sealed partial class MainPage
         {
             var line = new DocumentLine(Records.OfType<JsonObject>().Where(r => r.Text("kind") == "item" && (WorkflowMasterValues.IsActive(r)||previous is not null&&r.Text("id")==initial.Text("item_id"))), purchase, regular, initial, preserveImportedValues); var holder = Stack(6); holder.Children.Add(line.View);
             var history=Stack(8);
-            if(kind is "sales_invoice" or "purchase_bill" or "estimate" or "proforma" or "sales_order" or "purchase_order"){
+            if(Supports("party_price_history")&&kind is "sales_invoice" or "purchase_bill" or "estimate" or "proforma" or "sales_order" or "purchase_order"){
                 holder.Children.Add(AsyncButton("Party price history / suggestion",async()=>{
                     var selectedParty=partyId;var item=line.Data().Text("item_id");
                     if(selectedParty.Length==0||item.Length==0)throw new Exception("Choose a saved party and a linked item to review price history.");
@@ -110,7 +110,7 @@ public sealed partial class MainPage
         var metadata=Stack(10);metadata.Children.Add(Columns(number,date.View));
         if(kind is "sales_invoice" or "purchase_bill")metadata.Children.Add(regular||purchase?Columns(due.View,supply):due.View);else if(regular||purchase)metadata.Children.Add(supply);
         if(purchase)metadata.Children.Add(supplierState);
-        if(kind is "sales_invoice" or "purchase_bill"){
+        if(Supports("party_payment_terms")&&kind is "sales_invoice" or "purchase_bill"){
             var suggestion=Stack(6);metadata.Children.Add(AsyncButton("Suggest due date from party terms",async()=>{
                 var selectedParty=partyId;var selectedDate=date.Value;
                 if(selectedParty.Length==0)throw new Exception("Choose a saved party to use its payment terms.");
@@ -138,7 +138,7 @@ public sealed partial class MainPage
         var contacts = Stack(); contacts.Children.Add(Columns(address, shipping));
         panel.Children.Add(new Expander { Header = "Party, billing and delivery details", Content = contacts, HorizontalContentAlignment = HorizontalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Stretch });
         party.TextChanged += (sender, args) => { if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput) { partyId = "";address.Text="";if(shipping.Text==lastShippingDefault)shipping.Text="";lastShippingDefault="";gstin.Text="";phone.Text="";supply.Text=Company.Text("state_code");supplierState.Text=Company.Text("state_code");party.ItemsSource = Records.OfType<JsonObject>().Where(r => r.Text("kind") == "party" && WorkflowMasterValues.IsActive(r) && r.Text("name").Contains(party.Text, StringComparison.OrdinalIgnoreCase)).Take(20).Select(r => r.Text("name")).ToArray(); _=Calculate(); } };
-        party.SuggestionChosen += (sender, args) => { var selected = Records.OfType<JsonObject>().FirstOrDefault(r => r.Text("kind") == "party" && WorkflowMasterValues.IsActive(r) && r.Text("name") == args.SelectedItem?.ToString()); if (selected is null) return; partyId = selected.Text("id"); var values = selected["data"]; address.Text = values.Text("address"); var delivery=WorkflowMasterValues.ShippingAddress(values);if(shipping.Text.Length==0||shipping.Text==lastShippingDefault)shipping.Text=delivery;lastShippingDefault=delivery; gstin.Text = values.Text("gstin"); phone.Text = values.Text("phone"); if (gstin.Text.Length >= 2) { if (purchase) supplierState.Text = gstin.Text[..2]; else supply.Text = gstin.Text[..2]; } _=Calculate(); };
+        party.SuggestionChosen += (sender, args) => { var selected = Records.OfType<JsonObject>().FirstOrDefault(r => r.Text("kind") == "party" && WorkflowMasterValues.IsActive(r) && r.Text("name") == args.SelectedItem?.ToString()); if (selected is null) return; partyId = selected.Text("id"); var values = selected["data"]; address.Text = values.Text("address"); var delivery=Supports("party_shipping_address")?WorkflowMasterValues.ShippingAddress(values):values.Text("address");if(shipping.Text.Length==0||shipping.Text==lastShippingDefault)shipping.Text=delivery;lastShippingDefault=delivery; gstin.Text = values.Text("gstin"); phone.Text = values.Text("phone"); if (gstin.Text.Length >= 2) { if (purchase) supplierState.Text = gstin.Text[..2]; else supply.Text = gstin.Text[..2]; } _=Calculate(); };
         if (kind == "purchase_bill")
         {
             var ocr = AsyncButton("Scan purchase bill", async () =>

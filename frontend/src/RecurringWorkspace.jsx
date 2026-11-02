@@ -1,7 +1,8 @@
+import { businessDate } from "./businessDate.js";
 import React, { useEffect, useState, useRef } from 'react';
 import { CalendarDays, Plus, RefreshCw, ArrowRight } from 'lucide-react';
 import { usePostingRequest, pendingPostingMessage } from './usePostingRequest.js';
-const today = () => new Date().toLocaleDateString('en-CA');
+const today = () => businessDate();
 const draftKinds = ['estimate', 'proforma', 'sales_order', 'purchase_order'];
 const label = kind => ({estimate:'Estimate',proforma:'Pro forma',sales_order:'Sales order',purchase_order:'Purchase order'})[kind] || kind;
 

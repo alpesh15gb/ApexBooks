@@ -1,3 +1,5 @@
+import { businessDate, businessFinancialYear } from "./businessDate.js";
+import { CORE_ENHANCEMENTS, capabilityFeatures, supportsFeature, routeFeature, companyDisplayName } from "./capabilities.js";
 import { hasPendingPostings, postingNavigationMessage } from "./postingRegistry.js";
 import { apiErrorMessage } from "./apiErrors.js";
 import { fetchCompanyRecords } from "./companyRecords.js";
@@ -51,6 +53,7 @@ import {
   ReceiptIndianRupee,
 } from "lucide-react";
 import "./style.css";
+import "./capabilities.css";
 import "./workspace.css";
 import "./flows.css";
 import ReportsV2 from "./Reports.jsx";
@@ -131,7 +134,7 @@ const money = (value) =>
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(Number(value || 0));
-const today = () => new Date().toLocaleDateString("en-CA");
+const today = () => businessDate();
 const api = async (path, options = {}) => {
   const mutation = options.method && !["GET", "HEAD"].includes(options.method);
   let response;
@@ -287,9 +290,10 @@ function Auth({ onLogin }) {
     </div>
   );
 }
-function CompanyModal({ close, save }) {
+function CompanyModal({ close, save, features = [] }) {
   const [form, setForm] = useState({
       name: "",
+      book_label: "",
       gstin: "",
       state_code: "",
       address: "",
@@ -306,7 +310,8 @@ function CompanyModal({ close, save }) {
     setBusy(true);
     setError("");
     try {
-      await save(form);
+      const { book_label, ...legal } = form;
+      await save({ ...legal, ...(supportsFeature(features,"company_book_labels") ? { book_label: book_label.trim() } : {}) });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -330,6 +335,7 @@ function CompanyModal({ close, save }) {
             placeholder="e.g. Apex Trading Co."
           />
         </label>
+        {supportsFeature(features,"company_book_labels") && <label className="full">Book label (optional)<input maxLength={80} value={form.book_label} onChange={event => setForm({ ...form, book_label: event.target.value })} placeholder="A label you choose for these separate books" /><small>Used only to distinguish workspaces. The legal company name and printed invoices stay unchanged.</small></label>}
         <label className="full">
           Tax registration
           <select
@@ -414,6 +420,9 @@ function Modal({ title, subtitle, close, children, variant }) {
   );
 }
 function App() {
+  const [capabilities, setCapabilities] = useState(null), [capabilityRevision, setCapabilityRevision] = useState(0);
+  const features = capabilities?.features || [];
+  const supported = feature => supportsFeature(features, feature);
   const [signed, setSigned] = useState(!!localStorage.token),
     [companies, setCompanies] = useState([]),
     [companyId, setCompanyId] = useState(localStorage.companyId || ""),
@@ -454,6 +463,15 @@ function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [page, companyId]);
+  useEffect(() => {
+    let active = true; const token = localStorage.token; setCapabilities(null);
+    if (signed) api("/capabilities").then(result => {
+      if (active && localStorage.token === token) setCapabilities({ features: capabilityFeatures(result), version: result.api_version });
+    }).catch(reason => {
+      if (active && localStorage.token === token) setCapabilities({ features: [], reason: reason.status === 404 ? "The connected API does not yet advertise these features." : "API feature support could not be verified." });
+    });
+    return () => { active = false; };
+  }, [signed, capabilityRevision]);
   const company = companies.find((c) => c.id === companyId);
   const activeCompany = useRef(companyId);
   activeCompany.current = companyId;
@@ -577,7 +595,7 @@ function App() {
     return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
   }, [signed, companyId]);
   const activeRegisterFilter =
-    registerFilter.page === page ? registerFilter.value : "all";
+    ["party", "item"].includes(page) && !supported("master_lifecycle") ? "all" : registerFilter.page === page ? registerFilter.value : "all";
   const transactionRegister = !["party", "item"].includes(page);
   const query =
     registerQuery.page === page
@@ -880,6 +898,7 @@ function App() {
       advance_refund: "payment_in",
     };
     const destination = routes[kind] || kind;
+    if (routeFeature[destination] && !supported(routeFeature[destination])) { setError("This workflow needs an updated connected API. Core workspaces remain available."); return; }
     setRegisterFilter({ page: destination, value: filter });
     setPage(labels[destination] ? destination : "reports");
     setSearch(routes[kind] ? "" : reference);
@@ -952,6 +971,7 @@ function App() {
           <span className="company-text">
             <small>WORKSPACE</small>
             <select
+              title={companyDisplayName(company, companies)}
               aria-label="Choose company"
               value={companyId}
               onChange={(e) => {
@@ -961,10 +981,11 @@ function App() {
             >
               {companies.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {companyDisplayName(c, companies)}
                 </option>
               ))}
             </select>
+            {company?.book_label?.trim() && <small className="company-book-label">Book: {company.book_label.trim()}</small>}
           </span>
           <ChevronDown size={14} />
         </div>
@@ -973,6 +994,8 @@ function App() {
           {sections.map((s) => (
             <React.Fragment key={s.label}>
               <button
+                disabled={!!routeFeature[s.key] && !supported(routeFeature[s.key])}
+                title={routeFeature[s.key] && !supported(routeFeature[s.key]) ? "Connected API upgrade required" : undefined}
                 className={`nav-item ${page === s.key || s.children?.some(([key]) => key === page) ? "active" : ""}`}
                 onClick={() => {
                   editorRequests.current.latest();
@@ -1036,7 +1059,8 @@ function App() {
           onMenu={() => setMenu(true)}
         />
         <div className="content">
-          {companyId && <div className="workspace-sync-line" role="status"><span className={recordsLoading ? "sync-active" : "sync-idle"} /><span>{recordsLoading ? recordsReady ? "Refreshing company data…" : `Loading company data${recordsProgress ? ` · ${recordsProgress.toLocaleString()} records` : "…"}` : recordsLoadError ? "Refresh needed" : recordsReady ? "Company data loaded" : "Connecting to your company…"}</span><button className="link" disabled={recordsLoading} onClick={() => loadRecords()}>Refresh</button></div>}
+          {companyId && <div className="workspace-sync-line" role="status">{company?.book_label?.trim() && <strong className="workspace-book-label" title={`Book label: ${company.book_label}`}>{company.book_label}</strong>}<span className={recordsLoading ? "sync-active" : "sync-idle"} /><span>{recordsLoading ? recordsReady ? "Refreshing company data…" : `Loading company data${recordsProgress ? ` · ${recordsProgress.toLocaleString()} records` : "…"}` : recordsLoadError ? "Refresh needed" : recordsReady ? "Company data loaded" : "Connecting to your company…"}</span><button className="link" disabled={recordsLoading} onClick={() => loadRecords()}>Refresh</button></div>}
+          {capabilities && CORE_ENHANCEMENTS.some(feature => !supported(feature)) && <details className="info-box"><summary>Some newer tools are unavailable on the connected API</summary><p>{capabilities.reason || "Update the API to enable all supported workflows."} Existing core workspaces remain available. Unsupported settings are not submitted.</p><button className="button secondary" onClick={() => setCapabilityRevision(value => value + 1)}>Check API support again</button></details>}
           {error && (
             <div className="error banner" onClick={() => setError("")}>
               {error} · Click to dismiss
@@ -1053,6 +1077,8 @@ function App() {
               <p>If you were invited to an existing company, ask its owner to add this registered email, then refresh.</p>
               <button className="button secondary" onClick={loadCompanies}>Refresh company access</button>
             </section>
+          ) : routeFeature[page] && !supported(routeFeature[page]) ? (
+            <section className="panel settings-panel"><h1>{labels[page]}</h1><p>{capabilities ? "This workflow needs an updated connected API." : "Checking connected API support…"} Core records and existing transactions remain available.</p><button className="button secondary" onClick={() => setCapabilityRevision(value => value + 1)}>Check API support again</button></section>
           ) : page === "recurring" ? (
             <RecurringWorkspace key={companyId} companyId={companyId} role={company.role} records={records} api={api} Modal={Modal} onReview={beginEdit} onRefresh={loadRecords} />
           ) : page === "reorder" ? (
@@ -1072,6 +1098,7 @@ function App() {
             <ReportsV2 companyId={companyId} records={records} />
           ) : page === "dashboard" ? (
             <BusinessOverview
+              features={features}
               key={companyId}
               company={company}
               records={records}
@@ -1131,7 +1158,9 @@ function App() {
                         <strong>{company?.address || "Not provided"}</strong>
                       </div>
                     </div>
+                    {supported("company_book_labels") && <p><strong>Book label:</strong> {company?.book_label || "Not set"} <small>· workspace label only, not printed on invoices</small></p>}
                     <CompanyDetailsEditor
+                      features={features}
                       company={company}
                       onSaved={(updated) =>
                         setCompanies((current) =>
@@ -1348,7 +1377,7 @@ function App() {
                     </>
                   ) : (
                     <>
-                      {page === "item" && <button className="button secondary" onClick={() => navigateWorkspace("reorder")}>Low stock & reorder</button>}
+                      {page === "item" && <button className="button secondary" disabled={!supported("low_stock_reorder")} title={!supported("low_stock_reorder") ? "Connected API upgrade required" : undefined} onClick={() => navigateWorkspace("reorder")}>Low stock & reorder</button>}
                       {page === "item" && (
                         <button
                           disabled={
@@ -1462,7 +1491,7 @@ function App() {
                       }}
                     />
                   )}
-                  {!transactionRegister && <div className="register-controls expanded-controls"><label>Master status<select aria-label="Master status" value={activeRegisterFilter} onChange={event => setRegisterFilter({ page, value: event.target.value })}><option value="all">All · history retained</option><option value="active">Active</option><option value="inactive">Archived</option></select></label><p>Archived entries stay in history. Edit an entry to archive or reactivate it.</p></div>}
+                  {!transactionRegister && supported("master_lifecycle") && <div className="register-controls expanded-controls"><label>Master status<select aria-label="Master status" value={activeRegisterFilter} onChange={event => setRegisterFilter({ page, value: event.target.value })}><option value="all">All · history retained</option><option value="active">Active</option><option value="inactive">Archived</option></select></label><p>Archived entries stay in history. Edit an entry to archive or reactivate it.</p></div>}
                   <RegisterOverview
                     page={page}
                     records={scopedRecords}
@@ -1627,6 +1656,7 @@ function App() {
         onEdit={beginEdit} onRelated={beginRelated} onConvert={beginConversion} onPdf={downloadDocument} onOpen={beginDetail} />}
       {activeParty && (
         <PartyStatement
+          features={features}
           key={companyId + activeParty.id}
           party={activeParty}
           companyId={companyId}
@@ -1648,12 +1678,13 @@ function App() {
         />
       )}
       {modal === "company" && (
-        <CompanyModal close={() => setModal("")} save={saveCompany} />
+        <CompanyModal features={features} close={() => setModal("")} save={saveCompany} />
       )}{" "}
       {modal === "record" &&
         company &&
         (["party", "item"].includes(page) ? (
           <MasterForm
+            features={features}
             kind={page}
             record={editingMaster}
             close={() => {
@@ -1664,6 +1695,7 @@ function App() {
           />
         ) : (
           <RecordEditor
+            features={features}
             key={`${companyId}-${page}-${editorCycle}`}
             api={api}
             Modal={Modal}
@@ -1706,8 +1738,7 @@ function App() {
   );
 }
 function Prefixes({ companyId, role }) {
-  const now = new Date(),
-    year = now.getFullYear() - (now.getMonth() < 3 ? 1 : 0),
+  const year = businessFinancialYear(),
     defaults = {
       sales_invoice: "INV",
       estimate: "EST",

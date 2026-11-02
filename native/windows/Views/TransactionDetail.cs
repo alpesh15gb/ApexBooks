@@ -37,7 +37,7 @@ public sealed partial class MainPage
         void Next(string label,string key)=>next.Children.Add(Button(label,()=>{action=key;CloseDialog();},true));
         if(CanWrite&&row.Number("outstanding")>0&&kind is "sales_invoice" or "purchase_bill")Next(kind=="sales_invoice"?"Record payment received":"Record supplier payment","payment");
         if(CanWrite&&kind is "estimate" or "proforma"&&row.Text("converted_to").Length==0)Next("Convert to sales order","sales_order");
-        if(CanWrite&&FeatureCatalog.Drafts.Contains(kind)&&row.Text("converted_to").Length==0)Next("Create recurring draft schedule","recurring");
+        if(CanWrite&&Supports("recurring_drafts")&&FeatureCatalog.Drafts.Contains(kind)&&row.Text("converted_to").Length==0)Next("Create recurring draft schedule","recurring");
         if(CanWrite&&FeatureCatalog.Drafts.Contains(kind)&&row.Text("converted_to").Length==0)Next(kind=="purchase_order"?"Convert to purchase bill":"Convert to invoice","convert");
         if(CanWrite&&row.Flag("posted")&&kind is "sales_invoice" or "pos" or "purchase_bill")Next(kind=="purchase_bill"?"Create purchase return / debit note":"Create sales return / credit note","return");
         if(CanWrite&&(row.Number("advance_remaining")>0||row.Number("credit_remaining")>0))Next("Apply / refund available balance","settle");

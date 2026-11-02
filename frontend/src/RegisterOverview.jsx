@@ -1,3 +1,4 @@
+import { businessDate } from "./businessDate.js";
 import React from "react";
 import { CheckCheck, Clock3, FileText, Wallet } from "lucide-react";
 const money = (value) =>
@@ -59,7 +60,7 @@ export default function RegisterOverview({ page, records, filter, onFilter }) {
           ],
           ["Converted", converted.length, CheckCheck, true],
         ];
-  const today = new Date().toLocaleDateString("en-CA"),
+  const today = businessDate(),
     overdue = open.filter((r) => r.data?.due_date && r.data.due_date < today);
   const options = invoice
     ? [

@@ -1,5 +1,6 @@
+import { businessDate } from "./businessDate.js";
 import React, {useState} from 'react';
-const today=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+const today = businessDate;
 const Field=({label,children})=><label className="commerce-field"><span>{label}</span>{children}</label>;
 export default function CommerceMoneyForm({workspace,banks,busy,send,onDone}){
   const [f,setF]=useState({kind:'capture',order:'',source:'',date:today(),amount:'',target:'',net:'',fee:'0',bank:'',supply:'goods',gst:'0'});

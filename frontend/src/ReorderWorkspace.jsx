@@ -1,6 +1,7 @@
+import { businessDate } from "./businessDate.js";
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, PackageCheck, RefreshCw } from 'lucide-react';
-const today = () => new Date().toLocaleDateString('en-CA');
+const today = () => businessDate();
 export default function ReorderWorkspace({ companyId, role, api, onReview, onBack }) {
   const [date, setDate] = useState(today), [result, setResult] = useState(null), [error, setError] = useState(''), [retry, setRetry] = useState(0), [selection, setSelection] = useState({}), [search, setSearch] = useState('');
   useEffect(() => {

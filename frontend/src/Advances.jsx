@@ -1,3 +1,4 @@
+import { businessDate } from "./businessDate.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import React, { useState } from "react";
 import { downloadBlob } from "./downloadBlob.js";
@@ -6,7 +7,7 @@ const money = (value) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(
     Number(value || 0),
   );
-const today = () => new Date().toLocaleDateString("en-CA");
+const today = () => businessDate();
 
 export default function Advances({
   companyId,

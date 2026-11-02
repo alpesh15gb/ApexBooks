@@ -1,3 +1,4 @@
+import { businessDate } from "./businessDate.js";
 import { isActiveMaster } from "./masterLifecycle.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import React, { useEffect, useMemo, useState } from "react";
@@ -6,7 +7,7 @@ const money = (n) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(
     Number(n || 0),
   );
-const today = () => new Date().toLocaleDateString("en-CA");
+const today = () => businessDate();
 export default function PosWorkspace({
   company,
   records,

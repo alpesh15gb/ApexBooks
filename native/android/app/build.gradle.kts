@@ -14,7 +14,8 @@ android {
         testInstrumentationRunnerArguments["keepSession"] = providers.gradleProperty("apexKeepQaSession").orElse("false").get()
     }
     signingConfigs {
-        val location = System.getenv("APEX_ANDROID_KEYSTORE")
+        // Verification deliberately never reads release-signing environment or keys.
+        val location = if (providers.gradleProperty("apexUnsignedReleaseVerification").orNull == "true") null else System.getenv("APEX_ANDROID_KEYSTORE")
         if (!location.isNullOrBlank()) {
             create("release") {
                 storeFile = file(location)

@@ -52,3 +52,30 @@ record cache or presents partial-page balances as complete financial totals.
 
 `PlanningToolsTest` covers Android optional-field boundaries. These are new
 UI flows: local build/unit checks do not replace device acceptance evidence.
+
+The local Android device journey also creates an invoice through the native
+party/item/review/save controls, verifies canonical amount/outstanding via the
+isolated API, and checks Keep editing versus Discard causes no accidental post.
+Its feature review steps cover reorder-to-draft, explicit price-basis Apply,
+and payment-terms Apply without saving those exploratory drafts. This expands
+the compiled instrumentation suite; completion requires actual CI device results.
+
+## Compatibility and business-date regressions
+
+Android `ApiCapabilitiesTest` covers an older API returning 404, unavailable
+capability metadata, unknown contract versions, and omission of untouched
+unsupported master defaults. Transient network failures expose an explicit
+background Retry feature check rather than falsely requiring a server upgrade;
+normal record refresh does not repeatedly probe capabilities. Unsupported user edits are rejected explicitly,
+not reported as saved; optional controls explain the server upgrade requirement.
+Book labels are workspace labels only and never replace the legal company name.
+Shared date defaults use India business midnight (18:30 UTC), independent of the
+device timezone. `ToolDraftStoreTest` verifies activity recreation retains the
+original financial tool payload and retry key, and unresolved drafts cannot be
+discarded. This holder is session-only, not process-death persistence.
+
+The Windows UI harness targets the visible item AutoSuggestBox with genuine
+keyboard input, rather than its unattached internal description model. On a form
+or failure it can emit one bounded synthetic app-only JPEG in CI logs for visual
+review when artifact download tooling is unavailable; full PNG/AX evidence stays
+in the isolated test artifact. No production records or credentials are captured.

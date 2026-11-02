@@ -12,6 +12,7 @@ public sealed partial class MainPage
 {
     private async Task RecurringDrafts()
     {
+        RequireFeature("recurring_drafts");
         var cid=CompanyId;var stamp=generation;var panel=Stack(14);var rows=Stack(12);var loaded=new List<JsonObject>();var sequence=0;var businessDate="";string action="";JsonObject? selected=null;
         var view=Select("Show",[("due","Due for review"),("all","All schedules")]);var asOf=new DateInput("Review as of · blank uses server business date","");var search=Input("Find schedule or party");
         panel.Children.Add(Text("Recurring drafts · review before posting",22,true));panel.Children.Add(Text("Schedules create only estimates, proformas or orders when you explicitly generate a due occurrence. They do not automatically invoice, post expenses, move stock or run in the background.",13));
@@ -52,6 +53,7 @@ public sealed partial class MainPage
 
     private async Task RecurringTemplateForm(JsonObject source)
     {
+        RequireFeature("recurring_drafts");
         var cid=CompanyId;var stamp=generation;var calendar=await Api.Send(Api.CompanyPath(cid,"/recurring-templates/due"));if(cid!=CompanyId||stamp!=generation)return;var panel=Stack(12);var name=Input("Schedule name",source.Text("number")+" · "+source.Text("name"));name.MaxLength=120;
         var start=new DateInput("First occurrence",calendar.Text("business_date"));var end=new DateInput("End date · optional","");var frequency=Select("Frequency",[("monthly","Monthly"),("weekly","Weekly")]);var interval=Input("Every · interval (1–12)","1");
         panel.Children.Add(Text("Source: "+Friendly(source.Text("kind"))+" · "+source.Text("number")+" · "+source.Text("name"),15,true));panel.Children.Add(Text("A snapshot of this saved draft is used for future occurrences. Dates are anchored by the server; short months clamp to the final valid day. Schedules never post automatically. To change frequency or dates later, pause this schedule and create a replacement.",13));

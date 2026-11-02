@@ -14,7 +14,7 @@ class PlanningToolsTest {
         for(value in listOf("-1","3651","1.5","abc"))assertNotNull(masterPlanningIssue("party",value,""))
     }
     @Test fun reorderThresholdIsOptionalNonnegativePreciseQuantity(){
-        for(value in listOf("","0","0.001","999999999999.999"))assertNull(masterPlanningIssue("item","",value))
+        for(value in listOf("","0","0.001","1.0000","0.1230","999999999999.999"))assertNull(masterPlanningIssue("item","",value))
         for(value in listOf("-1","0.0001","1000000000000","abc"))assertNotNull(masterPlanningIssue("item","",value))
     }
 }

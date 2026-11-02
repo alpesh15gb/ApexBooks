@@ -1,10 +1,11 @@
+import { businessDate } from "./businessDate.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import React, { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 
 export default function CashTransfer({ companyId, onSaved, role, banks = [], preferredBankId="default" }) {
   const [open, setOpen] = useState(false);
-  const [date, setDate] = useState(new Date().toLocaleDateString("en-CA"));
+  const [date, setDate] = useState(businessDate());
   const [name, setName] = useState("Cash deposit");
   const [amount, setAmount] = useState("");
   const [direction, setDirection] = useState("cash_to_bank");

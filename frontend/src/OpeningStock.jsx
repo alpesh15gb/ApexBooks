@@ -1,9 +1,10 @@
+import { businessDate } from "./businessDate.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import {useState} from 'react';
 import {X} from 'lucide-react';
 
 export default function OpeningStock({items, close, save}) {
-  const [form, setForm] = useState({item_id: items[0]?.id || '', date: new Date().toLocaleDateString('en-CA'), quantity: '', unit_cost: ''});
+  const [form, setForm] = useState({item_id: items[0]?.id || '', date: businessDate(), quantity: '', unit_cost: ''});
   const posting = usePostingRequest();
   const { busy, pending } = posting;
   const [submissionKey] = useState(() => crypto.randomUUID());

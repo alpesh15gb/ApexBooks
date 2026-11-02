@@ -1,11 +1,12 @@
+import { businessDate, businessFinancialYear } from "./businessDate.js";
 import React, {useEffect, useState} from 'react';
 import {downloadBlob} from './downloadBlob.js';
 
 const rupees = value => new Intl.NumberFormat('en-IN', {style: 'currency', currency: 'INR'}).format(Number(value || 0));
-const today = () => new Date().toLocaleDateString('en-CA');
+const today = () => businessDate();
 
 export default function CashBook({companyId, records, bankAccount}) {
-  const [from, setFrom] = useState(() => {const date = new Date(); return `${date.getFullYear() - (date.getMonth() < 3 ? 1 : 0)}-04-01`;});
+  const [from, setFrom] = useState(() => `${businessFinancialYear()}-04-01`);
   const [to, setTo] = useState(today);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');

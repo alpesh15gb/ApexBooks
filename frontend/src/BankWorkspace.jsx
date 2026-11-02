@@ -1,3 +1,4 @@
+import { businessDate } from "./businessDate.js";
 import StatementImportPreview from "./StatementImportPreview.jsx";
 import React, { useEffect, useMemo, useState } from "react";
 import { Plus, Wallet, FileText, Search, ArrowDownLeft } from "lucide-react";
@@ -113,7 +114,7 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
   const [bankId, setBankId] = useState("default");
   const [importFile,setImportFile] = useState(null),[importMessage,setImportMessage]=useState("");
   const [asOf, setAsOf] = useState(() =>
-    new Date().toLocaleDateString("en-CA"),
+    businessDate(),
   );
   const [openingBalance, setOpeningBalance] = useState("0");
   const [lines, setLines] = useState([]);

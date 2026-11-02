@@ -20,8 +20,9 @@ fun JSONObject.decimal(key: String): BigDecimal = s(key).toBigDecimalOrNull() ?:
 fun money(value: BigDecimal): String = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-IN")).format(value)
 fun money(value: String): String = money(value.toBigDecimalOrNull() ?: BigDecimal.ZERO)
 fun copy(value: JSONObject): JSONObject = JSONObject(value.toString())
-fun today(): String = LocalDate.now().toString()
-fun financialStart(): String = LocalDate.now().let { "${if (it.monthValue >= 4) it.year else it.year - 1}-04-01" }
+fun businessDate(instant:java.time.Instant=java.time.Instant.now()):LocalDate=instant.atOffset(java.time.ZoneOffset.ofHoursMinutes(5,30)).toLocalDate()
+fun today(): String = businessDate().toString()
+fun financialStart(): String = businessDate().let { "${if (it.monthValue >= 4) it.year else it.year - 1}-04-01" }
 fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
 
 class ApiFailure(val status: Int, message: String) : Exception(message)
@@ -67,7 +68,10 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
       return withContext(Dispatchers.IO) {
         val connection = URL(origin.trimEnd('/') + "/" + path.trimStart('/')).openConnection() as HttpURLConnection
         try {
-            connection.requestMethod = method; connection.instanceFollowRedirects=false;connection.connectTimeout = 20_000; connection.readTimeout = 90_000
+            connection.requestMethod = method; connection.instanceFollowRedirects=false
+            // Optional compatibility discovery must not hold company startup behind the financial-write timeout.
+            val capabilityProbe=method=="GET"&&path=="/api/capabilities"
+            connection.connectTimeout = if(capabilityProbe)1500 else 20_000; connection.readTimeout = if(capabilityProbe)1500 else 90_000
             connection.setRequestProperty("Accept", "application/json"); connection.setRequestProperty("User-Agent", "ApexBooks-Android/${com.apexbooks.accounting.BuildConfig.VERSION_NAME}")
             if (sentToken.isNotBlank()) connection.setRequestProperty("Authorization", "Bearer $sentToken")
             if (retryKey != null) connection.setRequestProperty("Idempotency-Key", retryKey)

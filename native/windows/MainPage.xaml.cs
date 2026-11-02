@@ -100,16 +100,16 @@ public sealed partial class MainPage : Page
     internal async Task LoadCompanies()
     {
         var stamp=workspaceGeneration;var request=++companyLoads;
-        var loaded=(await Api.Send("/api/companies")).Array();
+        var metadata=Api.EnsureCapabilities();var loaded=(await Api.Send("/api/companies")).Array();
         if(!Api.SignedIn||stamp!=workspaceGeneration||request!=companyLoads)return;
         Companies=loaded;
         if (!shellReady) BuildShell(); else host.Content=navigation;
         changingCompanies = true; companyPicker.Items.Clear();
-        foreach (var company in Companies) companyPicker.Items.Add(new ComboBoxItem { Content = company.Text("name")+" · "+Friendly(company.Text("role")), Tag = company.Text("id") });
+        foreach (var company in Companies) companyPicker.Items.Add(new ComboBoxItem { Content = ClientCapabilities.CompanyLabel(company)+" · "+Friendly(company.Text("role")), Tag = company.Text("id") });
         SelectValue(companyPicker, CompanyId); if (companyPicker.SelectedIndex < 0 && companyPicker.Items.Count > 0) companyPicker.SelectedIndex = 0;
         changingCompanies = false;
         if (companyPicker.SelectedIndex >= 0) await ChooseCompany();
-        else { CompanyId="";Company=new();Records=new();Banks=new();recordsReady=false;posDrafts.Clear();leavePage=null;hasUnsavedPage=null;hasPendingPage=null;generation++;workspaceGeneration++;refreshSequence++;NativeUi.CloseDialog();Body.Children.Clear(); Body.Children.Add(Text("Welcome to Apex Books", 30, true)); Body.Children.Add(Text("Create your first company to start recording transactions.")); Body.Children.Add(AsyncButton("Create company", () => CompanyForm(), Error, true)); }
+        else { await metadata;if(!Api.SignedIn||stamp!=workspaceGeneration||request!=companyLoads)return;CompanyId="";Company=new();Records=new();Banks=new();recordsReady=false;posDrafts.Clear();leavePage=null;hasUnsavedPage=null;hasPendingPage=null;generation++;workspaceGeneration++;refreshSequence++;NativeUi.CloseDialog();Body.Children.Clear(); Body.Children.Add(Text("Welcome to Apex Books", 30, true)); Body.Children.Add(Text("Create your first company to start recording transactions.")); Body.Children.Add(AsyncButton("Create company", () => CompanyForm(), Error, true)); }
     }
 
     private void BuildShell()
@@ -155,7 +155,7 @@ public sealed partial class MainPage : Page
         var leave=leavePage;leavePage=null;leave?.Invoke();hasUnsavedPage=null;hasPendingPage=null;
         CompanyId = id; Company = Companies.OfType<JsonObject>().First(r => r.Text("id") == id);Records=new();Banks=new();recordsReady=false;++generation;var current=++workspaceGeneration;var request=++refreshSequence;NativeUi.CloseDialog();
         Body.Children.Clear(); Body.Children.Add(Text("Loading " + Company.Text("name") + "…", 22, true));
-        var records = Api.Records(id); var banks = Api.Send(Api.CompanyPath(id, "/bank-accounts")); await Task.WhenAll(records, banks);
+        var records = Api.Records(id); var banks = Api.Send(Api.CompanyPath(id, "/bank-accounts")); await Task.WhenAll(records, banks, Api.EnsureCapabilities());
         if (current != workspaceGeneration||request!=refreshSequence) return;
         Records = await records; Banks = (await banks).Array();recordsReady=true; await Navigate(CurrentPage);
     }
@@ -174,6 +174,7 @@ public sealed partial class MainPage : Page
         var kicker=Text(page=="dashboard"?"YOUR BUSINESS, IN FOCUS":"YOUR WORKSPACE",10,true);kicker.Foreground=Green;heading.Children.Add(kicker);
         heading.Children.Add(Text(page=="dashboard"?"Business overview":FeatureCatalog.Title(page), 28, true));
         var detail = Text(Company.Text("tax_mode") == "regular" ? "GST registered · " + Company.Text("gstin") : Company.Text("tax_mode") == "composition" ? "Composition company" : "Not GST registered", 12); detail.Foreground = Muted; heading.Children.Add(detail);Body.Children.Add(heading);
+        if(!Api.Capabilities.HasCoreAdditions)Body.Children.Add(CapabilityNotice());
         if(!recordsReady){Body.Children.Add(Text("Loading complete company history…",20,true));Body.Children.Add(Text("Balances and billing become available once all records are ready. No partial totals are shown."));Body.Children.Add(AsyncButton("Retry company data",Refresh,Error));return;}
         if (page == "dashboard") await Dashboard();
         else if (page == "reports") await ReportsPage();
@@ -204,7 +205,7 @@ public sealed partial class MainPage : Page
         if(!CanWrite)Body.Children.Add(Text("Read-only access · you can inspect records and export documents. Ask an owner for editor access to make changes.",12));
         if(!master){var filters=Stack();filters.Children.Add(Columns(period,party,status,sort));filters.Children.Add(Columns(from.View,to.View));Body.Children.Add(new Expander{Header="Filter documents",Content=filters,IsExpanded=false,HorizontalContentAlignment=HorizontalAlignment.Stretch,HorizontalAlignment=HorizontalAlignment.Stretch});}else Body.Children.Add(Columns(sort,masterStatus));
         var metrics=Stack();var holder=Stack();var caption=Text("",12);var pager=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};Button previous=null!,next=null!;Body.Children.Add(metrics);Body.Children.Add(holder);Body.Children.Add(pager);
-        void Draw(bool reset=true){if(reset)page=0;holder.Children.Clear();metrics.Children.Clear();var range=Value(period);from.View.Visibility=to.View.Visibility=!master&&range=="custom"?Visibility.Visible:Visibility.Collapsed;var start=range=="fy"?J.FinancialStart:range=="month"?DateTime.Today.ToString("yyyy-MM-01"):range=="custom"?from.Value:"";var end=range is "month" or "fy"?J.Today:range=="custom"?to.Value:"";
+        void Draw(bool reset=true){if(reset)page=0;holder.Children.Clear();metrics.Children.Clear();var range=Value(period);from.View.Visibility=to.View.Visibility=!master&&range=="custom"?Visibility.Visible:Visibility.Collapsed;var start=range=="fy"?J.FinancialStart:range=="month"?BusinessCalendar.Today.ToString("yyyy-MM-01"):range=="custom"?from.Value:"";var end=range is "month" or "fy"?J.Today:range=="custom"?to.Value:"";
             var source=Records.OfType<JsonObject>().Where(r=>r.Text("kind")==kind&&(!master||Value(masterStatus)=="all"||WorkflowMasterValues.IsActive(r)==(Value(masterStatus)=="active"))&&(r.Text("name")+" "+r.Text("number")+" "+r["data"].Text("phone")+" "+r["data"].Text("barcode")+" "+r["data"].Text("hsn")).Contains(search.Text,StringComparison.OrdinalIgnoreCase)&&(master||((start.Length==0||string.CompareOrdinal(r.Text("date"),start)>=0)&&(end.Length==0||string.CompareOrdinal(r.Text("date"),end)<=0)&&(Value(party)=="all"||r.Text("name")==Value(party))&&(Value(status)=="All statuses"||new RecordRow(r).Status==Value(status)))));
             source=Value(sort) switch{"old"=>source.OrderBy(r=>r.Text("date")).ThenBy(r=>r["data"].Text("created_at")).ThenBy(r=>r.Text("number")),"name"=>source.OrderBy(r=>r.Text("name"),StringComparer.OrdinalIgnoreCase),"amount"=>source.OrderByDescending(r=>r.Number("amount")),_=>source.OrderByDescending(r=>r.Text("date")).ThenByDescending(r=>r["data"].Text("created_at")).ThenByDescending(r=>r.Text("number"))};var all=source.ToArray();page=Math.Clamp(page,0,Math.Max(0,(all.Length-1)/size));
             if(master)metrics.Children.Add(Text($"{all.Length} {FeatureCatalog.Title(kind).ToLowerInvariant()}"+(kind=="party"?" · click a party for transactions and balances":""),14,true));else if(kind is "sales_invoice" or "purchase_bill")AddMetrics(metrics,("Posted value",all.Sum(r=>r.Number("amount"))),("Outstanding",all.Sum(r=>r.Number("outstanding"))),("Unpaid documents",all.Count(r=>r.Number("outstanding")>0)),("Settled documents",all.Count(r=>r.Flag("posted")&&r.Number("outstanding")<=0)));else AddMetrics(metrics,("Documents",all.Length),("Total value",all.Sum(r=>r.Number("amount"))));

@@ -171,3 +171,23 @@ complete occurrence history, remapping all record IDs. Generated draft lineage
 (`recurring_template_id`, `recurring_occurrence_date`) is server-owned and cannot
 be forged by generic creates or draft edits. Existing draft editing/conversion
 remains the only path to reviewed posting.
+
+## Company book labels and API capabilities
+
+Company `book_label` is an optional owner-chosen, trimmed string of at most80
+characters, separate from the legal `name` and GSTIN. Company create accepts it;
+existing owner-only company PATCH preserves it when omitted and clears it on an
+explicit blank. Company lists and portable backups include it. Older backups
+restore with a blank label. Legal document headers still print only Company.name;
+no FY, duplicate-company merge or legal identity change is inferred.
+
+Public `GET /api/capabilities` returns only implementation metadata:
+`api_version`, `capabilities_version:1`, `supported_features`, `backup_formats`,
+`business_timezone`, and configured `limits`. Existing supported feature IDs are
+`low_stock_reorder`, `party_price_history`, `party_payment_terms`,
+`master_lifecycle`, `party_shipping_address`, `party_credit_limits`,
+`recurring_drafts`, and `company_book_labels`. `document_attachments` and
+`chunked_backups` are advertised only when their complete implementations are
+installed. New clients should fetch once/session and disable unsupported new
+workflows with an upgrade hint if the endpoint/feature is missing; core older
+workflows continue. Never silently submit new metadata that an older API ignores.

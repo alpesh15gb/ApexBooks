@@ -1,0 +1,74 @@
+name: Native unsigned Release verification
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+permissions:
+  contents: read
+concurrency:
+  group: native-release-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  android-unsigned-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Use preconfigured hosted Android SDK
+        run: |
+          test -d "$ANDROID_HOME/licenses"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+      - uses: gradle/actions/setup-gradle@v4
+      # EOF fails closed if any new SDK license would need acceptance.
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' < /dev/null
+      - name: Compile and shrink unsigned Release artifacts only
+        working-directory: native/android
+        run: bash gradlew :app:lintRelease :app:assembleRelease :app:bundleRelease --no-daemon --max-workers=2 -PapexUnsignedReleaseVerification=true
+      - name: Verify unsigned output exists
+        run: |
+          test -s native/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s native/android/app/build/outputs/bundle/release/app-release.aab
+          python3 - <<'PYVERIFY'
+          from zipfile import ZipFile
+          for path in ('native/android/app/build/outputs/apk/release/app-release-unsigned.apk', 'native/android/app/build/outputs/bundle/release/app-release.aab'):
+              with ZipFile(path) as archive:
+                  assert archive.testzip() is None, 'Invalid build archive'
+                  assert not any(name.startswith('META-INF/') and name.endswith(('.RSA', '.DSA', '.EC', '.SF')) for name in archive.namelist()), 'Unexpected signing metadata in verification artifact'
+          PYVERIFY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-unsigned-release-verification-not-for-install
+          path: |
+            native/android/app/build/outputs/apk/release/*unsigned.apk
+            native/android/app/build/outputs/bundle/release/*.aab
+            native/android/app/build/outputs/mapping/release
+            native/android/app/build/reports/lint-results-release.*
+  windows-unsigned-release:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish unpackaged Release without signing
+        run: dotnet publish native/windows/ApexBooks.Windows.csproj -c Release -p:Platform=x64 -r win-x64 --self-contained true -p:AppxPackageSigningEnabled=false -p:GenerateAppxPackageOnBuild=false -p:SignAssembly=false -o "${{ runner.temp }}/windows-unsigned-release"
+      - name: Verify and package local build output without launching
+        shell: pwsh
+        run: |
+          $output="$env:RUNNER_TEMP/windows-unsigned-release"
+          foreach($name in @('ApexBooks.Windows.exe','ApexBooks.Windows.dll','ApexBooks.Windows.deps.json')) {
+            $file=Join-Path $output $name
+            if(-not(Test-Path -LiteralPath $file) -or (Get-Item -LiteralPath $file).Length -eq 0) { throw "Missing Release output: $name" }
+          }
+          Compress-Archive -Path "$output/*" -DestinationPath "$env:RUNNER_TEMP/windows-unsigned-release-verification.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-unsigned-release-verification-not-runtime-tested
+          path: ${{ runner.temp }}/windows-unsigned-release-verification.zip

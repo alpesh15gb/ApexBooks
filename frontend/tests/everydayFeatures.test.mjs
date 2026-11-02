@@ -1,3 +1,4 @@
+import { CORE_ENHANCEMENTS } from '../src/capabilities.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -36,31 +37,31 @@ test('price history never applies automatically and retains inclusive tax basis 
 test('reorder seed is not a converted document and does not offer save-and-new', async () => {
  const root = createRoot(document.getElementById('root')); let saved;
  const api = async path => path.endsWith('bank-accounts') ? [] : {amount:'30',data:{lines:[]}};
- await act(async () => root.render(React.createElement(Editor,{kind:'purchase_order',company:{role:'owner',tax_mode:'regular',state_code:'27'},companyId:'c1',records:[],draftSeed:{data:{lines:[{item_id:'i1',description:'Cable',quantity:'3',rate:'10',gst_rate:'0'}]}},api,Modal,labels:{purchase_order:'Purchase orders'},documentKinds:['purchase_order'],money:String,today:()=> '2026-11-02',save:value=>{saved=value;},close:()=>{}})));
+ await act(async () => root.render(React.createElement(Editor,{features:CORE_ENHANCEMENTS,kind:'purchase_order',company:{role:'owner',tax_mode:'regular',state_code:'27'},companyId:'c1',records:[],draftSeed:{data:{lines:[{item_id:'i1',description:'Cable',quantity:'3',rate:'10',gst_rate:'0'}]}},api,Modal,labels:{purchase_order:'Purchase orders'},documentKinds:['purchase_order'],money:String,today:()=> '2026-11-02',save:value=>{saved=value;},close:()=>{}})));
  assert.equal(document.querySelector('input[name=quantity]').value,'3'); assert.equal(button('Save & new'),undefined);
  await act(async () => document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
  assert.equal(saved.kind,'purchase_order'); assert.equal(saved.data.source_document_id,undefined); assert.equal(saved.data.lines[0].item_id,'i1'); await act(async () => root.unmount());
 });
 test('master optional zero terms and threshold survive save rather than becoming disabled', async () => {
  const root = createRoot(document.getElementById('root')); let saved;
- await act(async () => root.render(React.createElement(Master,{kind:'party',record:{name:'Synthetic',data:{payment_terms_days:0}},save:value=>{saved=value;},close:()=>{}})));
+ await act(async () => root.render(React.createElement(Master,{features:CORE_ENHANCEMENTS,kind:'party',record:{name:'Synthetic',data:{payment_terms_days:0}},save:value=>{saved=value;},close:()=>{}})));
  await act(async () => document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
  assert.equal(saved.data.payment_terms_days,0); await act(async () => root.unmount());
  const other = createRoot(document.getElementById('root'));
- await act(async () => other.render(React.createElement(Master,{kind:'item',record:{name:'Cable',data:{track_stock:true,low_stock_threshold:'0'}},save:value=>{saved=value;},close:()=>{}})));
+ await act(async () => other.render(React.createElement(Master,{features:CORE_ENHANCEMENTS,kind:'item',record:{name:'Cable',data:{track_stock:true,low_stock_threshold:'0'}},save:value=>{saved=value;},close:()=>{}})));
  await act(async () => document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
  assert.equal(saved.data.low_stock_threshold,'0'); await act(async () => other.unmount());
 });
 test('payment terms preserve manual due dates until explicitly applied', async () => {
  const root = createRoot(document.getElementById('root'));
  const api = async path => path.includes('/due-date?') ? {payment_terms_days:30,suggested_due_date:'2026-12-02'} : path.endsWith('bank-accounts') ? [] : {amount:'30',data:{lines:[]}};
- await act(async () => root.render(React.createElement(Editor,{kind:'sales_invoice',company:{role:'owner',tax_mode:'regular',state_code:'27'},companyId:'c1',records:[],source:{id:'s1',name:'Synthetic',date:'2026-11-02',data:{party_id:'p1',due_date:'2026-11-15',lines:[{description:'Cable',quantity:'1',rate:'10'}]}},edit:true,api,Modal,labels:{sales_invoice:'Sales invoices'},documentKinds:['sales_invoice'],money:String,today:()=> '2026-11-02',save:()=>{},close:()=>{}})));
+ await act(async () => root.render(React.createElement(Editor,{features:CORE_ENHANCEMENTS,kind:'sales_invoice',company:{role:'owner',tax_mode:'regular',state_code:'27'},companyId:'c1',records:[],source:{id:'s1',name:'Synthetic',date:'2026-11-02',data:{party_id:'p1',due_date:'2026-11-15',lines:[{description:'Cable',quantity:'1',rate:'10'}]}},edit:true,api,Modal,labels:{sales_invoice:'Sales invoices'},documentKinds:['sales_invoice'],money:String,today:()=> '2026-11-02',save:()=>{},close:()=>{}})));
  assert.equal(document.querySelector('input[name=due_date]').value,'2026-11-15');
  await act(async () => button('Apply payment terms').click()); assert.equal(document.querySelector('input[name=due_date]').value,'2026-12-02'); await act(async () => root.unmount());
 });
 test('master archive is reversible and delivery address is independent of billing', async () => {
  const root = createRoot(document.getElementById('root')); let saved;
- const props={kind:'party',record:{id:'p1',name:'Synthetic',data:{address:'Billing office',shipping_address:'Delivery warehouse',is_active:true}},save:value=>{saved=value;},close:()=>{}};
+ const props={features:CORE_ENHANCEMENTS,kind:'party',record:{id:'p1',name:'Synthetic',data:{address:'Billing office',shipping_address:'Delivery warehouse',is_active:true}},save:value=>{saved=value;},close:()=>{}};
  await act(async () => root.render(React.createElement(Master,props)));
  await act(async () => document.querySelector('input[type=checkbox]').click());
  await act(async () => document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
@@ -68,4 +69,12 @@ test('master archive is reversible and delivery address is independent of billin
  await act(async () => document.querySelector('input[type=checkbox]').click());
  await act(async () => document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
  assert.equal(saved.data.is_active,true); await act(async () => root.unmount());
+});
+test('legacy API master form retains core editing without submitting unsupported new metadata', async () => {
+ const root=createRoot(document.getElementById('root'));let saved;
+ await act(async()=>root.render(React.createElement(Master,{kind:'party',record:{name:'Synthetic',data:{is_active:false,credit_limit:'100',payment_terms_days:30,shipping_address:'Separate depot',address:'Billing'}},features:[],save:value=>{saved=value;},close:()=>{}})));
+ assert.equal(document.querySelector('input[name=credit_limit]'),null);assert.equal(document.querySelector('input[name=shipping_address]'),null);assert.match(document.body.textContent,/unsupported settings will not be submitted/);
+ await act(async()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
+ assert.equal(saved.data.address,'Billing');for(const field of ['is_active','shipping_address','credit_limit','payment_terms_days'])assert.equal(Object.hasOwn(saved.data,field),false);
+ await act(async()=>root.unmount());
 });
