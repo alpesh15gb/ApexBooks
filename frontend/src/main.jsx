@@ -15,6 +15,7 @@ import { WorkspaceBoundary, DialogFocus } from "./WorkspaceBoundary.jsx";
 import { RecoveryCodes, RecoverAccount } from "./RecoveryAccess.jsx";
 import PosWorkspace from "./PosWorkspace.jsx";
 import { OpeningBalances, CreditSettlements } from "./AccountingWorkflows.jsx";
+import { isActiveMaster } from "./masterLifecycle.js";
 import { reorderDraft } from "./reorderDraft.js";
 import ReorderWorkspace from "./ReorderWorkspace.jsx";
 import RecordEditor from "./RecordEditor.jsx";
@@ -593,6 +594,8 @@ function App() {
           .toLowerCase()
           .includes(search.toLowerCase()) &&
         (activeRegisterFilter === "all" ||
+          (activeRegisterFilter === "active" && isActiveMaster(r)) ||
+          (activeRegisterFilter === "inactive" && !isActiveMaster(r)) ||
           (activeRegisterFilter === "unpaid" &&
             r.posted &&
             Number(r.outstanding) > 0) ||
@@ -660,10 +663,10 @@ function App() {
         body: JSON.stringify({ name: body.name, ...body.data }),
       });
       if (!isCurrent()) return;
-      await loadRecords();
+      const refreshed = await loadRecords();
       if (!isCurrent()) return;
       setEditingMaster(null);
-      setModal("");
+      closeRecord(refreshed);
     } else await saveRecord(body);
   }
   async function saveOpening(body, key) {
@@ -1344,7 +1347,7 @@ function App() {
                           !["owner", "editor"].includes(company?.role)
                         }
                         className="button primary"
-                        onClick={() => setModal("record")}
+                        onClick={() => createWorkspace(page)}
                       >
                         <Plus size={17} /> Add{" "}
                         {page === "party"
@@ -1424,6 +1427,7 @@ function App() {
                       }}
                     />
                   )}
+                  {!transactionRegister && <div className="register-controls expanded-controls"><label>Master status<select aria-label="Master status" value={activeRegisterFilter} onChange={event => setRegisterFilter({ page, value: event.target.value })}><option value="all">All · history retained</option><option value="active">Active</option><option value="inactive">Archived</option></select></label><p>Archived entries stay in history. Edit an entry to archive or reactivate it.</p></div>}
                   <RegisterOverview
                     page={page}
                     records={scopedRecords}
@@ -1534,7 +1538,7 @@ function App() {
                           {["owner", "editor"].includes(company?.role) && (
                             <button
                               className="button primary"
-                              onClick={() => setModal("record")}
+                              onClick={() => createWorkspace(page)}
                             >
                               <Plus size={15} />
                               Add{" "}
@@ -1619,7 +1623,7 @@ function App() {
             record={editingMaster}
             close={() => {
               setEditingMaster(null);
-              setModal("");
+              closeRecord();
             }}
             save={saveMaster}
           />
@@ -2509,6 +2513,7 @@ function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, records, on
                 r.name || "Untitled"
               )}
             </strong>
+            {["party", "item"].includes(r.kind) && !isActiveMaster(r) && <span className="status-pill">Archived · history retained</span>}
             <small>
               {r.number ||
                 (r.kind === "party"

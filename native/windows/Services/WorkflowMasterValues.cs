@@ -7,6 +7,8 @@ namespace ApexBooks_Windows.Services;
 /// <summary>Optional master defaults are validated before any request; the API remains authoritative.</summary>
 public static class WorkflowMasterValues
 {
+    public static bool IsActive(JsonNode? row)=>row?["data"]?["is_active"] is null || row["data"].Flag("is_active");
+    public static string ShippingAddress(JsonNode? data)=>data.Text("shipping_address") is {Length:>0} delivery?delivery:data.Text("address");
     public static JsonNode? PaymentTerms(string text)
     {
         text=text.Trim();if(text.Length==0)return null;

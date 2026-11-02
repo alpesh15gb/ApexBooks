@@ -81,6 +81,7 @@ import java.math.BigDecimal
             Choice("Party", party, listOf("all" to "All parties") + vm.records.filter { it.s("kind") == vm.page }.map { it.s("name") }.distinct().sorted().map { it to it }, { party = it })
             Choice("Status", status, listOf("all" to "All statuses") + listOf("Unpaid", "Part settled", "Settled", "Draft", "Converted", "Posted", "Advance available", "Advance settled", "Credit available", "Credit settled").map { it to it }, { status = it })
         }
+        if(master)Choice("Status",status,listOf("all" to "All masters","Active" to "Active","Inactive" to "Inactive"),{status=it})
         Choice("Sort", sort, listOf("new" to "Newest first", "old" to "Oldest first", "name" to "Name A–Z", "amount" to "Highest amount"), { sort = it })
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { OutlinedButton(onClick = { period = "all"; party = "all"; status = "all"; sort = "new"; search = "" }, modifier = Modifier.weight(1f)) { Text("Reset") }; Button(onClick = { filters = false }, modifier = Modifier.weight(1f)) { Text("Show ${rows.size} records") } }
         Spacer(Modifier.height(24.dp))
@@ -106,6 +107,7 @@ import java.math.BigDecimal
                 if (!master || kind == "item") Text(money(if (kind == "item") row.o("data").s("sale_rate") else row.s("amount")), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 else Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if(master)StatusPill(registerStatus(row))
             if (!master) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 StatusPill(registerStatus(row))
                 if (row.has("outstanding") && !row.isNull("outstanding")) Text("Due ${money(row.s("outstanding"))}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

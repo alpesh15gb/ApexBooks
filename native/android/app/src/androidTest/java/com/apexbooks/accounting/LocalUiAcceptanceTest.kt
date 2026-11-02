@@ -93,6 +93,7 @@ class LocalUiAcceptanceTest {
         assertTrue(device.wait(Until.hasObject(By.text("UI Smoke Buyer")),15000));device.findObject(By.text("UI Smoke Buyer")).click()
         scrollTo(device,"Check party payment terms");device.findObject(By.text("Check party payment terms")).click()
         assertTrue(device.wait(Until.hasObject(By.text("Use suggested due date")),30000));device.findObject(By.text("Use suggested due date")).click()
+        assertTrue("Explicit terms Apply sets the suggested date",device.hasObject(By.text(java.time.LocalDate.parse(today()).plusDays(30).toString())))
         device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-party-terms-review.png"))
         device.findObject(By.desc("Close entry")).click()
         assertTrue(device.wait(Until.hasObject(By.text("Discard draft")),15000));device.findObject(By.text("Discard draft")).click()

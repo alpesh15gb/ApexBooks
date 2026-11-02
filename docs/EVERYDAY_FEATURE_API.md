@@ -59,3 +59,29 @@ Defaults survive portable export/restore. SQLite integration tests cover
 precision, zero/null behavior, historic stock dates, purchases/returns,
 leap-year due dates, manual override retention, isolation and viewer denial of
 writes. PostgreSQL JSONB/history and compact-list parity are CI gates.
+
+## Master lifecycle and delivery address
+
+`party` / `item` master data now includes `is_active` (strict boolean, default
+`true`; missing legacy data means active). Parties also accept
+`shipping_address` (string, maximum 500 characters, default empty). Use the
+existing `PUT /masters/{id}` with the current master fields to archive/reactivate
+or change the address. Omitting either new field preserves its previous value.
+There is no deletion: list/detail, reports, history and existing print snapshots
+retain archived identities. Member write authorization is unchanged.
+
+New documents, drafts, POS and conversions reject inactive selected masters,
+including exact-name free-text matches. Reactivate before converting an archived
+party/item source. Historical draft/posted amendments may retain identities that
+were already present, but cannot introduce another inactive master. Linked
+receipts/payments and return notes remain possible, as do existing advance and
+credit settlements: archiving must not strand debt. New advances and new party
+or stock opening balances require active masters. Stock adjustments remain
+available for inventory correction. Reorder suggestions exclude inactive goods.
+
+New sales invoices, POS, estimates, proformas and sales orders copy the party's
+shipping address only when the submitted document omits `shipping_address`.
+An explicitly empty or manually entered address is preserved. Changing a master
+never changes an existing document's shipping/billing address or print snapshot.
+Backups preserve both fields; restore rejects invalid optional field types or
+oversized addresses while accepting older backups that omit them.

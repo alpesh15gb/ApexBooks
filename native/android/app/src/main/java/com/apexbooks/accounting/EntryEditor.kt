@@ -7,6 +7,7 @@ import org.json.JSONObject
 import java.math.BigDecimal
 
 class LineState(initial:JSONObject=JSONObject(),regular:Boolean=false,val importedFromOcr:Boolean=false) {
+    val originalItemId=initial.s("item_id")
     // Lazy-list keys must be supported by Android Bundle state restoration.
     val uiKey:String=java.util.UUID.randomUUID().toString()
     val values=mutableStateMapOf<String,String>()
@@ -50,7 +51,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         fields["name"]=source.s("name");fields["number"]=previous?.s("number")?:"";fields["date"]=previous?.s("date")?:today();fields["amount"]=previous?.s("amount")?:""
         if(purchase&&get("supplier_state").isBlank())fields["supplier_state"]=supplierOrigin(data)
         for((key,value)in mapOf("place_of_supply" to vm.company.s("state_code"),"supplier_state" to vm.company.s("state_code"),"payment_account" to "cash","bank_account_id" to "default","advance_supply" to "goods","advance_gst_rate" to "18","document_discount_percent" to "0","category" to "General","party_type" to "both","item_type" to "goods","tax_treatment" to "taxable","sale_rate" to "0","purchase_rate" to "0","gst_rate" to "0"))if(get(key).isBlank())fields[key]=value
-        for(key in listOf("is_advance","round_total","track_stock"))fields[key]=data.optBoolean(key).toString();fields["return_stock"]=data.optBoolean("return_stock",true).toString()
+        fields["is_active"]=data.optBoolean("is_active",true).toString();for(key in listOf("is_advance","round_total","track_stock"))fields[key]=data.optBoolean(key).toString();fields["return_stock"]=data.optBoolean("return_stock",true).toString()
         data.a("lines").objects().forEach{lines.add(LineState(it,regular))};if(document&&lines.isEmpty())lines.add(LineState(regular=regular))
         originalAllocations=(previous?.a("allocations")?.objects()?.takeIf{it.isNotEmpty()}?:data.a("allocations").objects()).ifEmpty{if(data.s("applied_to").isNotBlank())listOf(JSONObject().put("document_id",data.s("applied_to")).put("amount",source.s("amount")))else emptyList()}
         originalAllocations.forEach{allocations.add(AllocationState(it.s("document_id"),it.s("amount")))};if(payment&&allocations.isEmpty())allocations.add(AllocationState())
@@ -60,9 +61,12 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     fun get(key:String)=fields[key]?:""
     fun set(key:String,value:String){fields[key]=value}
     fun flag(key:String)=get(key)=="true"
-    fun chooseParty(id:String){if(id.isBlank()){set("party_id","");return};val party=vm.records.find{it.s("id")==id}?:return;set("name",party.s("name"));set("party_id",id);val data=party.o("data");set("party_address",data.s("address"));set("party_phone",data.s("phone"));set("party_gstin",data.s("gstin"));set("shipping_address",data.s("address"));set(if(purchase)"supplier_state" else "place_of_supply",data.s("gstin").take(2).ifBlank{vm.company.s("state_code")})}
-    fun changePartyName(value:String){if(!value.trim().equals(get("name").trim(),true)){for(key in listOf("party_id","party_address","party_gstin","party_phone","shipping_address"))set(key,"");set("place_of_supply",vm.company.s("state_code"));set("supplier_state",vm.company.s("state_code"))};set("name",value)}
-    fun chooseItem(line:LineState,id:String){val item=vm.records.find{it.s("id")==id}?:return;line.linkProduct(item,purchase,regular)}
+    private var lastPartyShipping=""
+    fun parties()=vm.records.filter{it.s("kind")=="party"&&selectableMaster(it,previous?.o("data")?.s("party_id")?:"")}
+    fun items(line:LineState)=vm.records.filter{it.s("kind")=="item"&&selectableMaster(it,if(previous!=null)line.originalItemId else "")}
+    fun chooseParty(id:String){if(id.isBlank()){set("party_id","");return};val party=parties().find{it.s("id")==id}?:return;set("name",party.s("name"));set("party_id",id);val data=party.o("data");set("party_address",data.s("address"));set("party_phone",data.s("phone"));set("party_gstin",data.s("gstin"));val shipping=partyShippingAddress(party);fields["shipping_address"]=shippingForPartySelection(get("shipping_address"),lastPartyShipping,shipping);lastPartyShipping=shipping;set(if(purchase)"supplier_state" else "place_of_supply",data.s("gstin").take(2).ifBlank{vm.company.s("state_code")})}
+    fun changePartyName(value:String){if(!value.trim().equals(get("name").trim(),true)){for(key in listOf("party_id","party_address","party_gstin","party_phone"))set(key,"");if(get("shipping_address")==lastPartyShipping)fields["shipping_address"]="";lastPartyShipping="";set("place_of_supply",vm.company.s("state_code"));set("supplier_state",vm.company.s("state_code"))};set("name",value)}
+    fun chooseItem(line:LineState,id:String){val item=items(line).find{it.s("id")==id}?:return;line.linkProduct(item,purchase,regular)}
     fun targets():List<JSONObject> = vm.records.filter{r->r.optBoolean("posted")&&when(kind){"payment_in"->r.s("kind")in setOf("sales_invoice","opening_receivable");"payment_out"->r.s("kind")in setOf("purchase_bill","opening_payable");"credit_note"->r.s("kind")in setOf("sales_invoice","pos");"debit_note"->r.s("kind")=="purchase_bill";else->false}&&(!payment||available(r)>BigDecimal.ZERO||originalAllocations.any{it.s("document_id")==r.s("id")})}
     fun available(row:JSONObject)=row.decimal("outstanding")+originalAllocations.filter{it.s("document_id")==row.s("id")}.fold(BigDecimal.ZERO){sum,a->sum+a.decimal("amount")}
     fun chooseAllocation(row:AllocationState,index:Int,id:String) {
@@ -82,7 +86,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     fun chooseSource(id:String){set("applied_to",id);if(id.isBlank()){sourceSequence++;sourceLoading=false;return};sourceLoading=true;val request=++sourceSequence;vm.task{try{val row=vm.api.record(companyId,id);if(vm.editor!==this||sourceSequence!=request)return@task;set("name",row.s("name"));val data=row.o("data");for(key in listOf("party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","supplier_state"))set(key,data.s(key));if(purchase)set("supplier_state",supplierOrigin(data));lines.clear();data.a("lines").objects().forEach{lines.add(LineState(it,regular))}}finally{if(request==sourceSequence)sourceLoading=false}}}
     fun body():JSONObject {
         val values=JSONObject()
-        if(master){for(key in if(kind=="party")listOf("gstin","address","phone","email","party_type")else listOf("hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))values.put(key,get(key));if(kind=="item"){values.put("track_stock",flag("track_stock"));values.put("low_stock_threshold",get("low_stock_threshold").ifBlank{null}?:JSONObject.NULL)}else values.put("payment_terms_days",if(get("payment_terms_days").isBlank())JSONObject.NULL else get("payment_terms_days").toIntOrNull()?:get("payment_terms_days"))}
+        if(master){values.put("is_active",flag("is_active"));for(key in if(kind=="party")listOf("gstin","address","shipping_address","phone","email","party_type")else listOf("hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))values.put(key,get(key));if(kind=="item"){values.put("track_stock",flag("track_stock"));values.put("low_stock_threshold",get("low_stock_threshold").ifBlank{null}?:JSONObject.NULL)}else values.put("payment_terms_days",if(get("payment_terms_days").isBlank())JSONObject.NULL else get("payment_terms_days").toIntOrNull()?:get("payment_terms_days"))}
         else {
             for(key in listOf("party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","due_date","notes","terms","category"))values.put(key,get(key))
             if(payment||kind in setOf("expense","pos")){values.put("payment_account",get("payment_account"));if(get("payment_account")=="bank")values.put("bank_account_id",get("bank_account_id"))}

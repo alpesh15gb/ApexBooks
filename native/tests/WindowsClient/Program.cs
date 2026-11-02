@@ -63,6 +63,9 @@ Check(WorkflowMasterValues.LowStockThreshold("0")!.GetValue<string>()=="0"&&Work
 foreach(var invalid in new[]{"-1","3651","1.5","+1","1e2","NaN"}){try{WorkflowMasterValues.PaymentTerms(invalid);throw new Exception("Invalid terms accepted");}catch(FormatException){}Check(true,$"invalid payment terms {invalid} rejected locally");}
 foreach(var invalid in new[]{"-1","1000000000000","0.0001","1.0000","1e2","NaN","1,000"}){try{WorkflowMasterValues.LowStockThreshold(invalid);throw new Exception("Invalid threshold accepted");}catch(FormatException){}Check(true,$"invalid threshold {invalid} rejected locally");}
 
+Check(WorkflowMasterValues.IsActive(new JsonObject{["data"]=new JsonObject()})&&!WorkflowMasterValues.IsActive(new JsonObject{["data"]=new JsonObject{["is_active"]=false}})&&WorkflowMasterValues.IsActive(new JsonObject{["data"]=new JsonObject{["is_active"]=true}}),"legacy active and explicit archive/reactivation states");
+Check(WorkflowMasterValues.ShippingAddress(new JsonObject{["address"]="Billing"})=="Billing"&&WorkflowMasterValues.ShippingAddress(new JsonObject{["address"]="Billing",["shipping_address"]="Delivery"})=="Delivery","saved shipping default or billing fallback");
+
 var paging=new PagingTransport();using var pagingApi=new ApexApi("https://synthetic-paging.invalid",paging);
 var timer=System.Diagnostics.Stopwatch.StartNew();for(var offset=0;offset<1250;offset+=100)await pagingApi.Send(pagingApi.CompanyPath("test",$"/records?compact=true&limit=100&offset={offset}"));var baselineMs=timer.ElapsedMilliseconds;
 Check(paging.Calls==13,"baseline 1250 records uses 13 small-page requests");paging.Calls=0;timer.Restart();var allRows=await pagingApi.Records("test");var improvedMs=timer.ElapsedMilliseconds;

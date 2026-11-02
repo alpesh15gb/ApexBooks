@@ -6,6 +6,8 @@ export default function MasterForm({ kind, close, save, record }) {
   const isParty = kind === "party";
   const [form, setForm] = useState({
     party_type: "both",
+    is_active: true,
+    shipping_address: "",
     payment_terms_days: "",
     low_stock_threshold: "",
     gstin: "",
@@ -34,6 +36,8 @@ export default function MasterForm({ kind, close, save, record }) {
       const data = isParty
         ? {
             party_type: form.party_type,
+            is_active: form.is_active !== false,
+            shipping_address: form.shipping_address,
             gstin: form.gstin,
             address: form.address,
             phone: form.phone,
@@ -42,6 +46,7 @@ export default function MasterForm({ kind, close, save, record }) {
           }
         : {
             ...(form.image_data_url!==undefined?{image_data_url:form.image_data_url}:{}),image_thumbnail:form.image_thumbnail||"",
+            is_active: form.is_active !== false,
             hsn: form.hsn,
             unit: form.unit,
             sale_rate: form.sale_rate,
@@ -102,6 +107,7 @@ export default function MasterForm({ kind, close, save, record }) {
               </small>
             )}
           </label>
+          {record && <label className="full"><span><input type="checkbox" checked={form.is_active !== false} onChange={event => setForm(current => ({ ...current, is_active: event.target.checked }))} /> Active for new transactions</span><small>Archive without deleting history. Existing invoices, balances and settlement remain available. Reactivate here any time.</small></label>}
           {isParty ? (
             <>
               <label>
@@ -148,8 +154,9 @@ export default function MasterForm({ kind, close, save, record }) {
                 />
               </label>
               <label className="full">Default payment terms (days)<input name="payment_terms_days" type="number" min="0" max="3650" step="1" value={form.payment_terms_days ?? ""} onChange={update} placeholder="No default" /><small>Optional. Net 0 means due on the document date. Existing documents keep their saved due dates.</small></label>
+              <label className="full">Default delivery address<input name="shipping_address" maxLength="500" value={form.shipping_address} onChange={update} placeholder="Same as billing address when blank" /><small>Copied into new documents only; saved document addresses stay unchanged.</small></label>
               <label className="full">
-                Address
+                Billing address
                 <input
                   name="address"
                   maxLength="500"

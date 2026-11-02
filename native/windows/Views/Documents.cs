@@ -28,7 +28,7 @@ public sealed partial class MainPage
         var date = new DateInput("Document date", previous.Text("date") is { Length: > 0 } d ? d : J.Today);
         var due = new DateInput("Due date · optional", data.Text("due_date"));
         var address = Input("Billing address", data.Text("party_address"), true); var gstin = Input("Party GSTIN", data.Text("party_gstin")); var phone = Input("Phone", data.Text("party_phone"));
-        var shipping = Input("Shipping address", data.Text("shipping_address"), true);
+        var shipping = Input("Shipping address", data.Text("shipping_address"), true);var lastShippingDefault="";
         var supplierState = Input("Supplier state code", data.Text("supplier_state") is { Length: > 0 } ss ? ss : data.Text("party_gstin").Length>=2 ? data.Text("party_gstin")[..2] : Company.Text("state_code"));
         var supply = Input("Place of supply · state code", data.Text("place_of_supply") is { Length: > 0 } ps ? ps : Company.Text("state_code"));
         var discount = Input("Document discount (%)", data.Text("document_discount_percent") is { Length: > 0 } disc ? disc : "0");
@@ -77,7 +77,7 @@ public sealed partial class MainPage
         }
         void AddLine(JsonObject? initial = null, bool preserveImportedValues = false)
         {
-            var line = new DocumentLine(Records.OfType<JsonObject>().Where(r => r.Text("kind") == "item"), purchase, regular, initial, preserveImportedValues); var holder = Stack(6); holder.Children.Add(line.View);
+            var line = new DocumentLine(Records.OfType<JsonObject>().Where(r => r.Text("kind") == "item" && (WorkflowMasterValues.IsActive(r)||previous is not null&&r.Text("id")==initial.Text("item_id"))), purchase, regular, initial, preserveImportedValues); var holder = Stack(6); holder.Children.Add(line.View);
             var history=Stack(8);
             if(kind is "sales_invoice" or "purchase_bill" or "estimate" or "proforma" or "sales_order" or "purchase_order"){
                 holder.Children.Add(AsyncButton("Party price history / suggestion",async()=>{
@@ -129,8 +129,8 @@ public sealed partial class MainPage
         }
         var contacts = Stack(); contacts.Children.Add(Columns(address, shipping));
         panel.Children.Add(new Expander { Header = "Party, billing and delivery details", Content = contacts, HorizontalContentAlignment = HorizontalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Stretch });
-        party.TextChanged += (_, args) => { if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput) { partyId = "";address.Text="";shipping.Text="";gstin.Text="";phone.Text="";supply.Text=Company.Text("state_code");supplierState.Text=Company.Text("state_code");party.ItemsSource = Records.OfType<JsonObject>().Where(r => r.Text("kind") == "party" && r.Text("name").Contains(party.Text, StringComparison.OrdinalIgnoreCase)).Take(20).Select(r => r.Text("name")).ToArray(); } };
-        party.SuggestionChosen += (_, args) => { var selected = Records.OfType<JsonObject>().FirstOrDefault(r => r.Text("kind") == "party" && r.Text("name") == args.SelectedItem?.ToString()); if (selected is null) return; partyId = selected.Text("id"); var values = selected["data"]; address.Text = values.Text("address"); shipping.Text = values.Text("address"); gstin.Text = values.Text("gstin"); phone.Text = values.Text("phone"); if (gstin.Text.Length >= 2) { if (purchase) supplierState.Text = gstin.Text[..2]; else supply.Text = gstin.Text[..2]; } };
+        party.TextChanged += (_, args) => { if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput) { partyId = "";address.Text="";if(shipping.Text==lastShippingDefault)shipping.Text="";lastShippingDefault="";gstin.Text="";phone.Text="";supply.Text=Company.Text("state_code");supplierState.Text=Company.Text("state_code");party.ItemsSource = Records.OfType<JsonObject>().Where(r => r.Text("kind") == "party" && WorkflowMasterValues.IsActive(r) && r.Text("name").Contains(party.Text, StringComparison.OrdinalIgnoreCase)).Take(20).Select(r => r.Text("name")).ToArray(); } };
+        party.SuggestionChosen += (_, args) => { var selected = Records.OfType<JsonObject>().FirstOrDefault(r => r.Text("kind") == "party" && WorkflowMasterValues.IsActive(r) && r.Text("name") == args.SelectedItem?.ToString()); if (selected is null) return; partyId = selected.Text("id"); var values = selected["data"]; address.Text = values.Text("address"); var delivery=WorkflowMasterValues.ShippingAddress(values);if(shipping.Text.Length==0||shipping.Text==lastShippingDefault)shipping.Text=delivery;lastShippingDefault=delivery; gstin.Text = values.Text("gstin"); phone.Text = values.Text("phone"); if (gstin.Text.Length >= 2) { if (purchase) supplierState.Text = gstin.Text[..2]; else supply.Text = gstin.Text[..2]; } };
         if (kind == "purchase_bill")
         {
             var ocr = AsyncButton("Scan purchase bill", async () =>
@@ -162,6 +162,10 @@ public sealed partial class MainPage
             if(sourceLoading)throw new Exception("Wait for the source document to finish loading.");
             if (party.Text.Trim().Length == 0) throw new Exception("Enter the customer, supplier or description.");
             if (lines.Count == 0) throw new Exception("Add at least one item.");
+            if(!submission.Unresolved&&previous is null&&kind is not ("credit_note" or "debit_note")){
+                if(partyId.Length>0&&Records.FirstOrDefault(r=>r.Text("id")==partyId) is { } selectedParty&&!WorkflowMasterValues.IsActive(selectedParty))throw new Exception("This party is archived. Choose an active party or reactivate it before creating a new document.");
+                if(lines.Any(line=>Records.FirstOrDefault(r=>r.Text("id")==line.Data().Text("item_id")) is { } item&&!WorkflowMasterValues.IsActive(item)))throw new Exception("A linked item is archived. Choose active items or reactivate them before creating a new document.");
+            }
             if (kind is "credit_note" or "debit_note" && appliedTo.Length == 0) throw new Exception("Choose the original posted document.");
             try{await Api.SaveRecord(cid, submission.Body(BodyValue()), retryKey, previous);submission.Succeeded();}
             catch(Exception e){submission.Failed(e);NativeUi.SetFormEnabled(panel,!submission.Unresolved);if(submission.Unresolved)throw new Exception("The save outcome is unknown. The original values are locked; press Save again to safely recover the same document.",e);throw;}

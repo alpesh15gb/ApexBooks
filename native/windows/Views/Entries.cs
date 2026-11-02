@@ -38,13 +38,14 @@ public sealed partial class MainPage
         var cid = CompanyId; var panel = Stack(); panel.MinWidth = 580;
         var data = existing?["data"].Copy().Object() ?? new JsonObject();
         var name = Input(kind == "party" ? "Party name" : "Item name", existing.Text("name")); name.MaxLength=120;name.IsReadOnly = existing is not null; panel.Children.Add(name);
+        var active=new CheckBox{Content="Active · available for new documents",IsChecked=WorkflowMasterValues.IsActive(existing)};panel.Children.Add(active);panel.Children.Add(Text("Archiving removes this master from new-entry pickers without deleting its historical records. Reactivate here when needed.",12));
         var fields = new Dictionary<string, TextBox>(); ComboBox? partyType = null, itemType = null, treatment = null; CheckBox? tracked = null;
         if (kind == "party")
         {
             partyType = Select("Party type", [("both", "Customer and supplier"), ("customer", "Customer"), ("supplier", "Supplier")], data.Text("party_type") is { Length: > 0 } t ? t : "both");
-            foreach (var (key, label) in new[] { ("phone", "Phone"), ("email", "Email"), ("gstin", "GSTIN"), ("address", "Address") }) fields[key]=Input(label,data.Text(key),key=="address");
-            fields["gstin"].MaxLength=15;fields["phone"].MaxLength=32;fields["address"].MaxLength=1000;
-            panel.Children.Add(Columns(partyType,fields["phone"]));panel.Children.Add(Columns(fields["email"],fields["gstin"]));panel.Children.Add(fields["address"]);
+            foreach (var (key, label) in new[] { ("phone", "Phone"), ("email", "Email"), ("gstin", "GSTIN"), ("address", "Billing address"), ("shipping_address", "Default shipping address") }) fields[key]=Input(label,data.Text(key),key is "address" or "shipping_address");
+            fields["gstin"].MaxLength=15;fields["phone"].MaxLength=32;fields["address"].MaxLength=500;fields["shipping_address"].MaxLength=500;
+            panel.Children.Add(Columns(partyType,fields["phone"]));panel.Children.Add(Columns(fields["email"],fields["gstin"]));panel.Children.Add(fields["address"]);panel.Children.Add(fields["shipping_address"]);panel.Children.Add(Text("Blank shipping address falls back to billing when selecting this party. Document addresses stay editable.",12));
             fields["payment_terms_days"]=Input("Payment terms · days (blank disables)",data.Text("payment_terms_days"));panel.Children.Add(fields["payment_terms_days"]);panel.Children.Add(Text("0 means due on the document date. Due dates are suggested for review, never silently replaced.",12));
         }
         else
@@ -66,11 +67,12 @@ public sealed partial class MainPage
             }, Error));
             buttons.Children.Add(Button("Remove image", () => { data["image_data_url"] = ""; data["image_thumbnail"] = ""; preview.Source = null; })); panel.Children.Add(buttons);
         }
-        string Signature(){var values=data.Copy().Object();values["name"]=name.Text;foreach(var field in fields)values[field.Key]=field.Value.Text;if(partyType is not null)values["party_type"]=Value(partyType);if(itemType is not null)values["item_type"]=Value(itemType);if(treatment is not null)values["tax_treatment"]=Value(treatment);if(tracked is not null)values["track_stock"]=tracked.IsChecked==true;return values.ToJsonString();}var baseline=Signature();
+        string Signature(){var values=data.Copy().Object();values["name"]=name.Text;values["is_active"]=active.IsChecked==true;foreach(var field in fields)values[field.Key]=field.Value.Text;if(partyType is not null)values["party_type"]=Value(partyType);if(itemType is not null)values["item_type"]=Value(itemType);if(treatment is not null)values["tax_treatment"]=Value(treatment);if(tracked is not null)values["track_stock"]=tracked.IsChecked==true;return values.ToJsonString();}var baseline=Signature();
         var saved = await Dialog((existing is null ? "New " : "Edit ") + kind, panel, async () =>
         {
             if (string.IsNullOrWhiteSpace(name.Text)) throw new Exception("Enter a name.");
             foreach (var (key, field) in fields) data[key] = field.Text.Trim();
+            data["is_active"]=active.IsChecked==true;
             if(kind=="party")data["payment_terms_days"]=WorkflowMasterValues.PaymentTerms(fields["payment_terms_days"].Text);
             else data["low_stock_threshold"]=WorkflowMasterValues.LowStockThreshold(fields["low_stock_threshold"].Text);
             if (partyType is not null) data["party_type"] = Value(partyType);

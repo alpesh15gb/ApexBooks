@@ -65,6 +65,14 @@ class LiveAccountingWorkflow(unittest.TestCase):
         self.assertTrue(prices['suggested_price_includes_tax'])
         self.assertEqual(self.request('GET', root + '/journals'), before)
         self.assertEqual(self.request('GET', root + '/records/' + invoice['id'])['data']['due_date'], '2026-04-10')
+        self.request('PUT', root + '/masters/' + party['id'], {'name': party['name'], 'active': False, 'address': 'Synthetic billing', 'shipping_address': 'Synthetic delivery'})
+        self.request('PUT', root + '/masters/' + service['id'], {'name': service['name'], 'active': False})
+        self.request('POST', root + '/records', {'kind': 'payment_in', 'name': party['name'], 'date': '2026-04-03', 'amount': 20, 'data': {'applied_to': invoice['id'], 'payment_account': 'cash'}}, key=uuid4().hex)
+        self.assertEqual(Decimal(self.request('GET', root + '/records/' + invoice['id'])['outstanding']), 117)
+        self.request('PUT', root + '/masters/' + party['id'], {'name': party['name'], 'active': True})
+        self.request('PUT', root + '/masters/' + service['id'], {'name': service['name'], 'active': True})
+        historical = self.request('GET', root + '/records/' + invoice['id'])
+        self.assertFalse(historical['data'].get('shipping_address'))
 
     def test_sale_collection_reports_exports_and_access(self):
         suffix = uuid4().hex

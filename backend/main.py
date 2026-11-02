@@ -412,8 +412,12 @@ class MasterRow(BaseModel):
     track_stock: bool = False
     low_stock_threshold: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3, allow_inf_nan=False)
     payment_terms_days: int | None = Field(default=None, ge=0, le=3650, strict=True)
+    is_active: bool = Field(default=True, strict=True)
+    shipping_address: str = Field(default='', max_length=500)
 
 def validate_master_defaults(master, kind):
+    if master.shipping_address and kind != 'party':
+        raise HTTPException(422, 'Shipping address belongs to a party')
     if master.low_stock_threshold is not None and (kind != 'item' or not master.track_stock or master.item_type != 'goods'):
         raise HTTPException(422, 'Low-stock thresholds require a stock-tracked goods item')
     if master.payment_terms_days is not None and kind != 'party':
@@ -1321,9 +1325,9 @@ def import_masters(company_id: str, body: MasterImport, user: User = Depends(cur
                 errors.append({'row': index, 'message': 'GSTIN must contain 15 characters'}); continue
             if row.email.strip() and not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', row.email.strip()):
                 errors.append({'row': index, 'message': 'Enter a valid email'}); continue
-            data = {'party_type': row.party_type, 'gstin': row.gstin.upper(), 'address': row.address, 'phone': row.phone.strip(), 'email': row.email.strip(), 'payment_terms_days': row.payment_terms_days}
+            data = {'party_type': row.party_type, 'gstin': row.gstin.upper(), 'address': row.address, 'phone': row.phone.strip(), 'email': row.email.strip(), 'payment_terms_days': row.payment_terms_days, 'is_active':row.is_active, 'shipping_address':row.shipping_address}
         else:
-            data = {key: data[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold')}
+            data = {key: data[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold','is_active')}
         seen.add(key)
         ready.append((name, data))
     result = {'dry_run': body.dry_run, 'ready': len(ready), 'duplicates': duplicates, 'errors': errors}
@@ -1356,16 +1360,61 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
             raise HTTPException(422, 'Stock tracking cannot be changed after item creation')
         values = body.model_dump(mode='json')
         master.data = {**(master.data or {}), **{key: values[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold') if key not in {'image_data_url','image_thumbnail','low_stock_threshold'} or key in body.model_fields_set}}
+    for field in ('is_active','shipping_address'):
+        if field in body.model_fields_set and (field != 'shipping_address' or master.kind == 'party'):
+            master.data={**master.data,field:getattr(body,field)}
     audit(session, company_id, user, 'master.updated', master.kind, master.id)
     if master.kind == 'item' and hasattr(sys.modules[__name__], 'commerce_stock_changed'): commerce_stock_changed(company_id, session)
     session.commit(); session.refresh(master)
     return obj(master)
 
+def validate_active_references(company_id, kind, name, data, session, historical_record=None):
+    """Archive prevents new business, not correction or settlement of existing debt.
+
+    Exceptions come only from server-loaded source records, never client flags.
+    Conversions deliberately do not inherit an inactive-master exception.
+    """
+    allowed_party=set();allowed_items=set()
+    def retain(source):
+        if source and source.company_id==company_id:
+            allowed_party.add(source.data.get('party_id') or source.name.strip().casefold())
+            allowed_items.update(line.get('item_id') or str(line.get('description','')).strip().casefold() for line in source.data.get('lines',[]) if isinstance(line,dict))
+    retain(historical_record)
+    if kind in {'credit_note','debit_note'} and isinstance(data.get('applied_to'),str) and data.get('applied_to'):
+        target=session.get(Record,data['applied_to'])
+        if target and target.kind in ({'sales_invoice','pos'} if kind=='credit_note' else {'purchase_bill'}):retain(target)
+    if kind in {'payment_in','payment_out'} and not data.get('is_advance'):
+        ids=[data['applied_to']] if data.get('applied_to') else []
+        allocations=data.get('allocations')
+        if isinstance(allocations,list):ids += [r.get('document_id') for r in allocations if isinstance(r,dict)]
+        for rid in ids:
+            if not isinstance(rid,str):continue
+            target=session.get(Record,rid)
+            if target and target.kind in ({'sales_invoice','opening_receivable'} if kind=='payment_in' else {'purchase_bill','opening_payable'}):retain(target)
+    party=session.scalar(select(Record).where(Record.company_id==company_id,Record.kind=='party',func.lower(Record.name)==name.strip().lower()))
+    if data.get('party_id') and (not party or party.id!=data['party_id']):
+        raise HTTPException(422,'Party identity does not match this company and name')
+    if party and party.data.get('is_active',True) is False and party.id not in allowed_party and party.name.strip().casefold() not in allowed_party:
+        raise HTTPException(422,'Reactivate this party before creating a new document')
+    lines=data.get('lines',[])
+    if not isinstance(lines,list):return # normal document validation provides the shape error
+    identities=set();names=set()
+    for line in lines:
+        if not isinstance(line,dict):continue
+        iid=line.get('item_id')
+        if isinstance(iid,str) and iid:identities.add(iid)
+        else:names.add(str(line.get('description','')).strip().lower())
+    if identities or names:
+        candidates=session.scalars(select(Record).where(Record.company_id==company_id,Record.kind=='item',or_(Record.id.in_(identities),func.lower(Record.name).in_(names))))
+        for item in candidates:
+            if item.data.get('is_active',True) is False and item.id not in allowed_items and item.name.strip().casefold() not in allowed_items:
+                raise HTTPException(422,'Reactivate this item before adding it to a new document')
+
 @app.post('/api/companies/{company_id}/records')
 def create_record(company_id: str, body: RecordInput, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):
     return save_record(company_id, body, request, user, session)
 
-def save_record(company_id, body, request, user, session, *, commit=True):
+def save_record(company_id, body, request, user, session, *, commit=True, historical_record=None):
     """Post inside the caller transaction when processing a durable integration event."""
     company = lock_company(company_id, user, session)
     if body.kind not in KINDS: raise HTTPException(422, 'Unsupported record type')
@@ -1379,6 +1428,8 @@ def save_record(company_id, body, request, user, session, *, commit=True):
             existing = session.get(Record, previous.record_id)
             return {**obj(existing), 'posted': bool(session.scalar(select(RecordPosting.id).where(RecordPosting.company_id == company_id, RecordPosting.record_id == existing.id)))}
     data, amount = body.data, money(body.amount)
+    if body.kind in DOCUMENTS|POSTED_KINDS:
+        validate_active_references(company_id, body.kind, body.name, data, session, historical_record)
     if body.kind in {'payment_in','payment_out','bank_transfer'}:
         data={k:v for k,v in data.items() if k not in {'advance_tax','advance_tax_released','advance_tax_event','advance_taxable','lines','cgst','sgst','igst','taxable','taxable_supply_value','tax_mode','pending_input_cgst','pending_input_sgst','pending_input_igst','round_off'}}
         data.update(cgst='0',sgst='0',igst='0',lines=[],round_off='0',advance_tax_event=False)
@@ -1386,6 +1437,8 @@ def save_record(company_id, body, request, user, session, *, commit=True):
         party=session.scalar(select(Record).where(Record.company_id==company_id,Record.kind=='party',func.lower(Record.name)==body.name.strip().lower()))
         if data.get('party_id') and (not party or data['party_id']!=party.id):raise HTTPException(422,'Party identity does not match this company and name')
         if party:
+            if body.kind in {'sales_invoice','pos','estimate','proforma','sales_order'} and 'shipping_address' not in data:
+                data={**data,'shipping_address':party.data.get('shipping_address','')}
             body.name=party.name;data={**{key:party.data.get(source,'') for key,source in [('party_address','address'),('party_gstin','gstin'),('party_phone','phone')]},**data,'party_id':party.id}
     if body.kind in {'sales_invoice', 'purchase_bill'} and data.get('due_date') not in (None, ''):
         try:
@@ -1407,9 +1460,9 @@ def save_record(company_id, body, request, user, session, *, commit=True):
             if master.party_type not in {'customer', 'supplier', 'both'}: raise HTTPException(422, 'Party type must be customer, supplier or both')
             if master.gstin and not re.fullmatch(r'\d{2}[A-Z0-9]{13}', master.gstin.upper()): raise HTTPException(422, 'GSTIN must contain 15 characters')
             if master.email.strip() and not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', master.email.strip()): raise HTTPException(422, 'Enter a valid email')
-            data = {'party_type': master.party_type, 'gstin': master.gstin.upper(), 'address': master.address, 'phone': master.phone.strip(), 'email': master.email.strip(), 'payment_terms_days': master.payment_terms_days}
+            data = {'party_type': master.party_type, 'gstin': master.gstin.upper(), 'address': master.address, 'phone': master.phone.strip(), 'email': master.email.strip(), 'payment_terms_days': master.payment_terms_days, 'is_active':master.is_active, 'shipping_address':master.shipping_address}
         else:
-            data = {key: value for key, value in master.model_dump(mode='json').items() if key in {'hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold'}}
+            data = {key: value for key, value in master.model_dump(mode='json').items() if key in {'hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold','is_active'}}
         body.name = master.name.strip()
     profile = session.get(CompanyTaxProfile, company_id)
     tax_mode = profile.mode if profile else 'regular'
@@ -1577,6 +1630,7 @@ def post_opening_stock(company_id: str, body: OpeningStockInput, request: Reques
         Record.id == body.item_id, Record.kind == 'item'))
     if not item or not item.data.get('track_stock'):
         raise HTTPException(422, 'Choose a stock-tracked item in this company')
+    if item.data.get('is_active',True) is False:raise HTTPException(422,'Reactivate this item before posting opening stock')
     if session.scalar(select(StockMovement.id).where(StockMovement.company_id == company_id,
         StockMovement.item_id == item.id)):
         raise HTTPException(409, 'Opening stock must be posted before other movements for this item')

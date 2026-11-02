@@ -19,7 +19,7 @@ def install(app,m):
     def reorder(company_id:str,as_of:date|None=None,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
         m.company_for(company_id,user,session);day=as_of or date.today()
         items=list(session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind=='item')))
-        items=[r for r in items if r.data.get('track_stock') and r.data.get('item_type','goods')=='goods' and r.data.get('low_stock_threshold') is not None]
+        items=[r for r in items if r.data.get('is_active',True) is not False and r.data.get('track_stock') and r.data.get('item_type','goods')=='goods' and r.data.get('low_stock_threshold') is not None]
         totals={}
         if items:
             totals={iid:(quantity,unvalued) for iid,quantity,unvalued in session.execute(select(m.StockMovement.item_id,func.sum(m.StockMovement.quantity),func.sum(case((m.StockMovement.cost_value.is_(None),1),else_=0))).where(m.StockMovement.company_id==company_id,m.StockMovement.item_id.in_([r.id for r in items]),m.StockMovement.date<=day).group_by(m.StockMovement.item_id))}

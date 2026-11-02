@@ -1,3 +1,4 @@
+import { isActiveMaster } from "./masterLifecycle.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import React, { useEffect, useMemo, useState } from "react";
 import { Plus, Minus, Trash2, Search, ReceiptIndianRupee } from "lucide-react";
@@ -29,7 +30,7 @@ export default function PosWorkspace({
   const posting = usePostingRequest();
   const { busy, pending } = posting;
   const [billing,setBilling]=useState({address:"",gstin:"",phone:"",place:company.state_code});
-  const items = records.filter((r) => r.kind === "item"),
+  const items = records.filter((r) => r.kind === "item" && isActiveMaster(r)),
     filtered = items
       .filter((r) =>
         `${r.name} ${r.data?.hsn || ""} ${r.data?.barcode || ""}`
@@ -265,7 +266,7 @@ export default function PosWorkspace({
               />
               <datalist id="pos-parties">
                 {records
-                  .filter((r) => r.kind === "party")
+                  .filter((r) => r.kind === "party" && isActiveMaster(r))
                   .map((r) => (
                     <option key={r.id} value={r.name} />
                   ))}

@@ -6,14 +6,15 @@ using System.Text.Json.Nodes;
 using Windows.Storage;
 
 // Exercises the actual published client services without opening windows or using a trading company.
-const string qaEmail="REPLACE_WITH_PRIVATE_QA_EMAIL";
-var configuredOrigin=Environment.GetEnvironmentVariable("APEX_NATIVE_TEST_ORIGIN");
-var apiOrigin=string.IsNullOrWhiteSpace(configuredOrigin)?ApexApi.ProductionOrigin:configuredOrigin;
+var apiOrigin=Environment.GetEnvironmentVariable("APEX_NATIVE_TEST_ORIGIN")??throw new Exception("Explicit local APEX_NATIVE_TEST_ORIGIN is required; hosted writes are disabled.");
+var local=new Uri(apiOrigin);
+if(local.Scheme!="http"||local.Host is not("127.0.0.1" or "localhost" or "::1")||local.UserInfo!=""||local.Query!=""||local.Fragment!=""||local.AbsolutePath!="/")throw new Exception("This acceptance runner only permits an isolated loopback HTTP API.");
+var qaEmail=$"windows-service-{Guid.NewGuid():N}@example.invalid";
+const string qaPassword="Synthetic-Windows-Service-Only-42!";
 using var api=new ApexApi(apiOrigin);
-if(api.RestoreSession()&&api.Email!=qaEmail)throw new Exception("Another user's remembered session exists; leaving it unchanged.");
-// A remembered synthetic session may have expired between release runs.
-// Obtain a fresh normal session before checking vault restoration.
-await api.Login(qaEmail,"REPLACE_WITH_PRIVATE_QA_PASSWORD",true);
+if(api.RestoreSession())throw new Exception("A remembered session exists for this local origin; leaving it unchanged. Use a fresh isolated runner/origin.");
+await api.Send("/api/auth/register",HttpMethod.Post,new JsonObject{["email"]=qaEmail,["password"]=qaPassword});
+await api.Login(qaEmail,qaPassword,true);
 var checks=new List<string>();
 void Check(string name,bool condition){if(!condition)throw new Exception(name);checks.Add(name);}
 using(var restored=new ApexApi(apiOrigin))Check("normal Windows vault restores synthetic QA session",restored.RestoreSession()&&restored.Email==qaEmail&&await restored.Send("/api/companies") is JsonArray);
@@ -96,4 +97,5 @@ Check("GSTR-1 draft JSON contains GSTIN and consumer schedules",json.Text("gstin
 var result=new JsonObject{["all_pass"]=true,["client"]=$"published Windows {typeof(ApexApi).Assembly.GetName().Version?.ToString(3)} ApexApi and ApexFiles",["company_id"]=cid,["logo_bytes"]=Convert.FromBase64String(logo.Split(',',2)[1]).Length,["checks"]=JsonSerializer.SerializeToNode(checks),["financial"]=financial,["stock"]=stock,["summary"]=summary};
 result["api_origin"]=api.Origin;
 await File.WriteAllTextAsync(args[1],result.ToJsonString(new JsonSerializerOptions{WriteIndented=true}));
+api.ForgetSession();
 Console.WriteLine($"PASS: {checks.Count} published Windows service checks; evidence: {args[1]}");

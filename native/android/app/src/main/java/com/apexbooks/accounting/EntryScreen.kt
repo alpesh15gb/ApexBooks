@@ -105,7 +105,7 @@ import org.json.JSONObject
                         }
                         Section(if (editor.purchase) "Supplier details" else "Customer details") {
                             if (editor.kind in setOf("credit_note", "debit_note")) Choice("Original invoice / bill", editor.get("applied_to"), listOf("" to "Choose source") + editor.targets().map { it.s("id") to "${it.s("number")} · ${it.s("name")}" }, editor::chooseSource)
-                            Choice("Saved party", editor.get("party_id"), listOf("" to "Enter manually") + vm.records.filter { it.s("kind") == "party" }.map { it.s("id") to it.s("name") }, editor::chooseParty)
+                            Choice("Saved party", editor.get("party_id"), listOf("" to "Enter manually") + editor.parties().map { it.s("id") to it.s("name") }, editor::chooseParty)
                             Field(if (editor.kind == "expense") "Supplier / expense description" else if (editor.purchase) "Supplier name" else "Customer name", editor.get("name"), editor::changePartyName, maximum = 120)
                             if (editor.document) Field("Phone · optional", editor.get("party_phone"), { change("party_phone", it) }, maximum = 32)
                         }
@@ -189,8 +189,8 @@ import org.json.JSONObject
     }
 }
 
-@Composable private fun MasterFields(editor:EntryEditor){val vm=editor.vm;Section(if(editor.kind=="party")"Party details"else"Item details"){Field("Name",editor.get("name"),{editor.set("name",it)},readOnly=editor.previous!=null,maximum=120);if(editor.kind=="party"){
-    Choice("Party type",editor.get("party_type"),listOf("both" to "Customer and supplier","customer" to "Customer","supplier" to "Supplier"),{editor.set("party_type",it)});for((key,label)in listOf("gstin" to "GSTIN","phone" to "Phone","email" to "Email","address" to "Address"))Field(label,editor.get(key),{editor.set(key,if(key=="gstin")it.uppercase()else it)},multiline=key=="address",maximum=if(key=="gstin")15 else if(key=="address")500 else if(key=="phone")32 else 254)
+@Composable private fun MasterFields(editor:EntryEditor){val vm=editor.vm;Section(if(editor.kind=="party")"Party details"else"Item details"){Field("Name",editor.get("name"),{editor.set("name",it)},readOnly=editor.previous!=null,maximum=120);Toggle("Active for new transactions",editor.flag("is_active"),{editor.set("is_active",it.toString())});Text("Inactive masters stay in history but cannot be selected for new transactions. Reactivate here when needed.",style=MaterialTheme.typography.bodySmall);if(editor.kind=="party"){
+    Choice("Party type",editor.get("party_type"),listOf("both" to "Customer and supplier","customer" to "Customer","supplier" to "Supplier"),{editor.set("party_type",it)});for((key,label)in listOf("gstin" to "GSTIN","phone" to "Phone","email" to "Email","address" to "Address","shipping_address" to "Default shipping address"))Field(label,editor.get(key),{editor.set(key,if(key=="gstin")it.uppercase()else it)},multiline=key in setOf("address","shipping_address"),maximum=if(key=="gstin")15 else if(key in setOf("address","shipping_address"))500 else if(key=="phone")32 else 254)
         Field("Payment terms · days (optional)",editor.get("payment_terms_days"),{editor.set("payment_terms_days",it)},number=true,maximum=4);Text("0 means due on the document date. Blank disables suggestions; saved document dates are never changed automatically.",style=MaterialTheme.typography.bodySmall)
     }else{
         DataImage(editor.get("image_data_url"),Modifier.fillMaxWidth().height(130.dp));Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){OutlinedButton(onClick={vm.files.pick(arrayOf("image/*")){uri->vm.task{editor.set("image_data_url",vm.files.image(uri));editor.set("image_thumbnail",vm.files.image(uri,140,15000))}}}){Text("Upload item image")};TextButton(onClick={editor.set("image_data_url","");editor.set("image_thumbnail","")}){Text("Remove")}}
@@ -202,7 +202,7 @@ val supplyChoices=listOf("taxable" to "Taxable","nil_rated" to "Nil rated","exem
     Section("Item ${index+1}"){
         val calculated=editor.preview?.o("data")?.a("lines")?.optJSONObject(index)
         if(calculated!=null){val amount=(calculated.s("taxable").toBigDecimalOrNull()?:java.math.BigDecimal.ZERO)+(calculated.s("tax").toBigDecimalOrNull()?:java.math.BigDecimal.ZERO);Text(money(amount),style=MaterialTheme.typography.titleMedium,color=ApexGreen)}
-        val products=editor.vm.records.filter{it.s("kind")=="item"}
+        val products=editor.items(line)
         Choice("Item / service",line.get("item_id"),listOf("" to "Enter a description")+products.map{it.s("id") to it.s("name")},{if(it.isBlank())line.set("item_id","")else editor.chooseItem(line,it)})
         ItemPriceSuggestion(editor,line)
         if(line.get("item_id").isBlank())Field("Description",line.get("description"),{line.set("description",it)},maximum=200)

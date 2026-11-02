@@ -1,5 +1,12 @@
 name: Android native UI and financial journeys
 on:
+  workflow_dispatch:
+    inputs:
+      allow_temporary_kvm_access:
+        description: 'Use only for the explicitly approved one-run temporary KVM access test'
+        required: false
+        type: boolean
+        default: false
   pull_request:
   push:
     branches: [main, master]
@@ -46,6 +53,19 @@ jobs:
           done
           cat "$RUNNER_TEMP/native-device-api.log"
           exit 1
+      - name: Grant approved one-run runner access to KVM
+        id: kvm_access
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_temporary_kvm_access }}
+        run: |
+          test -c /dev/kvm
+          command -v getfacl
+          command -v setfacl
+          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            getfacl -p /dev/kvm > "$RUNNER_TEMP/kvm-acl.before"
+            # Emit before mutation so cleanup also runs if access verification fails.
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+            sudo setfacl -m "u:$(id -u):rw" /dev/kvm
+          fi
       - name: Check hardware acceleration
         run: |
           test -e /dev/kvm
@@ -75,6 +95,11 @@ jobs:
           adb -e shell settings put global transition_animation_scale 0
           adb -e shell settings put global animator_duration_scale 0
           bash native/tools/run_android_device_checks.sh
+      - name: Restore original virtualization-device permissions
+        if: ${{ always() && steps.kvm_access.outputs.changed == 'true' }}
+        run: |
+          test -s "$RUNNER_TEMP/kvm-acl.before"
+          sudo setfacl --restore="$RUNNER_TEMP/kvm-acl.before"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

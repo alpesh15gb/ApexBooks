@@ -24,6 +24,7 @@ async function workspace(role, verify, additional = []) {
     else if (path.includes('/records?')) data = [invoice, ...additional];
     else if (path.endsWith('/records/invoice')) { const { outstanding, ...detail } = invoice; data = detail; }
     else if (additional.some(row => path.endsWith('/records/' + row.id))) data = additional.find(row => path.endsWith('/records/' + row.id));
+    else if (path.includes('/masters/') && options.method === 'PUT') data = { id: 'master-saved' };
     else if (path.endsWith('/records') && options.method === 'POST') { posts.push(JSON.parse(options.body)); data = { id: 'saved' }; }
     else if (path.endsWith('/bank-accounts')) data = [{ id: 'default', name: 'Synthetic bank' }];
     else if (path.endsWith('/preferences')) data = { document_template: 'classic' };
@@ -176,4 +177,18 @@ test('initial company history does not duplicate the dashboard report requests',
     assert.equal(requests.filter(path => path.includes('/records?')).length, 2);
     assert.match(document.body.textContent, /temporarily unavailable/, 'Terminal report error is not an endless loading placeholder');
   });
+});
+
+test('editing a master does not leave a stale origin for the next new invoice', async () => {
+ await workspace('owner', async ({ click, posts, dom }) => {
+  await click('Items');
+  assert.ok(document.querySelector('[aria-label="Master status"]').closest('.expanded-controls'));
+  await click('Edit');
+  await act(async () => document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+  await click('Sales invoices'); await click('Add sales invoice');
+  await act(async () => document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+  assert.equal(posts.at(-1).kind,'sales_invoice');
+  assert.match(document.querySelector('.page-heading h1')?.textContent || document.body.textContent,/Sales invoices/);
+  assert.equal(window.location.hash,'#/sales_invoice');
+ }, [{id:'catalog-item',kind:'item',name:'Synthetic cable',date:'2026-11-02',data:{sale_rate:'10',purchase_rate:'8'}}]);
 });

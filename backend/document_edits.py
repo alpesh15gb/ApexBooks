@@ -31,7 +31,9 @@ def install(app,m):
         if record.kind=='pos':metadata.add('tender_amount')
         inputs=metadata|{'lines','place_of_supply','supplier_state','document_discount_percent','round_total','return_stock','payment_account','bank_account_id','direction','to_bank_account_id','applied_to','allocations','is_advance','advance_supply','advance_gst_rate','tender_amount'}
         submitted={k:v for k,v in body.data.items() if k in inputs}
-        data={**record.data,**submitted};profile=session.get(m.CompanyTaxProfile,company_id)
+        data={**record.data,**submitted}
+        m.validate_active_references(company_id,record.kind,body.name,data,session,record)
+        profile=session.get(m.CompanyTaxProfile,company_id)
         purchase=record.kind in {'purchase_bill','debit_note','expense'}
         fields=('item_id','quantity','rate','gst_rate','discount_percent','discount_amount','tax_treatment','price_includes_tax')+ (('itc_treatment',) if purchase and (profile.mode if profile else 'regular')=='regular' else ())
         numeric={'quantity','rate','gst_rate','discount_percent','discount_amount','document_discount_percent','advance_gst_rate'}
@@ -170,7 +172,7 @@ def install(app,m):
             # Its commit is held until the entire revision and audit are ready.
             original_commit=session.commit
             session.commit=session.flush
-            try:new=m.create_record(company_id,m.RecordInput(kind=kind,name=body.name,number=body.number,date=body.date,amount=body.amount,data=payload),SimpleNamespace(headers={}),user,session)
+            try:new=m.save_record(company_id,m.RecordInput(kind=kind,name=body.name,number=body.number,date=body.date,amount=body.amount,data=payload),SimpleNamespace(headers={}),user,session,historical_record=record)
             finally:session.commit=original_commit
             replacement=session.get(m.Record,new['id']);new_data=dict(replacement.data)
             if kind in {'credit_note','debit_note'}:

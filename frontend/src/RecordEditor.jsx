@@ -9,6 +9,7 @@ import {
 } from "./DocumentWorkbench.jsx";
 import { prepareInvoiceImage } from "./prepareInvoiceImage.js";
 import React, { useState, useEffect, useRef } from "react";
+import { availableMasters, partyShippingAddress, shippingForPartySelection } from "./masterLifecycle.js";
 import PriceHistory from "./PriceHistory.jsx";
 import PaymentAllocations from "./PaymentAllocations.jsx";
 export default function RecordEditor({
@@ -41,6 +42,11 @@ export default function RecordEditor({
     showTax = company.tax_mode === "regular" || purchase;
   const initial = source || relatedSource || draftSeed;
   const [priceLine, setPriceLine] = useState(null), [termsSuggestion, setTermsSuggestion] = useState(null), [termsError, setTermsError] = useState("");
+  const lastShippingDefault = useRef("");
+  const retainedParties = edit || relatedSource ? [initial?.data?.party_id].filter(Boolean) : [];
+  const retainedItems = edit || relatedSource ? (initial?.data?.lines || []).map(line => line.item_id).filter(Boolean) : [];
+  const partyChoices = availableMasters(records, "party", ["payment_in", "payment_out"].includes(kind) ? records.filter(record => record.kind === "party").map(record => record.id) : retainedParties);
+  const itemChoices = availableMasters(records, "item", retainedItems);
   const canWrite = ["owner", "editor"].includes(company.role);
   const isPayment = ["payment_in", "payment_out"].includes(kind);
   const [dirty, setDirty] = useState(false),
@@ -265,12 +271,15 @@ export default function RecordEditor({
     const value = e.target.value;
     const matched =
       e.target.name === "name" && (doc || isPayment)
-        ? records.find(
+        ? partyChoices.find(
             (r) =>
               r.kind === "party" &&
               r.name.trim().toLowerCase() === value.trim().toLowerCase(),
           )
         : null;
+    const nextShippingDefault = matched ? partyShippingAddress(matched) : "";
+    const shipping = shippingForPartySelection(form.shipping_address, lastShippingDefault.current, nextShippingDefault);
+    if (e.target.name === "name") lastShippingDefault.current = nextShippingDefault;
     setForm({
       ...form,
       [e.target.name]: value,
@@ -280,7 +289,7 @@ export default function RecordEditor({
             party_address: matched.data?.address || "",
             party_gstin: matched.data?.gstin || "",
             party_phone: matched.data?.phone || "",
-            shipping_address: matched.data?.address || "",
+            shipping_address: shipping,
             ...(purchase
               ? {
                   supplier_state:
@@ -298,7 +307,7 @@ export default function RecordEditor({
               party_address: "",
               party_gstin: "",
               party_phone: "",
-              shipping_address: "",
+              shipping_address: shipping,
               supplier_state: company.state_code,
               place_of_supply: company.state_code,
             }
@@ -318,7 +327,7 @@ export default function RecordEditor({
                 : "18"
               : "0";
         if (e.target.name === "description") {
-          const found = records.find(
+          const found = itemChoices.find(
             (r) =>
               r.kind === "item" &&
               r.name.trim().toLowerCase() ===
@@ -746,15 +755,13 @@ export default function RecordEditor({
                 onSelectSource={selectSource}
               />
               <datalist id="apex-party-options">
-                {records
-                  .filter((r) => r.kind === "party")
+                {partyChoices
                   .map((r) => (
                     <option key={r.id} value={r.name} />
                   ))}
               </datalist>
               <datalist id="apex-item-options">
-                {records
-                  .filter((r) => r.kind === "item")
+                {itemChoices
                   .map((r) => (
                     <option key={r.id} value={r.name} />
                   ))}

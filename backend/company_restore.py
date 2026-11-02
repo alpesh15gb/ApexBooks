@@ -70,6 +70,10 @@ def validate(payload):
         number(row['amount']);date.fromisoformat(row['date'])
         if not isinstance(row.get('name'),str) or len(row['name'])>120 or not isinstance(row.get('number'),str) or len(row['number'])>120:raise ValueError('Invalid record name or reference')
         if not isinstance(row.get('data'),dict) or not isinstance(row.get('kind'),str) or len(row['kind'])>60:raise ValueError('Invalid record data')
+        if row['kind'] in {'party','item'}:
+            data=row['data']
+            if 'is_active' in data and not isinstance(data['is_active'],bool):raise ValueError('Invalid master active state')
+            if 'shipping_address' in data and (not isinstance(data['shipping_address'],str) or len(data['shipping_address'])>500 or (row['kind']!='party' and data['shipping_address'])):raise ValueError('Invalid party shipping address')
     for row in groups['journals']:date.fromisoformat(row['date'])
     codes=[r.get('code') for r in groups['accounts']];names=[r.get('name') for r in groups['accounts']]
     if len(set(codes))!=len(codes):raise ValueError('Duplicate account code')

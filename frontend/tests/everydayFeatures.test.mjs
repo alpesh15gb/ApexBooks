@@ -58,3 +58,14 @@ test('payment terms preserve manual due dates until explicitly applied', async (
  assert.equal(document.querySelector('input[name=due_date]').value,'2026-11-15');
  await act(async () => button('Apply payment terms').click()); assert.equal(document.querySelector('input[name=due_date]').value,'2026-12-02'); await act(async () => root.unmount());
 });
+test('master archive is reversible and delivery address is independent of billing', async () => {
+ const root = createRoot(document.getElementById('root')); let saved;
+ const props={kind:'party',record:{id:'p1',name:'Synthetic',data:{address:'Billing office',shipping_address:'Delivery warehouse',is_active:true}},save:value=>{saved=value;},close:()=>{}};
+ await act(async () => root.render(React.createElement(Master,props)));
+ await act(async () => document.querySelector('input[type=checkbox]').click());
+ await act(async () => document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
+ assert.equal(saved.data.is_active,false); assert.equal(saved.data.address,'Billing office'); assert.equal(saved.data.shipping_address,'Delivery warehouse');
+ await act(async () => document.querySelector('input[type=checkbox]').click());
+ await act(async () => document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
+ assert.equal(saved.data.is_active,true); await act(async () => root.unmount());
+});

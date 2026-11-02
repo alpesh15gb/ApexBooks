@@ -102,6 +102,7 @@ def install(app,m):
         previous={'name':record.name,'number':record.number,'date':record.date.isoformat(),'amount':str(record.amount),'data':{k:v for k,v in record.data.items() if k!='document_branding'}}
         # Source lineage is established by conversion/import, never by a draft edit.
         submitted={key:value for key,value in body.data.items() if key not in {'source_document_id','created_at'} and not key.startswith('vyapar_')}
+        m.validate_active_references(company_id,record.kind,body.name,{**record.data,**submitted},session,record)
         data,amount=m.calculate({**record.data,**submitted},company,profile.mode if profile else 'regular',record.kind,session)
         record.name=body.name.strip();record.number=number;record.date=body.date;record.amount=amount
         record.data={**data,'version':record.data.get('version',0)+1,'company_snapshot':m.company_obj(company,session),'document_branding':m.branding_for(company_id,session)}
@@ -122,6 +123,7 @@ def install(app,m):
         if category in ('receivable','payable'):
             party=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==body.data.get('party_id'),m.Record.kind=='party'))
             if not party:raise HTTPException(422,'Choose a party in this company')
+            if party.data.get('is_active',True) is False:raise HTTPException(422,'Reactivate this party before posting an opening balance')
             existing=list(session.scalars(select(m.Record).where(m.Record.company_id==company_id,func.lower(m.Record.name)==party.name.lower())))
             if any(r.kind in ('sales_invoice','purchase_bill','payment_in','payment_out','credit_note','debit_note','pos','opening_'+category) for r in existing):raise HTTPException(409,'Set a party opening before its first transaction; this balance cannot be added twice')
             data['party_id']=party.id;name=party.name
