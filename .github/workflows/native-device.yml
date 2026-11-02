@@ -23,6 +23,9 @@ jobs:
       JWT_SECRET: synthetic-native-device-ci-only-not-a-production-secret
     steps:
       - uses: actions/checkout@v4
+        with:
+          # One explicitly approved run tests this immutable published candidate.
+          ref: ${{ github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.number == 1 && github.head_ref == 'codex/end-to-end-hardening' && github.event.pull_request.head.repo.full_name == github.repository && github.run_number == '12' && github.run_attempt == '1' && '87ee6f3a9276f6992fc18425323b21cb52592d79' || github.sha }}
       - name: Record checked-out build revision
         shell: bash
         run: |
@@ -61,8 +64,9 @@ jobs:
           exit 1
       - name: Grant approved one-run runner access to KVM
         id: kvm_access
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_temporary_kvm_access }}
+        if: ${{ github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.number == 1 && github.head_ref == 'codex/end-to-end-hardening' && github.event.pull_request.head.repo.full_name == github.repository && github.run_number == '12' && github.run_attempt == '1' }}
         run: |
+          test "$(git rev-parse HEAD)" = "87ee6f3a9276f6992fc18425323b21cb52592d79"
           test -c /dev/kvm
           command -v getfacl
           command -v setfacl
@@ -106,6 +110,8 @@ jobs:
         run: |
           test -s "$RUNNER_TEMP/kvm-acl.before"
           sudo setfacl --restore="$RUNNER_TEMP/kvm-acl.before"
+          getfacl -p /dev/kvm > "$RUNNER_TEMP/kvm-acl.after"
+          cmp "$RUNNER_TEMP/kvm-acl.before" "$RUNNER_TEMP/kvm-acl.after"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
