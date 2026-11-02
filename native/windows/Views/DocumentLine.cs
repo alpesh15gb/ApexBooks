@@ -24,6 +24,8 @@ public sealed class DocumentLine
         var data = initial ?? new(); var items = masters.ToList(); itemId = data.Text("item_id");
         var panel = Stack(12); var link = Text("", 12); link.Foreground = Muted;
         var selector = new AutoSuggestBox { Header = "Item / service", PlaceholderText = "Search item or enter description", QueryIcon = new SymbolIcon(Symbol.Find) };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(selector,"Item / service");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(selector,"DocumentLineItemSelector");
         var current = items.FirstOrDefault(r => r.Text("id") == itemId); selector.Text = current is null?data.Text("description"):current.Text("name");
         Description = Input("Item / service description", data.Text("description"));Description.IsReadOnly=itemId.Length>0;
         Quantity = Input("Quantity", data.Text("quantity") is { Length: > 0 } q ? q : "1");
