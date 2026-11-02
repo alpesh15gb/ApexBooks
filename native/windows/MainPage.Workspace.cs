@@ -1,0 +1,85 @@
+using ApexBooks_Windows.Models;
+using ApexBooks_Windows.Services;
+using Microsoft.UI;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
+using System.Text.Json.Nodes;
+using static ApexBooks_Windows.Views.NativeUi;
+
+namespace ApexBooks_Windows;
+
+public sealed partial class MainPage
+{
+    private readonly TextBlock workspaceCompany=Text("Your workspace",16,true);
+    private string dashboardPeriod="year";
+    private sealed record SearchHit(string Label,string Page,JsonObject? Record=null){public override string ToString()=>Label;}
+
+    private UIElement BuildWorkspaceHeader()
+    {
+        var grid=new Grid{ColumnSpacing=14,VerticalAlignment=VerticalAlignment.Center};
+        foreach(var width in new[]{new GridLength(1,GridUnitType.Star),new GridLength(250),GridLength.Auto,GridLength.Auto})grid.ColumnDefinitions.Add(new ColumnDefinition{Width=width});
+        var identity=Stack(3);identity.Children.Add(workspaceCompany);var caption=Text("APEX BOOKS  /  CONNECTED WORKSPACE",10,true);caption.Foreground=Muted;identity.Children.Add(caption);grid.Children.Add(identity);
+        var search=new AutoSuggestBox{PlaceholderText="Search records or a section",TextMemberPath="Label",QueryIcon=new SymbolIcon(Symbol.Find),MinHeight=40};Grid.SetColumn(search,1);grid.Children.Add(search);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(search,"Search all records and sections");
+        search.TextChanged+=(_,args)=>{if(args.Reason!=AutoSuggestionBoxTextChangeReason.UserInput)return;var q=search.Text.Trim();search.ItemsSource=q.Length==0?Array.Empty<SearchHit>():FeatureCatalog.Navigation.Where(f=>f.Title.Contains(q,StringComparison.OrdinalIgnoreCase)).Select(f=>new SearchHit(f.Title,f.Key)).Concat(Records.OfType<JsonObject>().Where(r=>(r.Text("name")+" "+r.Text("number")).Contains(q,StringComparison.OrdinalIgnoreCase)).Select(r=>new SearchHit(r.Text("number")+" · "+r.Text("name"),RecordPage(r.Text("kind")),r))).Take(18).ToArray();};
+        search.QuerySubmitted+=async(_,args)=>await Run(async()=>{var hit=args.ChosenSuggestion as SearchHit??(search.ItemsSource as IEnumerable<SearchHit>)?.FirstOrDefault();if(hit is null)return;search.IsSuggestionListOpen=false;search.ItemsSource=null;search.Text="";await Navigate(hit.Page);if(hit.Record is { } row){if(row.Text("kind")=="party")await PartyStatement(row);else if(CanWrite&&(FeatureCatalog.Documents.Contains(row.Text("kind"))||row.Text("kind") is "item" or "payment_in" or "payment_out")&&row.Text("converted_to").Length==0)await EditRow(row);else if(FeatureCatalog.Documents.Contains(row.Text("kind")))await PreviewDocument(row);}});
+        var create=Button("+  Create",()=>{},true);var flyout=new MenuFlyout();
+        foreach(var kind in new[]{"sales_invoice","payment_in","estimate","proforma","credit_note","purchase_bill","payment_out","expense","purchase_order","debit_note","party","item","pos"}){var key=kind;var item=new MenuFlyoutItem{Text=FeatureCatalog.Title(key)};item.Click+=async(_,_)=>await Run(async()=>{if(!CanWrite)return;if(key=="pos")await Navigate(key);else await NewEntry(key);});flyout.Items.Add(item);}
+        flyout.Opening+=(_,_)=>{foreach(MenuFlyoutItem item in flyout.Items)item.IsEnabled=CanWrite&&CompanyId.Length>0;};create.Flyout=flyout;Grid.SetColumn(create,2);grid.Children.Add(create);
+        var refresh=AsyncButton("Refresh",Refresh,Error);Grid.SetColumn(refresh,3);grid.Children.Add(refresh);
+        return new Border{Child=grid,RequestedTheme=ElementTheme.Light,Background=Brush(255,255,255),Padding=new Thickness(28,16,20,16),BorderBrush=Brush(0xDF,0xE7,0xEB),BorderThickness=new Thickness(0,0,0,1)};
+    }
+    private NavigationViewItem? FindNavigation(string page){foreach(var item in navigation.MenuItems.OfType<NavigationViewItem>()){if(item.Tag?.ToString()==page)return item;foreach(var child in item.MenuItems.OfType<NavigationViewItem>())if(child.Tag?.ToString()==page){item.IsExpanded=true;return child;}}return null;}
+    private static string RecordPage(string kind)=>FeatureCatalog.Navigation.Any(f=>f.Key==kind)?kind:kind=="bank_transfer"?"bank":"ledger";
+
+    private async Task RichDashboard()
+    {
+        var end=DateTime.Today;var start=dashboardPeriod=="month"?new DateTime(end.Year,end.Month,1):dashboardPeriod=="30days"?end.AddDays(-29):DateTime.Parse(J.FinancialStart,System.Globalization.CultureInfo.InvariantCulture);
+        var from=start.ToString("yyyy-MM-dd");var to=end.ToString("yyyy-MM-dd");var cid=CompanyId;var stamp=generation;
+        var query=$"?from_date={from}&to_date={to}";
+        var overview=Api.Send(PathFor("/reports/summary"+query));var earnings=Api.Send(PathFor("/reports/financial"+query));var taxes=Api.Send(PathFor("/reports/gst-payable?from_date=2000-01-01&to_date="+to));await Task.WhenAll(overview,earnings,taxes);if(cid!=CompanyId||stamp!=generation)return;
+        var summary=await overview;var financial=await earnings;var gst=await taxes;
+        var period=Select("Dashboard period",new[]{("year","This financial year"),("month","This month"),("30days","Last 30 days")},dashboardPeriod);period.Width=240;
+        period.SelectionChanged+=async(_,_)=>await Run(async()=>{dashboardPeriod=Value(period);await Navigate("dashboard");});
+        var dates=Text($"{start:dd MMM yyyy} – {end:dd MMM yyyy}  ·  Posted activity",13);dates.Foreground=Muted;Body.Children.Add(Columns(dates,period));
+        var shortcuts=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};shortcuts.Children.Add(Text("Overview",13,true));shortcuts.Children.Add(AsyncButton("Sales & collections  ↗",()=>Navigate("sales_invoice"),Error));shortcuts.Children.Add(AsyncButton("Purchases  ↗",()=>Navigate("purchase_bill"),Error));shortcuts.Children.Add(AsyncButton("Reports & GST  ↗",()=>Navigate("reports"),Error));Body.Children.Add(shortcuts);
+        Border MetricCard(string label,decimal value,string note,bool hero=false){var s=Stack(12);var l=Text(label,12,true);l.Foreground=hero?Brush(0xCD,0xE9,0xDD):Muted;s.Children.Add(l);var amount=Text(J.Money(value),28,true);amount.Foreground=hero?Brush(255,255,255):Brush(0x19,0x2F,0x3B);s.Children.Add(amount);var n=Text(note,11);n.Foreground=hero?Brush(0xCD,0xE9,0xDD):Muted;s.Children.Add(n);var card=Card(s);if(hero){card.Background=Green;card.BorderBrush=card.Background;}return card;}
+        Body.Children.Add(ResponsiveMetrics(MetricCard("Net sales",summary.Number("sales"),"Posted sales, after credit notes",true),MetricCard("Net profit",financial.Number("net_profit"),"Income less recorded costs & expenses"),MetricCard("To collect",summary.Number("receivables"),"Outstanding as of today"),MetricCard("To pay",summary.Number("payables"),"Supplier balances as of today")));
+        void Kicker(Panel parent,string value){var label=Text(value,9,true);label.Foreground=Muted;parent.Children.Add(label);}
+        var chart=Stack(14);Kicker(chart,"BUSINESS PERFORMANCE");chart.Children.Add(Text("Sales & purchases",18,true));var legend=Text("●  Net sales     ●  Net purchases     ·     Invoice values include GST where applicable",11);legend.Foreground=Muted;chart.Children.Add(legend);chart.Children.Add(MonthChart(start,end));
+        var invoices=Records.OfType<JsonObject>().Where(r=>r.Text("kind")=="sales_invoice"&&r.Flag("posted")).ToArray();var issued=invoices.Sum(r=>r.Number("amount"));var due=invoices.Sum(r=>r.Number("outstanding"));var settled=Math.Max(0,issued-due);
+        var attention=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};var hint=Text("Needs attention",12);hint.VerticalAlignment=VerticalAlignment.Center;hint.Foreground=Muted;attention.Children.Add(hint);
+        var overdue=invoices.Count(r=>r.Number("outstanding")>0&&r["data"].Text("due_date").Length>0&&string.CompareOrdinal(r["data"].Text("due_date"),to)<0);var unpaid=Records.OfType<JsonObject>().Count(r=>r.Text("kind")=="purchase_bill"&&r.Flag("posted")&&r.Number("outstanding")>0);var estimates=Records.OfType<JsonObject>().Count(r=>r.Text("kind")=="estimate"&&r.Text("converted_to").Length==0);
+        attention.Children.Add(AsyncButton($"{overdue} overdue invoices",()=>Navigate("sales_invoice"),Error));attention.Children.Add(AsyncButton($"{unpaid} unpaid bills",()=>Navigate("purchase_bill"),Error));attention.Children.Add(AsyncButton($"{estimates} open estimates",()=>Navigate("estimate"),Error));Body.Children.Add(attention);
+        var collections=Stack(14);Kicker(collections,"GET PAID");collections.Children.Add(Text("Invoice collections",18,true));var collectionDetails=Stack(10);collectionDetails.Children.Add(Text("Settled",11));collectionDetails.Children.Add(Text(J.Money(settled),17,true));collectionDetails.Children.Add(Text("Outstanding",11));collectionDetails.Children.Add(Text(J.Money(due),17,true));collections.Children.Add(Columns(SettlementRing(issued>0?settled/issued:0),collectionDetails));var foot=Text("All posted invoices · settlements include payments, advances and credits.",11);foot.Foreground=Muted;collections.Children.Add(foot);collections.Children.Add(AsyncButton("Open sales invoices  →",()=>Navigate("sales_invoice"),Error));
+        Body.Children.Add(Columns(Card(chart),Card(collections)));
+        var profit=Stack(14);profit.Children.Add(Text("Profit & loss",20,true));profit.Children.Add(Text(J.Money(financial.Number("net_profit")),30,true));profit.Children.Add(Text("Net profit for this period",12));profit.Children.Add(Text("Income   "+J.Money(financial.Number("income")),14));profit.Children.Add(Text("Costs & expenses   "+J.Money(financial.Number("expenses")),14));profit.Children.Add(AsyncButton("Explore reports  →",()=>Navigate("reports"),Error));
+        var money=Stack(14);money.Children.Add(Text("Cash & bank",20,true));var bankCodes=Banks.Select(b=>b.Text("ledger_code")).ToHashSet();var accounts=financial["accounts"].Array().Where(a=>a.Text("code") is "SYS-CASH" or "SYS-BANK"||bankCodes.Contains(a.Text("code"))).ToArray();money.Children.Add(Text(J.Money(accounts.Sum(a=>a.Number("closing_balance"))),30,true));foreach(var a in accounts)money.Children.Add(Text(a.Text("name")+"   "+J.Money(a.Number("closing_balance")),13));money.Children.Add(AsyncButton("Manage cash & bank  →",()=>Navigate("bank"),Error));
+        var tax=Stack(14);tax.Children.Add(Text(Company.Text("tax_mode")=="regular"?"GST position":"Your tax settings",20,true));if(Company.Text("tax_mode")=="regular"){tax.Children.Add(Text(J.Money(gst.Number("cash_total")),30,true));tax.Children.Add(Text("Estimated GST payable · to date",12));tax.Children.Add(Text("Output GST   "+J.Money(gst["output"].Object().Sum(p=>p.Value.Number())),13));tax.Children.Add(Text("Input from bills   "+J.Money(gst["book_itc"].Object().Sum(p=>p.Value.Number())),13));var guidance=Text("From entered bills. Verify ITC eligibility and GSTR-2B before filing.",12);guidance.Foreground=Muted;tax.Children.Add(guidance);}else tax.Children.Add(Text(Company.Text("tax_mode")=="composition"?"Composition accounting is active. Review composition reports for your liability.":"Non-GST accounting is active. Sales and purchase documents use your non-GST settings.",14));
+        Body.Children.Add(Columns(Card(profit),Card(money),Card(tax)));
+        if(CanWrite){var actions=new StackPanel{Orientation=Orientation.Horizontal,Spacing=12};actions.Children.Add(AsyncButton("+  New invoice",()=>EditDocument("sales_invoice"),Error,true));actions.Children.Add(AsyncButton("Add purchase / scan bill",()=>EditDocument("purchase_bill"),Error));actions.Children.Add(AsyncButton("Record receipt",()=>EditPayment("payment_in"),Error));actions.Children.Add(AsyncButton("Open POS",()=>Navigate("pos"),Error));Body.Children.Add(actions);}
+        Body.Children.Add(Text("Recent activity",21,true));AddRecordList(Records.OfType<JsonObject>().Where(r=>r.Text("kind") is not("party" or "item" or "bank_account")).Take(8));
+    }
+
+    private static UIElement SettlementRing(decimal ratio)
+    {
+        var value=(double)Math.Clamp(ratio,0,1);var ring=new Grid{Width=140,Height=140,HorizontalAlignment=HorizontalAlignment.Center};ring.Children.Add(new Ellipse{Stroke=Brush(0xE5,0xEF,0xED),StrokeThickness=14});
+        if(value>=1)ring.Children.Add(new Ellipse{Stroke=Green,StrokeThickness=14});
+        else if(value>0){var angle=2*Math.PI*value;var figure=new PathFigure{StartPoint=new Windows.Foundation.Point(70,7)};figure.Segments.Add(new ArcSegment{Point=new Windows.Foundation.Point(70+63*Math.Sin(angle),70-63*Math.Cos(angle)),Size=new Windows.Foundation.Size(63,63),IsLargeArc=value>.5,SweepDirection=SweepDirection.Clockwise});var geometry=new PathGeometry();geometry.Figures.Add(figure);ring.Children.Add(new Microsoft.UI.Xaml.Shapes.Path{Data=geometry,Stroke=Green,StrokeThickness=14});}
+        var label=Stack(1);label.HorizontalAlignment=HorizontalAlignment.Center;label.VerticalAlignment=VerticalAlignment.Center;var percent=Text(value.ToString("P0"),26,true);percent.HorizontalAlignment=HorizontalAlignment.Center;label.Children.Add(percent);var caption=Text("settled",11);caption.Foreground=Muted;caption.HorizontalAlignment=HorizontalAlignment.Center;label.Children.Add(caption);ring.Children.Add(label);Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ring,value.ToString("P0")+" of posted invoices settled");return ring;
+    }
+
+    private UIElement MonthChart(DateTime start,DateTime end)
+    {
+        var rows=new List<(DateTime Month,decimal Sales,decimal Purchases)>();
+        for(var m=new DateTime(start.Year,start.Month,1);m<=end&&rows.Count<13;m=m.AddMonths(1)){var key=m.ToString("yyyy-MM");var records=Records.OfType<JsonObject>().Where(r=>r.Flag("posted")&&r.Text("date").StartsWith(key)&&string.CompareOrdinal(r.Text("date"),start.ToString("yyyy-MM-dd"))>=0&&string.CompareOrdinal(r.Text("date"),end.ToString("yyyy-MM-dd"))<=0).ToArray();rows.Add((m,records.Sum(r=>r.Text("kind") is "sales_invoice" or "pos"?r.Number("amount"):r.Text("kind")=="credit_note"?-r.Number("amount"):0),records.Sum(r=>r.Text("kind")=="purchase_bill"?r.Number("amount"):r.Text("kind")=="debit_note"?-r.Number("amount"):0)));}
+        var values=rows.SelectMany(r=>new[]{r.Sales,r.Purchases}).ToArray();var max=Math.Max(0,values.DefaultIfEmpty().Max());var min=Math.Min(0,values.DefaultIfEmpty().Min());var span=max-min;
+        if(span==0){var empty=Text("No net movement in this period.\nPosted sales and purchases will appear here.",14);empty.Margin=new Thickness(0,50,0,50);empty.Foreground=Muted;return empty;}
+        var grid=new Grid{ColumnSpacing=6};var baseline=140*(double)(max/span);
+        for(var i=0;i<rows.Count;i++){grid.ColumnDefinitions.Add(new ColumnDefinition());var r=rows[i];var group=Stack(9);var canvas=new Canvas{Height=150,HorizontalAlignment=HorizontalAlignment.Stretch};var sales=new Rectangle{Fill=Green,RadiusX=3,RadiusY=3};var purchases=new Rectangle{Fill=Brush(0x86,0xAB,0xC0),RadiusX=3,RadiusY=3};var axis=new Line{Stroke=Brush(0xCF,0xDA,0xDF),StrokeThickness=1,Y1=baseline,Y2=baseline};canvas.Children.Add(axis);canvas.Children.Add(sales);canvas.Children.Add(purchases);void Resize(){axis.X2=canvas.ActualWidth;var w=Math.Min(20,canvas.ActualWidth*.3);void Bar(Rectangle rect,decimal value,double x){var y=140*(double)((max-value)/span);rect.Width=w;rect.Height=Math.Abs(y-baseline);Canvas.SetTop(rect,Math.Min(y,baseline));Canvas.SetLeft(rect,x);}Bar(sales,r.Sales,canvas.ActualWidth/2-w-2);Bar(purchases,r.Purchases,canvas.ActualWidth/2+2);}canvas.SizeChanged+=(_,_)=>Resize();group.Children.Add(canvas);var label=Text(r.Month.ToString("MMM"),11);label.HorizontalAlignment=HorizontalAlignment.Center;label.Foreground=Muted;group.Children.Add(label);var description=$"{r.Month:MMMM yyyy}: net sales {J.Money(r.Sales)}, net purchases {J.Money(r.Purchases)}";ToolTipService.SetToolTip(group,description);Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(group,description);Grid.SetColumn(group,i);grid.Children.Add(group);}
+        return grid;
+    }
+    private static Grid ResponsiveMetrics(params UIElement[] cards){var grid=new Grid{ColumnSpacing=16,RowSpacing=16};foreach(var card in cards)grid.Children.Add(card);var current=0;void Arrange(int count){if(current==count)return;current=count;grid.ColumnDefinitions.Clear();grid.RowDefinitions.Clear();for(var col=0;col<count;col++)grid.ColumnDefinitions.Add(new ColumnDefinition());for(var row=0;row<(cards.Length+count-1)/count;row++)grid.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});for(var i=0;i<cards.Length;i++){Grid.SetColumn((FrameworkElement)cards[i],i%count);Grid.SetRow((FrameworkElement)cards[i],i/count);}}Arrange(2);grid.SizeChanged+=(_,_)=>Arrange(grid.ActualWidth>=1000?4:grid.ActualWidth>=460?2:1);return grid;}
+}

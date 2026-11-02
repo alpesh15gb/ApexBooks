@@ -1,0 +1,10 @@
+[Unit]
+Description=Apex Books PostgreSQL backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/apex-books
+ExecStart=/opt/apex-books/deploy/backup.sh /var/backups/apex-books
+UMask=0077

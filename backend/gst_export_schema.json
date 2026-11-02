@@ -1,0 +1,911 @@
+{
+  "source": "https://tutorial.gst.gov.in/offlineutilities/returns/gst_offline_tool.zip",
+  "template": "GSTR1_Excel_Workbook_Template_V2.2.xlsx",
+  "checked_on": "2026-11-01",
+  "sheets": {
+    "b2b,sez,de": {
+      "title": "Summary For B2B, SEZ, DE (4A, 4B, 6B, 6C)",
+      "summary": [
+        "No. of Recipients",
+        null,
+        "No. of Invoices",
+        null,
+        "Total Invoice Value",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "GSTIN/UIN of Recipient",
+        "Receiver Name",
+        "Invoice Number",
+        "Invoice date",
+        "Invoice Value",
+        "Place Of Supply",
+        "Reverse Charge",
+        "Applicable % of Tax Rate",
+        "Invoice Type",
+        "E-Commerce GSTIN",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    },
+    "b2ba": {
+      "title": "Summary For B2BA",
+      "summary": [
+        "No. of Recipients",
+        null,
+        "No. of Invoices",
+        null,
+        null,
+        null,
+        "Total Invoice Value",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "GSTIN/UIN of Recipient",
+        "Receiver Name",
+        "Original Invoice Number",
+        "Original Invoice date",
+        "Revised Invoice Number",
+        "Revised Invoice date",
+        "Invoice Value",
+        "Place Of Supply",
+        "Reverse Charge",
+        "Applicable % of Tax Rate",
+        "Invoice Type",
+        "E-Commerce GSTIN",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    },
+    "b2cl": {
+      "title": "Summary For B2CL(5)",
+      "summary": [
+        "No. of Invoices"
+      ],
+      "headers": [
+        "Invoice Number",
+        "Invoice date",
+        "Invoice Value",
+        "Place Of Supply",
+        "Applicable % of Tax Rate",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount",
+        "E-Commerce GSTIN"
+      ]
+    },
+    "b2cla": {
+      "title": "Summary For B2CLA",
+      "summary": [
+        "No. of Invoices",
+        null,
+        null,
+        null,
+        null,
+        "Total Inv Value",
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "Original Invoice Number",
+        "Original Invoice date",
+        "Original Place Of Supply",
+        "Revised Invoice Number",
+        "Revised Invoice date",
+        "Invoice Value",
+        "Applicable % of Tax Rate",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount",
+        "E-Commerce GSTIN"
+      ]
+    },
+    "b2cs": {
+      "title": "Summary For B2CS(7)",
+      "summary": [
+        null,
+        null,
+        null,
+        null,
+        "Total Taxable  Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "Type",
+        "Place Of Supply",
+        "Applicable % of Tax Rate",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount",
+        "E-Commerce GSTIN"
+      ]
+    },
+    "b2csa": {
+      "title": "Summary For B2CSA",
+      "summary": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "Total Taxable  Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "Financial Year",
+        "Original Month",
+        "Place Of Supply",
+        "Type",
+        "Applicable % of Tax Rate",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount",
+        "E-Commerce GSTIN"
+      ]
+    },
+    "cdnr": {
+      "title": "Summary For CDNR(9B)",
+      "summary": [
+        "No. of Recipients",
+        null,
+        "No. of Notes",
+        null,
+        null,
+        null,
+        null,
+        null,
+        "Total Note Value",
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "GSTIN/UIN of Recipient",
+        "Receiver Name",
+        "Note Number",
+        "Note Date",
+        "Note Type",
+        "Place Of Supply",
+        "Reverse Charge",
+        "Note Supply Type",
+        "Note Value",
+        "Applicable % of Tax Rate",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    },
+    "cdnra": {
+      "title": "Summary For CDNRA",
+      "summary": [
+        "No. of Recipients",
+        null,
+        "No. of Notes/Vouchers",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "Total Note Value",
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "GSTIN/UIN of Recipient",
+        "Receiver Name",
+        "Original Note Number",
+        "Original Note Date",
+        "Revised Note Number",
+        "Revised Note Date",
+        "Note Type",
+        "Place Of Supply",
+        "Reverse Charge",
+        "Note Supply Type",
+        "Note Value",
+        "Applicable % of Tax Rate",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    },
+    "cdnur": {
+      "title": "Summary For CDNUR(9B)",
+      "summary": [
+        null,
+        "No. of Notes/Vouchers",
+        null,
+        null,
+        null,
+        "Total Note Value",
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "UR Type",
+        "Note Number",
+        "Note Date",
+        "Note Type",
+        "Place Of Supply",
+        "Note Value",
+        "Applicable % of Tax Rate",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    },
+    "cdnura": {
+      "title": "Summary For CDNURA",
+      "summary": [
+        null,
+        "No. of Notes/Vouchers",
+        null,
+        null,
+        null,
+        null,
+        null,
+        "Total Note Value",
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "UR Type",
+        "Original Note Number",
+        "Original Note Date",
+        "Revised Note Number",
+        "Revised Note Date",
+        "Note Type",
+        "Place Of Supply",
+        "Note Value",
+        "Applicable % of Tax Rate",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    },
+    "exp": {
+      "title": "Summary For EXP(6)",
+      "summary": [
+        null,
+        "No. of Invoices",
+        null,
+        "Total Invoice Value",
+        null,
+        "No. of Shipping Bill",
+        null,
+        null,
+        null,
+        "Total Taxable Value"
+      ],
+      "headers": [
+        "Export Type",
+        "Invoice Number",
+        "Invoice date",
+        "Invoice Value",
+        "Port Code",
+        "Shipping Bill Number",
+        "Shipping Bill Date",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    },
+    "expa": {
+      "title": "Summary For EXPA",
+      "summary": [
+        null,
+        "No. of Invoices",
+        null,
+        null,
+        null,
+        "Total Invoice Value",
+        null,
+        "No. of Shipping Bill",
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "Export Type",
+        "Original Invoice Number",
+        "Original Invoice date",
+        "Revised Invoice Number",
+        "Revised Invoice date",
+        "Invoice Value",
+        "Port Code",
+        "Shipping Bill Number",
+        "Shipping Bill Date",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    },
+    "at": {
+      "title": "Summary For Advance Received (11B) ",
+      "summary": [
+        null,
+        null,
+        null,
+        "Total Advance Received",
+        "Total Cess"
+      ],
+      "headers": [
+        "Place Of Supply",
+        "Applicable % of Tax Rate",
+        "Rate",
+        "Gross Advance Received",
+        "Cess Amount"
+      ]
+    },
+    "ata": {
+      "title": "Summary For Amended Tax Liability(Advance Received) ",
+      "summary": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        "Total Advance Received",
+        "Total Cess"
+      ],
+      "headers": [
+        "Financial Year",
+        "Original Month",
+        "Original Place Of Supply",
+        "Applicable % of Tax Rate",
+        "Rate",
+        "Gross Advance Received",
+        "Cess Amount"
+      ]
+    },
+    "atadj": {
+      "title": "Summary For Advance Adjusted (11B) ",
+      "summary": [
+        null,
+        null,
+        null,
+        "Total Advance Adjusted",
+        "Total Cess"
+      ],
+      "headers": [
+        "Place Of Supply",
+        "Applicable % of Tax Rate",
+        "Rate",
+        "Gross Advance Adjusted",
+        "Cess Amount"
+      ]
+    },
+    "atadja": {
+      "title": "Summary For Amendement Of Adjustment Advances",
+      "summary": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        "Total Advance Adjusted",
+        "Total Cess"
+      ],
+      "headers": [
+        "Financial Year",
+        "Original Month",
+        "Original Place Of Supply",
+        "Applicable % of Tax Rate",
+        "Rate",
+        "Gross Advance Adjusted",
+        "Cess Amount"
+      ]
+    },
+    "exemp": {
+      "title": "Summary For Nil rated, exempted and non GST outward supplies (8)",
+      "summary": [
+        null,
+        "Total Nil Rated Supplies",
+        "Total Exempted Supplies",
+        "Total Non-GST Supplies"
+      ],
+      "headers": [
+        "Description",
+        "Nil Rated Supplies",
+        "Exempted(other than nil rated/non GST supply)",
+        "Non-GST Supplies"
+      ]
+    },
+    "hsn(b2b)": {
+      "title": "Summary For HSN(12)",
+      "summary": [
+        "No. of HSN",
+        null,
+        null,
+        null,
+        "Total Value",
+        null,
+        "Total Taxable Value",
+        "Total Integrated Tax",
+        "Total Central Tax",
+        "Total State/UT Tax",
+        "Total Cess"
+      ],
+      "headers": [
+        "HSN",
+        "Description",
+        "UQC",
+        "Total Quantity",
+        "Total Value",
+        "Rate",
+        "Taxable Value",
+        "Integrated Tax Amount",
+        "Central Tax Amount",
+        "State/UT Tax Amount",
+        "Cess Amount"
+      ]
+    },
+    "hsn(b2c)": {
+      "title": "Summary For HSN(12)",
+      "summary": [
+        "No. of HSN",
+        null,
+        null,
+        null,
+        "Total Value",
+        null,
+        "Total Taxable Value",
+        "Total Integrated Tax",
+        "Total Central Tax",
+        "Total State/UT Tax",
+        "Total Cess"
+      ],
+      "headers": [
+        "HSN",
+        "Description",
+        "UQC",
+        "Total Quantity",
+        "Total Value",
+        "Rate",
+        "Taxable Value",
+        "Integrated Tax Amount",
+        "Central Tax Amount",
+        "State/UT Tax Amount",
+        "Cess Amount"
+      ]
+    },
+    "docs": {
+      "title": "Summary of documents issued during the tax period (13)",
+      "summary": [
+        null,
+        null,
+        null,
+        "Total Number",
+        "Total Cancelled"
+      ],
+      "headers": [
+        "Nature of Document",
+        "Sr. No. From",
+        "Sr. No. To",
+        "Total Number",
+        "Cancelled"
+      ]
+    },
+    "eco": {
+      "title": "Summary For Supplies through ECO-14",
+      "summary": [
+        null,
+        "No. of E-Commerce Operator",
+        null,
+        "Total Net Value of Supplies",
+        "Total Integrated Tax",
+        "Total Central Tax ",
+        "Total State/UT Tax ",
+        "Total Cess"
+      ],
+      "headers": [
+        "Nature of Supply",
+        "GSTIN of E-Commerce Operator",
+        "E-Commerce Operator Name",
+        "Net value of supplies",
+        "Integrated tax",
+        "Central tax",
+        "State/UT tax",
+        "Cess"
+      ]
+    },
+    "ecoa": {
+      "title": "Summary For Amended Supplies through ECO-14A",
+      "summary": [
+        null,
+        null,
+        null,
+        "No. of E-Commerce Operator",
+        null,
+        null,
+        "Total Net Value of Supplies",
+        "Total Integrated Tax",
+        "Total Central Tax ",
+        "Total State/UT Tax ",
+        "Total Cess"
+      ],
+      "headers": [
+        "Nature of Supply",
+        "Financial Year",
+        "Original Month/Quarter",
+        "Original GSTIN of E-Commerce Operator",
+        "Revised GSTIN of E-Commerce Operator",
+        "E-Commerce Operator Name",
+        "Revised Net value of supplies",
+        "Integrated tax",
+        "Central tax",
+        "State/UT tax",
+        "Cess"
+      ]
+    },
+    "ecob2b": {
+      "title": "Summary For Supplies U/s 9(5)-15-B2B",
+      "summary": [
+        "No. of Supplier",
+        null,
+        "No. of Recipients",
+        null,
+        "No. of Documents",
+        null,
+        "Total value of supplies made",
+        null,
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "Supplier GSTIN/UIN",
+        "Supplier Name",
+        "Recipient GSTIN/UIN",
+        "Recipient Name",
+        "Document Number",
+        "Document Date",
+        "Value of supplies made",
+        "Place Of Supply",
+        "Document type",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    },
+    "ecourp2b": {
+      "title": "Summary For Supplies U/s 9(5)-15-URP2B",
+      "summary": [
+        "No. of Recipients",
+        null,
+        "No. of Documents",
+        null,
+        "Total value of supplies made",
+        null,
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "Recipient GSTIN/UIN",
+        "Recipient Name",
+        "Document Number",
+        "Document Date",
+        "Value of supplies made",
+        "Place Of Supply",
+        "Document type",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    },
+    "ecob2c": {
+      "title": "Summary For Supplies U/s 9(5)-15-B2C",
+      "summary": [
+        "No. of Supplier",
+        null,
+        null,
+        "Total Taxable Value",
+        null,
+        "Total Cess"
+      ],
+      "headers": [
+        "Supplier GSTIN/UIN",
+        "Supplier Name",
+        "Place Of Supply",
+        "Taxable Value",
+        "Rate",
+        "Cess Amount"
+      ]
+    },
+    "ecourp2c": {
+      "title": "Summary For Supplies U/s 9(5)-15-URP2C",
+      "summary": [
+        null,
+        "Total Taxable Value",
+        null,
+        "Total Cess"
+      ],
+      "headers": [
+        "Place Of Supply",
+        "Taxable Value",
+        "Rate",
+        "Cess Amount"
+      ]
+    },
+    "ecoab2b": {
+      "title": "Summary For Supplies U/s 9(5) - 15A-B2B",
+      "summary": [
+        "No. of Supplier",
+        null,
+        "No. of Recipients",
+        null,
+        "No. of Documents",
+        null,
+        null,
+        null,
+        "Total value of supplies made",
+        null,
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "Supplier GSTIN/UIN",
+        "Supplier Name",
+        "Recipient GSTIN/UIN",
+        "Recipient Name",
+        "Original Document Number",
+        "Original Document Date",
+        "Revised Document Number",
+        "Revised Document Date",
+        "Value of supplies made",
+        "Place Of Supply",
+        "Document type",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    },
+    "ecoab2c": {
+      "title": "Summary For Supplies U/s 9(5)-15A-B2C",
+      "summary": [
+        null,
+        null,
+        "No. of Supplier",
+        null,
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "Financial Year",
+        "Original Month",
+        "Supplier GSTIN/UIN",
+        "Supplier Name",
+        "Place Of Supply",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    },
+    "ecoaurp2b": {
+      "title": "Summary For Supplies U/s 9(5)-15A-URP2B",
+      "summary": [
+        "No. of Recipients",
+        null,
+        "No. of Documents",
+        null,
+        null,
+        null,
+        "Total value of supplies made",
+        null,
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "Recipient GSTIN/UIN",
+        "Recipient Name",
+        "Original Document Number",
+        "Original Document Date",
+        "Revised Document Number",
+        "Revised Document Date",
+        "Value of supplies made",
+        "Document type",
+        "Place Of Supply",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    },
+    "ecoaurp2c": {
+      "title": "Summary For Supplies U/s 9(5)-15A-URP2C",
+      "summary": [
+        null,
+        null,
+        null,
+        null,
+        "Total Taxable Value",
+        "Total Cess"
+      ],
+      "headers": [
+        "Financial Year",
+        "Original Month",
+        "Place Of Supply",
+        "Rate",
+        "Taxable Value",
+        "Cess Amount"
+      ]
+    }
+  },
+  "master": {
+    "UQC": [
+      "BAG-BAGS",
+      "BAL-BALE",
+      "BDL-BUNDLES",
+      "BKL-BUCKLES",
+      "BOU-BILLION OF UNITS",
+      "BOX-BOX",
+      "BTL-BOTTLES",
+      "BUN-BUNCHES",
+      "CAN-CANS",
+      "CBM-CUBIC METERS",
+      "CCM-CUBIC CENTIMETERS",
+      "CMS-CENTIMETERS",
+      "CTN-CARTONS",
+      "DOZ-DOZENS",
+      "DRM-DRUMS",
+      "GGK-GREAT GROSS",
+      "GMS-GRAMMES",
+      "GRS-GROSS",
+      "GYD-GROSS YARDS",
+      "KGS-KILOGRAMS",
+      "KLR-KILOLITRE",
+      "KME-KILOMETRE",
+      "LTR-LITRES",
+      "MLT-MILILITRE",
+      "MTR-METERS",
+      "MTS-METRIC TON",
+      "NOS-NUMBERS",
+      "PAC-PACKS",
+      "PCS-PIECES",
+      "PRS-PAIRS",
+      "QTL-QUINTAL",
+      "ROL-ROLLS",
+      "SET-SETS",
+      "SQF-SQUARE FEET",
+      "SQM-SQUARE METERS",
+      "SQY-SQUARE YARDS",
+      "TBS-TABLETS",
+      "TGM-TEN GROSS",
+      "THD-THOUSANDS",
+      "TON-TONNES",
+      "TUB-TUBES",
+      "UGS-US GALLONS",
+      "UNT-UNITS",
+      "YDS-YARDS",
+      "OTH-OTHERS"
+    ],
+    "Type": [
+      "OE",
+      "E"
+    ],
+    "Tax Rate": [
+      0,
+      0.1,
+      0.25,
+      1,
+      1.5,
+      3,
+      5,
+      6,
+      7.5,
+      12,
+      18,
+      28,
+      40
+    ],
+    "POS": [
+      "01-Jammu & Kashmir",
+      "02-Himachal Pradesh",
+      "03-Punjab",
+      "04-Chandigarh",
+      "05-Uttarakhand",
+      "06-Haryana",
+      "07-Delhi",
+      "08-Rajasthan",
+      "09-Uttar Pradesh",
+      "10-Bihar",
+      "11-Sikkim",
+      "12-Arunachal Pradesh",
+      "13-Nagaland",
+      "14-Manipur",
+      "15-Mizoram",
+      "16-Tripura",
+      "17-Meghalaya",
+      "18-Assam",
+      "19-West Bengal",
+      "20-Jharkhand",
+      "21-Odisha",
+      "22-Chhattisgarh",
+      "23-Madhya Pradesh",
+      "24-Gujarat",
+      "25-Daman & Diu",
+      "26-Dadra & Nagar Haveli & Daman & Diu",
+      "27-Maharashtra",
+      "29-Karnataka",
+      "30-Goa",
+      "31-Lakshdweep",
+      "32-Kerala",
+      "33-Tamil Nadu",
+      "34-Puducherry",
+      "35-Andaman & Nicobar Islands",
+      "36-Telangana",
+      "37-Andhra Pradesh",
+      "38-Ladakh",
+      "97-Other Territory"
+    ],
+    "Invoice Type": [
+      "Regular B2B",
+      "SEZ supplies with payment",
+      "SEZ supplies without payment",
+      "Deemed Exp",
+      "Intra-State supplies attracting IGST",
+      "Regular"
+    ],
+    "Nature  of Document": [
+      "Invoices for outward supply",
+      "Invoices for inward supply from unregistered person",
+      "Revised Invoice",
+      "Debit Note",
+      "Credit Note",
+      "Receipt Voucher",
+      "Payment Voucher",
+      "Refund Voucher",
+      "Delivery Challan for job work",
+      "Delivery Challan for supply on approval",
+      "Delivery Challan in case of liquid gas",
+      "Delivery Challan in case other than by way of supply (excluding at S no. 9 to 11)"
+    ],
+    "UR Type": [
+      "B2CL",
+      "EXPWP",
+      "EXPWOP"
+    ],
+    "Supply Type": [
+      "Inter State",
+      "Intra State"
+    ]
+  },
+  "package_sha256": "f0a7d6f66bf71b30e9ecd045a664dda428c8fac239f51127d656e6faac60e312",
+  "offline_tool_release": "3.2.4"
+}

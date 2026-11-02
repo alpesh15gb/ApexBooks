@@ -1,0 +1,54 @@
+{
+  "name": "bagisto-headless-v3",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit",
+    "package-version": "npx npm-check-updates"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix"
+    ]
+  },
+  "dependencies": {
+    "@apollo/client": "^4.2.3",
+    "@heroicons/react": "^2.2.0",
+    "@heroui/accordion": "^2.2.29",
+    "@heroui/drawer": "^2.2.29",
+    "@heroui/react": "^2.8.6",
+    "@heroui/select": "^2.4.33",
+    "@reduxjs/toolkit": "^2.12.0",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.40.0",
+    "graphql": "^17.0.1",
+    "lucide-react": "^1.21.0",
+    "next": "^16.2.9",
+    "next-auth": "^4.24.14",
+    "next-themes": "^0.4.6",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-hook-form": "^7.80.0",
+    "react-redux": "^9.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^26.0.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^10",
+    "eslint-config-next": "16.2.9",
+    "lint-staged": "^17.0.8",
+    "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
+    "typescript": "^6"
+  }
+}

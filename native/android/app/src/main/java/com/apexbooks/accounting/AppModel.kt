@@ -1,0 +1,70 @@
+package com.apexbooks.accounting
+
+import android.app.Application
+import androidx.compose.runtime.*
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.apexbooks.accounting.data.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
+
+data class Feature(val key:String,val title:String,val group:String="",val path:String="",val description:String="")
+data class PdfView(val bytes:ByteArray,val name:String,val record:JSONObject?=null)
+
+class AppModel(application:Application):AndroidViewModel(application) {
+    val api=ApexApi(BuildConfig.API_ORIGIN,SessionVault(application))
+    private val catalog=JSONObject(application.assets.open("features.json").bufferedReader().use{it.readText()})
+    val navigation=catalog.a("navigation").objects().map{Feature(it.s("key"),it.s("title"),it.s("group"))}
+    val reports=catalog.a("reports").objects().map{Feature(it.s("key"),it.s("title"),it.s("group"),it.s("path").substringBefore("?as_of="),it.s("description"))}
+    val documentKinds=setOf("sales_invoice","purchase_bill","estimate","proforma","purchase_order","credit_note","debit_note","expense","pos")
+    val draftKinds=setOf("estimate","proforma","purchase_order")
+    var signedIn by mutableStateOf(false);private set
+    var companies by mutableStateOf(emptyList<JSONObject>());private set
+    var company by mutableStateOf(JSONObject());private set
+    var records by mutableStateOf(emptyList<JSONObject>());private set
+    var banks by mutableStateOf(emptyList<JSONObject>());private set
+    var page by mutableStateOf("dashboard");private set
+    var revision by mutableIntStateOf(0);private set
+    var busy by mutableIntStateOf(0);private set
+    var error by mutableStateOf("")
+    var notice by mutableStateOf("")
+    var editor by mutableStateOf<EntryEditor?>(null)
+    var detail by mutableStateOf<JSONObject?>(null)
+    var companyForm by mutableStateOf(false)
+    var companyEdit by mutableStateOf(false)
+    var statement by mutableStateOf<JSONObject?>(null)
+    var pdf by mutableStateOf<PdfView?>(null)
+    var tool by mutableStateOf("")
+    var toolData by mutableStateOf<JSONObject?>(null)
+    private val posDrafts=mutableMapOf<String,EntryEditor>()
+    fun saleDraft():EntryEditor=posDrafts.getOrPut(companyId){EntryEditor(this,"pos").also{it.lines.clear();it.set("name","Walk-in customer")}}
+    val files=NativeFiles(application){error=it}
+    private var generation=0
+    val companyId get()=company.s("id")
+    val canWrite get()=company.s("role") in setOf("owner","editor")
+    val isOwner get()=company.s("role")=="owner"
+    val regular get()=company.s("tax_mode")=="regular"
+    fun title(key:String)=navigation.find{it.key==key}?.title?:friendly(key)
+    init { if(api.restore()){signedIn=true;task{loadCompanies()}} }
+    fun failure(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;notice="";error=e.message?:"The operation could not be completed.";if(e is ApiFailure&&e.status==401&&!api.signedIn)endLocalSession()}
+    fun task(action:suspend()->Unit){viewModelScope.launch{busy++;error="";notice="";try{action()}catch(e:Exception){failure(e)}finally{busy--}}}
+    suspend fun login(email:String,password:String,remember:Boolean){api.login(email,password,remember);signedIn=true;loadCompanies()}
+    suspend fun loadCompanies(preferred:String=companyId){companies=(api.request("/api/companies") as JSONArray).objects();val selected=companies.find{it.s("id")==preferred}?:companies.firstOrNull();if(selected!=null)chooseCompany(selected)else{company=JSONObject();companyForm=true;companyEdit=false}}
+    suspend fun chooseCompany(selected:JSONObject){val stamp=++generation;company=selected;companyForm=false;tool="";records=emptyList();banks=emptyList();editor=null;detail=null;pdf=null;statement=null;coroutineScope{val rows=async{api.records(selected.s("id"))};val accounts=async{(api.request(api.company(selected.s("id"),"/bank-accounts")) as JSONArray).objects()};val loaded=rows.await();val loadedBanks=accounts.await();if(stamp==generation){records=loaded;banks=loadedBanks;revision++}}}
+    suspend fun refresh(){val id=companyId;val stamp=generation;coroutineScope{val rows=async{api.records(id)};val accounts=async{(api.request(api.company(id,"/bank-accounts")) as JSONArray).objects()};val loaded=rows.await();val loadedBanks=accounts.await();if(stamp==generation){records=loaded;banks=loadedBanks;revision++}}}
+    fun navigate(key:String){page=key;error="";notice=""}
+    fun endLocalSession(){api.forget();signedIn=false;company=JSONObject();companies=emptyList();records=emptyList();banks=emptyList();editor=null;detail=null;statement=null;pdf=null;tool="";toolData=null;posDrafts.clear();companyForm=false;generation++}
+    suspend fun logout(){try{api.logout()}finally{endLocalSession()}}
+    fun add(kind:String){editor=EntryEditor(this,kind)}
+    fun edit(row:JSONObject){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));if(stamp==generation)editor=EntryEditor(this,full.s("kind"),previous=full)}}
+    fun convert(row:JSONObject){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));if(stamp==generation)editor=EntryEditor(this,if(full.s("kind")=="purchase_order")"purchase_bill" else "sales_invoice",conversion=full)}}
+    fun documentPdf(row:JSONObject,template:String=""){val id=companyId;val stamp=generation;task{val bytes=api.bytes(api.company(id,"/documents/${encode(row.s("id"))}.pdf")+if(template.isBlank())"" else "?template=${encode(template)}");if(id==companyId&&stamp==generation)pdf=PdfView(bytes,"${friendly(row.s("kind"))} ${row.s("number")}.pdf",row)}}
+    fun key()=UUID.randomUUID().toString()
+}
+
+private val acronymLabels=setOf("GST","GSTIN","CGST","SGST","IGST","HSN","SAC","IFSC","UPI","MRP","POS","PDF","XLSX","ITC","GSTR1","GSTR2A","GSTR3B","B2B","B2C","B2CS","B2CL","ID")
+fun friendly(text:String)=text.replace('_',' ').split(' ').joinToString(" "){word->val upper=word.uppercase(java.util.Locale.ROOT);if(upper in acronymLabels)upper else word.replaceFirstChar{c->c.uppercase()}}

@@ -1,0 +1,13 @@
+{
+  "family": "DM Sans",
+  "source": "https://raw.githubusercontent.com/google/fonts/5b35b7208dd4100571326fdf37f030b32a524232/ofl/dmsans/",
+  "commit": "5b35b7208dd4100571326fdf37f030b32a524232",
+  "source_sha256": "8cd08d97e89c24d0aa92edd2f0f4c8ee6195eee9b7c9f154865a58b02f0c1c0d",
+  "licence": "SIL Open Font License 1.1",
+  "android_static_weights": [
+    400,
+    500,
+    600,
+    700
+  ]
+}

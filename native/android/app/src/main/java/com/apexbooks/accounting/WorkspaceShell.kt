@@ -1,0 +1,133 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+package com.apexbooks.accounting
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.apexbooks.accounting.data.*
+
+@Composable fun ApexWorkspace(vm: AppModel, activity: MainActivity) {
+    if (!vm.signedIn) { LoginScreen(vm); return }
+    var companies by remember { mutableStateOf(false) }
+    var companyQuery by remember { mutableStateOf("") }
+    var searchOpen by remember { mutableStateOf(false) }
+    var createOpen by remember { mutableStateOf(false) }
+    val currentTab = MobileNavigation.tab(vm.page)
+    val destinations = listOf("dashboard" to "Home", "transactions" to "Transactions", "party" to "Parties", "reports" to "Reports", "more" to "More")
+    fun navigate(key: String) = vm.navigate(if (key == "transactions") "sales_invoice" else key)
+    BackHandler(enabled = vm.page != "dashboard" && vm.editor == null && vm.detail == null && vm.pdf == null && vm.statement == null && vm.tool.isBlank() && !vm.companyForm && !searchOpen && !createOpen && !companies) { vm.navigate("dashboard") }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wide = maxWidth >= 840.dp
+        Row(Modifier.fillMaxSize()) {
+            if (wide) NavigationRail(containerColor = Color.White, header = { AppLogo(Modifier.width(100.dp).padding(8.dp)) }) {
+                destinations.forEach { (key, label) -> NavigationRailItem(selected = key == currentTab, onClick = { navigate(key) }, icon = { Icon(mobileIcon(key), null) }, label = { Text(label) }) }
+            }
+            Scaffold(
+                modifier = Modifier.weight(1f).imePadding(),
+                containerColor = MaterialTheme.colorScheme.background,
+                topBar = { Column {
+                    TopAppBar(title = { Column {
+                        Text(when { vm.page == "dashboard" -> "Your business"; currentTab == "transactions" -> "Transactions"; vm.page == "more" -> "Workspace"; else -> vm.title(vm.page) }, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(Modifier.clickable { companyQuery = ""; companies = true }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.Business, null, Modifier.size(14.dp), tint = ApexGreen)
+                            Text(vm.company.s("name").ifBlank { "Choose company" }, Modifier.weight(1f, false).padding(horizontal = 5.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Outlined.ExpandMore, "Switch company", Modifier.size(18.dp))
+                        }
+                    } }, actions = {
+                        IconButton(onClick = { searchOpen = true }, enabled = vm.companyId.isNotBlank()) { Icon(Icons.Outlined.Search, "Search workspace") }
+                        IconButton(onClick = { vm.task { vm.refresh() } }, enabled = vm.busy == 0 && vm.companyId.isNotBlank()) { Icon(Icons.Outlined.Refresh, "Refresh") }
+                    }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
+                    if (vm.busy > 0) LinearProgressIndicator(Modifier.fillMaxWidth())
+                } },
+                bottomBar = { if (!wide && !WindowInsets.isImeVisible) {
+                    Surface(shadowElevation = 10.dp, color = Color.White) { NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
+                        destinations.forEach { (key, label) -> NavigationBarItem(selected = currentTab == key, onClick = { navigate(key) }, icon = { Icon(mobileIcon(key), null) }, label = { Text(label, maxLines = 1) }, colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer)) }
+                    } }
+                } },
+                floatingActionButton = { if (vm.canWrite && vm.companyId.isNotBlank() && vm.page !in setOf("reports", "settings", "more", "commerce", "pos") && !WindowInsets.isImeVisible) {
+                    ExtendedFloatingActionButton(onClick = { createOpen = true }, icon = { Icon(Icons.Outlined.Add, null) }, text = { Text("Create") }, containerColor = ApexGreen, contentColor = Color.White)
+                } }
+            ) { padding -> Column(Modifier.padding(padding).fillMaxSize()) {
+                if (vm.error.isNotBlank()) Box(Modifier.padding(16.dp, 6.dp)) { Message(vm.error, true) { vm.error = "" } }
+                if (vm.notice.isNotBlank()) Box(Modifier.padding(16.dp, 6.dp)) { Message(vm.notice) { vm.notice = "" } }
+                if (vm.companyId.isBlank()) Column(Modifier.padding(24.dp)) {
+                    Heading("Create your first company", "Choose GST or non-GST accounting to get started.")
+                    Button(onClick = { vm.companyEdit = false; vm.companyForm = true }) { Text("Create company") }
+                } else AnimatedContent(targetState = vm.page, modifier = Modifier.fillMaxSize(), label = "Workspace destination") { page -> key(vm.companyId, page) {
+                    when (page) {
+                        "dashboard" -> DashboardScreen(vm)
+                        "reports" -> ReportsScreen(vm)
+                        "more" -> MoreScreen(vm)
+                        "bank" -> BankScreen(vm)
+                        "ledger" -> LedgerScreen(vm)
+                        "settings" -> SettingsScreen(vm)
+                        "commerce" -> CommerceScreen(vm)
+                        "pos" -> PosScreen(vm)
+                        else -> RegisterScreen(vm)
+                    }
+                } }
+            } }
+        }
+    }
+    if (companies) ModalBottomSheet(onDismissRequest = { companies = false }) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+            Heading("Switch company", "Each company keeps its own books and settings.")
+            Spacer(Modifier.height(12.dp))
+            SearchBarField("Search your companies", companyQuery) { companyQuery = it }
+            LazyColumn(Modifier.weight(1f, false).padding(vertical = 12.dp)) { items(vm.companies.filter { it.s("name").contains(companyQuery.trim(), true) }, key = { it.s("id") }) { row ->
+                ListItem(headlineContent = { Text(row.s("name"), fontWeight = FontWeight.SemiBold) }, supportingContent = { Text(if (row.s("tax_mode") == "regular") row.s("gstin") else friendly(row.s("tax_mode"))) }, leadingContent = { Icon(Icons.Outlined.Business, null) }, trailingContent = { if (row.s("id") == vm.companyId) Icon(Icons.Outlined.CheckCircle, "Selected", tint = ApexGreen) }, modifier = Modifier.clickable { companies = false; vm.task { vm.chooseCompany(row) } })
+            } }
+            OutlinedButton(onClick = { companies = false; vm.companyEdit = false; vm.companyForm = true }, modifier = Modifier.fillMaxWidth()) { Text("Create another company") }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+    if (createOpen) CreateTransactionSheet(vm) { createOpen = false }
+    if (searchOpen) WorkspaceSearch(vm) { searchOpen = false }
+    vm.detail?.let { TransactionDetail(vm, it) }
+    vm.editor?.let { key(it) { EntryScreen(it) } }
+    if (vm.companyForm) CompanyDialog(vm)
+    vm.statement?.let { PartyStatementScreen(vm, it) }
+    if (vm.tool.isNotBlank()) ToolsScreen(vm)
+    vm.pdf?.let { PdfScreen(vm, activity, it) }
+}
+
+private fun mobileIcon(key: String) = when (key) {
+    "transactions" -> Icons.Outlined.SwapHoriz
+    "more" -> Icons.Outlined.GridView
+    else -> featureIcon(key)
+}
+
+@Composable private fun WorkspaceSearch(vm: AppModel, close: () -> Unit) {
+    var query by remember { mutableStateOf("") }
+    ModalBottomSheet(onDismissRequest = close) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+            Heading("Find anything")
+            Spacer(Modifier.height(12.dp))
+            SearchBarField("Parties, invoices, items or sections", query) { query = it }
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 460.dp)) {
+                if (query.isNotBlank()) {
+                    items(vm.navigation.filter { it.title.contains(query.trim(), true) }, key = { "section-" + it.key }) { hit ->
+                        ListItem(headlineContent = { Text(hit.title) }, supportingContent = { Text("Open section") }, leadingContent = { Icon(featureIcon(hit.key), null) }, modifier = Modifier.clickable { close(); vm.navigate(hit.key) })
+                    }
+                    val rows = vm.records.filter { (it.s("name") + " " + it.s("number")).contains(query.trim(), true) }.take(30)
+                    items(rows, key = { it.s("id") }) { row -> ListItem(headlineContent = { Text(row.s("number").ifBlank { row.s("name") }) }, supportingContent = { Text(row.s("name") + " · " + friendly(row.s("kind"))) }, leadingContent = { Icon(featureIcon(row.s("kind")), null) }, modifier = Modifier.clickable { close(); if (row.s("kind") == "party") vm.statement = row else if (row.s("kind") == "item") { vm.navigate("item"); if (vm.canWrite) vm.edit(row) } else vm.detail = row }) }
+                    if (rows.isEmpty() && vm.navigation.none { it.title.contains(query.trim(), true) }) item { Text("No matches. Try a party name or document number.", Modifier.padding(16.dp)) }
+                } else item { Text("Search across the current company.", Modifier.padding(vertical = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}

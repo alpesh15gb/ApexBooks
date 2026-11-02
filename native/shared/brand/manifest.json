@@ -1,0 +1,17 @@
+{
+  "source": "apexbooks-logo-original.png",
+  "sha256": "7ebb1c61ff238dc0bbceca95cc6b5626c174817a46be8897f3e9e10ed0f595f8",
+  "full_artwork_bounds": [
+    237,
+    891,
+    1806,
+    1121
+  ],
+  "symbol_bounds": [
+    237,
+    891,
+    813,
+    1121
+  ],
+  "treatment": "Empty transparent margins trimmed. Full wordmark on white for UI; blue symbol centered on white for small icons. No stretching or recoloring."
+}

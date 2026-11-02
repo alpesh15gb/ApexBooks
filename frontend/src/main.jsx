@@ -1,0 +1,2362 @@
+import RegisterControls from "./RegisterControls.jsx";
+import { compareRegisterRecords } from "./registerOrder.js";
+import SettingsWorkspace from "./SettingsWorkspace.jsx";
+import CommerceWorkspace from "./CommerceWorkspace.jsx";
+import RegisterOverview from "./RegisterOverview.jsx";
+import BusinessOverview from "./BusinessOverview.jsx";
+import WorkspaceHeader from "./WorkspaceHeader.jsx";
+import PartyStatement from "./PartyStatement.jsx";
+import { WorkspaceBoundary, DialogFocus } from "./WorkspaceBoundary.jsx";
+import { RecoveryCodes, RecoverAccount } from "./RecoveryAccess.jsx";
+import PosWorkspace from "./PosWorkspace.jsx";
+import { OpeningBalances, CreditSettlements } from "./AccountingWorkflows.jsx";
+import RecordEditor from "./RecordEditor.jsx";
+import BackupRestore from "./BackupRestore.jsx";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  LayoutDashboard,
+  UsersRound,
+  ShoppingCart,
+  ShoppingBag,
+  Wallet,
+  BarChart3,
+  Settings,
+  ChevronDown,
+  ChevronRight,
+  Plus,
+  Search,
+  Bell,
+  ArrowUpRight,
+  ArrowDownLeft,
+  FileText,
+  Package,
+  Download,
+  Menu,
+  X,
+  LogOut,
+  CircleHelp,
+  Building2,
+  ReceiptIndianRupee,
+} from "lucide-react";
+import "./style.css";
+import "./workspace.css";
+import "./flows.css";
+import ReportsV2 from "./Reports.jsx";
+import MasterImport from "./MasterImport.jsx";
+import VyaparImport from "./VyaparImport.jsx";
+import DocumentBranding from "./DocumentBranding.jsx";
+import MasterForm from "./MasterForm.jsx";
+import OpeningStock from "./OpeningStock.jsx";
+import StockAdjustment from "./StockAdjustment.jsx";
+import CompanyDataExport from "./CompanyDataExport.jsx";
+import CompanyDetailsEditor from "./CompanyDetailsEditor.jsx";
+import AuditLog from "./AuditLog.jsx";
+import PeriodLock from "./PeriodLock.jsx";
+import AccountSecurity from "./AccountSecurity.jsx";
+import BankWorkspace from "./BankWorkspace.jsx";
+import PaymentAllocations from "./PaymentAllocations.jsx";
+import Advances from "./Advances.jsx";
+import { downloadBlob } from "./downloadBlob.js";
+
+const sections = [
+  { label: "Dashboard", icon: LayoutDashboard, key: "dashboard" },
+  { label: "Parties", icon: UsersRound, key: "party" },
+  { label: "Items", icon: Package, key: "item" },
+  {
+    label: "Sales",
+    icon: ShoppingCart,
+    children: [
+      ["sales_invoice", "Sales invoices"],
+      ["estimate", "Estimates"],
+      ["proforma", "Proforma invoices"],
+      ["payment_in", "Payment in"],
+      ["credit_note", "Credit notes"],
+      ["pos", "POS"],
+    ],
+  },
+  {
+    label: "Purchases",
+    icon: ShoppingBag,
+    children: [
+      ["purchase_bill", "Purchase bills"],
+      ["payment_out", "Payment out"],
+      ["expense", "Expenses"],
+      ["purchase_order", "Purchase orders"],
+      ["debit_note", "Debit notes"],
+    ],
+  },
+  { label: "Cash & bank", icon: Wallet, key: "bank_account" },
+  { label: "Ledger", icon: FileText, key: "ledger" },
+  { label: "Reports", icon: BarChart3, key: "reports" },
+  { label: "Ecommerce", icon: ShoppingBag, key: "commerce" },
+  { label: "Settings", icon: Settings, key: "settings" },
+];
+const labels = Object.fromEntries(
+  sections.flatMap((s) => s.children || (s.key ? [[s.key, s.label]] : [])),
+);
+labels.bank_transfer = "Cash/bank transfer";
+labels.stock_opening = "Opening stock";
+labels.stock_adjustment = "Stock adjustment";
+const EMPTY_RECORDS = [];
+const documentKinds = [
+  "sales_invoice",
+  "estimate",
+  "proforma",
+  "credit_note",
+  "pos",
+  "purchase_bill",
+  "purchase_order",
+  "debit_note",
+  "expense",
+];
+const money = (value) =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0));
+const today = () => new Date().toLocaleDateString("en-CA");
+const api = async (path, options = {}) => {
+  const response = await fetch("/api" + path, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(localStorage.token
+        ? { Authorization: `Bearer ${localStorage.token}` }
+        : {}),
+      ...options.headers,
+    },
+  });
+  if (!response.ok) {
+    let e = await response.json().catch(() => ({}));
+    const error = new Error(
+      typeof e.detail === "string"
+        ? e.detail
+        : "Please check your details and try again.",
+    );
+    error.status = response.status;
+    throw error;
+  }
+  return response.json();
+};
+
+function Auth({ onLogin }) {
+  const [recovery, setRecovery] = useState(false);
+  const [register, setRegister] = useState(false),
+    [email, setEmail] = useState(""),
+    [password, setPassword] = useState(""),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  async function submit(e) {
+    e.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      if (register)
+        await api("/auth/register", {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        });
+      const result = await api("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      localStorage.token = result.token;
+      onLogin();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="auth-page">
+      <div className="auth-story">
+        <div className="brand light">
+          <img className="brand-wordmark" src="/apexbooks-wordmark.png" alt="Apex Books — Your books in balance" width="1569" height="230" />
+        </div>
+        <div className="auth-copy">
+          <div className="eyebrow">MADE FOR INDIAN BUSINESSES</div>
+          <h1>
+            Clarity for every
+            <br />
+            <em>business decision.</em>
+          </h1>
+          <p>
+            Keep your books organised, your transactions in view, and your
+            business moving forward.
+          </p>
+        </div>
+        <div className="auth-foot">
+          Thoughtful accounting, made simple. <span>✳</span>
+        </div>
+      </div>
+      <div className="auth-form">
+        <div className="auth-box">
+          <div className="eyebrow green">WELCOME TO APEX BOOKS</div>
+          {recovery ? (
+            <RecoverAccount api={api} onBack={() => setRecovery(false)} />
+          ) : (
+            <>
+              <h2>
+                {register ? "Create your account" : "Good to see you again."}
+              </h2>
+              <p>
+                {register
+                  ? "Start with the essentials. You can add your company next."
+                  : "Sign in to continue to your workspace."}
+              </p>
+              <form onSubmit={submit}>
+                <label>
+                  Email address
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@company.com"
+                    required
+                  />
+                </label>
+                <label>
+                  Password
+                  <input
+                    type="password"
+                    minLength="8"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    required
+                  />
+                </label>
+                {error && <div className="error">{error}</div>}
+                <button className="button primary wide" disabled={busy}>
+                  {busy
+                    ? "Please wait…"
+                    : register
+                      ? "Create account"
+                      : "Sign in"}{" "}
+                  <ChevronRight size={16} />
+                </button>
+              </form>
+              <div className="auth-switch">
+                {register ? "Already have an account?" : "New to Apex Books?"}{" "}
+                <button
+                  className="link"
+                  onClick={() => {
+                    setRegister(!register);
+                    setError("");
+                  }}
+                >
+                  {register ? "Sign in" : "Create an account"}
+                </button>
+              </div>
+              {!register && (
+                <button
+                  className="link recovery-link"
+                  onClick={() => {
+                    setRecovery(true);
+                    setError("");
+                  }}
+                >
+                  Forgot password? Use a recovery code
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+function CompanyModal({ close, save }) {
+  const [form, setForm] = useState({
+      name: "",
+      gstin: "",
+      state_code: "",
+      address: "",
+      tax_mode: "unregistered",
+    }),
+    [error, setError] = useState("");
+  async function submit(e) {
+    e.preventDefault();
+    try {
+      await save(form);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+  return (
+    <Modal
+      title="Add a company"
+      subtitle="Set up a separate workspace for your business."
+      close={close}
+    >
+      <form onSubmit={submit} className="form-grid">
+        <label className="full">
+          Company name
+          <input
+            required
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            placeholder="e.g. Apex Trading Co."
+          />
+        </label>
+        <label className="full">
+          Tax registration
+          <select
+            className="form-select"
+            value={form.tax_mode}
+            onChange={(e) =>
+              setForm({ ...form, tax_mode: e.target.value, gstin: "" })
+            }
+          >
+            <option value="unregistered">Not GST registered</option>
+            <option value="regular">GST registered (regular)</option>
+            <option value="composition">GST registered (composition)</option>
+          </select>
+        </label>
+        {form.tax_mode !== "unregistered" && (
+          <label>
+            GSTIN <span className="muted">(required)</span>
+            <input
+              required={form.tax_mode !== "unregistered"}
+              value={form.gstin}
+              onChange={(e) =>
+                setForm({ ...form, gstin: e.target.value.toUpperCase() })
+              }
+              placeholder="15-character GSTIN"
+            />
+          </label>
+        )}
+        <label>
+          State code
+          <input
+            required={form.tax_mode !== "unregistered"}
+            pattern="[0-9]{2}"
+            value={form.state_code}
+            onChange={(e) => setForm({ ...form, state_code: e.target.value })}
+            placeholder="e.g. 27"
+          />
+        </label>
+        <label className="full">
+          Address
+          <input
+            value={form.address}
+            onChange={(e) => setForm({ ...form, address: e.target.value })}
+            placeholder="Business address"
+          />
+        </label>
+        {error && <div className="error full">{error}</div>}
+        <div className="modal-actions full">
+          <button type="button" className="button secondary" onClick={close}>
+            Cancel
+          </button>
+          <button className="button primary">Create company</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+function Modal({ title, subtitle, close, children, variant }) {
+  return (
+    <div
+      className={`overlay ${variant === "document" ? "document-overlay" : ""}`}
+      onMouseDown={(e) => e.target === e.currentTarget && close()}
+    >
+      <div
+        className={`modal ${variant === "document" ? "document-modal" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onKeyDown={(e) => e.key === "Escape" && close()}
+      >
+        <div className="modal-heading">
+          <div>
+            <h2>{title}</h2>
+            <p>{subtitle}</p>
+          </div>
+          <button className="icon-button" onClick={close} aria-label="Close">
+            <X size={19} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+function App() {
+  const [signed, setSigned] = useState(!!localStorage.token),
+    [companies, setCompanies] = useState([]),
+    [companyId, setCompanyId] = useState(localStorage.companyId || ""),
+    [rawRecords, setRecords] = useState([]),
+    [recordsCompanyId, setRecordsCompanyId] = useState(""),
+    [recordsLoadError, setRecordsLoadError] = useState(""),
+    [page, setPage] = useState("dashboard"),
+    [expanded, setExpanded] = useState("Sales"),
+    [modal, setModal] = useState(""),
+    [editorCycle, setEditorCycle] = useState(0),
+    [registerFilter, setRegisterFilter] = useState({ page: "", value: "all" }),
+    [registerQuery, setRegisterQuery] = useState({
+      page: "",
+      period: "all",
+      from: "",
+      to: "",
+      party: "",
+      sort: "newest",
+    }),
+    [registerPage, setRegisterPage] = useState(1),
+    [search, setSearch] = useState(""),
+    [menu, setMenu] = useState(false),
+    [error, setError] = useState(""),
+    [docTemplate, setDocTemplate] = useState("classic"),
+    [conversionSource, setConversionSource] = useState(null),
+    [editingMaster, setEditingMaster] = useState(null),
+    [editingDraft, setEditingDraft] = useState(null),
+    [activeParty, setActiveParty] = useState(null);
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, [page, companyId]);
+  const company = companies.find((c) => c.id === companyId);
+  const activeCompany = useRef(companyId);
+  const recordsReady = recordsCompanyId === companyId;
+  const records = recordsReady ? rawRecords : EMPTY_RECORDS;
+  async function loadCompanies() {
+    try {
+      const data = await api("/companies");
+      setCompanies(data);
+      if (!data.some((c) => c.id === companyId)) {
+        setCompanyId(data[0]?.id || "");
+        if (!data.length) setModal("company");
+      }
+    } catch (e) {
+      if (e.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("companyId");
+        setRecords([]);
+        setCompanies([]);
+        setCompanyId("");
+        setSigned(false);
+      } else setError(e.message);
+    }
+  }
+  async function loadRecords(id = companyId) {
+    if (!id) return;
+    setRecordsLoadError("");
+    try {
+      const rows = [];
+      for (let offset = 0; ; offset += 100) {
+        const batch = await api(
+          `/companies/${id}/records?compact=true&limit=100&offset=${offset}`,
+        );
+        if (activeCompany.current !== id) return;
+        rows.push(...batch);
+        if (batch.length < 100) break;
+      }
+      if (activeCompany.current === id) {
+        setRecords(rows);
+        setRecordsCompanyId(id);
+      }
+    } catch (e) {
+      if (activeCompany.current === id) {
+        setError(e.message);
+        setRecordsLoadError(e.message);
+      }
+    }
+  }
+  useEffect(() => {
+    if (signed) loadCompanies();
+  }, [signed]);
+  useEffect(() => {
+    activeCompany.current = companyId;
+    setError("");
+    setRecords([]);
+    setRecordsCompanyId("");
+    setRecordsLoadError("");
+    setConversionSource(null);
+    setActiveParty(null);
+    setSearch("");
+    setRegisterFilter({ page: "", value: "all" });
+    setRegisterQuery({
+      page: "",
+      period: "all",
+      from: "",
+      to: "",
+      party: "",
+      sort: "newest",
+    });
+    setRegisterPage(1);
+    setEditingMaster(null);
+    setEditingDraft(null);
+    setModal("");
+    if (companyId) {
+      localStorage.companyId = companyId;
+      loadRecords(companyId);
+      api(`/companies/${companyId}/preferences`)
+        .then((p) => {
+          if (activeCompany.current === companyId)
+            setDocTemplate(p.document_template);
+        })
+        .catch((e) => {
+          if (activeCompany.current === companyId) setError(e.message);
+        });
+    }
+  }, [companyId]);
+  const activeRegisterFilter =
+    registerFilter.page === page ? registerFilter.value : "all";
+  const transactionRegister = !["party", "item"].includes(page);
+  const query =
+    registerQuery.page === page
+      ? registerQuery
+      : { period: "all", from: "", to: "", party: "", sort: "newest" };
+  const scopedRecords = records.filter(
+    (r) =>
+      r.kind === page &&
+      (!transactionRegister ||
+        ((!query.from || r.date >= query.from) &&
+          (!query.to || r.date <= query.to) &&
+          (!query.party || r.name === query.party))),
+  );
+  const filtered = scopedRecords
+    .filter(
+      (r) =>
+        `${r.name} ${r.number} ${r.date}`
+          .toLowerCase()
+          .includes(search.toLowerCase()) &&
+        (activeRegisterFilter === "all" ||
+          (activeRegisterFilter === "unpaid" &&
+            r.posted &&
+            Number(r.outstanding) > 0) ||
+          (activeRegisterFilter === "paid" &&
+            r.posted &&
+            Number(r.outstanding) === 0) ||
+          (activeRegisterFilter === "overdue" &&
+            r.posted &&
+            Number(r.outstanding) > 0 &&
+            r.data?.due_date &&
+            r.data.due_date < today()) ||
+          (activeRegisterFilter === "draft" && !r.converted_to) ||
+          (activeRegisterFilter === "converted" && !!r.converted_to) ||
+          (activeRegisterFilter === "posted" && r.posted) ||
+          (activeRegisterFilter === "unposted" && r.posted === false)),
+    )
+    .sort((a, b) => compareRegisterRecords(a, b, query.sort));
+  useEffect(
+    () => setRegisterPage(1),
+    [page, companyId, search, activeRegisterFilter, registerQuery],
+  );
+  const totalRegisterPages = Math.max(1, Math.ceil(filtered.length / 50));
+  const currentRegisterPage = Math.min(registerPage, totalRegisterPages);
+  const visibleRegisterRows = filtered.slice(
+    (currentRegisterPage - 1) * 50,
+    currentRegisterPage * 50,
+  );
+  async function saveCompany(body) {
+    let c = await api("/companies", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    setCompanies([...companies, c]);
+    setCompanyId(c.id);
+    setModal("");
+  }
+  async function saveRecord(body, key, { keepOpen = false } = {}) {
+    await api(
+      editingDraft
+        ? ["estimate", "proforma", "purchase_order"].includes(editingDraft.kind)
+          ? `/companies/${companyId}/drafts/${editingDraft.id}`
+          : `/companies/${companyId}/documents/${editingDraft.id}`
+        : `/companies/${companyId}/records`,
+      {
+        method: editingDraft ? "PUT" : "POST",
+        headers: key ? { "Idempotency-Key": key } : {},
+        body: JSON.stringify(body),
+      },
+    );
+    await loadRecords();
+    if (keepOpen && !editingDraft && !conversionSource) {
+      setEditorCycle((n) => n + 1);
+      return;
+    }
+    setConversionSource(null);
+    setEditingDraft(null);
+    setModal("");
+  }
+  async function saveMaster(body) {
+    if (editingMaster) {
+      await api(`/companies/${companyId}/masters/${editingMaster.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ name: body.name, ...body.data }),
+      });
+      await loadRecords();
+      setEditingMaster(null);
+      setModal("");
+    } else await saveRecord(body);
+  }
+  async function saveOpening(body) {
+    await api(`/companies/${companyId}/stock/opening`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    await loadRecords();
+    setModal("");
+  }
+  async function saveStockAdjustment(body) {
+    await api(`/companies/${companyId}/stock/adjustments`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    await loadRecords();
+    setModal("");
+  }
+  async function beginEdit(record) {
+    try {
+      const cid = companyId;
+      if (["party", "item"].includes(record.kind)) {
+        setEditingMaster(await api(`/companies/${cid}/records/${record.id}`));
+      } else {
+        const full = await api(`/companies/${cid}/records/${record.id}`);
+        if (activeCompany.current !== cid) return;
+        setEditingDraft(full);
+        setConversionSource(null);
+        setPage(record.kind);
+      }
+      if (activeCompany.current === cid) setModal("record");
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+  async function beginConversion(record) {
+    try {
+      const cid = companyId,
+        full = await api(`/companies/${cid}/records/${record.id}`);
+      if (activeCompany.current !== cid) return;
+      setEditingDraft(null);
+      setConversionSource(full);
+      setPage(
+        record.kind === "purchase_order" ? "purchase_bill" : "sales_invoice",
+      );
+      setModal("record");
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+  async function downloadDocument(record) {
+    try {
+      const res = await fetch(
+        `/api/companies/${companyId}/documents/${record.id}.pdf`,
+        { headers: { Authorization: `Bearer ${localStorage.token}` } },
+      );
+      if (!res.ok) throw Error("Document export failed");
+      downloadBlob(
+        await res.blob(),
+        `${record.kind}-${record.number || record.id.slice(0, 8)}.pdf`,
+      );
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+  async function download(fmt) {
+    try {
+      let res = await fetch(`/api/companies/${companyId}/export.${fmt}`, {
+        headers: { Authorization: `Bearer ${localStorage.token}` },
+      });
+      if (!res.ok) throw Error("Export failed");
+      downloadBlob(await res.blob(), `apex-register.${fmt}`);
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+  async function signOut() {
+    const token = localStorage.token;
+    if (token) {
+      try {
+        await fetch("/api/auth/logout", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(3000),
+        });
+      } catch {}
+    }
+    localStorage.removeItem("token");
+    localStorage.removeItem("companyId");
+    activeCompany.current = "";
+    setRecords([]);
+    setCompanies([]);
+    setCompanyId("");
+    setPage("dashboard");
+    setSigned(false);
+  }
+  function navigateWorkspace(kind, reference = "", filter = "all") {
+    const routes = {
+      bank_transfer: "bank_account",
+      opening_cash: "bank_account",
+      opening_bank: "bank_account",
+      opening_receivable: "party",
+      opening_payable: "party",
+      stock_opening: "item",
+      stock_adjustment: "item",
+      customer_refund: "payment_in",
+      supplier_refund: "payment_out",
+      advance_refund: "payment_in",
+    };
+    const destination = routes[kind] || kind;
+    setRegisterFilter({ page: destination, value: filter });
+    setPage(labels[destination] ? destination : "reports");
+    setSearch(routes[kind] ? "" : reference);
+    setMenu(false);
+    const group = sections.find((section) =>
+      section.children?.some(([key]) => key === destination),
+    );
+    if (group) setExpanded(group.label);
+  }
+  function createWorkspace(kind) {
+    if (!["owner", "editor"].includes(company?.role)) return;
+    setEditingDraft(null);
+    setEditingMaster(null);
+    setConversionSource(null);
+    navigateWorkspace(kind);
+    if (kind !== "pos") setModal("record");
+  }
+  if (!signed) return <Auth onLogin={() => setSigned(true)} />;
+  return (
+    <div className="app">
+      <aside className={`sidebar ${menu ? "open" : ""}`}>
+        <div className="brand">
+          <img className="brand-wordmark" src="/apexbooks-wordmark.png" alt="Apex Books — Your books in balance" width="1569" height="230" />
+        </div>
+        <div className="company-switch">
+          <span className="company-icon">
+            <Building2 size={18} />
+          </span>
+          <span className="company-text">
+            <small>WORKSPACE</small>
+            <select
+              aria-label="Choose company"
+              value={companyId}
+              onChange={(e) => setCompanyId(e.target.value)}
+            >
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </span>
+          <ChevronDown size={14} />
+        </div>
+        <div className="nav-label">YOUR WORKSPACE</div>
+        <nav>
+          {sections.map((s) => (
+            <React.Fragment key={s.label}>
+              <button
+                className={`nav-item ${page === s.key || s.children?.some(([key]) => key === page) ? "active" : ""}`}
+                onClick={() => {
+                  if (s.children)
+                    setExpanded(expanded === s.label ? "" : s.label);
+                  else {
+                    setPage(s.key);
+                    setSearch("");
+                    setMenu(false);
+                  }
+                }}
+              >
+                <s.icon size={18} />
+                <span>{s.label}</span>
+                {s.children && (
+                  <ChevronDown
+                    className={expanded === s.label ? "rotated" : ""}
+                    size={14}
+                  />
+                )}
+              </button>
+              {s.children && expanded === s.label && (
+                <div className="subnav">
+                  {s.children.map(([k, l]) => (
+                    <button
+                      key={k}
+                      className={page === k ? "active" : ""}
+                      onClick={() => {
+                        setPage(k);
+                        setSearch("");
+                        setMenu(false);
+                      }}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </React.Fragment>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="sidebar-workspace-status">
+            <span /> Your books, connected
+          </div>
+          <button onClick={() => setModal("company")}>
+            <Plus size={16} /> Add company
+          </button>
+          <button onClick={signOut}>
+            <LogOut size={16} /> Sign out
+          </button>
+        </div>
+      </aside>
+      {menu && (
+        <div className="mobile-backdrop" onClick={() => setMenu(false)} />
+      )}
+      <main className="main">
+        <WorkspaceHeader
+          company={company}
+          page={page}
+          labels={labels}
+          records={records}
+          onNavigate={navigateWorkspace}
+          onCreate={createWorkspace}
+          onMenu={() => setMenu(true)}
+        />
+        <div className="content">
+          {error && (
+            <div className="error banner" onClick={() => setError("")}>
+              {error} · Click to dismiss
+            </div>
+          )}
+          {page === "ledger" ? (
+            <Ledger companyId={companyId} />
+          ) : page === "bank_account" ? (
+            <BankWorkspace
+              companyId={companyId}
+              records={records}
+              onParty={setActiveParty}
+              role={company?.role}
+              onSaved={() => loadRecords()}
+            />
+          ) : page === "reports" ? (
+            <ReportsV2 companyId={companyId} records={records} />
+          ) : page === "dashboard" ? (
+            <BusinessOverview
+              key={companyId}
+              company={company}
+              records={records}
+              api={api}
+              onNavigate={navigateWorkspace}
+              onCreate={createWorkspace}
+            />
+          ) : page === "pos" ? (
+            <PosWorkspace
+              key={companyId}
+              company={company}
+              records={records}
+              onParty={setActiveParty}
+              api={api}
+              refresh={loadRecords}
+              onPdf={downloadDocument}
+            />
+          ) : page === "commerce" ? (
+            <CommerceWorkspace key={companyId} company={company} records={records} api={api} onPdf={downloadDocument}/>
+          ) : page === "settings" ? (
+            <SettingsWorkspace
+              key={companyId}
+              company={company}
+              onAddCompany={() => setModal("company")}
+              sections={{
+                commerce: <><h3>Bagisto integration</h3><p>Connect independent store channels and stock pools to this company. Review orders, deliveries and accounting reconciliation.</p><button type="button" className="primary" onClick={() => navigateWorkspace("commerce")}>Open ecommerce workspace</button></>,
+                company: (
+                  <>
+                    <h3>Business profile</h3>
+                    <div className="details">
+                      <div>
+                        <small>COMPANY NAME</small>
+                        <strong>{company?.name || "—"}</strong>
+                      </div>
+                      <div>
+                        <small>TAX PROFILE</small>
+                        <strong>
+                          {company?.tax_mode === "regular"
+                            ? "GST regular"
+                            : company?.tax_mode === "composition"
+                              ? "Composition"
+                              : "Not GST registered"}
+                        </strong>
+                      </div>
+                      <div>
+                        <small>GSTIN</small>
+                        <strong>{company?.gstin || "Not registered"}</strong>
+                      </div>
+                      <div>
+                        <small>STATE CODE</small>
+                        <strong>{company?.state_code || "—"}</strong>
+                      </div>
+                      <div>
+                        <small>ADDRESS</small>
+                        <strong>{company?.address || "Not provided"}</strong>
+                      </div>
+                    </div>
+                    <CompanyDetailsEditor
+                      company={company}
+                      onSaved={(updated) =>
+                        setCompanies((current) =>
+                          current.map((c) =>
+                            c.id === updated.id ? updated : c,
+                          ),
+                        )
+                      }
+                    />
+                  </>
+                ),
+                documents: (
+                  <>
+                    <div className="settings-block" id="setting-branding">
+                      <DocumentBranding
+                        key={companyId + "branding"}
+                        companyId={companyId}
+                        role={company?.role}
+                      />
+                    </div>
+                    <div className="settings-block" id="setting-prefixes">
+                      <Prefixes companyId={companyId} role={company?.role} />
+                    </div>
+                    <div className="settings-block" id="setting-formats">
+                      <label>
+                        Document PDF layout
+                        <select
+                          className="form-select"
+                          value={docTemplate}
+                          disabled={company?.role !== "owner"}
+                          onChange={async (e) => {
+                            try {
+                              const value = e.target.value;
+                              await api(`/companies/${companyId}/preferences`, {
+                                method: "PUT",
+                                body: JSON.stringify({
+                                  document_template: value,
+                                }),
+                              });
+                              setDocTemplate(value);
+                            } catch (err) {
+                              setError(err.message);
+                            }
+                          }}
+                        >
+                          {[
+                            "modern",
+                            "vintage",
+                            "mrp_discount",
+                            "elegant",
+                            "evergreen",
+                            "classic",
+                            "compact",
+                            "bold",
+                            "minimal",
+                          ].map((t) => (
+                            <option key={t} value={t}>
+                              {t === "mrp_discount"
+                                ? "MRP + Discount"
+                                : t[0].toUpperCase() + t.slice(1)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="document-template-gallery">
+                        {[
+                          "modern",
+                          "vintage",
+                          "mrp_discount",
+                          "elegant",
+                          "evergreen",
+                        ].map((t) => (
+                          <a
+                            key={t}
+                            href={`/document-templates/${t}.pdf`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <img
+                              loading="lazy"
+                              src={`/document-templates/${t}.png`}
+                              alt={`${t.replace("_", " ")} synthetic PDF preview`}
+                            />
+                            <strong>
+                              {t === "mrp_discount"
+                                ? "MRP + Discount"
+                                : t[0].toUpperCase() + t.slice(1)}
+                            </strong>
+                            <small>Open sample PDF</small>
+                          </a>
+                        ))}
+                      </div>
+                      <p>
+                        Previews use synthetic sample details. Logos, signature
+                        images and bank details come from Document branding.
+                      </p>
+                    </div>
+                  </>
+                ),
+                accounting: (
+                  <>
+                    <div className="settings-block" id="setting-openings">
+                      <OpeningBalances
+                        companyId={companyId}
+                        records={records}
+                        onParty={setActiveParty}
+                        api={api}
+                        refresh={loadRecords}
+                        role={company?.role}
+                      />
+                    </div>
+                    <div className="settings-block" id="setting-period">
+                      <PeriodLock companyId={companyId} role={company?.role} />
+                    </div>
+                  </>
+                ),
+                data: (
+                  <>
+                    <div className="settings-block" id="setting-vyapar">
+                      <VyaparImport
+                        companyId={companyId}
+                        role={company?.role}
+                        onImported={async () => {
+                          await Promise.all([loadCompanies(), loadRecords()]);
+                        }}
+                      />
+                    </div>
+                    <div className="settings-block" id="setting-masters">
+                      <MasterImport
+                        companyId={companyId}
+                        role={company?.role}
+                        onImported={() => loadRecords()}
+                      />
+                    </div>
+                    <div className="settings-block" id="setting-export">
+                      <CompanyDataExport
+                        companyId={companyId}
+                        role={company?.role}
+                      />
+                    </div>
+                    <div className="settings-block" id="setting-backup">
+                      <BackupRestore
+                        companyId={companyId}
+                        role={company?.role}
+                        onRestored={async (id) => {
+                          await loadCompanies();
+                          setCompanyId(id);
+                        }}
+                      />
+                    </div>
+                  </>
+                ),
+                access: <Members companyId={companyId} role={company?.role} />,
+                security: (
+                  <>
+                    <div className="settings-block" id="setting-account">
+                      <AccountSecurity onChanged={signOut} />
+                    </div>
+                    <div className="settings-block" id="setting-recovery">
+                      <RecoveryCodes api={api} />
+                    </div>
+                    <div className="settings-block" id="setting-audit">
+                      <AuditLog companyId={companyId} role={company?.role} />
+                    </div>
+                  </>
+                ),
+              }}
+            />
+          ) : (
+            <>
+              <div className="page-heading">
+                <div>
+                  <div className="eyebrow green">
+                    {page === "reports"
+                      ? "BUSINESS INSIGHTS"
+                      : "YOUR WORKSPACE"}
+                  </div>
+                  <h1>{labels[page]}</h1>
+                  <p>
+                    {page === "reports"
+                      ? "Explore and export your transaction register."
+                      : {
+                          payment_in:
+                            "Record receipts and apply them to customer invoices.",
+                          payment_out:
+                            "Pay suppliers and track allocated payments.",
+                          sales_invoice:
+                            "Create invoices, follow collections and review balances.",
+                          purchase_bill:
+                            "Record supplier bills and keep track of what you owe.",
+                          estimate:
+                            "Prepare quotations and convert accepted work to invoices.",
+                          expense:
+                            "Record business spending and review expense categories.",
+                        }[page] ||
+                        `Manage your ${labels[page]?.toLowerCase()} in one place.`}
+                  </p>
+                </div>
+                <div className="heading-actions">
+                  {page === "reports" ? (
+                    <>
+                      <button
+                        className="button secondary"
+                        onClick={() => download("xlsx")}
+                      >
+                        <Download size={16} /> Export XLSX
+                      </button>
+                      <button
+                        className="button secondary"
+                        onClick={() => download("pdf")}
+                      >
+                        <Download size={16} /> Export PDF
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {page === "item" && (
+                        <button
+                          disabled={
+                            !records.some(
+                              (r) => r.kind === "item" && r.data?.track_stock,
+                            )
+                          }
+                          className="button secondary"
+                          onClick={() => setModal("stock_opening")}
+                        >
+                          <Plus size={17} /> Opening stock
+                        </button>
+                      )}
+                      {page === "item" && (
+                        <button
+                          disabled={
+                            !records.some(
+                              (r) => r.kind === "item" && r.data?.track_stock,
+                            )
+                          }
+                          className="button secondary"
+                          onClick={() => setModal("stock_adjustment")}
+                        >
+                          <Plus size={17} /> Adjust stock
+                        </button>
+                      )}
+                      <button
+                        disabled={
+                          !company ||
+                          !recordsReady ||
+                          !["owner", "editor"].includes(company?.role)
+                        }
+                        className="button primary"
+                        onClick={() => setModal("record")}
+                      >
+                        <Plus size={17} /> Add{" "}
+                        {page === "party"
+                          ? "party"
+                          : labels[page]?.replace(/s$/, "").toLowerCase()}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              {!recordsReady ? (
+                <section
+                  className="panel report-loading"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <h2>
+                    {recordsLoadError
+                      ? "Records could not be loaded"
+                      : "Loading company records…"}
+                  </h2>
+                  <p>
+                    {recordsLoadError ||
+                      "Balances and transactions will appear when the records are ready."}
+                  </p>
+                  {recordsLoadError && (
+                    <button
+                      className="button secondary"
+                      onClick={() => loadRecords()}
+                    >
+                      Try again
+                    </button>
+                  )}
+                </section>
+              ) : (
+                <>
+                  {["payment_in", "payment_out"].includes(page) && (
+                    <React.Fragment>
+                      <CreditSettlements
+                        key={companyId + page + "credit"}
+                        companyId={companyId}
+                        kind={page}
+                        records={records}
+                        onParty={setActiveParty}
+                        api={api}
+                        refresh={loadRecords}
+                        canWrite={["owner", "editor"].includes(company?.role)}
+                      />
+                      <Advances
+                        key={companyId + page}
+                        companyId={companyId}
+                        kind={page}
+                        records={records}
+                        onParty={setActiveParty}
+                        api={api}
+                        refresh={loadRecords}
+                        canWrite={["owner", "editor"].includes(company?.role)}
+                      />
+                    </React.Fragment>
+                  )}
+                  {transactionRegister && (
+                    <RegisterControls
+                      value={query}
+                      records={records.filter((r) => r.kind === page)}
+                      onChange={(value) => setRegisterQuery({ ...value, page })}
+                      onReset={() => {
+                        setRegisterQuery({
+                          page,
+                          period: "all",
+                          from: "",
+                          to: "",
+                          party: "",
+                          sort: "newest",
+                        });
+                        setSearch("");
+                        setRegisterFilter({ page, value: "all" });
+                      }}
+                    />
+                  )}
+                  <RegisterOverview
+                    page={page}
+                    records={scopedRecords}
+                    filter={activeRegisterFilter}
+                    onFilter={(value) => setRegisterFilter({ page, value })}
+                  />
+                  <section
+                    className={`panel register ${transactionRegister ? "transaction-register" : ""}`}
+                  >
+                    <div className="panel-header">
+                      <div>
+                        <h2>
+                          {page === "reports" ? "All records" : labels[page]}
+                        </h2>
+                        <p>
+                          {filtered.length}{" "}
+                          {filtered.length === 1 ? "record" : "records"} in this
+                          view
+                        </p>
+                      </div>
+                      <div className="search">
+                        <Search size={17} />
+                        <input
+                          aria-label="Search this register"
+                          placeholder="Search party or reference"
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            {transactionRegister ? (
+                              <>
+                                <th>DATE</th>
+                                <th>DOCUMENT / PARTY</th>
+                                <th>STATUS</th>
+                                <th className="right">AMOUNT</th>
+                                <th className="right">BALANCE</th>
+                                <th className="right">ACTIONS</th>
+                              </>
+                            ) : (
+                              <>
+                                <th>NAME / REFERENCE</th>
+                                <th>DATE</th>
+                                <th>TYPE</th>
+                                <th className="right">ACTIONS</th>
+                              </>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleRegisterRows.map((r) => (
+                            <RecordRow
+                              key={r.id}
+                              r={r}
+                              records={records}
+                              onParty={setActiveParty}
+                              onPdf={downloadDocument}
+                              onConvert={beginConversion}
+                              onEdit={
+                                ["owner", "editor"].includes(company?.role)
+                                  ? beginEdit
+                                  : null
+                              }
+                            />
+                          ))}
+                        </tbody>
+                      </table>
+                      {!filtered.length && (
+                        <div className="empty">
+                          <span>
+                            <FileText size={22} />
+                          </span>
+                          <strong>
+                            {scopedRecords.length ||
+                            search ||
+                            activeRegisterFilter !== "all"
+                              ? "No matching records"
+                              : "No transactions in this view"}
+                          </strong>
+                          <p>
+                            Choose another period or add your first document.
+                          </p>
+                          <button
+                            className="button secondary"
+                            onClick={() => {
+                              setSearch("");
+                              setRegisterFilter({ page, value: "all" });
+                              setRegisterQuery({
+                                page,
+                                period: "all",
+                                from: "",
+                                to: "",
+                                party: "",
+                                sort: "newest",
+                              });
+                            }}
+                          >
+                            Clear filters
+                          </button>
+                          {["owner", "editor"].includes(company?.role) && (
+                            <button
+                              className="button primary"
+                              onClick={() => setModal("record")}
+                            >
+                              <Plus size={15} />
+                              Add{" "}
+                              {labels[page]?.replace(/s$/, "").toLowerCase()}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="register-pagination">
+                      <span>
+                        {filtered.length
+                          ? `${(currentRegisterPage - 1) * 50 + 1}–${Math.min(currentRegisterPage * 50, filtered.length)} of ${filtered.length}`
+                          : "0 records"}
+                      </span>
+                      <div>
+                        <button
+                          className="button secondary"
+                          disabled={currentRegisterPage === 1}
+                          onClick={() => setRegisterPage((n) => n - 1)}
+                        >
+                          Previous
+                        </button>
+                        <span>
+                          Page {currentRegisterPage} of {totalRegisterPages}
+                        </span>
+                        <button
+                          className="button secondary"
+                          disabled={currentRegisterPage >= totalRegisterPages}
+                          onClick={() => setRegisterPage((n) => n + 1)}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+                  {page === "bank_account" && (
+                    <div className="info-box">
+                      Bank reconciliation and transaction matching are not
+                      available yet.
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </main>
+      {activeParty && (
+        <PartyStatement
+          key={companyId + activeParty.id}
+          party={activeParty}
+          companyId={companyId}
+          api={api}
+          Modal={Modal}
+          close={() => setActiveParty(null)}
+          onPdf={downloadDocument}
+          onEdit={
+            ["owner", "editor"].includes(company?.role)
+              ? (row) => {
+                  const full = records.find((r) => r.id === row.id);
+                  if (full) {
+                    setActiveParty(null);
+                    beginEdit(full);
+                  }
+                }
+              : undefined
+          }
+        />
+      )}
+      {modal === "company" && (
+        <CompanyModal close={() => setModal("")} save={saveCompany} />
+      )}{" "}
+      {modal === "record" &&
+        company &&
+        (["party", "item"].includes(page) ? (
+          <MasterForm
+            kind={page}
+            record={editingMaster}
+            close={() => {
+              setEditingMaster(null);
+              setModal("");
+            }}
+            save={saveMaster}
+          />
+        ) : (
+          <RecordEditor
+            key={`${companyId}-${page}-${editorCycle}`}
+            api={api}
+            Modal={Modal}
+            labels={labels}
+            documentKinds={documentKinds}
+            money={money}
+            today={today}
+            kind={page}
+            company={company}
+            companyId={companyId}
+            records={records}
+            onParty={setActiveParty}
+            source={editingDraft || conversionSource}
+            edit={!!editingDraft}
+            close={() => {
+              setConversionSource(null);
+              setEditingDraft(null);
+              setModal("");
+            }}
+            save={saveRecord}
+          />
+        ))}
+      {modal === "stock_opening" && (
+        <OpeningStock
+          items={records.filter(
+            (r) => r.kind === "item" && r.data?.track_stock,
+          )}
+          close={() => setModal("")}
+          save={saveOpening}
+        />
+      )}
+      {modal === "stock_adjustment" && (
+        <StockAdjustment
+          items={records.filter(
+            (r) => r.kind === "item" && r.data?.track_stock,
+          )}
+          close={() => setModal("")}
+          save={saveStockAdjustment}
+        />
+      )}
+    </div>
+  );
+}
+function Prefixes({ companyId, role }) {
+  const now = new Date(),
+    year = now.getFullYear() - (now.getMonth() < 3 ? 1 : 0),
+    defaults = {
+      sales_invoice: "INV",
+      estimate: "EST",
+      proforma: "PF",
+      payment_in: "PIN",
+      credit_note: "CN",
+      pos: "POS",
+      purchase_bill: "BILL",
+      payment_out: "POUT",
+      expense: "EXP",
+      purchase_order: "PO",
+      debit_note: "DN",
+      bank_transfer: "TRF",
+    };
+  const [series, setSeries] = useState([]),
+    [kind, setKind] = useState("sales_invoice"),
+    [prefix, setPrefix] = useState("INV"),
+    [error, setError] = useState(""),
+    [saved, setSaved] = useState("");
+  const activeCompany = useRef(companyId);
+  async function load() {
+    if (!companyId) return;
+    const id = companyId;
+    try {
+      const rows = await api(`/companies/${id}/number-series`);
+      if (activeCompany.current === id) {
+        setSeries(rows);
+        setError("");
+      }
+    } catch (e) {
+      if (activeCompany.current === id) setError(e.message);
+    }
+  }
+  useEffect(() => {
+    activeCompany.current = companyId;
+    setSeries([]);
+    setSaved("");
+    load();
+  }, [companyId]);
+  useEffect(() => {
+    setPrefix(
+      series.find((s) => s.kind === kind && s.financial_year === year)
+        ?.prefix || defaults[kind],
+    );
+  }, [kind, series, year]);
+  async function save(e) {
+    e.preventDefault();
+    try {
+      await api(`/companies/${companyId}/number-series`, {
+        method: "PUT",
+        body: JSON.stringify({ kind, financial_year: year, prefix }),
+      });
+      setSaved("Prefix saved");
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+  return (
+    <section className="member-settings">
+      <h2>Transaction prefixes</h2>
+      <p>
+        Numbers are assigned automatically within the April–March financial
+        year. Year {year}–{year + 1}.
+      </p>
+      {error && <div className="error banner">{error}</div>}
+      {role === "owner" && (
+        <form className="member-form" onSubmit={save}>
+          <label>
+            Document type
+            <select
+              className="form-select"
+              value={kind}
+              onChange={(e) => setKind(e.target.value)}
+            >
+              {Object.keys(defaults).map((k) => (
+                <option value={k} key={k}>
+                  {labels[k] || k}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Prefix
+            <input
+              required
+              maxLength="6"
+              pattern="[A-Z0-9-]+"
+              value={prefix}
+              onChange={(e) => setPrefix(e.target.value.toUpperCase())}
+            />
+          </label>
+          <button className="button primary">Save prefix</button>
+        </form>
+      )}
+      {saved && <p>{saved}</p>}
+    </section>
+  );
+}
+
+function Members({ companyId, role }) {
+  const [members, setMembers] = useState([]),
+    [email, setEmail] = useState(""),
+    [newRole, setNewRole] = useState("viewer"),
+    [error, setError] = useState("");
+  const activeCompany = useRef(companyId);
+  async function load() {
+    if (!companyId) return;
+    const id = companyId;
+    try {
+      const rows = await api(`/companies/${id}/members`);
+      if (activeCompany.current === id) {
+        setMembers(rows);
+        setError("");
+      }
+    } catch (e) {
+      if (activeCompany.current === id) setError(e.message);
+    }
+  }
+  useEffect(() => {
+    activeCompany.current = companyId;
+    setMembers([]);
+    setEmail("");
+    load();
+  }, [companyId]);
+  async function add(e) {
+    e.preventDefault();
+    try {
+      await api(`/companies/${companyId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ email, role: newRole }),
+      });
+      setEmail("");
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+  async function remove(member) {
+    try {
+      await api(
+        `/companies/${companyId}/members/${encodeURIComponent(member.email)}`,
+        { method: "DELETE" },
+      );
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+  return (
+    <section className="member-settings">
+      <h2>Team access</h2>
+      <p>
+        Registered users can be given editor or view-only access to this
+        company.
+      </p>
+      {error && <div className="error banner">{error}</div>}
+      <div className="ledger-list">
+        {members.map((m) => (
+          <div key={m.email}>
+            <strong>{m.email}</strong>
+            <span>
+              {m.role}{" "}
+              {role === "owner" && m.role !== "owner" && (
+                <button className="link" onClick={() => remove(m)}>
+                  Remove
+                </button>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+      {role === "owner" && (
+        <form className="member-form" onSubmit={add}>
+          <label>
+            User email
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Registered user's email"
+            />
+          </label>
+          <label>
+            Role
+            <select
+              className="form-select"
+              value={newRole}
+              onChange={(e) => setNewRole(e.target.value)}
+            >
+              <option value="viewer">Viewer</option>
+              <option value="editor">Editor</option>
+            </select>
+          </label>
+          <button className="button primary">Add member</button>
+        </form>
+      )}
+    </section>
+  );
+}
+
+function Ledger({ companyId }) {
+  const [accounts, setAccounts] = useState([]),
+    [journals, setJournals] = useState([]),
+    [account, setAccount] = useState({ code: "", name: "", category: "asset" }),
+    [entry, setEntry] = useState({
+      date: today(),
+      reference: "",
+      memo: "",
+      debit_account: "",
+      credit_account: "",
+      amount: "",
+    }),
+    [error, setError] = useState(""),
+    [through, setThrough] = useState(today()),
+    [balance, setBalance] = useState(null),
+    [reversing, setReversing] = useState(null),
+    [reversal, setReversal] = useState({
+      date: today(),
+      reference: "",
+      reason: "",
+    });
+  const activeCompany = useRef(companyId);
+  async function load() {
+    if (!companyId) return;
+    const id = companyId;
+    try {
+      const [a, j, b] = await Promise.all([
+        api(`/companies/${id}/accounts`),
+        api(`/companies/${id}/journals`),
+        api(`/companies/${id}/trial-balance?through=${through}`),
+      ]);
+      if (activeCompany.current === id) {
+        setAccounts(a);
+        setJournals(j);
+        setBalance(b);
+      }
+    } catch (e) {
+      if (activeCompany.current === id) setError(e.message);
+    }
+  }
+  useEffect(() => {
+    activeCompany.current = companyId;
+    setAccounts([]);
+    setJournals([]);
+    setBalance(null);
+    setError("");
+    load();
+  }, [companyId, through]);
+  async function addAccount(e) {
+    e.preventDefault();
+    setError("");
+    try {
+      await api(`/companies/${companyId}/accounts`, {
+        method: "POST",
+        body: JSON.stringify(account),
+      });
+      setAccount({ code: "", name: "", category: "asset" });
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+  async function postJournal(e) {
+    e.preventDefault();
+    setError("");
+    try {
+      if (entry.debit_account === entry.credit_account)
+        throw new Error("Choose different accounts for debit and credit");
+      await api(`/companies/${companyId}/journals`, {
+        method: "POST",
+        body: JSON.stringify({
+          date: entry.date,
+          reference: entry.reference,
+          memo: entry.memo,
+          lines: [
+            { account_id: entry.debit_account, debit: entry.amount },
+            { account_id: entry.credit_account, credit: entry.amount },
+          ],
+        }),
+      });
+      setEntry({
+        date: today(),
+        reference: "",
+        memo: "",
+        debit_account: "",
+        credit_account: "",
+        amount: "",
+      });
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+  async function reverseEntry(e) {
+    e.preventDefault();
+    setError("");
+    try {
+      await api(`/companies/${companyId}/journals/${reversing.id}/reverse`, {
+        method: "POST",
+        body: JSON.stringify(reversal),
+      });
+      setReversing(null);
+      setReversal({ date: today(), reference: "", reason: "" });
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+  const accountName = (id) =>
+    accounts.find((a) => a.id === id)?.name || "Account";
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <div className="eyebrow green">ACCOUNTING FOUNDATION</div>
+          <h1>Ledger</h1>
+          <p>Create accounts and record balanced manual journal entries.</p>
+        </div>
+      </div>
+      {error && <div className="error banner">{error}</div>}
+      <div className="info-box ledger-note">
+        New invoices, bills, payments, notes, POS sales and expenses post to the
+        ledger automatically. Older prototype records remain unposted.
+      </div>
+      <div className="ledger-grid">
+        <section className="panel settings-panel">
+          <h2>Chart of accounts</h2>
+          <p>Add the accounts you need for manual entries.</p>
+          <form className="form-grid ledger-form" onSubmit={addAccount}>
+            <label>
+              Account code
+              <input
+                required
+                maxLength="32"
+                value={account.code}
+                onChange={(e) =>
+                  setAccount({ ...account, code: e.target.value })
+                }
+                placeholder="e.g. 100"
+              />
+            </label>
+            <label>
+              Account name
+              <input
+                required
+                maxLength="120"
+                value={account.name}
+                onChange={(e) =>
+                  setAccount({ ...account, name: e.target.value })
+                }
+                placeholder="e.g. Cash"
+              />
+            </label>
+            <label className="full">
+              Category
+              <select
+                className="form-select"
+                value={account.category}
+                onChange={(e) =>
+                  setAccount({ ...account, category: e.target.value })
+                }
+              >
+                {["asset", "liability", "equity", "income", "expense"].map(
+                  (c) => (
+                    <option value={c} key={c}>
+                      {c[0].toUpperCase() + c.slice(1)}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+            <button className="button primary full" disabled={!companyId}>
+              Add account
+            </button>
+          </form>
+          <div className="ledger-list">
+            {accounts.map((a) => (
+              <div key={a.id}>
+                <strong>
+                  {a.code} · {a.name}
+                </strong>
+                <span>{a.category}</span>
+              </div>
+            ))}
+            {!accounts.length && <p>No accounts added yet.</p>}
+          </div>
+        </section>
+        <section className="panel settings-panel">
+          <h2>New journal entry</h2>
+          <p>Each entry has an equal debit and credit.</p>
+          <form className="form-grid ledger-form" onSubmit={postJournal}>
+            <label>
+              Date
+              <input
+                type="date"
+                required
+                value={entry.date}
+                onChange={(e) => setEntry({ ...entry, date: e.target.value })}
+              />
+            </label>
+            <label>
+              Reference
+              <input
+                required
+                maxLength="80"
+                value={entry.reference}
+                onChange={(e) =>
+                  setEntry({ ...entry, reference: e.target.value })
+                }
+              />
+            </label>
+            <label className="full">
+              Memo
+              <input
+                maxLength="500"
+                value={entry.memo}
+                onChange={(e) => setEntry({ ...entry, memo: e.target.value })}
+              />
+            </label>
+            {[
+              ["debit_account", "Debit account"],
+              ["credit_account", "Credit account"],
+            ].map(([key, label]) => (
+              <label key={key}>
+                {label}
+                <select
+                  className="form-select"
+                  required
+                  value={entry[key]}
+                  onChange={(e) =>
+                    setEntry({ ...entry, [key]: e.target.value })
+                  }
+                >
+                  <option value="">Choose account</option>
+                  {accounts.map((a) => (
+                    <option value={a.id} key={a.id}>
+                      {a.code} · {a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            <label className="full">
+              Amount (₹)
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+                value={entry.amount}
+                onChange={(e) => setEntry({ ...entry, amount: e.target.value })}
+              />
+            </label>
+            <button
+              className="button primary full"
+              disabled={accounts.length < 2}
+            >
+              Post journal
+            </button>
+          </form>
+        </section>
+      </div>
+      <section className="panel settings-panel journal-history">
+        <h2>Journal history</h2>
+        <p>Posted entries are retained as an accounting record.</p>
+        {journals.length ? (
+          journals.map((j) => (
+            <div className="journal-entry" key={j.id}>
+              <strong>{j.reference}</strong>
+              <span>
+                {j.date} {j.memo && ` · ${j.memo}`}
+                {j.reversed_by
+                  ? " · Reversed"
+                  : j.reversal_of
+                    ? " · Reversal"
+                    : ""}
+              </span>
+              {!j.reversed_by && !j.reversal_of && !j.source_record_id && (
+                <button className="link" onClick={() => setReversing(j)}>
+                  Reverse entry
+                </button>
+              )}
+              {j.lines.map((line, i) => (
+                <div key={i}>
+                  {accountName(line.account_id)}{" "}
+                  <span>
+                    Dr {money(line.debit)} · Cr {money(line.credit)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ))
+        ) : (
+          <Empty
+            title="No journal entries"
+            text="Your posted manual entries will appear here."
+          />
+        )}
+      </section>
+      <section className="panel settings-panel journal-history">
+        <div className="panel-header balance-heading">
+          <div>
+            <h2>Trial balance</h2>
+            <p>All posted journal balances through the selected date.</p>
+          </div>
+          <label>
+            Through
+            <input
+              type="date"
+              value={through}
+              onChange={(e) => setThrough(e.target.value)}
+              required
+            />
+          </label>
+        </div>
+        {balance && (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ACCOUNT</th>
+                  <th className="right">DEBIT</th>
+                  <th className="right">CREDIT</th>
+                </tr>
+              </thead>
+              <tbody>
+                {balance.accounts.map((a) => (
+                  <tr key={a.id}>
+                    <td>
+                      {a.code} · {a.name}
+                    </td>
+                    <td className="right">{money(a.debit)}</td>
+                    <td className="right">{money(a.credit)}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td>
+                    <strong>Total</strong>
+                  </td>
+                  <td className="right">
+                    <strong>{money(balance.total_debit)}</strong>
+                  </td>
+                  <td className="right">
+                    <strong>{money(balance.total_credit)}</strong>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      {reversing && (
+        <Modal
+          title="Reverse journal"
+          subtitle={`Create an opposite entry for ${reversing.reference}. The original stays in history.`}
+          close={() => setReversing(null)}
+        >
+          <form className="form-grid" onSubmit={reverseEntry}>
+            <label>
+              Date
+              <input
+                type="date"
+                required
+                value={reversal.date}
+                onChange={(e) =>
+                  setReversal({ ...reversal, date: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              New reference
+              <input
+                required
+                maxLength="80"
+                value={reversal.reference}
+                onChange={(e) =>
+                  setReversal({ ...reversal, reference: e.target.value })
+                }
+              />
+            </label>
+            <label className="full">
+              Reason
+              <input
+                required
+                maxLength="500"
+                value={reversal.reason}
+                onChange={(e) =>
+                  setReversal({ ...reversal, reason: e.target.value })
+                }
+              />
+            </label>
+            {error && <div className="error full">{error}</div>}
+            <div className="modal-actions full">
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => setReversing(null)}
+              >
+                Cancel
+              </button>
+              <button className="button primary">Create reversal</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function PaymentAllocationSummary({ record, records }) {
+  if (!["payment_in", "payment_out"].includes(record.kind)) return null;
+  const allocations = Array.isArray(record.data?.allocations)
+    ? record.data.allocations
+    : record.data?.applied_to
+      ? [{ document_id: record.data.applied_to, amount: record.amount }]
+      : [];
+  if (!allocations.length) return null;
+  return (
+    <details className="payment-allocation-summary">
+      <summary>
+        {allocations.length} allocated document
+        {allocations.length === 1 ? "" : "s"}
+      </summary>
+      {allocations.map((item, index) => {
+        const target = records.find((row) => row.id === item.document_id);
+        return (
+          <div key={item.document_id || index}>
+            {target?.number || "Document unavailable"} · {money(item.amount)}
+          </div>
+        );
+      })}
+    </details>
+  );
+}
+function RecordActions({ r, onEdit, onPdf, onConvert }) {
+  return (
+    <div className="record-actions">
+      {onEdit &&
+        (["party", "item"].includes(r.kind) ||
+          ([
+            "estimate",
+            "proforma",
+            "purchase_order",
+            "sales_invoice",
+            "purchase_bill",
+            "expense",
+            "pos",
+            "credit_note",
+            "debit_note",
+            "payment_in",
+            "payment_out",
+            "bank_transfer",
+          ].includes(r.kind) &&
+            !r.converted_to)) && (
+          <button className="link" onClick={() => onEdit(r)}>
+            Edit
+          </button>
+        )}
+      {[
+        ...documentKinds,
+        "payment_in",
+        "payment_out",
+        "customer_refund",
+        "supplier_refund",
+        "advance_refund",
+      ].includes(r.kind) &&
+        onPdf && (
+          <button
+            className="row-pdf"
+            onClick={() => onPdf(r)}
+            title="Download PDF"
+            aria-label={`Download ${r.number || r.name} PDF`}
+          >
+            <Download size={14} />
+          </button>
+        )}
+      {onConvert &&
+        ["estimate", "proforma", "purchase_order"].includes(r.kind) && (
+          <button
+            className="link convert-link"
+            disabled={!!r.converted_to}
+            onClick={() => onConvert(r)}
+          >
+            {r.converted_to ? "Converted" : "Convert"}
+          </button>
+        )}
+    </div>
+  );
+}
+function RecordRow({ r, onPdf, onConvert, onEdit, records, onParty }) {
+  if (!["party", "item"].includes(r.kind)) {
+    const invoice = ["sales_invoice", "purchase_bill", "pos"].includes(r.kind);
+    const balance = Number(r.outstanding || 0);
+    const status = r.converted_to
+      ? "Converted"
+      : ["estimate", "proforma", "purchase_order"].includes(r.kind)
+        ? "Open draft"
+        : r.posted === false
+          ? "Legacy · unposted"
+          : invoice
+            ? balance > 0
+              ? balance < Number(r.amount)
+                ? "Part settled"
+                : "Unpaid"
+              : "Settled"
+            : "Posted";
+    const party = records?.find(
+      (p) =>
+        p.kind === "party" &&
+        (p.id === r.data?.party_id ||
+          p.name.trim().toLowerCase() === r.name?.trim().toLowerCase()),
+    );
+    return (
+      <tr>
+        <td data-label="Date">
+          {new Date(r.date + "T00:00:00").toLocaleDateString("en-IN", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          })}
+        </td>
+        <td data-label="Document / party">
+          <div className="transaction-reference">
+            {onEdit && !r.converted_to ? (
+              <button className="link" onClick={() => onEdit(r)}>
+                {r.number || "No reference"}
+              </button>
+            ) : (
+              <strong>{r.number || "No reference"}</strong>
+            )}
+            {party && onParty ? (
+              <button
+                className="link transaction-party"
+                onClick={() => onParty(party)}
+              >
+                {r.name}
+              </button>
+            ) : (
+              <span>{r.name}</span>
+            )}
+            {r.data?.due_date && <small>Due {r.data.due_date}</small>}
+          </div>
+          <PaymentAllocationSummary record={r} records={records} />
+        </td>
+        <td data-label="Status">
+          <span
+            className={`status-badge ${status === "Posted" || status === "Settled" || status === "Converted" ? "posted" : "draft"}`}
+          >
+            {status}
+          </span>
+        </td>
+        <td data-label="Amount" className="right amount">
+          {money(r.amount)}
+        </td>
+        <td
+          data-label="Balance"
+          className={`right ${balance > 0 ? "outstanding-amount" : ""}`}
+        >
+          {invoice && r.posted ? money(balance) : "—"}
+        </td>
+        <td data-label="Actions" className="right">
+          <RecordActions
+            r={r}
+            onEdit={onEdit}
+            onPdf={onPdf}
+            onConvert={onConvert}
+          />
+        </td>
+      </tr>
+    );
+  }
+  return (
+    <tr>
+      <td>
+        <div className="row-name">
+          <span className="row-icon">
+            {r.kind === "item" && r.data?.image_thumbnail ? (
+              <img
+                className="item-thumb"
+                src={r.data.image_thumbnail}
+                alt={r.name}
+              />
+            ) : (
+              <FileText size={16} />
+            )}
+          </span>
+          <span>
+            <strong>
+              {r.kind === "party" && onParty ? (
+                <button className="link party-open" onClick={() => onParty(r)}>
+                  {r.name}
+                </button>
+              ) : (
+                r.name || "Untitled"
+              )}
+            </strong>
+            <small>
+              {r.number ||
+                (r.kind === "party"
+                  ? r.data?.gstin || "Party"
+                  : r.kind === "item"
+                    ? r.data?.hsn
+                      ? `HSN / SAC ${r.data.hsn}`
+                      : "Item"
+                    : "No reference")}
+            </small>
+          </span>
+        </div>
+        <PaymentAllocationSummary record={r} records={records} />
+        {r.kind === "party" && (r.data?.phone || r.data?.email) && (
+          <small className="master-contact">
+            {[r.data.phone, r.data.email].filter(Boolean).join(" · ")}
+          </small>
+        )}
+      </td>
+      <td>
+        {new Date(r.date + "T00:00:00").toLocaleDateString("en-IN", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })}
+      </td>
+      <td>
+        <span className="pill">
+          {r.kind === "sales_invoice" && r.data?.tax_mode === "composition"
+            ? "Bill of supply"
+            : labels[r.kind] || r.kind}
+        </span>
+        {r.posted && ["sales_invoice", "purchase_bill"].includes(r.kind) && (
+          <div className="document-row-status">
+            <span
+              className={`status-badge ${Number(r.outstanding) > 0 ? "draft" : "posted"}`}
+            >
+              {Number(r.outstanding) > 0
+                ? Number(r.outstanding) < Number(r.amount)
+                  ? "Part settled"
+                  : "Unpaid"
+                : "Settled"}
+            </span>
+            {Number(r.outstanding) > 0 && (
+              <small>Balance {money(r.outstanding)}</small>
+            )}
+            {r.data?.due_date && (
+              <small>
+                Due{" "}
+                {new Date(r.data.due_date + "T00:00:00").toLocaleDateString(
+                  "en-IN",
+                  { day: "numeric", month: "short" },
+                )}
+              </small>
+            )}
+          </div>
+        )}
+        {r.posted === false &&
+          [
+            "sales_invoice",
+            "pos",
+            "purchase_bill",
+            "payment_in",
+            "payment_out",
+            "expense",
+            "credit_note",
+            "debit_note",
+          ].includes(r.kind) && (
+            <span className="pill legacy-pill">Legacy · unposted</span>
+          )}
+      </td>
+      <td className="right amount">
+        {!["party", "item"].includes(r.kind) && money(r.amount)}
+        <RecordActions
+          r={r}
+          onEdit={onEdit}
+          onPdf={onPdf}
+          onConvert={onConvert}
+        />
+      </td>
+    </tr>
+  );
+}
+function Empty({ title, text }) {
+  return (
+    <div className="empty">
+      <span>
+        <ReceiptIndianRupee size={22} />
+      </span>
+      <strong>{title}</strong>
+      <p>{text}</p>
+    </div>
+  );
+}
+createRoot(document.getElementById("root")).render(
+  <WorkspaceBoundary>
+    <DialogFocus />
+    <App />
+  </WorkspaceBoundary>,
+);

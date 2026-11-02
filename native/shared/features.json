@@ -1,0 +1,238 @@
+{
+  "schema_version": 1,
+  "application": "Apex Books",
+  "api_origin": "https://api.apexbooks.in",
+  "brand": {
+    "primary": "#127C66",
+    "surface": "#F3F6F8",
+    "text": "#20343F",
+    "muted": "#677B86"
+  },
+  "navigation": [
+    {
+      "key": "dashboard",
+      "title": "Dashboard",
+      "group": "Overview"
+    },
+    {
+      "key": "party",
+      "title": "Parties",
+      "group": "Workspace"
+    },
+    {
+      "key": "item",
+      "title": "Items",
+      "group": "Workspace"
+    },
+    {
+      "key": "commerce",
+      "title": "Ecommerce",
+      "group": "Workspace"
+    },
+    {
+      "key": "sales_invoice",
+      "title": "Sales invoices",
+      "group": "Sales"
+    },
+    {
+      "key": "estimate",
+      "title": "Estimates",
+      "group": "Sales"
+    },
+    {
+      "key": "proforma",
+      "title": "Proforma invoices",
+      "group": "Sales"
+    },
+    {
+      "key": "payment_in",
+      "title": "Payment in",
+      "group": "Sales"
+    },
+    {
+      "key": "credit_note",
+      "title": "Credit notes",
+      "group": "Sales"
+    },
+    {
+      "key": "pos",
+      "title": "POS",
+      "group": "Sales"
+    },
+    {
+      "key": "purchase_bill",
+      "title": "Purchase bills",
+      "group": "Purchases"
+    },
+    {
+      "key": "payment_out",
+      "title": "Payment out",
+      "group": "Purchases"
+    },
+    {
+      "key": "expense",
+      "title": "Expenses",
+      "group": "Purchases"
+    },
+    {
+      "key": "purchase_order",
+      "title": "Purchase orders",
+      "group": "Purchases"
+    },
+    {
+      "key": "debit_note",
+      "title": "Debit notes",
+      "group": "Purchases"
+    },
+    {
+      "key": "bank",
+      "title": "Cash and bank",
+      "group": "Accounting"
+    },
+    {
+      "key": "ledger",
+      "title": "Ledger",
+      "group": "Accounting"
+    },
+    {
+      "key": "reports",
+      "title": "Reports",
+      "group": "Accounting"
+    },
+    {
+      "key": "settings",
+      "title": "Settings",
+      "group": "Workspace"
+    }
+  ],
+  "reports": [
+    {
+      "key": "summary",
+      "title": "Transaction summary",
+      "path": "/reports/summary",
+      "group": "Business overview",
+      "description": "A dated overview of sales, purchases, receipts and payments."
+    },
+    {
+      "key": "sales",
+      "title": "Sales register",
+      "path": "/reports/register?group=sales",
+      "group": "Sales and purchases",
+      "description": "Review posted invoices, POS sales and customer returns."
+    },
+    {
+      "key": "purchases",
+      "title": "Purchase register",
+      "path": "/reports/register?group=purchases",
+      "group": "Sales and purchases",
+      "description": "Review supplier bills and purchase returns."
+    },
+    {
+      "key": "expenses",
+      "title": "Expense register",
+      "path": "/reports/register?group=expenses",
+      "group": "Sales and purchases",
+      "description": "Track operating expenses by supplier and category."
+    },
+    {
+      "key": "financial",
+      "title": "Profit and balance sheet",
+      "path": "/reports/financial",
+      "group": "Business overview",
+      "description": "Profit, account balances and a balanced trial balance."
+    },
+    {
+      "key": "gst",
+      "title": "GST analysis",
+      "path": "/reports/gst",
+      "group": "GST and tax",
+      "description": "Output GST, entered supplier tax and estimated set-off."
+    },
+    {
+      "key": "gstr1",
+      "title": "GSTR-1 working paper",
+      "path": "/gst-returns/gstr1",
+      "group": "GST and tax",
+      "description": "GSTN section worksheets, preparation checks and draft JSON."
+    },
+    {
+      "key": "gstr2a",
+      "title": "GSTR-2A-style purchase register",
+      "path": "/gst-returns/gstr2a",
+      "group": "GST and tax",
+      "description": "Purchase-book reconciliation, supplier bills and buyer returns."
+    },
+    {
+      "key": "gstr3b",
+      "title": "GSTR-3B working paper",
+      "path": "/gst-returns/gstr3b",
+      "group": "GST and tax",
+      "description": "Numbered 3B schedules with a separate estimated set-off."
+    },
+    {
+      "key": "parties",
+      "title": "Party statement",
+      "path": "/reports/parties",
+      "group": "Parties and balances",
+      "description": "Dated activity and running balances by party."
+    },
+    {
+      "key": "ageing",
+      "title": "Receivables and payables",
+      "path": "/reports/ageing",
+      "group": "Parties and balances",
+      "description": "Receivable and payable ageing as of a chosen date."
+    },
+    {
+      "key": "items",
+      "title": "Item activity",
+      "path": "/reports/items",
+      "group": "Items and stock",
+      "description": "Quantities and amounts by product or service."
+    },
+    {
+      "key": "stock",
+      "title": "Tracked stock",
+      "path": "/reports/stock",
+      "group": "Items and stock",
+      "description": "Tracked stock movements, quantities and cost."
+    },
+    {
+      "key": "credits",
+      "title": "Credit balances",
+      "path": "/reports/credits",
+      "group": "Parties and balances",
+      "description": "Available customer and supplier note credits."
+    },
+    {
+      "key": "advances",
+      "title": "Advance balances",
+      "path": "/reports/advances",
+      "group": "Parties and balances",
+      "description": "Unallocated receipts and supplier advances."
+    }
+  ],
+  "document_templates": [
+    "modern",
+    "vintage",
+    "mrp_discount",
+    "elegant",
+    "evergreen"
+  ],
+  "draft_kinds": [
+    "estimate",
+    "proforma",
+    "purchase_order"
+  ],
+  "document_kinds": [
+    "sales_invoice",
+    "estimate",
+    "proforma",
+    "credit_note",
+    "pos",
+    "purchase_bill",
+    "expense",
+    "purchase_order",
+    "debit_note"
+  ]
+}

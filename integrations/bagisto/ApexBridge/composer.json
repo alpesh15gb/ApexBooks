@@ -1,0 +1,9 @@
+{
+  "name": "apex-books/bagisto-bridge",
+  "description": "Company-scoped, signed Apex Books connector for Bagisto",
+  "type": "library",
+  "license": "proprietary",
+  "require": {"php": "^8.4", "illuminate/support": "^13.0", "illuminate/http": "^13.0"},
+  "autoload": {"psr-4": {"ApexBooks\\Bridge\\": "src/"}},
+  "extra": {"laravel": {"providers": ["ApexBooks\\Bridge\\BridgeServiceProvider"]}}
+}

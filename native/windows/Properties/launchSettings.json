@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "ApexBooks.Windows (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "ApexBooks.Windows (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

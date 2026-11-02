@@ -1,0 +1,216 @@
+import React, { useEffect, useState } from "react";
+import { Plus, X } from "lucide-react";
+
+export default function CashTransfer({ companyId, onSaved, role, banks = [], preferredBankId="default" }) {
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(new Date().toLocaleDateString("en-CA"));
+  const [name, setName] = useState("Cash deposit");
+  const [amount, setAmount] = useState("");
+  const [direction, setDirection] = useState("cash_to_bank");
+  const [bankAccountId, setBankAccountId] = useState("default");
+  const [toBankId, setToBankId] = useState("default");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [submissionKey, setSubmissionKey] = useState(() => crypto.randomUUID());
+  useEffect(() => {
+    setOpen(false);
+    setError("");
+    setAmount("");
+    setBankAccountId("default");
+  }, [companyId]);
+  useEffect(()=>{if(direction==="bank_to_bank"&&(toBankId===bankAccountId||!banks.some(bank=>bank.id===toBankId)))setToBankId(banks.find(bank=>bank.id!==bankAccountId)?.id||"")},[direction,toBankId,bankAccountId,banks]);
+  async function submit(event) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/companies/${companyId}/records`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.token}`,
+          "Idempotency-Key": submissionKey,
+        },
+        body: JSON.stringify({
+          kind: "bank_transfer",
+          name,
+          date,
+          amount,
+          data: {
+            direction,
+            bank_account_id: bankAccountId,
+            to_bank_account_id: toBankId,
+          },
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok)
+        throw Error(
+          typeof data.detail === "string"
+            ? data.detail
+            : "Could not record transfer",
+        );
+      setOpen(false);
+      setAmount("");
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <button
+        className="button secondary cash-transfer-button"
+        disabled={!companyId || role === "viewer"}
+        onClick={() => {
+          setSubmissionKey(crypto.randomUUID());
+          setBankAccountId(preferredBankId);
+          setOpen(true);
+        }}
+      >
+        <Plus size={16} /> Record cash/bank transfer
+      </button>
+      {open && (
+        <div
+          className="overlay"
+          onMouseDown={(event) =>
+            event.target === event.currentTarget && setOpen(false)
+          }
+        >
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Entry form"
+          >
+            <div className="modal-heading">
+              <div>
+                <h2>Cash and bank transfer</h2>
+                <p>
+                  Record cash deposits, withdrawals or transfers between bank
+                  accounts.
+                </p>
+              </div>
+              <button
+                className="icon-button"
+                aria-label="Close"
+                onClick={() => setOpen(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <form className="form-grid" onSubmit={submit}>
+              <label className="full">
+                Direction
+                <select
+                  className="form-select"
+                  value={direction}
+                  onChange={(event) => {
+                    setDirection(event.target.value);
+                    if (
+                      event.target.value === "bank_to_bank" &&
+                      toBankId === bankAccountId
+                    )
+                      setToBankId(
+                        banks.find((bank) => bank.id !== bankAccountId)?.id ||
+                          "",
+                      );
+                    setName(
+                      event.target.value === "cash_to_bank"
+                        ? "Cash deposit"
+                        : event.target.value === "bank_to_bank"
+                          ? "Bank transfer"
+                          : "Cash withdrawal",
+                    );
+                  }}
+                >
+                  <option value="cash_to_bank">Cash to bank</option>
+                  <option value="bank_to_cash">Bank to cash</option>
+                  <option value="bank_to_bank">Bank to bank</option>
+                </select>
+              </label>
+              <label className="full">
+                Bank account
+                <select
+                  className="form-select"
+                  value={bankAccountId}
+                  onChange={(event) => setBankAccountId(event.target.value)}
+                >
+                  {banks.map((bank) => (
+                    <option value={bank.id} key={bank.id}>
+                      {bank.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {direction === "bank_to_bank" && (
+                <label className="full">
+                  Destination bank account
+                  <select
+                    className="form-select"
+                    aria-label="Destination bank account"
+                    value={toBankId}
+                    onChange={(event) => setToBankId(event.target.value)}
+                  >
+                    {banks
+                      .filter((bank) => bank.id !== bankAccountId)
+                      .map((bank) => (
+                        <option key={bank.id} value={bank.id}>
+                          {bank.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              )}
+              <label className="full">
+                Description
+                <input
+                  required
+                  maxLength="120"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </label>
+              <label>
+                Date
+                <input
+                  type="date"
+                  required
+                  value={date}
+                  onChange={(event) => setDate(event.target.value)}
+                />
+              </label>
+              <label>
+                Amount (₹)
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  required
+                  value={amount}
+                  onChange={(event) => setAmount(event.target.value)}
+                />
+              </label>
+              {error && <div className="error full">{error}</div>}
+              <div className="modal-actions full">
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => setOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button className="button primary" disabled={busy}>
+                  {busy ? "Saving…" : "Record transfer"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

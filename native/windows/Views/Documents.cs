@@ -1,0 +1,149 @@
+using ApexBooks_Windows.Models;
+using ApexBooks_Windows.Services;
+using ApexBooks_Windows.Views;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using System.Net.Http;
+using System.Text.Json.Nodes;
+using static ApexBooks_Windows.Views.NativeUi;
+
+namespace ApexBooks_Windows;
+
+public sealed partial class MainPage
+{
+    private async Task EditDocument(string kind, JsonObject? previous = null, JsonObject? conversion = null)
+    {
+        var cid = CompanyId; var stamp = generation;
+        if (conversion is not null) conversion = (await Api.Record(cid, conversion.Text("id"))).Object();
+        if (stamp != generation) return;
+        var source = previous ?? conversion; var data = source?["data"].Object() ?? new();
+        var regular = Company.Text("tax_mode") == "regular"; var purchase = kind is "purchase_bill" or "purchase_order" or "debit_note" or "expense";
+        var panel = Stack(16); panel.Width = Math.Clamp(((App.Window.Content as FrameworkElement)?.ActualWidth ?? 1240) - 112, 420, 1320);
+        panel.Children.Add(Text(Company.Text("name") + " · " + (regular ? "GST registered" : "GST not charged on sales"), 13));
+        var info = new InfoBar { IsClosable = true };
+        void LocalError(Exception e) { info.Severity = InfoBarSeverity.Error; info.Message = e.Message; info.IsOpen = true; }
+        panel.Children.Add(info);
+        var party = new AutoSuggestBox { Header = kind == "expense" ? "Supplier / expense description" : "Customer / supplier", Text = source.Text("name"), PlaceholderText = "Choose a party or enter a name" };
+        var number = Input("Reference number", previous.Text("number"));number.PlaceholderText="Assigned on save";number.MaxLength=16;
+        var date = new DateInput("Document date", previous.Text("date") is { Length: > 0 } d ? d : J.Today);
+        var due = new DateInput("Due date · optional", data.Text("due_date"));
+        var address = Input("Billing address", data.Text("party_address"), true); var gstin = Input("Party GSTIN", data.Text("party_gstin")); var phone = Input("Phone", data.Text("party_phone"));
+        var shipping = Input("Shipping address", data.Text("shipping_address"), true);
+        var supplierState = Input("Supplier state code", data.Text("supplier_state") is { Length: > 0 } ss ? ss : data.Text("party_gstin").Length>=2 ? data.Text("party_gstin")[..2] : Company.Text("state_code"));
+        var supply = Input("Place of supply · state code", data.Text("place_of_supply") is { Length: > 0 } ps ? ps : Company.Text("state_code"));
+        var discount = Input("Document discount (%)", data.Text("document_discount_percent") is { Length: > 0 } disc ? disc : "0");
+        var round = new CheckBox { Content = "Round total to nearest rupee", IsChecked = data.Flag("round_total") };
+        var returnStock = new CheckBox { Content = "Return stock with this note", IsChecked = !data.ContainsKey("return_stock") || data.Flag("return_stock") };
+        var method = Select("Paid through", [("cash", "Cash"), ("bank", "Bank / UPI / card")], data.Text("payment_account") is { Length: > 0 } pay ? pay : "cash");
+        var bank = BankChoice(selected: data.Text("bank_account_id") is { Length: > 0 } bankId ? bankId : "default");
+        var category = Input("Expense category", data.Text("category") is { Length: > 0 } cat ? cat : "General");
+        var tender = Input("Cash tendered (₹)", data.Text("tender_amount"));
+        var notes = Input("Notes", data.Text("notes"), true); var terms = Input("Terms and conditions", data.Text("terms"), true);
+        notes.MaxLength=4000;terms.MaxLength=8000;gstin.MaxLength=15;phone.MaxLength=32;address.MaxLength=1000;shipping.MaxLength=1000;
+        var linesPanel = Stack(12); var lines = new List<DocumentLine>(); var preview = Text("Enter items to calculate the total.", 16, true); preview.Foreground = Green;
+        var partyId = data.Text("party_id"); var appliedTo = data.Text("applied_to");
+        var retryKey = Guid.NewGuid().ToString(); CancellationTokenSource? previewRequest = null;var sourceLoading=false;
+
+        JsonObject DocumentData()
+        {
+            var values = new JsonObject { ["lines"] = new JsonArray(lines.Select(line => (JsonNode)line.Data()).ToArray()), ["party_id"] = partyId, ["party_address"] = address.Text, ["party_gstin"] = gstin.Text.Trim().ToUpperInvariant(), ["party_phone"] = phone.Text, ["shipping_address"] = shipping.Text, ["place_of_supply"] = supply.Text.Trim(), ["supplier_state"] = supplierState.Text.Trim(), ["notes"] = notes.Text, ["terms"] = terms.Text, ["document_discount_percent"] = discount.Text.Trim().Length > 0 ? discount.Text.Trim() : "0", ["round_total"] = round.IsChecked == true, ["return_stock"] = returnStock.IsChecked == true, ["category"] = category.Text, ["payment_account"] = Value(method) };
+            values["due_date"] = due.Value;
+            if (Value(method) == "bank") values["bank_account_id"] = Value(bank);
+            if (tender.Text.Length > 0) values["tender_amount"] = tender.Text;
+            if (appliedTo.Length > 0) values["applied_to"] = appliedTo;
+            if (previous is not null) values["version"] = data["version"].Copy() ?? JsonValue.Create(0);
+            if (conversion is not null) values["source_document_id"] = conversion.Text("id");
+            return values;
+        }
+        JsonObject BodyValue() => new() { ["kind"] = kind, ["name"] = party.Text.Trim(), ["number"] = number.Text.Trim(), ["date"] = date.Value, ["data"] = DocumentData() };
+        async Task Calculate()
+        {
+            previewRequest?.Cancel(); var request = new CancellationTokenSource(); previewRequest = request;
+            if(lines.Count==0){preview.Text="Add an item to calculate the total.";return;}
+            if(lines.Any(l=>string.IsNullOrWhiteSpace(l.Description.Text)||string.IsNullOrWhiteSpace(l.Rate.Text))){preview.Text="Enter an item description and rate to calculate the total.";foreach(var line in lines)line.Amount.Text="—";return;}
+            preview.Text = "Calculating…";
+            foreach(var line in lines)line.Amount.Text="—";
+            try
+            {
+                await Task.Delay(350, request.Token);
+                var body = BodyValue(); body["name"] = "Preview"; var result = await Api.Send(Api.CompanyPath(cid, "/documents/preview"), HttpMethod.Post, body, cancellation: request.Token);
+                if (!request.IsCancellationRequested) {
+                    var calculated=result["data"];preview.Text = "Subtotal " + J.Money(calculated.Number("taxable")) + "   ·   GST " + J.Money(calculated.Number("cgst") + calculated.Number("sgst") + calculated.Number("igst") + calculated.Number("supplier_tax")) + "   ·   Total " + J.Money(result.Number("amount"));
+                    var values=calculated?["lines"].Array()??new();for(var i=0;i<Math.Min(lines.Count,values.Count);i++)lines[i].Amount.Text=J.Money(values[i].Number("taxable")+values[i].Number("tax"));
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception e) { if (!request.IsCancellationRequested) preview.Text = e.Message; }
+        }
+        void AddLine(JsonObject? initial = null, bool preserveImportedValues = false)
+        {
+            var line = new DocumentLine(Records.OfType<JsonObject>().Where(r => r.Text("kind") == "item"), purchase, regular, initial, preserveImportedValues); var holder = Stack(6); holder.Children.Add(line.View);
+            holder.Children.Add(Button("Remove this item", () => { lines.Remove(line); linesPanel.Children.Remove(holder); _ = Calculate(); }));
+            lines.Add(line); linesPanel.Children.Add(holder); line.Changed += () => _ = Calculate();_ = Calculate();
+        }
+        void ReplaceLines(JsonArray values, bool preserveImportedValues = false) { lines.Clear(); linesPanel.Children.Clear(); foreach (var value in values.OfType<JsonObject>()) AddLine(value,preserveImportedValues); if (lines.Count == 0) AddLine(); _ = Calculate(); }
+
+        panel.Children.Add(SectionHeading("01",purchase?"Supplier & bill details":"Customer & document details","Choose an existing party to fill its saved details."));
+        var identity=Stack(10);identity.Children.Add(party);identity.Children.Add(regular||purchase?Columns(phone,gstin):phone);
+        var metadata=Stack(10);metadata.Children.Add(Columns(number,date.View));
+        if(kind is "sales_invoice" or "purchase_bill")metadata.Children.Add(regular||purchase?Columns(due.View,supply):due.View);else if(regular||purchase)metadata.Children.Add(supply);
+        if(purchase)metadata.Children.Add(supplierState);
+        panel.Children.Add(Card(Columns(identity,metadata)));
+        if (kind is "credit_note" or "debit_note")
+        {
+            var targetKind = kind == "credit_note" ? "sales_invoice" : "purchase_bill";
+            var target = Select("Original invoice / bill", new[] { ("", "Choose a posted document") }.Concat(Records.OfType<JsonObject>().Where(r => r.Flag("posted") && (r.Text("kind") == targetKind || kind == "credit_note" && r.Text("kind") == "pos")).Select(r => (r.Text("id"), r.Text("number") + " · " + r.Text("name")))), appliedTo);
+            target.SelectionChanged += async (_, _) =>
+            {
+                var id = Value(target); appliedTo = id; if (id.Length == 0) return; target.IsEnabled = false;sourceLoading=true;
+                try { var original = await Api.Record(cid, id); if (appliedTo != id) return; party.Text = original.Text("name"); var values = original["data"]; partyId = values.Text("party_id"); address.Text = values.Text("party_address"); gstin.Text = values.Text("party_gstin"); phone.Text = values.Text("party_phone"); supply.Text = values.Text("place_of_supply"); supplierState.Text = values.Text("supplier_state") is { Length: > 0 } state ? state : values.Text("party_gstin").Length >= 2 ? values.Text("party_gstin")[..2] : Company.Text("state_code"); ReplaceLines(values?["lines"].Array() ?? new()); }
+                catch (Exception e) { LocalError(e); } finally { target.IsEnabled = true;sourceLoading=false; }
+            };
+            panel.Children.Add(target);
+        }
+        var contacts = Stack(); contacts.Children.Add(Columns(address, shipping));
+        panel.Children.Add(new Expander { Header = "Party, billing and delivery details", Content = contacts, HorizontalContentAlignment = HorizontalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Stretch });
+        party.TextChanged += (_, args) => { if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput) { partyId = "";address.Text="";shipping.Text="";gstin.Text="";phone.Text="";supply.Text=Company.Text("state_code");supplierState.Text=Company.Text("state_code");party.ItemsSource = Records.OfType<JsonObject>().Where(r => r.Text("kind") == "party" && r.Text("name").Contains(party.Text, StringComparison.OrdinalIgnoreCase)).Take(20).Select(r => r.Text("name")).ToArray(); } };
+        party.SuggestionChosen += (_, args) => { var selected = Records.OfType<JsonObject>().FirstOrDefault(r => r.Text("kind") == "party" && r.Text("name") == args.SelectedItem?.ToString()); if (selected is null) return; partyId = selected.Text("id"); var values = selected["data"]; address.Text = values.Text("address"); shipping.Text = values.Text("address"); gstin.Text = values.Text("gstin"); phone.Text = values.Text("phone"); if (gstin.Text.Length >= 2) { if (purchase) supplierState.Text = gstin.Text[..2]; else supply.Text = gstin.Text[..2]; } };
+        if (kind == "purchase_bill")
+        {
+            var ocr = AsyncButton("Scan purchase bill", async () =>
+            {
+                var file = await ApexFiles.Pick(".png", ".jpg", ".jpeg", ".webp"); if (file is null) return;
+                var image = await ApexFiles.Image(file, 3000, 2_700_000); var result = await Api.Send(Api.CompanyPath(cid, "/ocr/purchase-draft"), HttpMethod.Post, new JsonObject { ["image_data_url"] = image }); var draft = result["draft"];
+                partyId = ""; phone.Text = ""; shipping.Text = ""; due.Picker.Date = null; discount.Text = "0"; round.IsChecked = false;
+                party.Text = draft.Text("supplier_name"); number.Text = draft.Text("invoice_number"); address.Text = draft.Text("supplier_address"); gstin.Text = draft.Text("supplier_gstin"); supplierState.Text = gstin.Text.Length >= 2 ? gstin.Text[..2] : Company.Text("state_code"); supply.Text = draft.Text("place_of_supply").Length == 2 ? draft.Text("place_of_supply") : Company.Text("state_code");
+                if (DateTime.TryParse(draft.Text("invoice_date"), out var extractedDate)) date.Picker.Date = new DateTimeOffset(extractedDate);
+                ReplaceLines(draft?["items"].Array() ?? new(),true); info.Severity = InfoBarSeverity.Warning; info.Message = "Draft extracted. Bill total: " + draft.Text("total") + ". Linking stock keeps the scanned rate and GST. Review every field before posting."; info.IsOpen = true;
+            }, LocalError); panel.Children.Add(ocr);
+        }
+        panel.Children.Add(SectionHeading("02","Items & services","Select an item or enter a description. Tax and totals are calculated automatically."));
+        panel.Children.Add(linesPanel); ReplaceLines(data["lines"].Array()); panel.Children.Add(Button("+ Add item", () => AddLine()));
+        panel.Children.Add(SectionHeading("03","Adjustments & notes","Review the final amounts before saving."));
+        panel.Children.Add(Columns(discount, round)); if (kind is "credit_note" or "debit_note") panel.Children.Add(returnStock);
+        if (kind is "expense" or "pos")
+        {
+            void ShowPayment(){bank.Visibility=Value(method)=="bank"?Visibility.Visible:Visibility.Collapsed;tender.Visibility=kind=="pos"&&Value(method)=="cash"?Visibility.Visible:Visibility.Collapsed;}
+            method.SelectionChanged+=(_,_)=>ShowPayment();ShowPayment();
+            panel.Children.Add(Columns(method,bank));if(kind=="expense")panel.Children.Add(category);else panel.Children.Add(tender);
+        }
+        panel.Children.Add(new Expander{Header="Notes & terms",Content=Columns(notes,terms),HorizontalContentAlignment=HorizontalAlignment.Stretch,HorizontalAlignment=HorizontalAlignment.Stretch});
+        var totals=Stack(6);totals.Children.Add(preview);var shortcut=Text("Ctrl + Enter to save · totals calculated by Apex Books",12);shortcut.Foreground=Muted;totals.Children.Add(shortcut);
+        discount.TextChanged += (_, _) => _ = Calculate(); supply.TextChanged += (_, _) => _ = Calculate(); supplierState.TextChanged += (_, _) => _ = Calculate(); gstin.TextChanged += (_, _) => {if(purchase&&gstin.Text.Length>=2&&gstin.Text.Take(2).All(char.IsDigit))supplierState.Text=gstin.Text[..2];_=Calculate();}; round.Checked += (_, _) => _ = Calculate(); round.Unchecked += (_, _) => _ = Calculate();
+        var baseline=BodyValue().ToJsonString();var keepNew=false;
+        async Task Save()
+        {
+            if(sourceLoading)throw new Exception("Wait for the source document to finish loading.");
+            if (party.Text.Trim().Length == 0) throw new Exception("Enter the customer, supplier or description.");
+            if (lines.Count == 0) throw new Exception("Add at least one item.");
+            if (kind is "credit_note" or "debit_note" && appliedTo.Length == 0) throw new Exception("Choose the original posted document.");
+            await Api.SaveRecord(cid, BodyValue(), retryKey, previous);
+        }
+        var saved = await Dialog((previous is not null ? "Edit " : "New ") + FeatureCatalog.Singular(kind), panel, Save,
+            previous is null ? "Save " + (kind=="purchase_bill"?"bill":kind=="sales_invoice"?"invoice":"document") : "Save changes",
+            canSave:()=>!sourceLoading,hasChanges:()=>BodyValue().ToJsonString()!=baseline,
+            saveAndNew:previous is null&&conversion is null?async()=>{await Save();keepNew=true;}:null,stickyFooter:Card(totals));
+        previewRequest?.Cancel(); if (saved && cid == CompanyId) await Refresh();
+        if(saved&&keepNew&&cid==CompanyId)await EditDocument(kind);
+    }
+}

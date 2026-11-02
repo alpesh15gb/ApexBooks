@@ -1,0 +1,11 @@
+[Unit]
+Description=Apex Books encrypted offsite PostgreSQL backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/apex-books
+EnvironmentFile=/etc/apex-books/backup.env
+ExecStart=/bin/bash /opt/apex-books/deploy/backup-secure.sh /var/backups/apex-books
+UMask=0077
