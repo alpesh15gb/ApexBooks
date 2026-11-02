@@ -63,7 +63,8 @@ import java.time.format.DateTimeFormatter
                 for((key,label)in listOf("year" to "Financial year","month" to "This month","30days" to "30 days"))FilterChip(selected=period==key,onClick={period=key},label={Text(label)})
             }
         }}
-        if(vm.records.none{it.optBoolean("posted")})item{Section("Start your books"){
+        if(!vm.recordsReady)item{Section("Loading transaction history"){Text("Live report totals are shown as they arrive. Collections, charts and billing become available when the full company history is ready.");if(vm.busy==0)OutlinedButton(onClick={vm.task{vm.refresh()}}){Text("Retry company data")}}}
+        if(vm.recordsReady&&vm.records.none{it.optBoolean("posted")})item{Section("Start your books"){
             Text("Create your first invoice or purchase. Customers and items can be added now or entered while billing.")
             if(vm.canWrite){
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Button(onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f)){Text("First invoice")};OutlinedButton(onClick={vm.add("purchase_bill")},modifier=Modifier.weight(1f)){Text("First purchase")}}
@@ -84,10 +85,10 @@ import java.time.format.DateTimeFormatter
             }
         }}
         item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Metric("Net profit",financial?.let{money(it.s("net_profit"))}?:"—",Modifier.weight(1f));Metric("To collect · to date",summary?.let{money(it.s("receivables"))}?:"—",Modifier.weight(1f))}}
-        item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Metric("To pay · to date",summary?.let{money(it.s("payables"))}?:"—",Modifier.weight(1f));Metric("Cash & bank",financial?.let{money(accounts.fold(BigDecimal.ZERO){sum,a->sum+a.decimal("closing_balance")})}?:"—",Modifier.weight(1f))}}
-        if(vm.canWrite)item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Button(onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,14.dp)){Icon(Icons.Outlined.Add,null,Modifier.size(18.dp));Text("New invoice")};OutlinedButton(onClick={vm.add("purchase_bill")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,14.dp)){Icon(Icons.Outlined.DocumentScanner,null,Modifier.size(18.dp));Text("Add purchase")}}}
-        item{Section("Sales & purchases"){MonthlyPerformance(vm.records,start,end);Text("Posted invoice values, including GST where applicable",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
-        item{Section("Invoice collections"){
+        item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Metric("To pay · to date",summary?.let{money(it.s("payables"))}?:"—",Modifier.weight(1f));Metric("Cash & bank",financial?.takeIf{vm.recordsReady}?.let{money(accounts.fold(BigDecimal.ZERO){sum,a->sum+a.decimal("closing_balance")})}?:"—",Modifier.weight(1f))}}
+        if(vm.canWrite&&vm.recordsReady)item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Button(onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,14.dp)){Icon(Icons.Outlined.Add,null,Modifier.size(18.dp));Text("New invoice")};OutlinedButton(onClick={vm.add("purchase_bill")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,14.dp)){Icon(Icons.Outlined.DocumentScanner,null,Modifier.size(18.dp));Text("Add purchase")}}}
+        if(vm.recordsReady)item{Section("Sales & purchases"){MonthlyPerformance(vm.records,start,end);Text("Posted invoice values, including GST where applicable",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
+        if(vm.recordsReady)item{Section("Invoice collections"){
             Text("GET PAID",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             val fraction=if(issued>BigDecimal.ZERO)(settled.toFloat()/issued.toFloat()).coerceIn(0f,1f)else 0f
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(18.dp)){
@@ -103,7 +104,7 @@ import java.time.format.DateTimeFormatter
             for((key,label)in listOf("income" to "Income","expenses" to "Costs & expenses"))Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(label);Text(financial?.let{money(it.s(key))}?:"—",fontWeight=FontWeight.Medium)}
             TextButton(onClick={vm.navigate("reports")}){Text("Explore reports  →")}
         }}
-        item{Section("Cash & bank"){
+        if(vm.recordsReady)item{Section("Cash & bank"){
             for(account in accounts)Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(account.s("name"),Modifier.weight(1f));Text(money(account.s("closing_balance")),fontWeight=FontWeight.Medium)}
             TextButton(onClick={vm.navigate("bank")}){Text("Manage cash & bank  →")}
         }}

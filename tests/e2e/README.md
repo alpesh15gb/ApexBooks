@@ -66,3 +66,5 @@ APEX_BROWSER=1 APEX_PYTHON=/path/to/venv/bin/python tests/e2e/run-local.sh
 Set `APEX_E2E_ARTIFACTS` to retain screenshots and synthetic PDF/XLSX downloads.
 The script was syntax-checked in this executor; it has not yet run as a complete
 Playwright job. Do not equate the manual CUA pass with this CI gate passing.
+
+Optional local latency sample: `APEX_PERF=1 APEX_PYTHON=/path/to/python bash tests/e2e/run-local.sh` seeds 100 invoices and prints 20 sequential samples per endpoint. This is not a hosted load test.

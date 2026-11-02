@@ -1,3 +1,4 @@
+import SetupChecklist from "./SetupChecklist.jsx";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownLeft,
@@ -236,6 +237,8 @@ export default function BusinessOverview({
   api,
   onNavigate,
   onCreate,
+  refreshKey = 0,
+  recordsReady = true,
 }) {
   const [period, setPeriod] = useState("year"),
     [result, setResult] = useState(null),
@@ -269,7 +272,7 @@ export default function BusinessOverview({
     return () => {
       live = false;
     };
-  }, [company?.id, start, end, records, retry]);
+  }, [company?.id, start, end, refreshKey, retry]);
   const data = result?.key === key ? result : null,
     canWrite = ["owner", "editor"].includes(company?.role);
   const invoices = records.filter(
@@ -349,6 +352,7 @@ export default function BusinessOverview({
           </button>
         </div>
       </div>
+      {recordsReady && <SetupChecklist company={company} records={records} onCreate={onCreate} onNavigate={onNavigate} />}
       <nav className="overview-tabs" aria-label="Business shortcuts">
         <span className="selected">Overview</span>
         <button onClick={() => onNavigate("sales_invoice")}>
@@ -361,7 +365,7 @@ export default function BusinessOverview({
           Reports & GST <ArrowUpRight size={14} />
         </button>
         <span className="books-status">
-          <CircleCheck size={14} /> {data ? "Books loaded" : error ? "Unable to load books" : "Loading books"}
+          <CircleCheck size={14} /> {data && recordsReady ? "Books loaded" : error ? "Unable to load books" : "Loading books"}
         </span>
       </nav>
       {error && (
@@ -411,7 +415,7 @@ export default function BusinessOverview({
           Needs attention
         </span>
         <button onClick={() => onNavigate("sales_invoice", "", "overdue")}>
-          <strong>{overdue.length}</strong> overdue invoices{" "}
+          <strong>{recordsReady ? overdue.length : "—"}</strong> overdue invoices{" "}
           <ChevronRight size={14} />
         </button>
         <button onClick={() => onNavigate("purchase_bill", "", "unpaid")}>
@@ -474,7 +478,7 @@ export default function BusinessOverview({
               <div>
                 <i className="legend-purchases" />
                 <span>
-                  Outstanding<strong>{money(outstanding)}</strong>
+                  Outstanding<strong>{recordsReady ? money(outstanding) : "—"}</strong>
                 </span>
               </div>
             </div>
@@ -560,7 +564,7 @@ export default function BusinessOverview({
               <p>
                 {data
                   ? "No cash or bank movement recorded yet."
-                  : "Loading account balances…"}
+                  : error ? "Account balances are temporarily unavailable. Use Retry above." : "Loading account balances…"}
               </p>
             )}
           </div>

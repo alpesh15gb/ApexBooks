@@ -121,13 +121,14 @@ fun ActionDialog(
     confirm: String = "Save",
     enabled: Boolean = true,
     hasChanges: () -> Boolean = { false },
+    unresolved: () -> Boolean = { false },
     onSave: suspend () -> Unit,
     onDismiss: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
     var saving by remember { mutableStateOf(false) }
     var discard by remember { mutableStateOf(false) }
-    fun close(){if(!saving){if(hasChanges())discard=true else onDismiss()}}
+    fun close(){if(!saving){if(unresolved()){discard=false;vm.error="The previous save may already have posted. Retry the original save to recover its outcome before closing."}else if(hasChanges())discard=true else onDismiss()}}
     Dialog(
         onDismissRequest = { close() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -171,6 +172,6 @@ fun ActionDialog(
             }
         }
     }
-    if(discard)AlertDialog(onDismissRequest={discard=false},title={Text("Discard unsaved changes?")},text={Text("These changes have not been saved. Keep editing or discard them.")},confirmButton={TextButton(onClick={discard=false;onDismiss()}){Text("Discard changes")}},dismissButton={TextButton(onClick={discard=false}){Text("Keep editing")}})
+    if(discard && !unresolved())AlertDialog(onDismissRequest={discard=false},title={Text("Discard unsaved changes?")},text={Text("These changes have not been saved. Keep editing or discard them.")},confirmButton={TextButton(onClick={discard=false;onDismiss()}){Text("Discard changes")}},dismissButton={TextButton(onClick={discard=false}){Text("Keep editing")}})
 
 }

@@ -14,7 +14,7 @@ import java.math.BigDecimal
 @Composable private fun ToolInput(values:MutableMap<String,String>,key:String,label:String,number:Boolean=false,password:Boolean=false,multiline:Boolean=false,maximum:Int=500){Field(label,values[key]?:"",{values[key]=it},number=number,password=password,multiline=multiline,maximum=maximum)}
 
 @Composable private fun BasicTool(vm:AppModel){
-    val tool=vm.tool;val cid=vm.companyId;val original=vm.toolData;val data=original?.o("data")?:JSONObject();val v=remember{mutableStateMapOf<String,String>()};var report by remember{mutableStateOf<Any?>(null)};var selected by remember{mutableStateOf("default")};var load by remember{mutableIntStateOf(0)};val retry=remember{vm.key()}
+    val tool=vm.tool;val cid=vm.companyId;val original=vm.toolData;val data=original?.o("data")?:JSONObject();val v=remember{mutableStateMapOf<String,String>()};var report by remember{mutableStateOf<Any?>(null)};var selected by remember{mutableStateOf("default")};var load by remember{mutableIntStateOf(0)};val retry=remember{vm.key()};val submission=remember{RetrySubmission()};var unresolved by remember{mutableStateOf(false)};val protectedWrite=tool in setOf("transfer","stock_opening","stock_adjust","openings","settle_credit","settle_advance")
     fun close(){vm.tool="";vm.toolData=null;vm.error=""}
     fun bankChoices()=vm.banks.map{it.s("id") to it.s("name")}
     val sources=vm.records.filter{it.decimal(if(tool=="settle_credit")"credit_remaining"else"advance_remaining")>BigDecimal.ZERO}
@@ -23,10 +23,12 @@ import java.math.BigDecimal
     LaunchedEffect(tool,load){if(tool=="cashbook")try{report=vm.api.request(vm.api.company(cid,"/cash-book?from_date=${v["from"]?:financialStart()}&to_date=${v["to"]?:today()}&bank_account_id=${encode(selected)}"))}catch(e:Exception){vm.failure(e)}}
     val readOnly=tool in setOf("audit","cashbook","recovery_saved")
     val title=mapOf("bank_new" to "Add bank account","transfer" to "Cash and bank transfer","stock_opening" to "Opening stock","stock_adjust" to "Stock adjustment","openings" to "Opening balance","prefixes" to "Transaction prefixes","period" to "Lock accounting period","security" to "Password and sessions","recovery" to "Generate recovery codes","recovery_saved" to "Save your recovery codes","backup" to "Download company backup","data_export" to "Export company data","audit" to "Audit history","ledger_account" to "Add ledger account","reverse_journal" to "Reverse journal","cashbook" to "Cash and bank book","settle_credit" to "Apply or refund note credit","settle_advance" to "Apply or refund advance")[tool]?:friendly(tool)
-    ActionDialog(title,vm,confirm=if(readOnly)"Done"else if(tool in setOf("backup","data_export"))"Download"else if(tool=="period")"Lock through date"else"Save",onDismiss=::close,onSave={
-        fun value(key:String)=v[key]?:""
+    ActionDialog(title,vm,unresolved={unresolved},confirm=if(unresolved)"Retry original save"else if(readOnly)"Done"else if(tool in setOf("backup","data_export"))"Download"else if(tool=="period")"Lock through date"else"Save",onDismiss=::close,onSave={
+        if(!unresolved && tool in setOf("settle_credit","settle_advance") && sources.none{it.s("id")==v["source"]})throw Exception("Choose an available balance.")
+        val submitted=if(protectedWrite)submission.body(JSONObject(v.toMap()))else JSONObject(v.toMap())
+        fun value(key:String)=submitted.optString(key,"")
 fun root(suffix:String)=vm.api.company(cid,suffix)
-        when(tool){
+        try { when(tool){
             "bank_new"->vm.api.request(root("/bank-accounts"),"POST",JSONObject().put("name",value("name")).put("account_hint",value("account_hint")))
             "transfer"->{val values=JSONObject().put("direction",value("direction")).put("bank_account_id",value("bank_account_id")).put("to_bank_account_id",value("to_bank_account_id"));if(original?.s("kind")=="bank_transfer")values.put("version",data.optInt("version"));vm.api.saveRecord(cid,JSONObject().put("kind","bank_transfer").put("name",value("name").ifBlank{friendly(value("direction"))}).put("number",value("number")).put("date",value("date")).put("amount",value("amount")).put("data",values),retry,if(original?.s("kind")=="bank_transfer")original else null)}
             "stock_opening"->vm.api.request(root("/stock/opening"),"POST",JSONObject().put("item_id",value("item_id")).put("date",value("date")).put("quantity",value("quantity")).put("unit_cost",value("unit_cost")),retry)
@@ -42,8 +44,11 @@ fun root(suffix:String)=vm.api.company(cid,suffix)
             "backup"->{val password=value("password");if(password.isNotEmpty()&&password.length<12)throw Exception("Use at least 12 characters.");var bytes=vm.api.bytes(root("/backup"));if(password.isNotBlank())bytes=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default){NativeFiles.encrypt(bytes,password)};vm.files.save(bytes,"apex-${cid.take(8)}-${today()}."+if(password.isBlank())"json.gz"else"apexbackup")}
             "data_export"->{val kind=value("export_kind");val fmt=value("format");val endpoint=when(kind){"all"->"/data-export.json";"reconciliation"->"/imports/vyapar-posting/reconciliation";"archive"->"/imports/vyapar/archive.json";else->"/masters/export.$fmt?kind=$kind"};vm.files.save(vm.api.bytes(root(endpoint)),"apex-$kind."+if(kind in setOf("all","archive","reconciliation"))"json"else fmt)}
         }
+        } catch(e:Exception){if(protectedWrite){submission.failed(e);unresolved=submission.unresolved};throw e}
+        submission.succeeded();unresolved=false
         close();if(!readOnly&&tool !in setOf("backup","data_export","period","prefixes","security"))vm.refresh()
     }){
+        if(unresolved)Message("The previous save may already have posted. Retry original save uses the original values, even if fields were changed. Resolve it before closing or creating a replacement.")
         fun value(key:String)=v[key]?:""
         when(tool){
             "bank_new"->{ToolInput(v,"name","Bank account name");ToolInput(v,"account_hint","Account hint · last digits",maximum=32)}

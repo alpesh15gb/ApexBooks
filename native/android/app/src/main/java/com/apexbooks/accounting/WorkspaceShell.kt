@@ -57,7 +57,7 @@ import com.apexbooks.accounting.data.*
                         destinations.forEach { (key, label) -> NavigationBarItem(selected = currentTab == key, onClick = { navigate(key) }, icon = { Icon(mobileIcon(key), null) }, label = { Text(label, maxLines = 1) }, colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer)) }
                     } }
                 } },
-                floatingActionButton = { if (vm.canWrite && vm.companyId.isNotBlank() && vm.page !in setOf("reports", "settings", "more", "commerce", "pos") && !WindowInsets.isImeVisible) {
+                floatingActionButton = { if (vm.canWrite && vm.recordsReady && vm.companyId.isNotBlank() && vm.page !in setOf("reports", "settings", "more", "commerce", "pos") && !WindowInsets.isImeVisible) {
                     ExtendedFloatingActionButton(onClick = { createOpen = true }, icon = { Icon(Icons.Outlined.Add, null) }, text = { Text("Create") }, containerColor = ApexGreen, contentColor = Color.White)
                 } }
             ) { padding -> Column(Modifier.padding(padding).fillMaxSize()) {
@@ -68,7 +68,7 @@ import com.apexbooks.accounting.data.*
                     Heading("Create your first company", "Keep each business in its own books. Choose GST or non-GST accounting, then add an invoice, purchase or opening balance.")
                     Button(onClick = { vm.companyEdit = false; vm.companyForm = true }) { Text("Create company") }
                 } else AnimatedContent(targetState = vm.page, modifier = Modifier.fillMaxSize(), label = "Workspace destination") { page -> key(vm.companyId, page) {
-                    when (page) {
+                    if(!vm.recordsReady && page !in setOf("dashboard","reports","more","settings"))Column(Modifier.padding(24.dp)){Heading("Loading company history","Waiting for complete records before showing balances or starting billing.");if(vm.busy==0)Button(onClick={vm.task{vm.refresh()}}){Text("Retry company data")}}else when (page) {
                         "dashboard" -> DashboardScreen(vm)
                         "reports" -> ReportsScreen(vm)
                         "more" -> MoreScreen(vm)

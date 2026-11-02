@@ -77,3 +77,30 @@ class SalesOrderTest(unittest.TestCase):
         invoice=client.post(base+'/records',headers=h,json={**payload,'kind':'sales_invoice','data':{**payload['data'],'source_document_id':order['id']}}).json()
         after=next(r for r in client.get(path,headers=h,params=query).json()['transactions'] if r['id']==order['id'])
         self.assertFalse(after['editable']);self.assertEqual(after['converted_to'],invoice['id'])
+
+    def test_draft_lost_response_retry_is_exact_once_and_route_scoped(self):
+        client,h,base=self.context()
+        for kind in ('estimate','proforma','sales_order','purchase_order'):
+            with self.subTest(kind=kind):
+                payload={'kind':kind,'name':'Retry buyer','date':'2026-04-02','data':{'lines':[{'description':'Service','quantity':1,'rate':100,'gst_rate':0}]}}
+                draft=client.post(base+'/records',headers=h,json=payload).json()
+                edit={**payload,'number':draft['number'],'data':{**payload['data'],'version':0,'notes':'Saved once'}}
+                key=uuid4().hex;headers={**h,'Idempotency-Key':key};path=base+'/drafts/'+draft['id']
+                # Discard the first successful response, as after a transport timeout.
+                first=client.put(path,headers=headers,json=edit)
+                self.assertEqual(first.status_code,200,first.text)
+                replay=client.put(path,headers=headers,json=edit)
+                self.assertEqual(replay.status_code,200,replay.text)
+                self.assertEqual(replay.json(),first.json())
+                self.assertFalse(replay.json()['posted']);self.assertEqual(replay.json()['data']['version'],1)
+                changed=client.put(path,headers=headers,json={**edit,'name':'Changed payload'})
+                self.assertEqual(changed.status_code,409,changed.text)
+                wrong_route=client.put(base+'/drafts/'+uuid4().hex,headers=headers,json=edit)
+                self.assertEqual(wrong_route.status_code,409,wrong_route.text)
+                stale=client.put(path,headers=h,json=edit)
+                self.assertEqual(stale.status_code,409,stale.text)
+                legacy=client.put(path,headers=h,json={**edit,'data':{**edit['data'],'version':1,'notes':'Keyless compatibility'}})
+                self.assertEqual(legacy.status_code,200,legacy.text)
+                audit=client.get(base+'/audit-events',headers=h,params={'limit':200}).json()
+                self.assertEqual(sum(r['action']=='draft.updated' and r['entity_id']==draft['id'] for r in audit),2)
+        self.assertEqual(client.get(base+'/journals',headers=h).json(),[])

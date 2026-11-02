@@ -41,7 +41,7 @@ jobs:
           (cd backend && python migrate.py)
           python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8012 > "$RUNNER_TEMP/native-device-api.log" 2>&1 &
           for attempt in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:8012/openapi.json > /dev/null; then exit 0; fi
+            if curl --fail --silent http://127.0.0.1:8012/api/ready > /dev/null; then exit 0; fi
             sleep 1
           done
           cat "$RUNNER_TEMP/native-device-api.log"

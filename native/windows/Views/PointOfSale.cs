@@ -78,6 +78,7 @@ public sealed partial class MainPage
         foreach(var row in saved["lines"].Array().OfType<JsonObject>()){var item=items.FirstOrDefault(r=>r.Text("id")==row.Text("item_id"));if(item is not null)Add(item,row);}
         checkout.Children.Add(Text("Your cart is held for this company while navigating. It posts only on Complete sale; signing out discards it.",12));
         hasUnsavedPage=()=>lines.Count>0||submission.Unresolved;
+        hasPendingPage=()=>submission.Unresolved;
         leavePage=()=>{if(lines.Count==0&&!submission.Unresolved)posDrafts.Remove(cid);else{var body=BodyValue();body["data"]!["tender_amount"]=tender.Text;posDrafts[cid]=new PosDraft(body,key,submission);}pending?.Cancel();};
         _=Products();return Task.CompletedTask;
     }

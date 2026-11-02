@@ -164,3 +164,27 @@ class AccessIntegrityTest(unittest.TestCase):
                 self.assertEqual(response.status_code,status,response.text)
         self.assertEqual(client.get(base+'/records',headers=h).json(),[])
         self.assertEqual(client.get(base+'/journals',headers=h).json(),[])
+
+    def test_password_change_cannot_be_followed_by_stale_password_session(self):
+        from unittest.mock import patch
+        import main
+        client,h,base=self.context()
+        credentials=dict(self.credentials);real_verify=main.passwords.verify;interleaved=False
+        new_password='Changed-test-only-password'
+        def verify_then_change(password,encoded):
+            nonlocal interleaved
+            valid=real_verify(password,encoded)
+            if valid and password==credentials['password'] and not interleaved:
+                interleaved=True
+                changed=client.post('/api/auth/change-password',headers=h,json={'current_password':credentials['password'],'new_password':new_password})
+                self.assertEqual(changed.status_code,200,changed.text)
+            return valid
+        # SQLite does not implement FOR UPDATE, so exercise the hash-change
+        # guard with an exact interleaving between verification and issuance.
+        with patch.object(main.passwords,'verify',side_effect=verify_then_change):
+            stale=client.post('/api/auth/login',json=credentials)
+        self.assertTrue(interleaved)
+        self.assertEqual(stale.status_code,401,stale.text)
+        self.assertEqual(client.get('/api/companies',headers=h).status_code,401)
+        current=client.post('/api/auth/login',json={**credentials,'password':new_password})
+        self.assertEqual(current.status_code,200,current.text)

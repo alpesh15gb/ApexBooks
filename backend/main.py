@@ -31,7 +31,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_RIGHT
 from reportlab.platypus import SimpleDocTemplate, Table, LongTable, TableStyle, Paragraph, Spacer
 from reportlab.pdfgen import canvas
-from sqlalchemy import JSON, CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, Numeric, String, UniqueConstraint, create_engine, event, select, func, or_
+from sqlalchemy import JSON, CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, Numeric, String, UniqueConstraint, create_engine, event, select, update, func, or_, case, cast, Text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
@@ -839,9 +839,16 @@ def register(body: Credentials, request: Request, session: Session = Depends(db)
 @app.post('/api/auth/login')
 def login(body: Credentials, request: Request, session: Session = Depends(db)):
     auth_throttle(session,request,body.email,"login")
-    user = session.scalar(select(User).where(User.email == body.email.strip().lower()))
-    valid=passwords.verify(body.password,user.password_hash if user else _DUMMY_PASSWORD_HASH)
+    user = session.scalar(select(User).where(User.email == body.email.strip().lower()).with_for_update().execution_options(populate_existing=True))
+    verified_hash = user.password_hash if user else _DUMMY_PASSWORD_HASH
+    valid=passwords.verify(body.password,verified_hash)
     if not user or not valid:raise HTTPException(401,'Invalid email or password')
+    # PostgreSQL serializes this with password reset/change via the User lock.
+    # The conditional write also protects SQLite, where FOR UPDATE is ignored:
+    # never issue a session after a verified hash has concurrently been replaced.
+    unchanged = session.execute(update(User).where(User.id==user.id, User.password_hash==verified_hash)
+        .values(password_hash=User.password_hash).execution_options(synchronize_session=False))
+    if unchanged.rowcount != 1:raise HTTPException(401,'Password changed; sign in again')
     expires_at = datetime.now(timezone.utc) + timedelta(hours=12)
     auth_session = AuthSession(user_id=user.id, expires_at=expires_at)
     session.add(auth_session); session.flush()
@@ -857,6 +864,7 @@ def logout(credentials: HTTPAuthorizationCredentials = Depends(security), user: 
     return {'message': 'Signed out'}
 @app.post('/api/auth/logout-other-sessions')
 def logout_other_sessions(credentials: HTTPAuthorizationCredentials = Depends(security), user: User = Depends(current_user), session: Session = Depends(db)):
+    user=session.scalar(select(User).where(User.id==user.id).with_for_update().execution_options(populate_existing=True))
     current_id = jwt.decode(credentials.credentials, SECRET, algorithms=['HS256'])['jti']
     now = datetime.now(timezone.utc)
     others = list(session.scalars(select(AuthSession).where(AuthSession.user_id == user.id,
@@ -1049,32 +1057,66 @@ def set_number_series(company_id: str, body: SeriesInput, user: User = Depends(c
     audit(session, company_id, user, 'number_series.updated', 'company', company_id, {'kind': body.kind, 'financial_year': body.financial_year, 'prefix': body.prefix})
     session.commit()
     return {'kind': row.kind, 'financial_year': row.financial_year, 'prefix': row.prefix, 'next_number': row.next_number}
+def compact_record_data(dialect):
+    """Trim heavy snapshots in SQL, before database transfer/JSON deserialization."""
+    masters = Record.kind.in_(['item', 'party'])
+    if dialect == 'postgresql':
+        from sqlalchemy.dialects.postgresql import JSONB, ARRAY
+        data = cast(Record.data, JSONB)
+        for key in ('vyapar_source', 'image_data_url', 'company_snapshot', 'document_branding'):
+            data = data.op('-')(key)
+        return case((masters, data), else_=func.jsonb_set(data, cast(['lines'], ARRAY(Text)), cast('[]', JSONB)))
+    if dialect == 'sqlite':
+        data = func.json_remove(Record.data, '$.vyapar_source', '$.image_data_url',
+            '$.company_snapshot', '$.document_branding', type_=JSON)
+        return case((masters, data), else_=func.json_set(data, '$.lines', func.json('[]'), type_=JSON))
+    return Record.data
+
+
 @app.get('/api/companies/{company_id}/records')
 def records(company_id: str, kind: str = '', compact:bool=False, offset:int=Query(default=0,ge=0),limit:int|None=Query(default=None,ge=1,le=500),user: User = Depends(current_user), session: Session = Depends(db)):
     company_for(company_id, user, session)
-    q = select(Record).where(Record.company_id == company_id, Record.kind.not_in(['vyapar_backup_archive','document_branding','restore_marker']))
+    projected = compact and session.bind.dialect.name in {'postgresql', 'sqlite'}
+    q = select(Record.id, Record.kind, Record.name, Record.number, Record.date, Record.amount,
+        compact_record_data(session.bind.dialect.name).label('data')) if projected else select(Record)
+    q = q.where(Record.company_id == company_id, Record.kind.not_in(['vyapar_backup_archive','document_branding','restore_marker']))
     if kind:q=q.where(Record.kind==kind)
-    # Pagination must select the newest same-day records before clients sort
-    # or truncate their lists. UUID order is unrelated to creation time.
     created_at = func.coalesce(Record.data['created_at'].as_string(), '')
     q=q.order_by(Record.date.desc(),created_at.desc(),Record.id.desc()).offset(offset)
     if limit:q=q.limit(limit)
-    rows=list(session.scalars(q));posted=set(session.scalars(select(RecordPosting.record_id).where(RecordPosting.company_id==company_id)))
-    conversions={row.source_record_id:row.target_record_id for row in session.scalars(select(DocumentConversion).where(DocumentConversion.company_id==company_id))}
+    if projected:
+        from types import SimpleNamespace
+        rows=[SimpleNamespace(**row) for row in session.execute(q).mappings()]
+    else:rows=list(session.scalars(q))
+    if not rows:return []
+    page_ids=[row.id for row in rows]
+    posted=set(session.scalars(select(RecordPosting.record_id).where(RecordPosting.company_id==company_id,RecordPosting.record_id.in_(page_ids))))
+    draft_ids=[row.id for row in rows if row.kind in DOCUMENTS-POSTED_KINDS]
+    conversions=dict(session.execute(select(DocumentConversion.source_record_id,DocumentConversion.target_record_id).where(
+        DocumentConversion.company_id==company_id,DocumentConversion.source_record_id.in_(draft_ids))).all()) if draft_ids else {}
     consumed={};credit_used={};applied={}
-    for model in (PaymentAllocation,PaymentSplitAllocation):
-        for did,value in session.execute(select(model.document_id,func.sum(model.amount)).where(model.company_id==company_id).group_by(model.document_id)):applied[did]=applied.get(did,Decimal('0'))+value
-    settlements=session.scalars(select(Record).where(Record.company_id==company_id,Record.id.in_(posted),Record.kind.in_(['advance_application','advance_refund','credit_application','customer_refund','supplier_refund'])))
-    for row in settlements:
-        source_id=row.data.get('advance_id')
-        if source_id:consumed[source_id]=consumed.get(source_id,Decimal('0'))+row.amount
-        note_id=row.data.get('credit_note_id')
-        if note_id:credit_used[note_id]=credit_used.get(note_id,Decimal('0'))+row.amount
+    document_ids=[row.id for row in rows if row.kind in {'sales_invoice','purchase_bill','opening_receivable','opening_payable'} and row.id in posted]
+    if document_ids:
+        for model in (PaymentAllocation,PaymentSplitAllocation):
+            for did,value in session.execute(select(model.document_id,func.sum(model.amount)).where(
+                model.company_id==company_id,model.document_id.in_(document_ids)).group_by(model.document_id)):
+                applied[did]=applied.get(did,Decimal('0'))+value
+    balance_ids=[row.id for row in rows if row.id in posted and (row.data.get('is_advance') or row.kind in {'credit_note','debit_note'})]
+    if balance_ids:
+        advance_id=Record.data['advance_id'].as_string();note_id=Record.data['credit_note_id'].as_string()
+        posted_ids=select(RecordPosting.record_id).where(RecordPosting.company_id==company_id)
+        settlements=session.execute(select(advance_id,note_id,func.sum(Record.amount)).where(
+            Record.company_id==company_id,Record.id.in_(posted_ids),
+            Record.kind.in_(['advance_application','advance_refund','credit_application','customer_refund','supplier_refund']),
+            or_(advance_id.in_(balance_ids),note_id.in_(balance_ids))).group_by(advance_id,note_id))
+        for source_id,credit_id,amount in settlements:
+            if source_id:consumed[source_id]=consumed.get(source_id,Decimal('0'))+amount
+            if credit_id:credit_used[credit_id]=credit_used.get(credit_id,Decimal('0'))+amount
     result=[]
     for row in rows:
         value=obj(row)
-        if compact:
-            data={k:v for k,v in row.data.items() if k not in {'vyapar_source','image_data_url'}}
+        if compact and not projected:
+            data={k:v for k,v in row.data.items() if k not in {'vyapar_source','image_data_url','company_snapshot','document_branding'}}
             if row.kind not in {'item','party'}:data['lines']=[]
             if isinstance(data.get('document_branding'),dict):data['document_branding']={k:v for k,v in data['document_branding'].items() if k not in {'logo','signature'}}
             value['data']=data

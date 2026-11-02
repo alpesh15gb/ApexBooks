@@ -56,8 +56,10 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
     suspend fun request(path: String, method: String = "GET", body: JSONObject? = null, retryKey: String? = null): Any {
         val bytes = bytes(path, method, body, retryKey)
         if (bytes.isEmpty()) return JSONObject()
-        val text = bytes.toString(Charsets.UTF_8)
-        return if (text.trimStart().startsWith("[")) JSONArray(text) else JSONObject(text)
+        return withContext(Dispatchers.Default) {
+            val text = bytes.toString(Charsets.UTF_8)
+            if (text.trimStart().startsWith("[")) JSONArray(text) else JSONObject(text)
+        }
     }
 
     suspend fun bytes(path: String, method: String = "GET", body: JSONObject? = null, retryKey: String? = null): ByteArray {
@@ -86,12 +88,13 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
       }
     }
 
-    suspend fun records(companyId: String): List<JSONObject> {
+    suspend fun records(companyId: String): List<JSONObject> = withContext(Dispatchers.Default) {
         val rows = mutableListOf<JSONObject>(); var offset = 0
         while (true) {
-            val page = (request(company(companyId, "/records?compact=true&limit=100&offset=$offset")) as JSONArray).objects()
-            rows.addAll(page); if (page.size < 100) return rows; offset += 100
+            val page = (request(company(companyId, "/records?compact=true&limit=500&offset=$offset")) as JSONArray).objects()
+            rows.addAll(page); if (page.size < 500) break; offset += 500
         }
+        rows
     }
     suspend fun record(companyId: String, id: String): JSONObject = request(company(companyId, "/records/${encode(id)}")) as JSONObject
     suspend fun saveRecord(companyId: String, body: JSONObject, retryKey: String, previous: JSONObject? = null): JSONObject {

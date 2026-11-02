@@ -43,7 +43,7 @@ import org.json.JSONObject
         catch (e: Exception) { currentCoroutineContext().ensureActive(); editor.previewError = e.message ?: "Preview is unavailable."; if (e is ApiFailure && e.status == 401) vm.failure(e) }
     }
     LaunchedEffect(step) { scroll.scrollTo(0); stepError = "" }
-    fun close() { if (idle) { if (editor.changed()) discard = true else { vm.error = ""; vm.notice = ""; vm.editor = null } } }
+    fun close() { if (idle) { if (editor.retryPending) { discard = false; stepError = "The previous save may already have posted. Retry original save to recover its outcome before closing; do not create a replacement entry." } else if (editor.changed()) discard = true else { vm.error = ""; vm.notice = ""; vm.editor = null } } }
     fun next() {
         val issue = entryStepIssue(step, editor.get("name"), editor.get("date"), editor.lines.map { Triple(it.get("description"), it.get("quantity"), it.get("rate")) })
         if (issue != null) stepError = issue else { stepError = ""; step++ }
@@ -170,7 +170,7 @@ import org.json.JSONObject
             } }
         }
     }
-    if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard unsaved changes?") }, text = { Text("This draft has not been saved.") }, confirmButton = { TextButton(onClick = { discard = false; vm.error = ""; vm.notice = ""; vm.editor = null }) { Text("Discard draft") } }, dismissButton = { TextButton(onClick = { discard = false }) { Text("Keep editing") } })
+    if (discard && !editor.retryPending) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard unsaved changes?") }, text = { Text("This draft has not been saved.") }, confirmButton = { TextButton(onClick = { discard = false; vm.error = ""; vm.notice = ""; vm.editor = null }) { Text("Discard draft") } }, dismissButton = { TextButton(onClick = { discard = false }) { Text("Keep editing") } })
 }
 
 @Composable private fun CollapsibleLine(editor: EntryEditor, line: LineState, index: Int) {

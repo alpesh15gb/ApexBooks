@@ -108,7 +108,7 @@ public static class NativeUi
         for (var i = 0; i < elements.Length; i++) { grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); Grid.SetColumn((FrameworkElement)elements[i], i); grid.Children.Add(elements[i]); }
         return grid;
     }
-    public static async Task<bool> Dialog(string title, UIElement content, Func<Task> save, string action = "Save", Func<bool>? canSave = null, Func<bool>? hasChanges = null, Func<Task>? saveAndNew = null, UIElement? stickyFooter = null)
+    public static async Task<bool> Dialog(string title, UIElement content, Func<Task> save, string action = "Save", Func<bool>? canSave = null, Func<bool>? hasChanges = null, Func<Task>? saveAndNew = null, UIElement? stickyFooter = null, Func<bool>? unresolved = null)
     {
         var heading = Stack(); heading.Children.Add(Text(title,20,true));
         var error = new InfoBar { Severity = InfoBarSeverity.Error, IsClosable = true }; heading.Children.Add(error);
@@ -138,6 +138,7 @@ public static class NativeUi
         dialog.Closing+=(_,args)=>{
             if(context.ForcedClose)return;
             if(context.Saving||context.Operations>0){args.Cancel=true;return;}
+            if(!done && unresolved?.Invoke()==true){args.Cancel=true;discard.Visibility=Visibility.Collapsed;error.Message="The previous save may already have posted. Retry the original save to recover its outcome before closing; do not create a replacement entry.";error.IsOpen=true;return;}
             if(!done && hasChanges?.Invoke()==true){args.Cancel=true;discard.Visibility=Visibility.Visible;}
         };
         async Task<bool> Commit(bool again,bool close=false)

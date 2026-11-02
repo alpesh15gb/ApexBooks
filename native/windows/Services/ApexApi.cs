@@ -95,8 +95,8 @@ public sealed class ApexApi : IDisposable
         if (retryKey is not null) request.Headers.Add("Idempotency-Key", retryKey);
         try
         {
-            using var response = await http.SendAsync(request, cancellation);
-            var content = await response.Content.ReadAsStringAsync(cancellation);
+            using var response = await http.SendAsync(request, cancellation).ConfigureAwait(false);
+            var content = await response.Content.ReadAsStringAsync(cancellation).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) throw Failure(response.StatusCode,content,sentToken,path is "/api/auth/login" or "/api/auth/change-password" or "/api/auth/recovery-codes");
             if (string.IsNullOrWhiteSpace(content)) return new JsonObject();
             return JsonNode.Parse(content) ?? new JsonObject();
@@ -132,11 +132,11 @@ public sealed class ApexApi : IDisposable
     public async Task<JsonArray> Records(string companyId)
     {
         var rows = new JsonArray();
-        for (var offset = 0; ; offset += 100)
+        for (var offset = 0; ; offset += 500)
         {
-            var page = (await Send(CompanyPath(companyId, $"/records?compact=true&limit=100&offset={offset}"))).Array();
+            var page = (await Send(CompanyPath(companyId, $"/records?compact=true&limit=500&offset={offset}")).ConfigureAwait(false)).Array();
             foreach (var item in page) rows.Add(item.Copy());
-            if (page.Count < 100) return rows;
+            if (page.Count < 500) return rows;
         }
     }
 

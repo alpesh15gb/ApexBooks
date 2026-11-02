@@ -36,6 +36,7 @@ export default function TransactionDetail({ record, records, company, labels, lo
         {error && <div className="error banner" role="alert">{error}<button className="link" onClick={onRetry}>Try again</button></div>}
         <div className="detail-action-bar">
           {actions.map((action, index) => <button key={action.kind} className={`button ${index === 0 && action.kind.startsWith('payment') ? 'primary' : 'secondary'}`} disabled={loading || !!error} onClick={() => onRelated(record, action.kind)}>{action.label}<ArrowRight size={15} /></button>)}
+          {['estimate', 'proforma'].includes(record.kind) && !record.converted_to && writable && <button className="button secondary" disabled={loading || !!error} onClick={() => onConvert(record, 'sales_order')}>Create sales order<ArrowRight size={15} /></button>}
           {draft && !record.converted_to && writable && <button className="button primary" disabled={loading || !!error} onClick={() => onConvert(record)}>Convert to {record.kind === 'purchase_order' ? 'bill' : 'invoice'}<ArrowRight size={15} /></button>}
           {pdf && <button className="button secondary" disabled={loading} onClick={() => onPdf(record)}><Download size={16} />Download PDF</button>}
           {writable && editable && !record.converted_to && <button className="button secondary" disabled={loading || !!error} onClick={() => onEdit(record)}><Pencil size={15} />Edit details</button>}

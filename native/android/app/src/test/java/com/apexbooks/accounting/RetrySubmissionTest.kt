@@ -6,6 +6,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RetrySubmissionTest {
+    @Test fun unknownOutcomesRemainNonDiscardableUntilRecovered() {
+        for(status in listOf(0,408,409,500,502,503,504)) {
+            val submission=RetrySubmission()
+            submission.body(JSONObject().put("amount","100"))
+            submission.failed(ApiFailure(status,"unknown outcome"))
+            assertTrue("Must block dismissal for $status",submission.unresolved)
+            assertEquals("100",submission.body(JSONObject().put("amount","999")).getString("amount"))
+            submission.succeeded()
+            assertFalse(submission.unresolved)
+        }
+    }
+
     @Test fun uncertainWritePreservesOriginalPayloadDespiteEdits() {
         val submission=RetrySubmission()
         val original=JSONObject().put("amount","100").put("data",JSONObject().put("quantity","1"))

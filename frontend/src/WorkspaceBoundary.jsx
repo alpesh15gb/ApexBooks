@@ -1,10 +1,72 @@
-import React,{useEffect} from 'react';
-export class WorkspaceBoundary extends React.Component{
- constructor(props){super(props);this.state={failed:false}}
- static getDerivedStateFromError(){return {failed:true}}
- componentDidCatch(error){console.error('Apex Books workspace could not render',error)}
- render(){return this.state.failed?<main className="auth-page"><section className="auth-form"><div className="auth-box"><h1>Let’s reopen your workspace</h1><p>The page could not be displayed. Reload to reconnect to your saved company data.</p><button className="button primary" onClick={()=>window.location.reload()}>Reload Apex Books</button></div></section></main>:this.props.children}
+import React, { useEffect } from 'react';
+export class WorkspaceBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { failed: false }; }
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error) { console.error('Apex Books workspace could not render', error); }
+  render() { return this.state.failed ? <main className="auth-page"><section className="auth-form"><div className="auth-box"><h1>Let’s reopen your workspace</h1><p>The page could not be displayed. Reload to reconnect to your saved company data.</p><button className="button primary" onClick={() => window.location.reload()}>Reload Apex Books</button></div></section></main> : this.props.children; }
 }
-export function DialogFocus(){
- useEffect(()=>{let dialog=null,previous=null;const focusable=()=>dialog?[...dialog.querySelectorAll('input,select,textarea,button,a[href],[tabindex]:not([tabindex="-1"])')].filter(el=>!el.disabled&&el.getClientRects().length):[];const scan=()=>{const found=[...document.querySelectorAll('.overlay .modal')].at(-1)||null;if(found===dialog)return;if(dialog&&!found&&previous?.isConnected)previous.focus();if(found){previous=document.activeElement;dialog=found;requestAnimationFrame(()=>{if(dialog!==found||!found.isConnected)return;const field=found.querySelector('input:not([type="file"]):not([type="checkbox"]),select,textarea');(field||focusable()[0])?.focus()})}else dialog=null};const onKey=e=>{if(!dialog)return;const fields=focusable();if(e.key==='Escape'){const close=dialog.querySelector('button[aria-label="Close"]');if(close){e.preventDefault();e.stopPropagation();close.click()}}if(e.key==='Tab'&&fields.length){const first=fields[0],last=fields.at(-1);if(e.shiftKey&&(document.activeElement===first||!dialog.contains(document.activeElement))){e.preventDefault();last.focus()}else if(!e.shiftKey&&(document.activeElement===last||!dialog.contains(document.activeElement))){e.preventDefault();first.focus()}}};const observer=new MutationObserver(scan);observer.observe(document.body,{childList:true,subtree:true});document.addEventListener('keydown',onKey,true);scan();return()=>{observer.disconnect();document.removeEventListener('keydown',onKey,true)}},[]);return null
+
+/** Keep the foreground dialog interactive and every background branch inert. */
+export function DialogFocus() {
+  useEffect(() => {
+    let dialog = null, previous = null;
+    const inertNodes = new Map();
+    const restore = () => {
+      for (const [node, wasInert] of inertNodes) {
+        if (wasInert) node.setAttribute('inert', '');
+        else node.removeAttribute('inert');
+      }
+      inertNodes.clear();
+    };
+    const fields = () => dialog ? [...dialog.querySelectorAll('input,select,textarea,button,a[href],[tabindex]:not([tabindex="-1"])')]
+      .filter(node => !node.disabled && !node.closest('[inert]') && node.getClientRects().length) : [];
+    const focusInside = () => (fields()[0] || dialog)?.focus();
+    const scan = () => {
+      const found = [...document.querySelectorAll('.overlay .modal')].at(-1) || null;
+      if (found === dialog) return;
+      restore();
+      const wasOpen = !!dialog;
+      dialog = found;
+      if (!dialog) {
+        if (wasOpen && previous?.isConnected) previous.focus();
+        previous = null;
+        return;
+      }
+      if (!wasOpen) previous = document.activeElement;
+      dialog.setAttribute('tabindex', '-1');
+      // Ancestor-aware: dialogs rendered inside a workspace must not inert their
+      // own parent. Only siblings off the foreground path are disabled.
+      for (let branch = dialog; branch.parentElement && branch !== document.body; branch = branch.parentElement) {
+        for (const sibling of branch.parentElement.children) {
+          if (sibling === branch || ['SCRIPT', 'STYLE', 'LINK'].includes(sibling.tagName)) continue;
+          if (!inertNodes.has(sibling)) inertNodes.set(sibling, sibling.hasAttribute('inert'));
+          sibling.setAttribute('inert', '');
+        }
+      }
+      const active = dialog;
+      requestAnimationFrame(() => { if (dialog === active && active.isConnected) focusInside(); });
+    };
+    const key = event => {
+      if (!dialog) return;
+      if (event.key === 'Escape') {
+        const close = dialog.querySelector('button[aria-label="Close"]');
+        if (close) { event.preventDefault(); event.stopPropagation(); close.click(); }
+      }
+      const choices = fields();
+      if (event.key === 'Tab') {
+        const first = choices[0], last = choices.at(-1);
+        if (!choices.length) { event.preventDefault(); dialog.focus(); }
+        else if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
+      }
+    };
+    const focus = event => { if (dialog && !dialog.contains(event.target)) focusInside(); };
+    const observer = new MutationObserver(scan);
+    observer.observe(document.body, { childList: true, subtree: true });
+    document.addEventListener('keydown', key, true);
+    document.addEventListener('focusin', focus, true);
+    scan();
+    return () => { observer.disconnect(); document.removeEventListener('keydown', key, true); document.removeEventListener('focusin', focus, true); restore(); };
+  }, []);
+  return null;
 }

@@ -22,7 +22,9 @@ def retry(m,cid,body,request,session,operation):
     old=session.scalar(select(m.IdempotencyKey).where(m.IdempotencyKey.company_id==cid,m.IdempotencyKey.key==key))
     if old:
         if old.request_hash!=digest:raise HTTPException(409,'Retry key was used for a different request')
-        return key,digest,{**m.obj(session.get(m.Record,old.record_id)),'posted':True}
+        record=session.get(m.Record,old.record_id)
+        posted=bool(session.scalar(select(m.RecordPosting.id).where(m.RecordPosting.company_id==cid,m.RecordPosting.record_id==record.id)))
+        return key,digest,{**m.obj(record),'posted':posted}
     return key,digest,None
 
 def post(m,cid,user,session,body,kind,name,data,entries,key,digest):
@@ -80,8 +82,12 @@ def install(app,m):
         return {'data':data,'amount':str(amount)}
 
     @app.put('/api/companies/{company_id}/drafts/{record_id}')
-    def edit_draft(company_id:str,record_id:str,body:m.RecordInput,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
+    def edit_draft(company_id:str,record_id:str,body:m.RecordInput,request:Request,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
         company=m.lock_company(company_id,user,session)
+        key=request.headers.get('Idempotency-Key','').strip()
+        if key:
+            key,digest,old=retry(m,company_id,body,request,session,'draft:'+record_id)
+            if old:return old
         record=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==record_id))
         if not record or record.kind not in ('estimate','proforma','sales_order','purchase_order'):raise HTTPException(404,'Editable document not found')
         if record.kind!=body.kind:raise HTTPException(422,'Document type cannot change')
@@ -99,6 +105,7 @@ def install(app,m):
         data,amount=m.calculate({**record.data,**submitted},company,profile.mode if profile else 'regular',record.kind,session)
         record.name=body.name.strip();record.number=number;record.date=body.date;record.amount=amount
         record.data={**data,'version':record.data.get('version',0)+1,'company_snapshot':m.company_obj(company,session),'document_branding':m.branding_for(company_id,session)}
+        if key:session.add(m.IdempotencyKey(company_id=company_id,key=key,request_hash=digest,record_id=record.id))
         m.audit(session,company_id,user,'draft.updated',record.kind,record.id,{'version':record.data['version'],'previous':previous});session.commit()
         return {**m.obj(record),'posted':False}
 

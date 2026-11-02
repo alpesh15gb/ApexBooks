@@ -1,3 +1,5 @@
+import { apiErrorMessage } from "./apiErrors.js";
+import { fetchCompanyRecords } from "./companyRecords.js";
 import TransactionDetail from "./TransactionDetail.jsx";
 import { relatedRecordActions, settlementLabel } from "./recordLifecycle.js";
 import { createRequestScope } from "./requestScope.js";
@@ -123,7 +125,9 @@ const money = (value) =>
   }).format(Number(value || 0));
 const today = () => new Date().toLocaleDateString("en-CA");
 const api = async (path, options = {}) => {
-  const response = await fetch("/api" + path, {
+  const mutation = options.method && !["GET", "HEAD"].includes(options.method);
+  let response;
+  try { response = await fetch("/api" + path, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -132,14 +136,15 @@ const api = async (path, options = {}) => {
         : {}),
       ...options.headers,
     },
-  });
+  }); } catch (failure) {
+    if (failure.name === "AbortError") throw failure;
+    const error = new Error(apiErrorMessage(0, {}, mutation));
+    error.status = 0;
+    throw error;
+  }
   if (!response.ok) {
     let e = await response.json().catch(() => ({}));
-    const error = new Error(
-      typeof e.detail === "string"
-        ? e.detail
-        : "Please check your details and try again.",
-    );
+    const error = new Error(apiErrorMessage(response.status, e, mutation));
     error.status = response.status;
     throw error;
   }
@@ -430,6 +435,9 @@ function App() {
     [detail, setDetail] = useState(null),
     [detailLoading, setDetailLoading] = useState(false),
     [detailError, setDetailError] = useState(""),
+    [recordsLoading, setRecordsLoading] = useState(false),
+    [recordsProgress, setRecordsProgress] = useState(0),
+    [booksRevision, setBooksRevision] = useState(0),
     [editorReturn, setEditorReturn] = useState(null),
     [editingMaster, setEditingMaster] = useState(null),
     [editingDraft, setEditingDraft] = useState(null),
@@ -444,17 +452,21 @@ function App() {
   workspaceScope.current.setContext(companyId);
   const editorRequests = useRef(createRequestScope(companyId));
   editorRequests.current.setContext(companyId);
+  const recordsAbort = useRef(null);
   const recordsReady = recordsCompanyId === companyId;
   const records = recordsReady ? rawRecords : EMPTY_RECORDS;
   async function loadCompanies() {
+    const requestToken = localStorage.token;
     try {
       const data = await api("/companies");
+      if (localStorage.token !== requestToken) return;
       setCompanies(data);
       if (!data.some((c) => c.id === companyId)) {
         setCompanyId(data[0]?.id || "");
         if (!data.length) setModal("company");
       }
     } catch (e) {
+      if (localStorage.token !== requestToken) return;
       if (e.status === 401) {
         localStorage.removeItem("token");
         localStorage.removeItem("companyId");
@@ -465,29 +477,39 @@ function App() {
       } else setError(e.message);
     }
   }
-  async function loadRecords(id = companyId) {
+  async function loadRecords(id = companyId, { refreshReports = true } = {}) {
     if (!id || activeCompany.current !== id) return;
+    recordsAbort.current?.abort();
+    const controller = new AbortController();
+    recordsAbort.current = controller;
     const isCurrent = workspaceScope.current.latest();
     setRecordsLoadError("");
+    setRecordsLoading(true);
+    setRecordsProgress(0);
+    if (refreshReports) setBooksRevision(value => value + 1);
     try {
-      const rows = [];
-      for (let offset = 0; ; offset += 100) {
-        const batch = await api(
-          `/companies/${id}/records?compact=true&limit=100&offset=${offset}`,
-        );
-        if (!isCurrent()) return;
-        rows.push(...batch);
-        if (batch.length < 100) break;
-      }
-      if (isCurrent()) {
+      const rows = await fetchCompanyRecords(api, id, {
+        isCurrent, signal: controller.signal,
+        onProgress: count => { if (isCurrent()) setRecordsProgress(count); },
+      });
+      if (rows && isCurrent()) {
         setRecords(rows);
         setRecordsCompanyId(id);
+        setError(current => current === recordsLoadError ? "" : current);
+        return rows;
       }
     } catch (e) {
-      if (isCurrent()) {
+      if (isCurrent() && !controller.signal.aborted) {
+        if ([401, 403, 404].includes(e.status)) { setRecords([]); setRecordsCompanyId(""); }
+        if (e.status === 401) {
+          localStorage.removeItem("token"); localStorage.removeItem("companyId");
+          setCompanies([]); setCompanyId(""); setSigned(false);
+        }
         setError(e.message);
         setRecordsLoadError(e.message);
       }
+    } finally {
+      if (isCurrent()) setRecordsLoading(false);
     }
   }
   useEffect(() => {
@@ -520,17 +542,30 @@ function App() {
     if (companyId) setModal("");
     if (companyId) {
       localStorage.companyId = companyId;
-      loadRecords(companyId);
+      loadRecords(companyId, { refreshReports: false });
+      const preferencesCurrent = workspaceScope.current.capture();
       api(`/companies/${companyId}/preferences`)
         .then((p) => {
-          if (activeCompany.current === companyId)
+          if (preferencesCurrent())
             setDocTemplate(p.document_template);
         })
         .catch((e) => {
-          if (activeCompany.current === companyId) setError(e.message);
+          if (preferencesCurrent()) setError(e.message);
         });
     }
+    return () => recordsAbort.current?.abort();
   }, [companyId]);
+  useEffect(() => {
+    let lastRefresh = 0;
+    const refresh = () => {
+      if (!signed || !companyId || document.visibilityState === "hidden" || document.querySelector(".overlay .modal") || Date.now() - lastRefresh < 1500) return;
+      lastRefresh = Date.now();
+      loadRecords(companyId);
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, [signed, companyId]);
   const activeRegisterFilter =
     registerFilter.page === page ? registerFilter.value : "all";
   const transactionRegister = !["party", "item"].includes(page);
@@ -604,13 +639,13 @@ function App() {
       },
     );
     if (!isCurrent()) return;
-    await loadRecords();
+    const refreshed = await loadRecords();
     if (!isCurrent()) return;
     if (keepOpen && !editingDraft && !conversionSource && !relatedSource) {
       setEditorCycle((n) => n + 1);
       return;
     }
-    closeRecord();
+    closeRecord(refreshed);
   }
   async function saveMaster(body) {
     const isCurrent = workspaceScope.current.capture();
@@ -650,7 +685,7 @@ function App() {
     if (!isCurrent()) return;
     setModal("");
   }
-  function closeRecord() {
+  function closeRecord(refreshed) {
     setConversionSource(null);
     setRelatedSource(null);
     setEditingDraft(null);
@@ -660,7 +695,7 @@ function App() {
       setSearch(editorReturn.search);
       setRegisterFilter(editorReturn.filter);
       setRegisterQuery(editorReturn.query);
-      if (editorReturn.detail) beginDetail(editorReturn.detail);
+      if (editorReturn.detail) beginDetail((Array.isArray(refreshed) && refreshed.find(row => row.id === editorReturn.detail.id)) || editorReturn.detail);
     }
     setEditorReturn(null);
   }
@@ -765,6 +800,7 @@ function App() {
     }
   }
   async function signOut() {
+    if (document.querySelector(".overlay .modal")) return;
     const token = localStorage.token;
     if (token) {
       try {
@@ -785,6 +821,7 @@ function App() {
     setSigned(false);
   }
   function navigateWorkspace(kind, reference = "", filter = "all") {
+    if (modal === "record") { window.dispatchEvent(new window.Event("apex-close-editor")); return; }
     editorRequests.current.latest();
     setDetail(null);
     const routes = {
@@ -863,7 +900,10 @@ function App() {
             <select
               aria-label="Choose company"
               value={companyId}
-              onChange={(e) => setCompanyId(e.target.value)}
+              onChange={(e) => {
+                if (document.querySelector(".overlay .modal")) { e.currentTarget.value = companyId; return; }
+                setCompanyId(e.target.value);
+              }}
             >
               {companies.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -942,6 +982,7 @@ function App() {
           onMenu={() => setMenu(true)}
         />
         <div className="content">
+          {companyId && <div className="workspace-sync-line" role="status"><span className={recordsLoading ? "sync-active" : "sync-idle"} /><span>{recordsLoading ? recordsReady ? "Refreshing company data…" : `Loading company data${recordsProgress ? ` · ${recordsProgress.toLocaleString()} records` : "…"}` : recordsLoadError ? "Refresh needed" : recordsReady ? "Company data loaded" : "Connecting to your company…"}</span><button className="link" disabled={recordsLoading} onClick={() => loadRecords()}>Refresh</button></div>}
           {error && (
             <div className="error banner" onClick={() => setError("")}>
               {error} · Click to dismiss
@@ -976,6 +1017,8 @@ function App() {
               key={companyId}
               company={company}
               records={records}
+              refreshKey={booksRevision}
+              recordsReady={recordsReady}
               api={api}
               onNavigate={navigateWorkspace}
               onCreate={createWorkspace}
@@ -1443,12 +1486,13 @@ function App() {
                             search ||
                             activeRegisterFilter !== "all"
                               ? "No matching records"
-                              : "No transactions in this view"}
+                              : page === "party" ? "Your party list starts here" : page === "item" ? "Build your item catalogue" : "No transactions in this view"}
                           </strong>
                           <p>{scopedRecords.length || search || activeRegisterFilter !== "all"
                             ? "No records match these filters. Clear them to see your existing transactions."
-                            : ["owner", "editor"].includes(company?.role) ? "Create your first document to start this register."
-                            : "There are no transactions here yet. Your company owner can add them."}</p>
+                            : ["owner", "editor"].includes(company?.role)
+                              ? page === "party" ? "Add a customer or supplier so you can reuse their details on every document." : page === "item" ? "Add products or services with prices, tax defaults and optional stock tracking." : "Create your first document to start this register."
+                              : "There are no records here yet. Your company owner can add them."}</p>
                           <button
                             className="button secondary"
                             onClick={() => {
@@ -1473,7 +1517,7 @@ function App() {
                             >
                               <Plus size={15} />
                               Add{" "}
-                              {labels[page]?.replace(/s$/, "").toLowerCase()}
+                              {page === "party" ? "party" : labels[page]?.replace(/s$/, "").toLowerCase()}
                             </button>
                           )}
                         </div>
@@ -1883,7 +1927,7 @@ function Ledger({ companyId, role }) {
       setAccount({ code: "", name: "", category: "asset" });
       await load();
     } catch (err) {
-      setError(err.message + (err instanceof TypeError || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
+      setError(err.message + (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -1920,7 +1964,7 @@ function Ledger({ companyId, role }) {
       });
       await load();
     } catch (err) {
-      setError(err.message + (err instanceof TypeError || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
+      setError(err.message + (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -1941,7 +1985,7 @@ function Ledger({ companyId, role }) {
       setReversal({ date: today(), reference: "", reason: "" });
       await load();
     } catch (err) {
-      setError(err.message + (err instanceof TypeError || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
+      setError(err.message + (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
     } finally {
       submitting.current = false;
       setBusy(false);

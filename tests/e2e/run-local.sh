@@ -30,6 +30,9 @@ for _ in $(seq 1 40); do
 done
 if [[ "$ready" != 1 ]]; then cat "$work/api.log" "$work/web.log"; exit 1; fi
 APEX_E2E_BASE=http://127.0.0.1:$web_port "$python" "$root/tests/e2e/test_http_workflow.py"
+if [[ "${APEX_PERF:-0}" == 1 ]]; then
+  APEX_E2E_BASE=http://127.0.0.1:$web_port "$python" "$root/tests/e2e/benchmark_local.py"
+fi
 
 if [[ "${APEX_BROWSER:-0}" == 1 ]]; then
   APEX_E2E_BASE=http://127.0.0.1:$web_port "$python" "$root/tests/e2e/browser_workflow.py"

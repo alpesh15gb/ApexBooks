@@ -142,7 +142,7 @@ public sealed partial class MainPage
         }
         var saved = await Dialog((previous is not null ? "Edit " : "New ") + FeatureCatalog.Singular(kind), panel, Save,
             previous is null ? "Save " + (kind=="purchase_bill"?"bill":kind=="sales_invoice"?"invoice":"document") : "Save changes",
-            canSave:()=>!sourceLoading,hasChanges:()=>submission.Unresolved||BodyValue().ToJsonString()!=baseline,
+            canSave:()=>!sourceLoading,unresolved:()=>submission.Unresolved,hasChanges:()=>BodyValue().ToJsonString()!=baseline,
             saveAndNew:previous is null&&conversion is null?async()=>{await Save();keepNew=true;}:null,stickyFooter:Card(totals));
         previewRequest?.Cancel(); if (saved && cid == CompanyId) await Refresh();
         if(saved&&keepNew&&cid==CompanyId)await EditDocument(kind);

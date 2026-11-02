@@ -15,7 +15,8 @@ public sealed partial class MainPage : Page
     internal JsonArray Companies = new(), Records = new(), Banks = new();
     internal JsonObject Company = new();
     internal string CompanyId = "", CurrentPage = "dashboard";
-    internal bool CanWrite => Company.Text("role") is "owner" or "editor";
+    private bool recordsReady;
+    internal bool CanWrite => recordsReady && Company.Text("role") is ("owner" or "editor");
     internal bool IsOwner => Company.Text("role") == "owner";
     private NavigationView navigation = new();
     private readonly ContentControl host = new(){HorizontalContentAlignment=HorizontalAlignment.Stretch,VerticalContentAlignment=VerticalAlignment.Stretch};
@@ -29,6 +30,7 @@ public sealed partial class MainPage : Page
     private readonly Dictionary<string,PosDraft> posDrafts=new();
     private Action? leavePage;
     private Func<bool>? hasUnsavedPage;
+    private Func<bool>? hasPendingPage;
 
     public MainPage()
     {
@@ -60,7 +62,7 @@ public sealed partial class MainPage : Page
 
     private void ShowLogin()
     {
-        leavePage=null;hasUnsavedPage=null;posDrafts.Clear();CompanyId = ""; Company = new(); Records = new(); Banks = new(); Companies = new(); generation++;workspaceGeneration++;companyLoads++;refreshSequence++;CurrentPage="dashboard"; Body.Children.Clear(); NativeUi.CloseDialog();
+        leavePage=null;hasUnsavedPage=null;hasPendingPage=null;posDrafts.Clear();CompanyId = ""; Company = new(); Records = new(); Banks = new();recordsReady=false; Companies = new(); generation++;workspaceGeneration++;companyLoads++;refreshSequence++;CurrentPage="dashboard"; Body.Children.Clear(); NativeUi.CloseDialog();
         var card = Stack(20); card.Width = 380;
         card.Children.Add(AppLogo(340));
         card.Children.Add(Text("Your business, in balance.", 18));
@@ -107,7 +109,7 @@ public sealed partial class MainPage : Page
         SelectValue(companyPicker, CompanyId); if (companyPicker.SelectedIndex < 0 && companyPicker.Items.Count > 0) companyPicker.SelectedIndex = 0;
         changingCompanies = false;
         if (companyPicker.SelectedIndex >= 0) await ChooseCompany();
-        else { CompanyId="";Company=new();Records=new();Banks=new();posDrafts.Clear();leavePage=null;hasUnsavedPage=null;generation++;workspaceGeneration++;refreshSequence++;NativeUi.CloseDialog();Body.Children.Clear(); Body.Children.Add(Text("Welcome to Apex Books", 30, true)); Body.Children.Add(Text("Create your first company to start recording transactions.")); Body.Children.Add(AsyncButton("Create company", () => CompanyForm(), Error, true)); }
+        else { CompanyId="";Company=new();Records=new();Banks=new();recordsReady=false;posDrafts.Clear();leavePage=null;hasUnsavedPage=null;hasPendingPage=null;generation++;workspaceGeneration++;refreshSequence++;NativeUi.CloseDialog();Body.Children.Clear(); Body.Children.Add(Text("Welcome to Apex Books", 30, true)); Body.Children.Add(Text("Create your first company to start recording transactions.")); Body.Children.Add(AsyncButton("Create company", () => CompanyForm(), Error, true)); }
     }
 
     private void BuildShell()
@@ -138,7 +140,7 @@ public sealed partial class MainPage : Page
         navigation.ItemInvoked += async (_, args) => await Run(async () =>
         {
             var key = (args.InvokedItemContainer as NavigationViewItem)?.Tag?.ToString();
-            if (key == "logout") {if(posDrafts.Count>0||hasUnsavedPage?.Invoke()==true){var prompt=Stack();prompt.Children.Add(Text("Held POS carts exist only in this session. Signing out discards them. Resolve any sale with an unknown save outcome before leaving."));if(!await Dialog("Discard held carts and sign out?",prompt,()=>Task.CompletedTask,"Sign out and discard"))return;}try{await Api.Logout();}finally{ShowLogin();}}
+            if (key == "logout") {if(posDrafts.Values.Any(d=>d.Submission.Unresolved)||hasPendingPage?.Invoke()==true){Error(new Exception("A held sale may already have posted. Return to its company’s Point of Sale and retry Complete sale to recover the original outcome before signing out."));return;}if(posDrafts.Count>0||hasUnsavedPage?.Invoke()==true){var prompt=Stack();prompt.Children.Add(Text("Held POS carts exist only in this session. Signing out discards them. Resolve any sale with an unknown save outcome before leaving."));if(!await Dialog("Discard held carts and sign out?",prompt,()=>Task.CompletedTask,"Sign out and discard"))return;}try{await Api.Logout();}finally{ShowLogin();}}
             else if (key == "new_company") await CompanyForm();
             else if (key is not null && CompanyId.Length > 0) await Navigate(key);
         });
@@ -150,28 +152,29 @@ public sealed partial class MainPage : Page
     private async Task ChooseCompany()
     {
         var id = Value(companyPicker); if (id.Length == 0) return;
-        var leave=leavePage;leavePage=null;leave?.Invoke();hasUnsavedPage=null;
-        CompanyId = id; Company = Companies.OfType<JsonObject>().First(r => r.Text("id") == id);Records=new();Banks=new();++generation;var current=++workspaceGeneration;var request=++refreshSequence;NativeUi.CloseDialog();
+        var leave=leavePage;leavePage=null;leave?.Invoke();hasUnsavedPage=null;hasPendingPage=null;
+        CompanyId = id; Company = Companies.OfType<JsonObject>().First(r => r.Text("id") == id);Records=new();Banks=new();recordsReady=false;++generation;var current=++workspaceGeneration;var request=++refreshSequence;NativeUi.CloseDialog();
         Body.Children.Clear(); Body.Children.Add(Text("Loading " + Company.Text("name") + "…", 22, true));
         var records = Api.Records(id); var banks = Api.Send(Api.CompanyPath(id, "/bank-accounts")); await Task.WhenAll(records, banks);
         if (current != workspaceGeneration||request!=refreshSequence) return;
-        Records = await records; Banks = (await banks).Array(); await Navigate(CurrentPage);
+        Records = await records; Banks = (await banks).Array();recordsReady=true; await Navigate(CurrentPage);
     }
 
     internal async Task Refresh()
     {
-        var cid = CompanyId;if(cid.Length==0||!Api.SignedIn)return;var current=workspaceGeneration;var request=++refreshSequence; var rows = Api.Records(cid);var banks=Api.Send(Api.CompanyPath(cid,"/bank-accounts"));await Task.WhenAll(rows,banks); if (current != workspaceGeneration||request!=refreshSequence) return; Records = await rows;Banks=(await banks).Array(); await Navigate(CurrentPage);
+        var cid = CompanyId;if(cid.Length==0||!Api.SignedIn)return;var current=workspaceGeneration;var request=++refreshSequence; var rows = Api.Records(cid);var banks=Api.Send(Api.CompanyPath(cid,"/bank-accounts"));await Task.WhenAll(rows,banks); if (current != workspaceGeneration||request!=refreshSequence) return; Records = await rows;Banks=(await banks).Array();recordsReady=true; await Navigate(CurrentPage);
     }
 
     internal async Task Navigate(string page)
     {
-        var leave=leavePage;leavePage=null;leave?.Invoke();hasUnsavedPage=null;
+        var leave=leavePage;leavePage=null;leave?.Invoke();hasUnsavedPage=null;hasPendingPage=null;
         ++generation;CurrentPage = page; Body.Children.Clear(); notice.IsOpen = false; workspaceCompany.Text = Company.Text("name");
         navigation.SelectedItem=FindNavigation(page);
         var heading=Stack(6);
         var kicker=Text(page=="dashboard"?"YOUR BUSINESS, IN FOCUS":"YOUR WORKSPACE",10,true);kicker.Foreground=Green;heading.Children.Add(kicker);
         heading.Children.Add(Text(page=="dashboard"?"Business overview":FeatureCatalog.Title(page), 28, true));
         var detail = Text(Company.Text("tax_mode") == "regular" ? "GST registered · " + Company.Text("gstin") : Company.Text("tax_mode") == "composition" ? "Composition company" : "Not GST registered", 12); detail.Foreground = Muted; heading.Children.Add(detail);Body.Children.Add(heading);
+        if(!recordsReady){Body.Children.Add(Text("Loading complete company history…",20,true));Body.Children.Add(Text("Balances and billing become available once all records are ready. No partial totals are shown."));Body.Children.Add(AsyncButton("Retry company data",Refresh,Error));return;}
         if (page == "dashboard") await Dashboard();
         else if (page == "reports") await ReportsPage();
         else if (page == "settings") await SettingsPage();

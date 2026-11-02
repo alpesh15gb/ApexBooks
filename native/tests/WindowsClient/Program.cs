@@ -28,6 +28,12 @@ submission.Failed(new ApiFailure(422,"invalid"));
 Check(!submission.Unresolved && submission.Body(original).Text("amount")=="200", "definitive validation permits correction");
 submission.Succeeded();
 Check(!submission.Unresolved,"successful write clears pending payload");
+foreach(var status in new[]{0,408,409,500,502,503,504})
+{
+    var pending = new RetrySubmission();pending.Body(new JsonObject{["amount"]="100"});pending.Failed(new ApiFailure(status,"unknown outcome"));
+    Check(pending.Unresolved && pending.Body(new JsonObject{["amount"]="999"}).Text("amount")=="100",$"unknown outcome {status} blocks discard until recovered");
+    pending.Succeeded();Check(!pending.Unresolved,$"recovered outcome {status} permits dismissal");
+}
 await api.Login("synthetic-qa@example.invalid","test-only-password",false);
 var old=api.Send("/api/slow-records");await transport.RecordsEntered.Task;
 await api.Login("synthetic-qa@example.invalid","test-only-password",false);
@@ -50,6 +56,23 @@ api.ForgetSession();
 transport.ReleaseLogin.SetResult(true);
 try{await cancelledLogin;throw new Exception("Expected cancelled login");}catch(OperationCanceledException){}
 Check(!api.SignedIn,"signout invalidates an in-flight login response");
+
+var paging=new PagingTransport();using var pagingApi=new ApexApi("https://synthetic-paging.invalid",paging);
+var timer=System.Diagnostics.Stopwatch.StartNew();for(var offset=0;offset<1250;offset+=100)await pagingApi.Send(pagingApi.CompanyPath("test",$"/records?compact=true&limit=100&offset={offset}"));var baselineMs=timer.ElapsedMilliseconds;
+Check(paging.Calls==13,"baseline 1250 records uses 13 small-page requests");paging.Calls=0;timer.Restart();var allRows=await pagingApi.Records("test");var improvedMs=timer.ElapsedMilliseconds;
+Check(paging.Calls==3&&allRows.Count==1250&&allRows.Select(r=>r.Text("id")).Distinct().Count()==1250,"company load returns all1250 unique records in3 compact requests");
+Console.WriteLine($"COMPANY_LOAD_SYNTHETIC rows=1250 latency=20ms old_requests=13 new_requests=3 old_ms={baselineMs} new_ms={improvedMs}");
+
+sealed class PagingTransport:HttpMessageHandler
+{
+    public int Calls;
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation)
+    {
+        Calls++;await Task.Delay(20,cancellation);var query=request.RequestUri!.Query.TrimStart('?').Split('&').Select(p=>p.Split('=')).ToDictionary(p=>p[0],p=>p[1]);
+        var offset=int.Parse(query["offset"]);var limit=int.Parse(query["limit"]);var rows=new JsonArray();for(var i=offset;i<Math.Min(offset+limit,1250);i++)rows.Add(new JsonObject{["id"]=$"row-{i}",["kind"]="party",["name"]=$"Synthetic {i}"});
+        return new(HttpStatusCode.OK){Content=new StringContent(rows.ToJsonString(),Encoding.UTF8,"application/json")};
+    }
+}
 
 sealed class DelayedTransport:HttpMessageHandler
 {
