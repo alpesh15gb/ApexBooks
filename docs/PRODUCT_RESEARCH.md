@@ -14,7 +14,7 @@ Research date: 2026-11-02. Scope: official public product documentation, help ar
 
 “Documented” below means an official page describes the behavior; it is not a logged-in product test. Tutorial transcripts were readable. Help pages reference screenshots and their captions; a myBillBook POS image URL resolved, but no pixel-level screenshot inspection or video playback was completed. Thus layout recommendations are derived from documented navigation/control names, not a claim to have independently tested today's logged-in UI. Some help articles date to 2023–2025; newer product updates can supersede them. Financial/tax behavior here is product research, not legal advice.
 
-Apex README was read from `/workspace/scratch/d0c6a3839dcf/ApexBooks/README.md`. `IMPLEMENTATION_PLAN.md` was referenced by README but was not present at that path when read. README reports existing regular/composition/unregistered setup, posting, allocations, advances, linked notes, moving-average stock, reconciliation, period locks, roles, exports, portable backup and native clients. These are **repo claims to verify**, not fresh acceptance evidence. It also says native final posting requires network and no durable offline posting queue exists.
+The repository `README.md` was reviewed. `IMPLEMENTATION_PLAN.md` was referenced by README but was not present at that path when read. README reports existing regular/composition/unregistered setup, posting, allocations, advances, linked notes, moving-average stock, reconciliation, period locks, roles, exports, portable backup and native clients. These are **repo claims to verify**, not fresh acceptance evidence. It also says native final posting requires network and no durable offline posting queue exists.
 
 ## Cross-product workflow comparison
 
@@ -76,7 +76,7 @@ Apex README was read from `/workspace/scratch/d0c6a3839dcf/ApexBooks/README.md`.
 - **Vyapar documented:** multi-device sharing assigns roles to limit sensitive information; backup restore selects a local .vyb and preserves the previously open company in the company list. [Sync](https://vyaparapp.in/guides/how-to-use-vyapar-app-on-multiple-devices), [restore transcript](https://vyaparapp.in/videos/how-to-restore-backup).
 - **Apex recommendation:** owner/editor/viewer restrictions belong in the API, including PDF/export/import/OCR/backup/restore, not only hidden buttons. Central server is authoritative; native apps should not have divergent tax/allocation algorithms. Expose server/API compatibility, connection state and last successful refresh. Do not claim offline posting until a durable outbox, per-command idempotency and conflict handling exist. Portable restore should produce a separate company, retain lineage, validate totals and never inherit source user credentials/team access. CSV/PDF exports are not restorable backups.
 
-## Prioritized acceptance checklist for the implementation agent
+## Prioritized acceptance checklist
 
 ### P0: release blockers (fresh evidence required)
 
@@ -120,7 +120,7 @@ These invariants should be tested at the API and then through real UI journeys. 
 
 ## Exact delivery scope: API, web, Windows and Android
 
-Parent clarified the four required targets are **API, web, Windows and Android**. iOS/macOS are not required delivery scope. The API is the authoritative contract; the three user interfaces each require independent journey evidence.
+The requested scope is **API, web, Windows and Android**. iOS/macOS are not required delivery scope. The API is the authoritative contract; the three user interfaces each require independent journey evidence.
 For the API, collect contract/invariant tests. For **each user interface**, collect a separate result (Pass / Fail / Not implemented / Not runnable in environment) and evidence for:
 
 1. Login, select existing company, visibly confirm company/server, refresh, logout/revocation.

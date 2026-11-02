@@ -7,7 +7,7 @@ def install(app,m):
         features=list(BASE_FEATURES)
         if hasattr(m.Company,'book_label'):features.append('company_book_labels')
         limits={}
-        if getattr(app.state,'document_attachments_ready',False):
+        if getattr(app.state,'document_attachments_ready',False) and getattr(app.state,'chunked_backups_ready',False):
             features.append('document_attachments')
             from attachment_limits import public_limits
             limits=public_limits()

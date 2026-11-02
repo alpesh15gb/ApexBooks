@@ -1,0 +1,6 @@
+.document-attachments .button,.attachment-upload input {min-height:44px}
+.attachment-list{list-style:none;padding:0;margin:14px 0;display:grid;gap:10px}
+.attachment-list li{display:flex;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--border,#dce2ec);border-radius:10px}
+.attachment-list strong{display:block;overflow-wrap:anywhere}.attachment-list small{display:block;margin-top:5px;color:#64748b}
+.attachment-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.attachment-upload{display:flex;align-items:end;flex-wrap:wrap;gap:12px;margin-top:16px}.attachment-upload label{display:grid;gap:6px;min-width:0;max-width:100%}.attachment-upload input{max-width:100%}.attachment-storage{font-size:13px;line-height:1.6}
+@media(max-width:600px){.attachment-list li{flex-direction:column}.attachment-actions .button{flex:1}.attachment-upload{display:grid}.attachment-upload input{width:100%}}

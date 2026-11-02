@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { capabilityFeatures, supportedMasterData, companyDisplayName, companyUpdatePayload } from '../src/capabilities.js';
 test('missing or malformed feature metadata defaults to unsupported',()=>{
+ for (const version of [2, '1']) assert.deepEqual(capabilityFeatures({capabilities_version:version,supported_features:['master_lifecycle']}),[]);
  assert.deepEqual(capabilityFeatures(null),[]);assert.deepEqual(capabilityFeatures({supported_features:['master_lifecycle']}),[]);
  assert.deepEqual(capabilityFeatures({capabilities_version:1,supported_features:['master_lifecycle',false]}),['master_lifecycle']);
 });

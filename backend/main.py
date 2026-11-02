@@ -2771,6 +2771,12 @@ def export(company_id: str, fmt: str, kind: str = '', user: User = Depends(curre
 
 @app.get('/api/companies/{company_id}/data-export.json')
 def company_data_export(company_id: str, user: User = Depends(current_user), session: Session = Depends(db)):
+    company_for(company_id,user,session)
+    if hasattr(sys.modules[__name__],'DocumentAttachment') and session.scalar(select(DocumentAttachment.id).where(DocumentAttachment.company_id==company_id).limit(1)):
+        raise HTTPException(409,'COMPLETE_BACKUP_REQUIRED: This company retains receipt files. Use /api/companies/'+company_id+'/backup-exports to create a complete portable backup.',headers={'X-Apex-Error':'COMPLETE_BACKUP_REQUIRED'})
+    return company_data_export_payload(company_id,user,session)
+
+def company_data_export_payload(company_id,user,session):
     company = company_for(company_id, user, session)
     if company.owner_id != user.id: raise HTTPException(403, 'Only the owner can export all company data')
     accounts = list(session.scalars(select(LedgerAccount).where(LedgerAccount.company_id == company_id)))
@@ -2845,3 +2851,9 @@ install_recurring_drafts(app, sys.modules[__name__])
 
 from api_capabilities import install as install_api_capabilities
 install_api_capabilities(app, sys.modules[__name__])
+
+from document_attachments import install as install_document_attachments
+install_document_attachments(app, sys.modules[__name__])
+
+from backup_transport import install as install_backup_transport
+install_backup_transport(app, sys.modules[__name__])

@@ -29,7 +29,7 @@ run_migrations()
 
 class ConcurrentPostingTest(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(app)
+        self.client = TestClient(app, client=('pg-account-' + uuid4().hex, 50000))
         self.addCleanup(self.client.close)
         credentials = {'email': uuid4().hex + '@concurrency.invalid', 'password': 'synthetic-password-only'}
         self.credentials = credentials
@@ -59,6 +59,122 @@ class ConcurrentPostingTest(unittest.TestCase):
         line = {'description': 'Concurrent service', 'quantity': 1, 'rate': 100, 'gst_rate': 0}
         if item: line.update(item_id=item['id'], description=item['name'])
         return {'kind': kind, 'name': 'Buyer', 'date': '2026-04-02', 'data': {'lines': [line]}}
+
+    def concurrent_http(self, method, path, **kwargs):
+        gate = Barrier(4)
+        def send(_):
+            with TestClient(app, client=('pg-transfer-' + uuid4().hex, 50000)) as client:
+                gate.wait(timeout=15)
+                return client.request(method, path, **kwargs)
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            return list(pool.map(send, range(4)))
+
+    def test_attachment_concurrent_dedupe_and_key_binding(self):
+        import hashlib
+        bill = self.create({'kind': 'expense', 'name': 'Concurrent receipt',
+                            'date': '2026-04-02', 'amount': 100, 'data': {}})
+        path = self.base + '/records/' + bill['id'] + '/attachments'
+        content = b'%PDF-1.4\n% Synthetic concurrent receipt\n%%EOF'
+        key = uuid4().hex
+        headers = {**self.headers, 'Idempotency-Key': key, 'Content-Type': 'application/pdf'}
+        before = self.client.get(self.base + '/journals', headers=self.headers).json()
+        results = self.concurrent_http('POST', path, headers=headers,
+                                       params={'filename': 'receipt.pdf'}, content=content)
+        self.assertEqual([r.status_code for r in results], [200]*4, [r.text for r in results])
+        ids = {r.json()['attachment']['id'] for r in results}
+        self.assertEqual(len(ids), 1)
+        # A different retry key binds to the same immutable content, not a new quota charge.
+        another = self.client.post(path, headers={**headers, 'Idempotency-Key': uuid4().hex},
+                                   params={'filename': 'receipt.pdf'}, content=content)
+        self.assertEqual(another.status_code, 200, another.text)
+        self.assertIn(another.json()['attachment']['id'], ids)
+        changed = self.client.post(path, headers=headers, params={'filename': 'receipt.pdf'},
+                                   content=b'%PDF-1.4\n% Changed synthetic receipt\n%%EOF')
+        self.assertEqual(changed.status_code, 409, changed.text)
+        listing = self.client.get(path, headers=self.headers).json()
+        self.assertEqual(len(listing['attachments']), 1)
+        self.assertEqual(listing['storage']['used_bytes'], len(content))
+        self.assertEqual(listing['storage']['file_count'], 1)
+        attachment = listing['attachments'][0]
+        self.assertEqual(attachment['sha256'], hashlib.sha256(content).hexdigest())
+        download = self.client.get(self.base + '/attachments/' + attachment['id'] + '/download', headers=self.headers)
+        self.assertEqual(download.status_code, 200)
+        self.assertEqual(download.content, content)
+        self.assertEqual(download.headers['x-content-type-options'], 'nosniff')
+        self.assertEqual(self.client.get(self.base + '/journals', headers=self.headers).json(), before)
+
+    def test_complete_zip_roundtrip_with_concurrent_upload_chunk_and_commit(self):
+        import hashlib, io, json, zipfile
+        bill = self.create({'kind': 'expense', 'name': 'Portable receipt',
+                            'date': '2026-04-02', 'amount': 125, 'data': {}})
+        content = b'%PDF-1.4\n' + b'% Synthetic retained evidence\n'*25000 + b'%%EOF'
+        receipt = self.client.post(self.base + '/records/' + bill['id'] + '/attachments',
+            headers={**self.headers, 'Idempotency-Key': uuid4().hex, 'Content-Type': 'application/pdf'},
+            params={'filename': 'receipt.pdf'}, content=content)
+        self.assertEqual(receipt.status_code, 200, receipt.text)
+        aid = receipt.json()['attachment']['id']
+        archived = self.client.put(self.base + '/attachments/' + aid,
+            headers={**self.headers, 'Idempotency-Key': uuid4().hex}, json={'version': 0, 'is_archived': True})
+        self.assertEqual(archived.status_code, 200, archived.text)
+        self.assertEqual(self.client.get(self.base + '/data-export.json', headers=self.headers).status_code, 409)
+        exported = self.client.post(self.base + '/backup-exports', headers={**self.headers, 'Idempotency-Key': uuid4().hex}, json={})
+        self.assertEqual(exported.status_code, 200, exported.text)
+        job = exported.json();export_path = self.base + '/backup-exports/' + job['export_id']
+        self.addCleanup(lambda: self.client.delete(export_path, headers=self.headers))
+        self.assertGreater(job['chunk_count'], 1)
+        parts = []
+        for index in range(job['chunk_count']):
+            response = self.client.get(export_path + '/chunks/' + str(index), headers=self.headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertLessEqual(len(response.content), 524288)
+            self.assertEqual(hashlib.sha256(response.content).hexdigest(), response.headers['x-chunk-sha256'])
+            parts.append(response.content)
+        raw = b''.join(parts);digest = hashlib.sha256(raw).hexdigest()
+        self.assertEqual(digest, job['sha256'])
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            payload = json.loads(archive.read('company.json'))
+            self.assertEqual(payload['schema_version'], 8)
+            self.assertEqual(len(payload['attachments']), 1)
+            self.assertTrue(payload['attachments'][0]['is_archived'])
+            self.assertEqual(archive.read(payload['attachments'][0]['entry']), content)
+            self.assertEqual(payload['stock_movements'], [])
+        later = self.create({'kind': 'party', 'name': 'After immutable snapshot', 'data': {}})
+        self.assertEqual(self.client.get(export_path + '/chunks/0', headers=self.headers).content, parts[0])
+        body = {'company_name': 'Postgres restored receipts', 'byte_count': len(raw), 'sha256': digest}
+        results = self.concurrent_http('POST', '/api/backups/uploads',
+            headers={**self.headers, 'Idempotency-Key': uuid4().hex}, json=body)
+        self.assertEqual([r.status_code for r in results], [200]*4, [r.text for r in results])
+        self.assertEqual(len({r.json()['upload_id'] for r in results}), 1)
+        upload = results[0].json();path = '/api/backups/uploads/' + upload['upload_id']
+        self.addCleanup(lambda: self.client.delete(path, headers=self.headers))
+        for index in range(upload['chunk_count']):
+            part = raw[index*upload['chunk_size']:(index+1)*upload['chunk_size']]
+            replies = self.concurrent_http('PUT', path + '/chunks/' + str(index), headers=self.headers, content=part)
+            self.assertEqual([r.status_code for r in replies], [200]*4, [r.text for r in replies])
+            self.assertEqual(sum(not r.json()['replayed'] for r in replies), 1)
+        status = self.client.get(path, headers=self.headers).json()
+        self.assertEqual(status['received_indices'], list(range(upload['chunk_count'])))
+        preview = self.client.post(path + '/preview', headers=self.headers)
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertEqual(preview.json()['attachment_count'], 1)
+        self.assertEqual(preview.json()['attachment_bytes'], len(content))
+        commits = self.concurrent_http('POST', path + '/commit', headers=self.headers, json={'digest': digest})
+        self.assertEqual([r.status_code for r in commits], [200]*4, [r.text for r in commits])
+        self.assertEqual(len({r.json()['company_id'] for r in commits}), 1)
+        restored_base = '/api/companies/' + commits[0].json()['company_id']
+        records = self.client.get(restored_base + '/records', headers=self.headers).json()
+        restored_bill = next(row for row in records if row['kind'] == 'expense')
+        self.assertNotEqual(restored_bill['id'], bill['id'])
+        self.assertFalse(any(row['name'] == later['name'] for row in records))
+        evidence = self.client.get(restored_base + '/records/' + restored_bill['id'] + '/attachments', headers=self.headers).json()
+        self.assertEqual(evidence['storage']['used_bytes'], len(content))
+        self.assertEqual(len(evidence['attachments']), 1)
+        restored_attachment = evidence['attachments'][0]
+        self.assertNotEqual(restored_attachment['id'], aid)
+        self.assertTrue(restored_attachment['is_archived'])
+        self.assertEqual(self.client.get(restored_base + '/attachments/' + restored_attachment['id'] + '/download', headers=self.headers).content, content)
+        journals = self.client.get(restored_base + '/journals', headers=self.headers).json()
+        self.assertEqual(len(journals), len(payload['journals']))
 
     def test_recurring_occurrence_is_unique_across_retry_keys(self):
         source=self.create(self.sale(kind='sales_order'))

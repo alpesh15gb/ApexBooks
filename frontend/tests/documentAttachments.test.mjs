@@ -1,0 +1,52 @@
+import test, {after} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {build} from 'esbuild';
+import {JSDOM} from 'jsdom';
+import React,{act} from 'react';
+import {createRoot} from 'react-dom/client';
+const temp=await mkdtemp(resolve('node_modules/.attachments-tests-'));
+await build({entryPoints:['src/DocumentAttachments.jsx'],outfile:resolve(temp,'component.mjs'),bundle:true,platform:'node',format:'esm',loader:{'.css':'empty'},external:['react','react-dom']});
+const Component=(await import(pathToFileURL(resolve(temp,'component.mjs')))).default;
+const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});
+Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});
+after(async()=>{dom.window.close();await rm(temp,{recursive:true,force:true});});
+const storage={used_bytes:10,quota_bytes:64*1024*1024,remaining_bytes:64*1024*1024-10,file_count:1,max_files_per_company:500,max_files_per_record:5};
+const row={id:'a1',filename:'Synthetic.pdf',media_type:'application/pdf',size_bytes:10,is_archived:false,version:0};
+const find=text=>[...document.querySelectorAll('button')].find(button=>button.textContent.includes(text));
+test('viewer has downloads and storage explanation but no evidence writes',async()=>{
+ const root=createRoot(document.getElementById('root'));const calls=[];
+ await act(async()=>root.render(React.createElement(Component,{companyId:'c1',recordId:'r1',role:'viewer',api:async path=>{calls.push(path);return{attachments:[row],storage};}})));
+ assert.ok(find('Download'));assert.equal(find('Archive'),undefined);assert.equal(document.querySelector('input[type=file]'),null);assert.match(document.body.textContent,/does not delete evidence or release storage/);assert.equal(calls.length,1);
+ await act(async()=>root.unmount());
+});
+test('unknown archive retries exact key and body; unrelated actions remain locked',async()=>{
+ const root=createRoot(document.getElementById('root'));const writes=[];
+ const api=async(path,options)=>{if(!options)return{attachments:[row],storage};writes.push({path,...options});if(writes.length===1)throw Error('Network response lost');return{attachment:{...row,is_archived:true},storage};};
+ await act(async()=>root.render(React.createElement(Component,{companyId:'c1',recordId:'r1',role:'owner',api})));
+ await act(async()=>find('Archive').click());assert.match(document.body.textContent,/not confirmed/);assert.equal(find('Download').disabled,true);assert.equal(find('Archive').disabled,true);
+ await act(async()=>find('Retry original').click());assert.equal(writes.length,2);assert.deepEqual(writes[0],writes[1]);assert.equal(JSON.parse(writes[0].body).is_archived,true);
+ await act(async()=>root.unmount());
+});
+test('late list response from another company is ignored',async()=>{
+ const root=createRoot(document.getElementById('root'));let resolveOld;
+ const api=path=>path.includes('/c1/')?new Promise(resolve=>{resolveOld=resolve;}):Promise.resolve({attachments:[],storage});
+ await act(async()=>root.render(React.createElement(Component,{companyId:'c1',recordId:'r1',role:'viewer',api})));
+ await act(async()=>root.render(React.createElement(Component,{companyId:'c2',recordId:'r2',role:'viewer',api})));
+ await act(async()=>resolveOld({attachments:[row],storage}));assert.doesNotMatch(document.body.textContent,/Synthetic.pdf/);
+ await act(async()=>root.unmount());
+});
+test('unknown upload preserves raw bytes, filename and key without rereading file',async()=>{
+ const root=createRoot(document.getElementById('root'));const writes=[];let reads=0;
+ const content=new TextEncoder().encode('%PDF-1.4\nSynthetic\n%%EOF');
+ const api=async(path,options)=>{if(!options)return{attachments:[],storage:{...storage,file_count:0}};writes.push({path,...options});if(writes.length===1)throw Error('Response lost');return{attachment:row,storage};};
+ await act(async()=>root.render(React.createElement(Component,{companyId:'c1',recordId:'r1',role:'owner',api})));
+ const file={name:'Test receipt.pdf',type:'application/pdf',size:content.length,arrayBuffer:async()=>{reads++;return content.buffer.slice(0);}};
+ const input=document.querySelector('input[type=file]');Object.defineProperty(input,'files',{value:[file],configurable:true});
+ await act(async()=>input.dispatchEvent(new window.Event('change',{bubbles:true})));
+ await act(async()=>find('Attach receipt').click());assert.equal(input.disabled,true);assert.equal(reads,1);
+ await act(async()=>find('Retry original').click());assert.equal(reads,1);assert.equal(writes.length,2);assert.deepEqual(writes[0],writes[1]);assert.match(writes[0].path,/filename=Test%20receipt.pdf/);assert.deepEqual(writes[0].body,content);
+ await act(async()=>root.unmount());
+});

@@ -9,6 +9,7 @@ from pydantic import BaseModel,Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
+from bounded_json import loads as bounded_json_loads
 
 class RestoreInput(BaseModel):
     backup_base64:str=Field(max_length=4_000_000)
@@ -21,9 +22,14 @@ def unpack(encoded):
     if raw.startswith(b'\x1f\x8b'):
         decoder=zlib.decompressobj(16+zlib.MAX_WBITS);raw=decoder.decompress(raw,50_000_001)
         if len(raw)>50_000_000 or not decoder.eof or decoder.unused_data:raise ValueError('Invalid or oversized compressed backup')
-    def constant(_):raise ValueError('Invalid JSON numeric value')
-    payload=json.loads(raw,parse_constant=constant)
+    payload=bounded_json_loads(raw)
     if not isinstance(payload,dict) or payload.get('scope')!='single_company_data_export' or payload.get('schema_version') not in (6,7):raise ValueError('Unsupported company backup version')
+    if payload.get('attachments'):raise ValueError('Attachments require a complete version 8 backup')
+    return hashlib.sha256(raw).hexdigest(),expand_assets(payload)
+
+def expand_assets(payload):
+    """Expand only hash-verified PNG/JPEG asset references in a parsed backup."""
+    if not isinstance(payload,dict):raise ValueError('Invalid company backup payload')
     assets=payload.get('assets',{})
     if not isinstance(assets,dict):raise ValueError('Invalid asset map')
     for digest,value in assets.items():
@@ -33,7 +39,7 @@ def unpack(encoded):
         if isinstance(value,list):return [expand(v) for v in value]
         if isinstance(value,dict):return {k:expand(v) for k,v in value.items()}
         return value
-    return hashlib.sha256(raw).hexdigest(),expand(payload)
+    return expand(payload)
 
 def validate(payload):
     groups={}
@@ -181,6 +187,105 @@ def pack(payload):
     payload=shrink(payload);payload['assets']=assets
     return payload
 
+def restore_payload(m,user,session,payload,digest,company_name,*,action='commit',confirmed_digest=None,commit=True,extra_mapping_ids=(),before_commit=None):
+    """Validate and restore into a new company inside one caller-owned transaction.
+
+    Binary evidence transports may supply extra IDs and a before_commit callback;
+    neither the callback nor commit=False may expose a partial restored company.
+    """
+    try:
+        if action not in ('preview','commit'):raise HTTPException(404,'Unknown restore action')
+        if not isinstance(payload,dict) or payload.get('scope')!='single_company_data_export' or payload.get('schema_version') not in (6,7,8):raise ValueError('Unsupported company backup version')
+        if not isinstance(payload.get('company'),dict):raise ValueError('Invalid company backup profile')
+        if not isinstance(company_name,str) or not 1<=len(company_name.strip())<=120:raise ValueError('Enter a company name of at most 120 characters')
+        if isinstance(extra_mapping_ids,(str,bytes)):raise ValueError('Invalid extra restore IDs')
+        extra_ids=tuple(extra_mapping_ids)
+        if len(extra_ids)>100000 or any(not isinstance(value,str) or not value or len(value)>100 for value in extra_ids) or len(set(extra_ids))!=len(extra_ids):raise ValueError('Invalid extra restore IDs')
+        if before_commit is not None and not callable(before_commit):raise ValueError('Invalid restore callback')
+        attachments=payload.get('attachments')
+        if attachments:
+            if payload['schema_version']!=8:raise ValueError('Attachments require a complete version 8 backup')
+            if not isinstance(attachments,list) or any(not isinstance(row,dict) for row in attachments):raise ValueError('Invalid attachment manifest')
+            attachment_ids=[row.get('id') for row in attachments]
+            if any(not isinstance(value,str) or not value or len(value)>100 for value in attachment_ids) or len(set(attachment_ids))!=len(attachment_ids):raise ValueError('Invalid or duplicate attachment IDs')
+            if not set(attachment_ids).issubset(extra_ids):raise ValueError('Attachment IDs must be included in restore mapping')
+            if action=='commit' and before_commit is None:raise ValueError('Complete attachment restore callback is required')
+        groups,indexes=validate(payload)
+        source=payload['company'];mode=source.get('tax_mode','regular');gstin=str(source.get('gstin',''));state=str(source.get('state_code',''))
+        if mode not in ('regular','composition','unregistered') or gstin and not re.fullmatch(r'\d{2}[A-Z0-9]{13}',gstin) or state and not re.fullmatch(r'\d{2}',state):raise ValueError('Invalid company tax profile')
+        report={'digest':digest,'company_name':source.get('name',''),'target_name':company_name.strip(),'counts':{k:len(v) for k,v in groups.items()},'warnings':['Team members and account credentials are not restored. The restored company belongs only to you.'],'ready':True}
+        commerce_sources=sorted({str(r['data']['commerce_connection_id']) for r in groups['records'] if r['data'].get('commerce_connection_id')})
+        if commerce_sources:report['warnings'].append('Commerce audit references are retained. Store credentials, connections and delivery queues are not copied into a new company; reconcile source identities before activating a live store.')
+        known_ids={source['id']}
+        for rows in indexes.values():known_ids.update(rows)
+        if any(old_id in known_ids for old_id in extra_ids):raise ValueError('Extra restore IDs overlap accounting IDs')
+        if action=='preview':return report
+        if confirmed_digest!=digest:raise HTTPException(409,'Preview this exact backup before restoring')
+        # Serialize restores per user. A digest marker makes retries safe even after
+        # the HTTP response is lost; a new target name intentionally makes a copy.
+        session.execute(select(m.User.id).where(m.User.id==user.id).with_for_update()).scalar_one()
+        for company in session.scalars(select(m.Company).where(m.Company.owner_id==user.id,m.Company.name==company_name.strip())):
+            marker=session.scalar(select(m.Record).where(m.Record.company_id==company.id,m.Record.kind=='restore_marker'))
+            if marker and marker.data.get('digest')==digest:return {**report,'restored':True,'already_restored':True,'company_id':company.id}
+        company=m.Company(owner_id=user.id,name=company_name.strip(),book_label=source.get('book_label','').strip(),gstin=gstin,state_code=state,address=str(source.get('address',''))[:1000]);session.add(company);session.flush();cid=company.id
+        session.add(m.CompanyTaxProfile(company_id=cid,mode=mode))
+        mapping={source['id']:cid}
+        for rows in indexes.values():
+            for old_id in rows:mapping.setdefault(old_id,str(uuid4()))
+        for old_id in extra_ids:mapping[old_id]=str(uuid4())
+        def remap(value):
+            if isinstance(value,str):return mapping.get(value,value)
+            if isinstance(value,list):return [remap(v) for v in value]
+            if isinstance(value,dict):return {k:remap(v) for k,v in value.items()}
+            return value
+        for row in groups['accounts']:session.add(m.LedgerAccount(id=mapping[row['id']],company_id=cid,code=row['code'],name=row['name'],category=row['category']))
+        for row in groups['records']:session.add(m.Record(id=mapping[row['id']],company_id=cid,kind=row['kind'],name=row['name'],number=row['number'],date=date.fromisoformat(row['date']),amount=Decimal(row['amount']),data=remap(row['data'])))
+        session.flush()
+        automatic={r['journal_id']:r['record_id'] for r in groups['record_postings']}
+        for row in groups['journals']:
+            reference='AUTO:'+mapping[automatic[row['id']]] if row['id'] in automatic else row['reference']
+            session.add(m.Journal(id=mapping[row['id']],company_id=cid,date=date.fromisoformat(row['date']),reference=reference,memo=row.get('memo',''),created_by=user.id))
+        for row in groups['bank_accounts']:session.add(m.BankAccount(id=mapping[row['id']],company_id=cid,ledger_account_id=mapping[row['ledger_account_id']],name=row['name'],account_hint=row.get('account_hint','')))
+        session.flush()
+        for row in groups['journal_lines']:session.add(m.JournalLine(company_id=cid,journal_id=mapping[row['journal_id']],account_id=mapping[row['account_id']],debit=Decimal(row['debit']),credit=Decimal(row['credit'])))
+        for row in groups['record_postings']:session.add(m.RecordPosting(company_id=cid,record_id=mapping[row['record_id']],journal_id=mapping[row['journal_id']]))
+        for row in groups['journal_reversals']:session.add(m.JournalReversal(company_id=cid,original_id=mapping[row['original_id']],reversal_id=mapping[row['reversal_id']]))
+        for row in groups['document_conversions']:session.add(m.DocumentConversion(company_id=cid,source_record_id=mapping[row['source_record_id']],target_record_id=mapping[row['target_record_id']]))
+        for row in groups['payment_allocations']:session.add(m.PaymentSplitAllocation(company_id=cid,payment_id=mapping[row['payment_id']],document_id=mapping[row['document_id']],amount=Decimal(row['amount'])))
+        for row in groups['stock_movements']:session.add(m.StockMovement(company_id=cid,id=mapping[row['id']],item_id=mapping[row['item_id']],source_record_id=mapping[row['source_record_id']],line_index=row['line_index'],date=date.fromisoformat(row['date']),quantity=Decimal(row['quantity']),cost_value=Decimal(row['cost_value']) if row.get('cost_value') is not None else None))
+        occurrences={}
+        for row in groups['bank_statement_lines']:
+            bank_id=mapping.get(row.get('bank_account_id'));key=(row['date'],row['description'].strip(),row.get('reference','').strip(),str(Decimal(row['amount'])))
+            scope=(bank_id,*key);occurrences[scope]=occurrences.get(scope,0)+1
+            fingerprint_key=(*key,occurrences[scope]) if bank_id is None else (bank_id,*key,occurrences[scope])
+            fingerprint=hashlib.sha256(repr(fingerprint_key).encode()).hexdigest()
+            session.add(m.BankStatementLine(id=mapping[row['id']],company_id=cid,bank_account_id=bank_id,date=date.fromisoformat(row['date']),description=row['description'],reference=row.get('reference',''),amount=Decimal(row['amount']),fingerprint=fingerprint,matched_record_id=mapping.get(row.get('matched_record_id'))))
+        session.flush()
+        for row in groups['bank_match_allocations']:session.add(m.BankMatchAllocation(company_id=cid,statement_line_id=mapping[row['statement_line_id']],record_id=mapping[row['record_id']],amount=Decimal(row['amount'])))
+        for row in groups['bank_reconciliation_reviews']:session.add(m.BankReconciliationReview(company_id=cid,bank_account_key=mapping.get(row.get('bank_account_id'),row.get('bank_account_id','default')),as_of=date.fromisoformat(row['as_of']),opening_balance=Decimal(row['opening_balance']),statement_closing_balance=Decimal(row['statement_closing_balance']),ledger_closing_balance=Decimal(row['ledger_closing_balance']),difference=Decimal(row['difference']),matched=row['matched'],unmatched=row['unmatched'],note=row.get('note',''),created_by=user.id))
+        for row in groups['number_series']:
+            checked=m.SeriesInput.model_validate(row)
+            session.add(m.NumberSeries(company_id=cid,kind=checked.kind,financial_year=checked.financial_year,prefix=checked.prefix,next_number=int(row['next_number'])))
+        for row in groups['audit_events']:session.add(m.AuditEvent(id=mapping[row['id']],company_id=cid,actor_id=user.id,occurred_at=datetime.fromisoformat(row['occurred_at']),action='backup.source_event',entity_type=str(row.get('entity_type','record'))[:30],entity_id=remap(row.get('entity_id','')),details={'source_actor':row.get('actor',''),'source_action':row.get('action',''),'source_details':remap(row.get('details',{}))}))
+        template=payload.get('preferences',{}).get('document_template','classic')
+        if template not in {'classic','modern','compact','bold','minimal','vintage','mrp_discount','elegant','evergreen'}:raise ValueError('Unknown document template')
+        session.add(m.CompanyPreference(company_id=cid,document_template=template))
+        if payload.get('locked_through'):session.add(m.PeriodLock(company_id=cid,locked_through=date.fromisoformat(payload['locked_through'])))
+        marker=m.Record(company_id=cid,kind='restore_marker',name='Restored company backup',date=date.today(),amount=0,data={'digest':digest,'source_company_id':source['id']});session.add(marker)
+        m.audit(session,cid,user,'backup.restored','company',cid,{'digest':digest,'counts':report['counts']})
+        if before_commit is not None:before_commit(cid,mapping,session)
+        if commit:session.commit()
+        else:session.flush()
+        return {**report,'restored':True,'company_id':cid}
+    except HTTPException:
+        session.rollback();raise
+    except (ValueError,TypeError,KeyError,InvalidOperation,zlib.error,OverflowError,SQLAlchemyError) as exc:
+        session.rollback()
+        raise HTTPException(422,'Backup validation failed; no data was restored'+('' if isinstance(exc,SQLAlchemyError) else ': '+str(exc)[:180])) from None
+    except Exception:
+        session.rollback()
+        raise HTTPException(500,'Backup restore failed; no data was restored') from None
+
 def install(app,m):
     @app.get('/api/companies/{company_id}/backup')
     def backup(company_id:str,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
@@ -192,67 +297,7 @@ def install(app,m):
     @app.post('/api/backups/restore/{action}')
     def restore(action:str,body:RestoreInput,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
         if action not in ('preview','commit'):raise HTTPException(404,'Unknown restore action')
-        try:
-            digest,payload=unpack(body.backup_base64);groups,indexes=validate(payload)
-            source=payload['company'];mode=source.get('tax_mode','regular');gstin=str(source.get('gstin',''));state=str(source.get('state_code',''))
-            if mode not in ('regular','composition','unregistered') or gstin and not re.fullmatch(r'\d{2}[A-Z0-9]{13}',gstin) or state and not re.fullmatch(r'\d{2}',state):raise ValueError('Invalid company tax profile')
-            report={'digest':digest,'company_name':source.get('name',''),'target_name':body.company_name.strip(),'counts':{k:len(v) for k,v in groups.items()},'warnings':['Team members and account credentials are not restored. The restored company belongs only to you.'],'ready':True}
-            commerce_sources=sorted({str(r['data']['commerce_connection_id']) for r in groups['records'] if r['data'].get('commerce_connection_id')})
-            if commerce_sources:report['warnings'].append('Commerce audit references are retained. Store credentials, connections and delivery queues are not copied into a new company; reconcile source identities before activating a live store.')
-            if action=='preview':return report
-            if body.digest!=digest:raise HTTPException(409,'Preview this exact backup before restoring')
-            # Serialize restores per user. A digest marker makes retries safe even after
-            # the HTTP response is lost; a new target name intentionally makes a copy.
-            session.execute(select(m.User.id).where(m.User.id==user.id).with_for_update()).scalar_one()
-            for company in session.scalars(select(m.Company).where(m.Company.owner_id==user.id,m.Company.name==body.company_name.strip())):
-                marker=session.scalar(select(m.Record).where(m.Record.company_id==company.id,m.Record.kind=='restore_marker'))
-                if marker and marker.data.get('digest')==digest:return {**report,'restored':True,'already_restored':True,'company_id':company.id}
-            company=m.Company(owner_id=user.id,name=body.company_name.strip(),book_label=source.get('book_label','').strip(),gstin=gstin,state_code=state,address=str(source.get('address',''))[:1000]);session.add(company);session.flush();cid=company.id
-            session.add(m.CompanyTaxProfile(company_id=cid,mode=mode))
-            mapping={source['id']:cid}
-            for rows in indexes.values():
-                for old_id in rows:mapping.setdefault(old_id,str(uuid4()))
-            def remap(value):
-                if isinstance(value,str):return mapping.get(value,value)
-                if isinstance(value,list):return [remap(v) for v in value]
-                if isinstance(value,dict):return {k:remap(v) for k,v in value.items()}
-                return value
-            for row in groups['accounts']:session.add(m.LedgerAccount(id=mapping[row['id']],company_id=cid,code=row['code'],name=row['name'],category=row['category']))
-            for row in groups['records']:session.add(m.Record(id=mapping[row['id']],company_id=cid,kind=row['kind'],name=row['name'],number=row['number'],date=date.fromisoformat(row['date']),amount=Decimal(row['amount']),data=remap(row['data'])))
-            session.flush()
-            automatic={r['journal_id']:r['record_id'] for r in groups['record_postings']}
-            for row in groups['journals']:
-                reference='AUTO:'+mapping[automatic[row['id']]] if row['id'] in automatic else row['reference']
-                session.add(m.Journal(id=mapping[row['id']],company_id=cid,date=date.fromisoformat(row['date']),reference=reference,memo=row.get('memo',''),created_by=user.id))
-            for row in groups['bank_accounts']:session.add(m.BankAccount(id=mapping[row['id']],company_id=cid,ledger_account_id=mapping[row['ledger_account_id']],name=row['name'],account_hint=row.get('account_hint','')))
-            session.flush()
-            for row in groups['journal_lines']:session.add(m.JournalLine(company_id=cid,journal_id=mapping[row['journal_id']],account_id=mapping[row['account_id']],debit=Decimal(row['debit']),credit=Decimal(row['credit'])))
-            for row in groups['record_postings']:session.add(m.RecordPosting(company_id=cid,record_id=mapping[row['record_id']],journal_id=mapping[row['journal_id']]))
-            for row in groups['journal_reversals']:session.add(m.JournalReversal(company_id=cid,original_id=mapping[row['original_id']],reversal_id=mapping[row['reversal_id']]))
-            for row in groups['document_conversions']:session.add(m.DocumentConversion(company_id=cid,source_record_id=mapping[row['source_record_id']],target_record_id=mapping[row['target_record_id']]))
-            for row in groups['payment_allocations']:session.add(m.PaymentSplitAllocation(company_id=cid,payment_id=mapping[row['payment_id']],document_id=mapping[row['document_id']],amount=Decimal(row['amount'])))
-            for row in groups['stock_movements']:session.add(m.StockMovement(company_id=cid,id=mapping[row['id']],item_id=mapping[row['item_id']],source_record_id=mapping[row['source_record_id']],line_index=row['line_index'],date=date.fromisoformat(row['date']),quantity=Decimal(row['quantity']),cost_value=Decimal(row['cost_value']) if row.get('cost_value') is not None else None))
-            occurrences={}
-            for row in groups['bank_statement_lines']:
-                bank_id=mapping.get(row.get('bank_account_id'));key=(row['date'],row['description'].strip(),row.get('reference','').strip(),str(Decimal(row['amount'])))
-                scope=(bank_id,*key);occurrences[scope]=occurrences.get(scope,0)+1
-                fingerprint_key=(*key,occurrences[scope]) if bank_id is None else (bank_id,*key,occurrences[scope])
-                fingerprint=hashlib.sha256(repr(fingerprint_key).encode()).hexdigest()
-                session.add(m.BankStatementLine(id=mapping[row['id']],company_id=cid,bank_account_id=bank_id,date=date.fromisoformat(row['date']),description=row['description'],reference=row.get('reference',''),amount=Decimal(row['amount']),fingerprint=fingerprint,matched_record_id=mapping.get(row.get('matched_record_id'))))
-            session.flush()
-            for row in groups['bank_match_allocations']:session.add(m.BankMatchAllocation(company_id=cid,statement_line_id=mapping[row['statement_line_id']],record_id=mapping[row['record_id']],amount=Decimal(row['amount'])))
-            for row in groups['bank_reconciliation_reviews']:session.add(m.BankReconciliationReview(company_id=cid,bank_account_key=mapping.get(row.get('bank_account_id'),row.get('bank_account_id','default')),as_of=date.fromisoformat(row['as_of']),opening_balance=Decimal(row['opening_balance']),statement_closing_balance=Decimal(row['statement_closing_balance']),ledger_closing_balance=Decimal(row['ledger_closing_balance']),difference=Decimal(row['difference']),matched=row['matched'],unmatched=row['unmatched'],note=row.get('note',''),created_by=user.id))
-            for row in groups['number_series']:
-                checked=m.SeriesInput.model_validate(row)
-                session.add(m.NumberSeries(company_id=cid,kind=checked.kind,financial_year=checked.financial_year,prefix=checked.prefix,next_number=int(row['next_number'])))
-            for row in groups['audit_events']:session.add(m.AuditEvent(id=mapping[row['id']],company_id=cid,actor_id=user.id,occurred_at=datetime.fromisoformat(row['occurred_at']),action='backup.source_event',entity_type=str(row.get('entity_type','record'))[:30],entity_id=remap(row.get('entity_id','')),details={'source_actor':row.get('actor',''),'source_action':row.get('action',''),'source_details':remap(row.get('details',{}))}))
-            template=payload.get('preferences',{}).get('document_template','classic')
-            if template not in {'classic','modern','compact','bold','minimal','vintage','mrp_discount','elegant','evergreen'}:raise ValueError('Unknown document template')
-            session.add(m.CompanyPreference(company_id=cid,document_template=template))
-            if payload.get('locked_through'):session.add(m.PeriodLock(company_id=cid,locked_through=date.fromisoformat(payload['locked_through'])))
-            marker=m.Record(company_id=cid,kind='restore_marker',name='Restored company backup',date=date.today(),amount=0,data={'digest':digest,'source_company_id':source['id']});session.add(marker)
-            m.audit(session,cid,user,'backup.restored','company',cid,{'digest':digest,'counts':report['counts']});session.commit()
-            return {**report,'restored':True,'company_id':cid}
-        except HTTPException:raise
-        except (ValueError,TypeError,KeyError,InvalidOperation,zlib.error,OverflowError,SQLAlchemyError) as exc:
-            session.rollback();raise HTTPException(422,'Backup validation failed; no data was restored'+('' if isinstance(exc,SQLAlchemyError) else ': '+str(exc)[:180])) from exc
+        try:digest,payload=unpack(body.backup_base64)
+        except (ValueError,TypeError,KeyError,InvalidOperation,zlib.error,OverflowError) as exc:
+            session.rollback();raise HTTPException(422,'Backup validation failed; no data was restored: '+str(exc)[:180]) from None
+        return restore_payload(m,user,session,payload,digest,body.company_name,action=action,confirmed_digest=body.digest)

@@ -2,7 +2,7 @@ export const CORE_ENHANCEMENTS = ['low_stock_reorder','party_price_history','par
 export const supportsFeature = (features, name) => Array.isArray(features) && features.includes(name);
 export const routeFeature = { reorder: 'low_stock_reorder', recurring: 'recurring_drafts' };
 export function capabilityFeatures(response) {
-  return response?.capabilities_version >= 1 && Array.isArray(response.supported_features)
+  return response?.capabilities_version === 1 && Array.isArray(response.supported_features)
     ? response.supported_features.filter(value => typeof value === 'string') : [];
 }
 export function supportedMasterData(data, features) {

@@ -9,7 +9,7 @@ export default function CompanyDataExport({companyId, role}) {
     setBusy(true); setError('');
     try {
       const response = await fetch(`/api/companies/${companyId}/data-export.json`, {headers: {Authorization: `Bearer ${localStorage.token}`}});
-      if (!response.ok) throw Error('Company data export failed');
+      if (!response.ok) { const payload = await response.json().catch(() => ({})); const detail = payload.detail; throw Error(typeof detail === 'string' && detail.includes('COMPLETE_BACKUP_REQUIRED') ? 'This company contains retained receipts. Use Complete backup and restore below so no evidence is omitted.' : typeof detail === 'string' ? detail : detail?.message || 'Company data export failed. Use Complete backup and restore when this company contains retained receipts.'); }
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement('a');
       link.href = url; link.download = `apex-company-${companyId.slice(0, 8)}.json`; link.click();

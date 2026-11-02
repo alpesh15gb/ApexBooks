@@ -24,7 +24,9 @@ import RecurringWorkspace from "./RecurringWorkspace.jsx";
 import ReorderWorkspace from "./ReorderWorkspace.jsx";
 import RecordEditor from "./RecordEditor.jsx";
 import BackupRestore from "./BackupRestore.jsx";
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
+const CompleteBackup = React.lazy(() => import("./CompleteBackup.jsx"));
 import { createRoot } from "react-dom/client";
 import {
   CalendarDays,
@@ -136,10 +138,11 @@ const money = (value) =>
   }).format(Number(value || 0));
 const today = () => businessDate();
 const api = async (path, options = {}) => {
+  const { rawResponse = false, ...fetchOptions } = options;
   const mutation = options.method && !["GET", "HEAD"].includes(options.method);
   let response;
   try { response = await fetch("/api" + path, {
-    ...options,
+    ...fetchOptions,
     headers: {
       "Content-Type": "application/json",
       ...(localStorage.token
@@ -159,7 +162,7 @@ const api = async (path, options = {}) => {
     error.status = response.status;
     throw error;
   }
-  return response.json();
+  return rawResponse ? response : response.json();
 };
 
 function Auth({ onLogin }) {
@@ -746,6 +749,7 @@ function App() {
     setPage("purchase_order"); setEditorCycle(n => n + 1); setModal("record");
   }
   async function beginDetail(record) {
+    if (postingNavigationBlocked()) return;
     const isCurrent = editorRequests.current.latest();
     setDetail(record);
     setDetailLoading(true);
@@ -759,7 +763,7 @@ function App() {
       if (isCurrent()) setDetailLoading(false);
     }
   }
-  function closeDetail() { editorRequests.current.latest(); setDetail(null); }
+  function closeDetail() { if (postingNavigationBlocked()) return; editorRequests.current.latest(); setDetail(null); }
   async function beginEdit(record) {
     if (postingNavigationBlocked()) return;
     if (!["owner", "editor"].includes(company?.role)) return;
@@ -1302,14 +1306,14 @@ function App() {
                       />
                     </div>
                     <div className="settings-block" id="setting-backup">
-                      <BackupRestore
+                      {supportsFeature(features, 'chunked_backups') && company?.role === 'owner' ? <React.Suspense fallback={<p role="status">Loading complete backup tools…</p>}><CompleteBackup key={companyId} companyId={companyId} api={api} onRestored={async id => { await loadCompanies(); setCompanyId(id); }} /></React.Suspense> : <BackupRestore
                         companyId={companyId}
                         role={company?.role}
                         onRestored={async (id) => {
                           await loadCompanies();
                           setCompanyId(id);
                         }}
-                      />
+                      />}
                     </div>
                   </>
                 ),
@@ -1651,7 +1655,7 @@ function App() {
           )}
         </div>
       </main>
-      {detail && <TransactionDetail record={detail} records={records} company={company} labels={labels}
+      {detail && <TransactionDetail api={api} features={features} record={detail} records={records} company={company} labels={labels}
         loading={detailLoading} error={detailError} onClose={closeDetail} onRetry={() => beginDetail(detail)}
         onEdit={beginEdit} onRelated={beginRelated} onConvert={beginConversion} onPdf={downloadDocument} onOpen={beginDetail} />}
       {activeParty && (
