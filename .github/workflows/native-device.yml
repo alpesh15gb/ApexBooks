@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           # One explicitly approved run tests this immutable published candidate.
-          ref: ${{ github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.number == 1 && github.head_ref == 'codex/end-to-end-hardening' && github.event.pull_request.head.repo.full_name == github.repository && github.run_number == '12' && github.run_attempt == '1' && '87ee6f3a9276f6992fc18425323b21cb52592d79' || github.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.number == 1 && github.head_ref == 'codex/end-to-end-hardening' && github.event.pull_request.head.repo.full_name == github.repository && github.run_number == '13' && github.run_attempt == '1' && '87ee6f3a9276f6992fc18425323b21cb52592d79' || github.sha }}
       - name: Record checked-out build revision
         shell: bash
         run: |
@@ -62,9 +62,17 @@ jobs:
           done
           cat "$RUNNER_TEMP/native-device-api.log"
           exit 1
+      - name: Install and verify device-test prerequisites before privileged access
+        run: |
+          sdkmanager 'emulator' 'platform-tools' 'system-images;android-29;google_apis;x86_64' < /dev/null
+          test -x "$ANDROID_HOME/emulator/emulator"
+          command -v adb
+          command -v avdmanager
+          test -f "$ANDROID_HOME/system-images/android-29/google_apis/x86_64/package.xml"
+          printf 'no\n' | avdmanager create avd --force --name ApexLocal --package 'system-images;android-29;google_apis;x86_64' --device pixel_2
       - name: Grant approved one-run runner access to KVM
         id: kvm_access
-        if: ${{ github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.number == 1 && github.head_ref == 'codex/end-to-end-hardening' && github.event.pull_request.head.repo.full_name == github.repository && github.run_number == '12' && github.run_attempt == '1' }}
+        if: ${{ github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.number == 1 && github.head_ref == 'codex/end-to-end-hardening' && github.event.pull_request.head.repo.full_name == github.repository && github.run_number == '13' && github.run_attempt == '1' }}
         run: |
           test "$(git rev-parse HEAD)" = "87ee6f3a9276f6992fc18425323b21cb52592d79"
           test -c /dev/kvm
@@ -83,14 +91,12 @@ jobs:
             echo 'Hosted runner lacks preconfigured KVM read/write access; device checks require an approved accelerated runner.' >&2
             exit 1
           fi
-          emulator -accel-check
+          "$ANDROID_HOME/emulator/emulator" -accel-check
       # Do not use emulator-runner: it unconditionally accepts all SDK licenses.
       - name: Run hardware-accelerated local device checks
         timeout-minutes: 25
         run: |
-          sdkmanager 'emulator' 'platform-tools' 'system-images;android-29;google_apis;x86_64' < /dev/null
-          printf 'no\n' | avdmanager create avd --force --name ApexLocal --package 'system-images;android-29;google_apis;x86_64' --device pixel_2
-          emulator -avd ApexLocal -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel on > "$RUNNER_TEMP/native-emulator.log" 2>&1 &
+          "$ANDROID_HOME/emulator/emulator" -avd ApexLocal -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel on > "$RUNNER_TEMP/native-emulator.log" 2>&1 &
           emulator_pid=$!
           trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
           adb start-server
