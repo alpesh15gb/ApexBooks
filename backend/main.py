@@ -1,4 +1,5 @@
 from business_calendar import business_today, financial_year_start
+from build_info import BUILD_REVISION
 from auth_config import require_jwt_secret
 from ocr_transport import validate_ocr_base_url
 from advance_tax import prepare as prepare_advance_tax, release as release_advance_tax
@@ -286,7 +287,7 @@ class NumberSeries(Base):
     prefix: Mapped[str] = mapped_column(String(6), nullable=False)
     next_number: Mapped[int] = mapped_column(nullable=False, default=1)
 
-app = FastAPI(title='Apex Books API', version='1.3.0', docs_url='/api/docs', redoc_url='/api/redoc', openapi_url='/api/openapi.json')
+app = FastAPI(title='Apex Books API', version='1.5.0', docs_url='/api/docs', redoc_url='/api/redoc', openapi_url='/api/openapi.json')
 app.add_middleware(CORSMiddleware, allow_origins=os.getenv('CORS_ORIGINS', 'http://localhost:5173').split(','), allow_methods=['*'], allow_headers=['*'])
 def db():
     from schema_readiness import schema_ready
@@ -795,11 +796,11 @@ def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session)
 @app.get('/api/health')
 def health(session: Session = Depends(db)):
     session.execute(select(1)).scalar_one()
-    return {'status': 'ok', 'version': app.version}
+    return {'status': 'ok', 'version': app.version, 'build_revision': BUILD_REVISION}
 
 @app.get('/api/ready')
 def ready(session: Session = Depends(db)):
-    return {'status': 'ready', 'version': app.version}
+    return {'status': 'ready', 'version': app.version, 'build_revision': BUILD_REVISION}
 
 def ocr_configuration():
     try: base_url = validate_ocr_base_url(os.getenv('OCR_BASE_URL', 'https://api.openai.com/v1'))
@@ -1355,6 +1356,10 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
         Record.id == master_id, Record.kind.in_(['party', 'item'])))
     if not master: raise HTTPException(404, 'Party or item not found')
     validate_master_defaults(body, master.kind)
+    # New metadata omitted by an older client is retained, not implicitly cleared.
+    # Validate that retained threshold against the proposed classification too.
+    if master.kind == 'item' and 'low_stock_threshold' not in body.model_fields_set and (master.data or {}).get('low_stock_threshold') is not None and (not body.track_stock or body.item_type != 'goods'):
+        raise HTTPException(422, 'Clear the low-stock threshold explicitly before changing this item classification')
     if body.name.strip() != master.name: raise HTTPException(422, 'Names cannot be changed after creation')
     if master.kind == 'party':
         if body.party_type not in {'customer', 'supplier', 'both'}: raise HTTPException(422, 'Choose a valid party type')
@@ -1367,6 +1372,8 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
     else:
         if body.track_stock != bool(master.data.get('track_stock', False)):
             raise HTTPException(422, 'Stock tracking cannot be changed after item creation')
+        if body.item_type != master.data.get('item_type', 'goods') and body.track_stock and session.scalar(select(StockMovement.id).where(StockMovement.company_id == company_id, StockMovement.item_id == master.id).limit(1)):
+            raise HTTPException(422, 'Item classification cannot change after stock history; create a separate item instead')
         values = body.model_dump(mode='json')
         master.data = {**(master.data or {}), **{key: values[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold') if key not in {'image_data_url','image_thumbnail','low_stock_threshold'} or key in body.model_fields_set}}
     for field in ('is_active','shipping_address'):
@@ -2663,7 +2670,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     if not template:
         preference = session.get(CompanyPreference, company_id)
         template = preference.document_template if preference else 'classic'
-    from document_layouts import LAYOUTS, render_document
+    from document_layouts import LAYOUTS, render_document, line_discount_label
     if template in LAYOUTS:
         data = record.data or {}
         supplier = data.get('company_snapshot') or company_obj(session.get(Company, company_id), session)
@@ -2723,7 +2730,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
         if tax_mode == 'regular' and record.kind in {'purchase_bill', 'purchase_order', 'debit_note'} and Decimal(str(line.get('tax', 0))) > 0:
             treatment = 'GST included in cost' if line.get('itc_treatment') == 'ineligible' else 'Input credit pending review'
             description += '<br/><font size="7" color="#52605b">' + treatment + '</font>'
-        base = [Paragraph(description, styles['ApexBody']), safe(line.get('hsn')), safe(line.get('quantity')), safe(line.get('rate')), safe(line.get('discount_percent', '0')) + '%']
+        base = [Paragraph(description, styles['ApexBody']), safe(line.get('hsn')), safe(line.get('quantity')), safe(line.get('rate')), Paragraph(safe(line_discount_label(line)), styles['ApexBody'])]
         if has_gst: base.append(safe(line.get('gst_rate')) + '%')
         base.append(safe(Decimal(str(line.get('taxable', 0))) + Decimal(str(line.get('tax', 0)))))
         rows.append(base)

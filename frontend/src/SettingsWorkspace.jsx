@@ -1,3 +1,4 @@
+import { WEB_VERSION, WEB_BUILD_REVISION, normalizedBuildRevision } from "./buildInfo.js";
 import React, { useRef, useState } from "react";
 import {
   Building2,
@@ -44,7 +45,7 @@ const tabs = [
     "Protect your account and review changes",
   ],
 ];
-export default function SettingsWorkspace({ company, sections, onAddCompany }) {
+export default function SettingsWorkspace({ company, sections, onAddCompany, apiBuild }) {
   const [active, setActive] = useState("company"),
     [visited, setVisited] = useState(() => new Set(["company"]));
   const [search, setSearch] = useState("");
@@ -87,6 +88,7 @@ export default function SettingsWorkspace({ company, sections, onAddCompany }) {
           Add company
         </button>
       </div>
+      <details className="info-box"><summary>Build information</summary><p>Web {WEB_VERSION} · Source <code style={{ overflowWrap: 'anywhere' }}>{WEB_BUILD_REVISION}</code></p><p>API {apiBuild?.version || 'unknown'} · Source <code style={{ overflowWrap: 'anywhere' }}>{normalizedBuildRevision(apiBuild?.revision)}</code></p><small>Unknown means no verified source revision was supplied by the build or deployment. Version labels alone do not identify a tested revision.</small></details>
       <div className="settings-layout">
         <aside className="settings-rail">
           <div className="settings-company">

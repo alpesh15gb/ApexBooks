@@ -85,11 +85,11 @@ public static class NativeUi
     public sealed class DateInput
     {
         public StackPanel View { get; } = Stack(6);
-        public CalendarDatePicker Picker { get; } = new() { HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = 38, PlaceholderText = "Choose date" };
+        public CalendarDatePicker Picker { get; } = new() { HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = 38, PlaceholderText = "YYYY-MM-DD · choose date", DateFormat="{year.full}-{month.integer(2)}-{day.integer(2)}", CalendarIdentifier=Windows.Globalization.CalendarIdentifiers.Gregorian };
         public string Value => Picker.Date?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "";
         public DateInput(string label, string value = "")
         {
-            View.Children.Add(Text(label, 13)); View.Children.Add(Picker);
+            View.Children.Add(Text(label+" · YYYY-MM-DD", 13)); View.Children.Add(Picker);ToolTipService.SetToolTip(Picker,"Gregorian business date · year-month-day (YYYY-MM-DD). Choose from the calendar; dates are not interpreted as month/day text.");Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(Picker,label+" · YYYY-MM-DD");
             if (DateTime.TryParseExact(value, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date)) Picker.Date = new DateTimeOffset(date);
         }
     }

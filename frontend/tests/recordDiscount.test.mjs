@@ -1,0 +1,39 @@
+import test,{after} from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm} from 'node:fs/promises';import {resolve} from 'node:path';import {pathToFileURL} from 'node:url';import {build} from 'esbuild';import {JSDOM} from 'jsdom';import React,{act} from 'react';
+const temp=await mkdtemp(resolve('node_modules/.discount-tests-'));await build({entryPoints:['src/RecordEditor.jsx'],outfile:resolve(temp,'editor.mjs'),bundle:true,platform:'node',format:'esm',external:['react','react-dom','lucide-react']});
+const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});const {createRoot}=await import('react-dom/client');const Editor=(await import(pathToFileURL(resolve(temp,'editor.mjs')))).default;
+after(async()=>{dom.window.close();await rm(temp,{recursive:true,force:true});});
+const Modal=({children})=>React.createElement('section',null,children);
+const line={description:'Synthetic service',quantity:'1',rate:'100',discount_amount:'10',discount_percent:'0',gst_rate:'0',tax_treatment:'nil_rated'};
+const company={role:'owner',tax_mode:'regular',state_code:'27',name:'Synthetic Books'};
+async function change(selector,value){await act(async()=>{const el=document.querySelector(selector);const proto=el.tagName==='SELECT'?window.HTMLSelectElement.prototype:el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(el,value);el.dispatchEvent(new window.Event(el.tagName==='SELECT'?'change':'input',{bubbles:true}));});}
+async function mount(extra={}){let saved;const root=createRoot(document.getElementById('root'));await act(async()=>root.render(React.createElement(Editor,{kind:'sales_invoice',company,companyId:'c1',records:[],source:{id:'r1',name:'Buyer',date:'2026-11-02',data:{version:0,lines:[line]}},edit:true,api:async path=>path.endsWith('bank-accounts')?[]:{amount:'90',data:{lines:[]}},Modal,labels:{sales_invoice:'Sales invoices'},documentKinds:['sales_invoice','credit_note'],money:String,today:()=> '2026-11-02',save:payload=>{saved=payload;},close:()=>{},...extra})));return{root,get saved(){return saved;}};}
+const submit=()=>act(async()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
+test('reopened fixed discount remains visible and a nonfinancial edit preserves exact input',async()=>{
+ const view=await mount();assert.equal(document.querySelector('[name=discount_mode]').value,'amount');assert.equal(document.querySelector('[name=discount_amount]').value,'10');
+ await change('details.document-notes textarea','Reviewed header only');await submit();assert.equal(view.saved.data.lines[0].discount_amount,'10');assert.equal(Object.hasOwn(view.saved.data.lines[0],'discount_percent'),false);assert.equal(view.saved.data.lines[0].rate,'100');await act(async()=>view.root.unmount());
+});
+test('switching percent and rupee modes cannot submit both inputs',async()=>{
+ const view=await mount();await change('[name=discount_mode]','percent');assert.equal(document.querySelector('[name=discount_amount]'),null);await change('[name=discount_percent]','5');await submit();assert.equal(view.saved.data.lines[0].discount_percent,'5');assert.equal(Object.hasOwn(view.saved.data.lines[0],'discount_amount'),false);await act(async()=>view.root.unmount());
+});
+test('linked return retains fixed amount and requires review again after quantity changes',async()=>{
+ const view=await mount({kind:'credit_note',edit:false,source:undefined,relatedSource:{id:'r1',name:'Buyer',data:{lines:[{...line,quantity:'2'}]}},labels:{credit_note:'Credit notes'}});
+ assert.equal(document.querySelector('[name=discount_amount]').value,'10');await submit();assert.equal(view.saved,undefined);assert.match(document.body.textContent,/Review the fixed discounts/);
+ const ack=()=>[...document.querySelectorAll('label')].find(label=>label.textContent.includes('I reviewed the copied')).querySelector('input');await act(async()=>ack().click());await change('[name=quantity]','1');assert.equal(ack().checked,false);assert.equal(document.querySelector('[name=discount_amount]').value,'10');await act(async()=>ack().click());await submit();assert.equal(view.saved.data.lines[0].discount_amount,'10');await act(async()=>view.root.unmount());
+});
+test('conversion keeps fixed/inclusive/document discount inputs unchanged without mandatory return acknowledgement',async()=>{
+ const original={id:'quote1',name:'Buyer',data:{document_discount_percent:'10',lines:[{...line,rate:'118',gst_rate:'18',tax_treatment:'taxable',price_includes_tax:true}]}};
+ const view=await mount({edit:false,source:original});
+ assert.match(document.body.textContent,/not automatically prorated/);assert.doesNotMatch(document.body.textContent,/I reviewed the copied/);
+ await submit();assert.equal(view.saved.data.document_discount_percent,'10');assert.equal(view.saved.data.lines[0].discount_amount,'10');assert.equal(view.saved.data.lines[0].price_includes_tax,true);assert.equal(view.saved.data.source_document_id,'quote1');await act(async()=>view.root.unmount());
+});
+test('manual source selection and contextual return copy identical fixed plus document discount inputs',async()=>{
+ const source={id:'invoice-discount',kind:'sales_invoice',posted:true,name:'Buyer',number:'INV1',data:{document_discount_percent:'10',place_of_supply:'27',lines:[line]}};
+ const outputs=[];
+ for(const contextual of [false,true]){
+  const view=await mount({kind:'credit_note',edit:false,source:undefined,relatedSource:contextual?source:undefined,records:[source],labels:{credit_note:'Credit notes'},api:async path=>path.endsWith('bank-accounts')?[]:path.endsWith('/records/invoice-discount')?source:{amount:'81',data:{lines:[]}}});
+  if(!contextual)await change('.source-document select','invoice-discount');
+  const ack=[...document.querySelectorAll('label')].find(label=>label.textContent.includes('I reviewed the copied')).querySelector('input');await act(async()=>ack.click());await submit();
+  assert.equal(view.saved.data.document_discount_percent,'10');assert.equal(view.saved.data.lines[0].discount_amount,'10');assert.equal(Object.hasOwn(view.saved.data.lines[0],'discount_percent'),false);outputs.push(view.saved.data);await act(async()=>view.root.unmount());
+ }
+ for(const data of outputs){assert.equal(data.applied_to,source.id);assert.equal(data.lines[0].quantity,'1');assert.equal(data.lines[0].rate,'100');}
+});

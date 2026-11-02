@@ -14,9 +14,12 @@ public sealed class DocumentLine
     public TextBox Rate { get; }
     public TextBlock Amount { get; } = Text("—",16,true);
     private readonly TextBox hsn, unit, mrp, discount, gst;
-    private readonly ComboBox treatment, credit;
+    private readonly ComboBox treatment, credit, discountMode;
+    private readonly LineDiscountState discountState;
     private readonly CheckBox inclusive;
     private string itemId = "";
+    public string DiscountReviewIdentity {get;}=Guid.NewGuid().ToString("N");
+    public long DiscountReviewRevision {get;private set;}
     public event Action? Changed;
 
     public DocumentLine(IEnumerable<JsonObject> masters, bool purchase, bool regular, JsonObject? initial = null, bool preserveImportedValues = false)
@@ -30,14 +33,14 @@ public sealed class DocumentLine
         Description = Input("Item / service description", data.Text("description"));Description.IsReadOnly=itemId.Length>0;
         Quantity = Input("Quantity", data.Text("quantity") is { Length: > 0 } q ? q : "1");
         Rate = Input("Rate (₹)", data.Text("rate")); hsn = Input("HSN / SAC", data.Text("hsn")); unit = Input("Unit", data.Text("unit"));
-        mrp = Input("MRP · reference only", data.Text("mrp")); discount = Input("Discount (%)", data.Text("discount_percent") is { Length: > 0 } d ? d : "0");
+        mrp = Input("MRP · reference only", data.Text("mrp"));discountState=new(data);discount=Input(discountState.Mode=="amount"?"Discount (₹)":"Discount (%)",discountState.Value);discountMode=Select("Discount type",[("percent","% of line"),("amount","₹ fixed per line")],discountState.Mode);var discountControls=Stack(6);discountControls.Children.Add(discountMode);discountControls.Children.Add(discount);ToolTipService.SetToolTip(discountControls,"Choose percentage or a fixed rupee amount for the whole line. Changing quantity does not prorate a fixed discount; review it explicitly.");
         gst = Input("GST rate (%)", data.Text("gst_rate") is { Length: > 0 } g ? g : regular ? "18" : "0");
         treatment = Select("Supply classification", [("taxable", "Taxable"), ("nil_rated", "Nil rated"), ("exempt", "Exempt"), ("non_gst", "Non-GST")], data.Text("tax_treatment") is { Length: > 0 } tax ? tax : "taxable");
         credit = Select("Supplier GST treatment", [("pending_review", "Input credit pending review"), ("ineligible", "Ineligible · include GST in cost")], data.Text("itc_treatment") is { Length: > 0 } itc ? itc : "pending_review");
         inclusive = new CheckBox { Content = "Rate includes GST", IsChecked = data.Flag("price_includes_tax") };
         var amount=Stack(8);amount.Children.Add(Text("Amount",12));amount.Children.Add(Amount);Amount.Foreground=Green;
         var showTax=regular||purchase;
-        var fields=showTax?new FrameworkElement[]{selector,Quantity,unit,Rate,discount,gst,amount}:new FrameworkElement[]{selector,Quantity,unit,Rate,discount,amount};
+        var fields=showTax?new FrameworkElement[]{selector,Quantity,unit,Rate,discountControls,gst,amount}:new FrameworkElement[]{selector,Quantity,unit,Rate,discountControls,amount};
         var cells=new Grid{ColumnSpacing=12,RowSpacing=12};foreach(var field in fields)cells.Children.Add(field);
         bool? compactLayout=null;
         void ArrangeFields(double width)
@@ -50,8 +53,8 @@ public sealed class DocumentLine
                 for(var i=0;i<3;i++){cells.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});cells.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});}
                 Grid.SetColumn(selector,0);Grid.SetColumnSpan(selector,3);
                 var quantities=new FrameworkElement[]{Quantity,unit,Rate};for(var i=0;i<quantities.Length;i++){Grid.SetRow(quantities[i],1);Grid.SetColumn(quantities[i],i);}
-                Grid.SetRow(discount,2);Grid.SetColumn(discount,0);
-                if(showTax){Grid.SetRow(gst,2);Grid.SetColumn(gst,1);}else Grid.SetColumnSpan(discount,2);
+                Grid.SetRow(discountControls,2);Grid.SetColumn(discountControls,0);
+                if(showTax){Grid.SetRow(gst,2);Grid.SetColumn(gst,1);}else Grid.SetColumnSpan(discountControls,2);
                 Grid.SetRow(amount,2);Grid.SetColumn(amount,2);
             }
             else
@@ -76,7 +79,9 @@ public sealed class DocumentLine
             if(!preserveImportedValues||values.Text("hsn").Length>0)hsn.Text = values.Text("hsn");if(!preserveImportedValues||values.Text("unit").Length>0)unit.Text = values.Text("unit");
             if(!preserveImportedValues){Rate.Text = values.Text(purchase ? "purchase_rate" : "sale_rate");gst.Text = regular || purchase ? values.Text("gst_rate") : "0";var classification=values.Text("tax_treatment");if(regular&&!purchase&&values.Number("gst_rate")==0&&classification is "" or "taxable")classification="nil_rated";SelectValue(treatment,classification.Length>0?classification:"taxable");} LinkLabel(); Changed?.Invoke();
         };
+        Quantity.TextChanged+=(_,_)=>DiscountReviewRevision++;discount.TextChanged+=(_,_)=>DiscountReviewRevision++;
         foreach (var field in new[] { Description, Quantity, Rate, hsn, unit, mrp, discount, gst }) field.TextChanged += (_, _) => Changed?.Invoke();
+        discountMode.SelectionChanged+=(_,_)=>{DiscountReviewRevision++;discountState.Select(Value(discountMode));discount.Text=discountState.Value;discount.Header=discountState.Mode=="amount"?"Discount (₹)":"Discount (%)";Changed?.Invoke();};
         treatment.SelectionChanged += (_, _) => { if (Value(treatment) != "taxable") gst.Text = "0"; Changed?.Invoke(); };
         credit.SelectionChanged += (_, _) => Changed?.Invoke(); inclusive.Checked += (_, _) => Changed?.Invoke(); inclusive.Unchecked += (_, _) => Changed?.Invoke();
         View = Card(panel);View.Padding=new Thickness(14);
@@ -87,11 +92,15 @@ public sealed class DocumentLine
         Rate.Text=rate;inclusive.IsChecked=includesTax;Changed?.Invoke();
     }
 
-    public JsonObject Data() => new()
+    public JsonObject Data()
     {
+        var result=new JsonObject
+        {
         ["description"] = Description.Text.Trim(), ["item_id"] = itemId, ["quantity"] = Quantity.Text.Trim(), ["rate"] = Rate.Text.Trim(),
         ["hsn"] = hsn.Text.Trim(), ["unit"] = unit.Text.Trim(), ["mrp"] = mrp.Text.Trim().Length == 0 ? "0" : mrp.Text.Trim(),
-        ["discount_percent"] = discount.Text.Trim().Length == 0 ? "0" : discount.Text.Trim(), ["gst_rate"] = gst.Text.Trim().Length == 0 ? "0" : gst.Text.Trim(),
+        ["gst_rate"] = gst.Text.Trim().Length == 0 ? "0" : gst.Text.Trim(),
         ["price_includes_tax"] = inclusive.IsChecked == true, ["tax_treatment"] = Value(treatment), ["itc_treatment"] = Value(credit)
-    };
+        };
+        discountState.Value=discount.Text;discountState.WriteTo(result);return result;
+    }
 }

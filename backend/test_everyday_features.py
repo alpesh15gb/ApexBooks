@@ -34,6 +34,30 @@ class EverydayFeaturesTest(unittest.TestCase):
         self.assertEqual(c.get(path,headers=h).json()['total_low_stock'],0)
         self.assertEqual(c.get(b+'/journals',headers=h).json(),before)
 
+    def test_omitted_threshold_cannot_be_retained_on_incompatible_item_change(self):
+        c,h,b=self.context()
+        item=self.post(c,h,b,'item','Synthetic retained threshold',{'track_stock':True,'item_type':'goods','low_stock_threshold':'2'})
+        before=c.get(b+'/journals',headers=h).json()
+        response=c.put(b+'/masters/'+item['id'],headers=h,json={'name':item['name'],'track_stock':True,'item_type':'services'})
+        self.assertEqual(response.status_code,422,response.text)
+        current=c.get(b+'/records/'+item['id'],headers=h).json()
+        self.assertEqual(current['data']['item_type'],'goods');self.assertEqual(Decimal(current['data']['low_stock_threshold']),2)
+        cleared=c.put(b+'/masters/'+item['id'],headers=h,json={'name':item['name'],'track_stock':True,'item_type':'goods','low_stock_threshold':None})
+        self.assertEqual(cleared.status_code,200,cleared.text);self.assertIsNone(cleared.json()['data']['low_stock_threshold'])
+        self.assertEqual(c.get(b+'/journals',headers=h).json(),before)
+
+    def test_item_classification_cannot_change_after_stock_history(self):
+        c,h,b=self.context()
+        item=self.post(c,h,b,'item','Synthetic stocked goods',{'track_stock':True,'item_type':'goods'})
+        c.post(b+'/stock/opening',headers=h,json={'item_id':item['id'],'date':'2026-04-02','quantity':'2','unit_cost':'10'}).raise_for_status()
+        params={'from_date':'2026-04-01','to_date':'2026-04-30'}
+        stock=c.get(b+'/reports/stock',headers=h,params=params);self.assertEqual(stock.status_code,200,stock.text)
+        before=stock.json();journals=c.get(b+'/journals',headers=h).json()
+        response=c.put(b+'/masters/'+item['id'],headers=h,json={'name':item['name'],'track_stock':True,'item_type':'services'})
+        self.assertEqual(response.status_code,422,response.text)
+        self.assertEqual(c.get(b+'/records/'+item['id'],headers=h).json()['data']['item_type'],'goods')
+        self.assertEqual(c.get(b+'/reports/stock',headers=h,params=params).json(),before);self.assertEqual(c.get(b+'/journals',headers=h).json(),journals)
+
     def test_payment_terms_are_optional_and_never_rewrite_document_dates(self):
         c,h,b=self.context();party=self.post(c,h,b,'party','Terms buyer',{'payment_terms_days':30})
         path=b+'/parties/'+party['id']+'/due-date'

@@ -1,3 +1,4 @@
+import { changeLineDiscount, serializeLineDiscount, lineDiscountMode } from "./lineDiscount.js";
 import { supportsFeature } from "./capabilities.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import { purchaseDraftForm } from "./purchaseDraft.js";
@@ -169,6 +170,9 @@ export default function RecordEditor({
     ),
     [error, setError] = useState(""),
     [scanning, setScanning] = useState(false);
+  const [reviewedReturnDiscounts, setReviewedReturnDiscounts] = useState("");
+  const requiresDiscountReview = !edit && ["credit_note", "debit_note"].includes(kind) && !!form.applied_to && lines.some(line => lineDiscountMode(line) === "amount" && Number(line.discount_amount) > 0);
+  const returnDiscountReviewKey = JSON.stringify([form.applied_to, lines.map(line => [line.item_id, line.description, line.quantity, line.rate, line.discount_amount, line.discount_percent])]);
   const [bankAccounts, setBankAccounts] = useState([
     { id: "default", name: "Bank clearing (legacy)" },
   ]);
@@ -323,7 +327,9 @@ export default function RecordEditor({
     setLines(
       lines.map((line, i) => {
         if (i !== index) return line;
-        let next = { ...line, [e.target.name]: e.target.value };
+        let next = ["discount_mode", "discount_amount", "discount_percent"].includes(e.target.name)
+          ? changeLineDiscount(line, e.target.name, e.target.value)
+          : { ...line, [e.target.name]: e.target.value };
         if (e.target.name === "tax_treatment")
           next.gst_rate =
             e.target.value === "taxable"
@@ -369,6 +375,7 @@ export default function RecordEditor({
         ...current,
         applied_to: id,
         name: target.name,
+        document_discount_percent: target.data?.document_discount_percent || "0",
         party_id: target.data?.party_id || "",
         party_phone: target.data?.party_phone || "",
         shipping_address: target.data?.shipping_address || "",
@@ -399,6 +406,7 @@ export default function RecordEditor({
     if (!canWrite || saving || scanning || loadingSource) return;
     setError("");
     try {
+      if (requiresDiscountReview && reviewedReturnDiscounts !== returnDiscountReviewKey) throw Error("Review the fixed discounts for the returned quantities before saving.");
       const payload = {
           kind,
           name: form.name,
@@ -409,7 +417,7 @@ export default function RecordEditor({
             ? {
                 place_of_supply: form.place_of_supply,
                 due_date: form.due_date,
-                lines,
+                lines: lines.map(serializeLineDiscount),
                 applied_to: form.applied_to,
                 party_id: form.party_id || undefined,
                 party_address: form.party_address,
@@ -465,7 +473,7 @@ export default function RecordEditor({
     companyId,
     kind,
     form,
-    lines,
+    lines: lines.map(serializeLineDiscount),
     enabled: doc,
   });
   const saveLabel =
@@ -771,6 +779,8 @@ export default function RecordEditor({
                     <option key={r.id} value={r.name} />
                   ))}
               </datalist>
+              {!edit && (source || relatedSource || form.applied_to) && lines.some(line => lineDiscountMode(line) === "amount") && <p className="info-box full">Fixed rupee discounts were copied unchanged from the source. They are not automatically prorated when you change quantities. Review each discount against the quantities being converted or returned before saving.</p>}
+              {requiresDiscountReview && <label className="checkbox full"><input type="checkbox" required checked={reviewedReturnDiscounts === returnDiscountReviewKey} onChange={event => setReviewedReturnDiscounts(event.target.checked ? returnDiscountReviewKey : "")} />I reviewed the copied fixed discounts for these returned quantities.</label>}
               <DocumentItems
                 lines={lines}
                 setLines={(next) => {

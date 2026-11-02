@@ -42,6 +42,8 @@ public sealed partial class MainPage
         notes.MaxLength=4000;terms.MaxLength=8000;gstin.MaxLength=15;phone.MaxLength=32;address.MaxLength=1000;shipping.MaxLength=1000;
         var linesPanel = Stack(12); var lines = new List<DocumentLine>(); var preview = Text("Enter items to calculate the total.", 16, true); preview.Foreground = Green;
         var creditInfo=new InfoBar{IsClosable=false};var checkCredit=Supports("party_credit_limits")&&WorkflowMasterValues.CreditProjectionApplies(kind,previous is not null);
+        Button? termsSuggestion=null;TextBlock? termsHint=null;
+        var fixedReview=new FixedDiscountReview();CheckBox? fixedReviewBox=null;
         var partyId = data.Text("party_id"); var appliedTo = returnSource?.Text("id")??data.Text("applied_to");
         var retryKey = Guid.NewGuid().ToString();var submission=new RetrySubmission(); CancellationTokenSource? previewRequest = null;var sourceLoading=false;
 
@@ -56,9 +58,14 @@ public sealed partial class MainPage
             if (conversion is not null) values["source_document_id"] = conversion.Text("id");
             return values;
         }
+        string FixedSignature()=>appliedTo+"|"+string.Join("|",lines.Select(line=>line.DiscountReviewIdentity+":"+line.DiscountReviewRevision+":"+line.Quantity.Text+":"+line.Data().Text("discount_amount")));
+        bool NeedsFixedReview()=>FixedDiscountReview.Needed(kind is "credit_note" or "debit_note"&&appliedTo.Length>0,lines.Select(line=>line.Data()));
+        void UpdateFixedReview(){if(fixedReviewBox is null)return;fixedReviewBox.Visibility=NeedsFixedReview()?Visibility.Visible:Visibility.Collapsed;if(fixedReviewBox.IsChecked==true&&!fixedReview.IsAcknowledged(FixedSignature()))fixedReviewBox.IsChecked=false;}
         JsonObject BodyValue() => new() { ["kind"] = kind, ["name"] = party.Text.Trim(), ["number"] = number.Text.Trim(), ["date"] = date.Value, ["data"] = DocumentData() };
         async Task Calculate()
         {
+            UpdateFixedReview();
+            if(termsSuggestion is not null)termsSuggestion.IsEnabled=partyId.Length>0&&!submission.Unresolved;if(termsHint is not null)termsHint.Text=partyId.Length>0?"Suggestions use the selected saved party’s terms; applying is always explicit.":"Choose a saved party to use payment terms, or set the due date manually for a freeform name.";
             previewRequest?.Cancel(); var request = new CancellationTokenSource(); previewRequest = request;creditInfo.IsOpen=false;
             if(lines.Count==0){preview.Text="Add an item to calculate the total.";return;}
             if(lines.Any(l=>string.IsNullOrWhiteSpace(l.Description.Text)||string.IsNullOrWhiteSpace(l.Rate.Text))){preview.Text="Enter an item description and rate to calculate the total.";foreach(var line in lines)line.Amount.Text="—";return;}
@@ -111,7 +118,7 @@ public sealed partial class MainPage
         if(kind is "sales_invoice" or "purchase_bill")metadata.Children.Add(regular||purchase?Columns(due.View,supply):due.View);else if(regular||purchase)metadata.Children.Add(supply);
         if(purchase)metadata.Children.Add(supplierState);
         if(Supports("party_payment_terms")&&kind is "sales_invoice" or "purchase_bill"){
-            var suggestion=Stack(6);metadata.Children.Add(AsyncButton("Suggest due date from party terms",async()=>{
+            var suggestion=Stack(6);termsHint=Text(partyId.Length>0?"Suggestions use the selected saved party’s terms; applying is always explicit.":"Choose a saved party to use payment terms, or set the due date manually for a freeform name.",12);metadata.Children.Add(termsHint);termsSuggestion=AsyncButton("Suggest due date from party terms",async()=>{
                 var selectedParty=partyId;var selectedDate=date.Value;
                 if(selectedParty.Length==0)throw new Exception("Choose a saved party to use its payment terms.");
                 var result=await Api.Send(Api.CompanyPath(cid,$"/parties/{Uri.EscapeDataString(selectedParty)}/due-date?document_date={selectedDate}"));
@@ -120,7 +127,7 @@ public sealed partial class MainPage
                 if(proposed.Length==0){suggestion.Children.Add(Text("This party has no saved payment terms. Edit its master or enter a due date manually.",12));return;}
                 suggestion.Children.Add(Text($"{result.Text("payment_terms_days")} days · suggested due {proposed}. Your existing date is unchanged until you apply.",12));
                 suggestion.Children.Add(Button("Apply suggested due date",()=>{if(stamp!=generation||partyId!=selectedParty||date.Value!=selectedDate||submission.Unresolved)return;due.Picker.Date=new DateTimeOffset(DateTime.Parse(proposed,System.Globalization.CultureInfo.InvariantCulture));suggestion.Children.Clear();}));
-            },LocalError));metadata.Children.Add(suggestion);
+            },LocalError);termsSuggestion.IsEnabled=partyId.Length>0;ToolTipService.SetToolTip(termsSuggestion,"Requires a selected saved party. Freeform names do not have saved payment terms.");metadata.Children.Add(termsSuggestion);metadata.Children.Add(suggestion);
         }
         panel.Children.Add(Card(Columns(identity,metadata)));
         if (kind is "credit_note" or "debit_note")
@@ -154,6 +161,12 @@ public sealed partial class MainPage
         panel.Children.Add(SectionHeading("02","Items & services","Select an item or enter a description. Tax and totals are calculated automatically."));
         panel.Children.Add(linesPanel); ReplaceLines(data["lines"].Array()); panel.Children.Add(Button("+ Add item", () => AddLine()));
         panel.Children.Add(SectionHeading("03","Adjustments & notes","Review the final amounts before saving."));
+        if(kind is "credit_note" or "debit_note"){
+            fixedReviewBox=new CheckBox{Content="I reviewed the fixed ₹ line discounts against the quantities being returned"};panel.Children.Add(Text("Fixed ₹ discounts are copied unchanged from the source. They are not automatically prorated when return quantities change; review each affected line.",12));panel.Children.Add(fixedReviewBox);
+            if(previous is not null){fixedReview.Acknowledge(FixedSignature());fixedReviewBox.IsChecked=true;}
+            fixedReviewBox.Checked+=(_,_)=>fixedReview.Acknowledge(FixedSignature());fixedReviewBox.Unchecked+=(_,_)=>fixedReview.Clear();UpdateFixedReview();
+        }else if(conversion is not null&&lines.Any(line=>line.Data().Number("discount_amount")>0))panel.Children.Add(Text("Fixed ₹ line discounts were preserved from the source draft. Review them if changing quantities; no automatic prorating is applied.",12));
+
         panel.Children.Add(Columns(discount, round)); if (kind is "credit_note" or "debit_note") panel.Children.Add(returnStock);
         if (kind is "expense" or "pos")
         {
@@ -169,6 +182,7 @@ public sealed partial class MainPage
         async Task Save()
         {
             if(sourceLoading)throw new Exception("Wait for the source document to finish loading.");
+            if(!submission.Unresolved&&NeedsFixedReview()&&!fixedReview.IsAcknowledged(FixedSignature()))throw new Exception("Review each fixed ₹ discount against the quantities being returned, then acknowledge the review before saving.");
             if (party.Text.Trim().Length == 0) throw new Exception("Enter the customer, supplier or description.");
             if (lines.Count == 0) throw new Exception("Add at least one item.");
             if(!submission.Unresolved&&previous is null&&kind is not ("credit_note" or "debit_note")){

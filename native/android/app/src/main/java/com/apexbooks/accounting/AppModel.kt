@@ -22,6 +22,9 @@ class AppModel(application:Application):AndroidViewModel(application) {
     val reports=catalog.a("reports").objects().map{Feature(it.s("key"),it.s("title"),it.s("group"),it.s("path").substringBefore("?as_of="),it.s("description"))}
     val documentKinds=setOf("sales_invoice","purchase_bill","estimate","proforma","sales_order","purchase_order","credit_note","debit_note","expense","pos")
     val draftKinds=setOf("estimate","proforma","sales_order","purchase_order")
+    var apiVersion by mutableStateOf("unknown");private set
+    var apiBuildRevision by mutableStateOf("unknown");private set
+    var capabilityLimits by mutableStateOf(emptyMap<String,Long>());private set
     var supportedFeatures by mutableStateOf(emptySet<String>());private set
     private var sessionGeneration=0
     private var capabilitiesLoaded=false
@@ -31,7 +34,7 @@ class AppModel(application:Application):AndroidViewModel(application) {
     val capabilityHint get()=if(capabilityChecking)"Checking optional server features…" else if(capabilityRetryable)"Unable to check server features. Retry the feature check; core accounting remains available." else "This optional setting requires a server upgrade."
     fun retryCapabilities(){if(capabilityChecking)return;capabilitiesLoaded=false;capabilitiesRequest=null;viewModelScope.launch{loadCapabilities()}}
     fun supports(feature:String)=feature in supportedFeatures
-    private suspend fun loadCapabilities(){if(capabilitiesLoaded)return;val stamp=sessionGeneration;capabilityChecking=true;val request=capabilitiesRequest?:viewModelScope.async{ApiCapabilities.fetchResult{api.request("/api/capabilities") as JSONObject}}.also{capabilitiesRequest=it};val result=request.await();if(signedIn&&stamp==sessionGeneration){supportedFeatures=result.features;capabilityRetryable=result.retryable;capabilityChecking=false;capabilitiesLoaded=true}}
+    private suspend fun loadCapabilities(){if(capabilitiesLoaded)return;val stamp=sessionGeneration;capabilityChecking=true;val request=capabilitiesRequest?:viewModelScope.async{ApiCapabilities.fetchResult{api.request("/api/capabilities") as JSONObject}}.also{capabilitiesRequest=it};val result=request.await();if(signedIn&&stamp==sessionGeneration){supportedFeatures=result.features;apiVersion=result.apiVersion;apiBuildRevision=result.buildRevision;capabilityLimits=result.limits;capabilityRetryable=result.retryable;capabilityChecking=false;capabilitiesLoaded=true}}
     var signedIn by mutableStateOf(false);private set
     var companies by mutableStateOf(emptyList<JSONObject>());private set
     var company by mutableStateOf(JSONObject());private set
@@ -51,6 +54,10 @@ class AppModel(application:Application):AndroidViewModel(application) {
     var pdf by mutableStateOf<PdfView?>(null)
     var tool by mutableStateOf("")
     var toolData by mutableStateOf<JSONObject?>(null)
+    private val backupDrafts=mutableMapOf<String,CompleteBackupDraft>()
+    fun backupDraft(scope:String)=backupDrafts.getOrPut(scope){CompleteBackupDraft()}
+    private val attachmentDrafts=mutableMapOf<String,AttachmentDraft>()
+    fun attachmentDraft(recordId:String)=attachmentDrafts.getOrPut(companyId+":"+recordId){AttachmentDraft()}
     private val toolDrafts=ToolDraftStore()
     fun toolDraft(scope:String)=toolDrafts.get(companyId,scope)
     fun finishToolDraft(scope:String)=toolDrafts.remove(companyId,scope)
@@ -79,8 +86,8 @@ class AppModel(application:Application):AndroidViewModel(application) {
     suspend fun chooseCompany(selected:JSONObject){val stamp=++generation;val request=++refreshSequence;company=selected;companyForm=false;tool="";toolData=null;records=emptyList();banks=emptyList();recordsReady=false;editor=null;detail=null;pdf=null;statement=null;coroutineScope{val rows=async{api.records(selected.s("id"))};val accounts=async{(api.request(api.company(selected.s("id"),"/bank-accounts")) as JSONArray).objects()};val loaded=rows.await();val loadedBanks=accounts.await();if(stamp==generation&&request==refreshSequence){records=loaded;banks=loadedBanks;recordsReady=true}}}
     suspend fun refresh(){val id=companyId;if(id.isBlank()||!signedIn)return;val stamp=generation;val request=++refreshSequence;coroutineScope{val rows=async{api.records(id)};val accounts=async{(api.request(api.company(id,"/bank-accounts")) as JSONArray).objects()};val loaded=rows.await();val loadedBanks=accounts.await();if(stamp==generation&&request==refreshSequence){records=loaded;banks=loadedBanks;recordsReady=true;revision++}}}
     fun navigate(key:String){page=key;error="";notice=""}
-    fun endLocalSession(){sessionGeneration++;capabilityChecking=false;capabilityRetryable=false;supportedFeatures=emptySet();capabilitiesLoaded=false;capabilitiesRequest?.cancel();capabilitiesRequest=null;api.forget();signedIn=false;company=JSONObject();companies=emptyList();records=emptyList();banks=emptyList();recordsReady=false;editor=null;detail=null;statement=null;pdf=null;tool="";toolData=null;posDrafts.clear();recurringCommands.clear();toolDrafts.clear();companyForm=false;page="dashboard";error="";notice="";generation++;companyLoads++;refreshSequence++}
-    suspend fun logout(){check(!toolDrafts.hasUnresolved && posDrafts.values.none{it.submission.unresolved} && recurringCommands.values.none{it.unresolved} && editor?.retryPending != true){"A save may already have posted. Return to the pending entry, recurring schedule, or held Point of Sale cart and retry the original save before signing out."};try{api.logout()}finally{endLocalSession()}}
+    fun endLocalSession(){sessionGeneration++;apiVersion="unknown";apiBuildRevision="unknown";capabilityLimits=emptyMap();capabilityChecking=false;capabilityRetryable=false;supportedFeatures=emptySet();capabilitiesLoaded=false;capabilitiesRequest?.cancel();capabilitiesRequest=null;api.forget();signedIn=false;company=JSONObject();companies=emptyList();records=emptyList();banks=emptyList();recordsReady=false;editor=null;detail=null;statement=null;pdf=null;tool="";toolData=null;posDrafts.clear();recurringCommands.clear();toolDrafts.clear();attachmentDrafts.clear();backupDrafts.values.forEach{runCatching{it.localCleanup()}};backupDrafts.clear();companyForm=false;page="dashboard";error="";notice="";generation++;companyLoads++;refreshSequence++}
+    suspend fun logout(){check(backupDrafts.values.none{it.pending.isNotBlank()} && attachmentDrafts.values.none{it.unresolved} && !toolDrafts.hasUnresolved && posDrafts.values.none{it.submission.unresolved} && recurringCommands.values.none{it.unresolved} && editor?.retryPending != true){"A save may already have posted. Return to the pending entry, recurring schedule, or held Point of Sale cart and retry the original save before signing out."};try{api.logout()}finally{endLocalSession()}}
     fun add(kind:String){if(!recordsReady){error="Wait for the complete company history before starting an entry.";return};editor=EntryEditor(this,kind)}
     fun edit(row:JSONObject){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));if(stamp==generation)editor=EntryEditor(this,full.s("kind"),previous=full)}}
     fun convert(row:JSONObject,targetKind:String?=null){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));if(stamp==generation)editor=EntryEditor(this,targetKind?:if(full.s("kind")=="purchase_order")"purchase_bill" else "sales_invoice",conversion=full)}}

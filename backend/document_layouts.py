@@ -16,6 +16,13 @@ from reportlab.graphics.barcode.qr import QrCodeWidget
 
 LAYOUTS = {'modern', 'vintage', 'mrp_discount', 'elegant', 'evergreen'}
 
+def line_discount_label(line):
+    """Fixed-amount input wins by presence; computed percent is also stored as zero."""
+    if 'discount_amount' in line:
+        return 'INR ' + format_inr(line['discount_amount'])
+    return str(line.get('discount_percent', '0')) + '%'
+
+
 def words(number):
     small = 'Zero One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen Fifteen Sixteen Seventeen Eighteen Nineteen'.split()
     tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety']
@@ -92,9 +99,9 @@ def render_document(record, supplier, branding, template, title, paid=Decimal('0
         qty, rate, taxable, tax = [Decimal(str(line.get(key, 0))) for key in ('quantity','rate','taxable','tax')]
         total_qty += qty
         desc = line.get('description', '')
-        if template == 'mrp_discount': desc += '\nHSN: ' + str(line.get('hsn') or '—') + ('\nDiscount: ' + str(line.get('discount_percent')) + '%' if Decimal(str(line.get('discount_percent',0))) else '')
+        if template == 'mrp_discount': desc += '\nHSN: ' + str(line.get('hsn') or '—')
         if line.get('price_includes_tax'):desc += chr(10)+'Rate includes GST'
-        if template!='mrp_discount' and Decimal(str(line.get('discount_percent',0))):desc+=chr(10)+'Line discount: '+str(line['discount_percent'])+'%'
+        if 'discount_amount' in line or Decimal(str(line.get('discount_percent',0))):desc+=chr(10)+'Line discount: '+line_discount_label(line)
         if Decimal(str(line.get('document_discount',0))):desc+=chr(10)+'Document discount: INR '+format_inr(line['document_discount'])
         gross = taxable + tax
         amount = taxable if template in {'elegant','evergreen'} else gross

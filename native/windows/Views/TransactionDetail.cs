@@ -29,6 +29,7 @@ public sealed partial class MainPage
         string action="",linkedId="";
         var actions=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};
         void Action(string label,string key,bool primary=false)=>actions.Children.Add(Button(label,()=>{action=key;CloseDialog();},primary));
+        if(kind is "purchase_bill" or "expense"){if(Supports("document_attachments"))Action("Retained receipts","receipts");else panel.Children.Add(CapabilityNotice());}
         var printable=FeatureCatalog.Documents.Contains(kind)||kind is "payment_in" or "payment_out" or "customer_refund" or "supplier_refund" or "advance_refund";
         if(printable)Action("PDF / print / share","pdf");
         if(CanWrite&&row.Text("converted_to").Length==0&&(FeatureCatalog.Documents.Contains(kind)||kind is "payment_in" or "payment_out" or "bank_transfer"))Action("Edit","edit");
@@ -49,11 +50,12 @@ public sealed partial class MainPage
         }
         var allocations=row["allocations"].Array();if(allocations.Count==0)allocations=data["allocations"].Array();
         if(allocations.Count>0){panel.Children.Add(Text("Payment allocation",18,true));foreach(var allocation in allocations){var id=allocation.Text("document_id");var target=Records.FirstOrDefault(r=>r.Text("id")==id);panel.Children.Add(Button(target.Text("number")+"  ·  "+J.Money(allocation.Number("amount"))+"  →",()=>{linkedId=id;action="linked";CloseDialog();}));}panel.Children.Add(Text("Allocation settles the document. Bank matching is a separate reconciliation step.",12));}
-        if(data["lines"].Array().Count>0){panel.Children.Add(Text("Items",18,true));foreach(var line in data["lines"].Array()){var item=Stack(4);item.Children.Add(Text(line.Text("description"),14,true));item.Children.Add(Text(line.Text("quantity")+" "+line.Text("unit")+" × "+J.Money(line.Number("rate"))+"  ·  "+J.Money(line.Number("taxable")+line.Number("tax")),12));panel.Children.Add(Card(item));}}
+        if(data["lines"].Array().Count>0){panel.Children.Add(Text("Items",18,true));foreach(var line in data["lines"].Array()){var item=Stack(4);item.Children.Add(Text(line.Text("description"),14,true));item.Children.Add(Text(line.Text("quantity")+" "+line.Text("unit")+" × "+J.Money(line.Number("rate"))+"  ·  "+J.Money(line.Number("taxable")+line.Number("tax")),12));if(line is JsonObject lineValues&&lineValues.ContainsKey("discount_amount"))item.Children.Add(Text("Fixed line discount · "+J.Money(line.Number("discount_amount")),12));else if(line.Number("discount_percent")>0)item.Children.Add(Text("Line discount · "+line.Text("discount_percent")+"%",12));if(line.Number("document_discount")>0)item.Children.Add(Text("Document discount allocated to this line · "+J.Money(line.Number("document_discount")),12));panel.Children.Add(Card(item));}}
         if(data.Text("notes").Length>0){panel.Children.Add(Text("Notes",16,true));panel.Children.Add(Text(data.Text("notes")));}
         await Dialog("Transaction details",panel,()=>Task.CompletedTask,"Done");
         if(stamp!=generation||cid!=CompanyId)return;
         switch(action){
+            case "receipts":await RetainedReceipts(row);break;
             case "recurring":await RecurringTemplateForm(row);break;
             case "pdf":await PreviewDocument(row);break;
             case "edit":await EditRow(row);break;

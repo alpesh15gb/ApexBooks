@@ -1,13 +1,13 @@
 # Cross-client release verification
 
-This is a verification ledger, not a claim of zero defects or security certification. Draft-branch work is not a production deployment. All test records are synthetic and isolated.
+This is a verification ledger, not a claim of zero defects or security certification. Draft-branch work is not a production deployment. Release-suite fixtures are synthetic and isolated. Rehearsals of supplied backups were performed separately in private, isolated databases; those backups and accounting records are not published.
 
 ## Current completed source checkpoint
 
-`dac5fae` contains the API/web retained-receipt and complete-backup implementation. Running `PYTHON=/path/to/test/python bash scripts/check.sh` from an exact git archive passed:
+`50a567e` contains the API/web retained-receipt and complete-backup implementation. Running `PYTHON=/path/to/test/python bash scripts/check.sh` from an exact git archive passed:
 
 - 179 backend regression tests, including accounting balances, stock cost, allocation limits, tenant/role checks, restore lineage, recurring drafts, master lifecycle and credit-warning semantics.
-- 99 web tests, lint and production compilation.
+- 100 web tests, lint and production compilation.
 - Five existing HTTP journeys and one complete-backup HTTP journey: a >6 MiB archive is transferred as 13 parts of at most 512 KiB, archived receipt hashes survive restore, source reports do not change, and commit replay creates only one company.
 - 207 native API route literals matched the API contract at this checkpoint.
 - Simulated transactional backup safety. The local machine lacks `age`; encrypted infrastructure-backup checks are a separate hosted CI gate, not implied by the local result.

@@ -15,5 +15,5 @@ def install(app,m):
         if getattr(app.state,'chunked_backups_ready',False):
             features.append('chunked_backups')
             formats['import'].append('apex-zip-v8');formats['export'].append('apex-zip-v8')
-        return {'api_version':app.version,'capabilities_version':1,'supported_features':features,
+        return {'api_version':app.version,'build_revision':m.BUILD_REVISION,'capabilities_version':1,'supported_features':features,
                 'backup_formats':formats,'business_timezone':'Asia/Kolkata','limits':limits}

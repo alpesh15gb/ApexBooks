@@ -7,10 +7,10 @@ import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
-import { createRoot } from 'react-dom/client';
 const temp = await mkdtemp(resolve('node_modules/.everyday-tests-'));
 const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' });
 Object.assign(globalThis, { window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage, IS_REACT_ACT_ENVIRONMENT: true });
+const { createRoot } = await import('react-dom/client');
 async function component(name) { const outfile = resolve(temp, `${name}.mjs`); await build({ entryPoints: [`src/${name}.jsx`], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'lucide-react'] }); return (await import(pathToFileURL(outfile))).default; }
 const Reorder = await component('ReorderWorkspace'), Prices = await component('PriceHistory'), Editor = await component('RecordEditor'), Master = await component('MasterForm');
 const button = text => [...document.querySelectorAll('button')].find(button => button.textContent.includes(text));
@@ -76,5 +76,15 @@ test('legacy API master form retains core editing without submitting unsupported
  assert.equal(document.querySelector('input[name=credit_limit]'),null);assert.equal(document.querySelector('input[name=shipping_address]'),null);assert.match(document.body.textContent,/unsupported settings will not be submitted/);
  await act(async()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
  assert.equal(saved.data.address,'Billing');for(const field of ['is_active','shipping_address','credit_limit','payment_terms_days'])assert.equal(Object.hasOwn(saved.data,field),false);
+ await act(async()=>root.unmount());
+});
+test('changing item classification never silently drops an existing threshold or hides the way to clear it',async()=>{
+ const root=createRoot(document.getElementById('root'));let saved;
+ await act(async()=>root.render(React.createElement(Master,{features:CORE_ENHANCEMENTS,kind:'item',record:{name:'Synthetic threshold',data:{track_stock:true,item_type:'goods',low_stock_threshold:'2'}},save:value=>{saved=value;},close:()=>{}})));
+ await act(async()=>{const select=document.querySelector('select[name=item_type]');select.value='services';select.dispatchEvent(new window.Event('change',{bubbles:true}));});
+ const input=document.querySelector('input[name=low_stock_threshold]');assert.ok(input);assert.equal(input.value,'2');
+ await act(async()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));assert.equal(saved.data.low_stock_threshold,'2');
+ await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(input,'');input.dispatchEvent(new window.Event('input',{bubbles:true}));input.dispatchEvent(new window.Event('change',{bubbles:true}));});
+ await act(async()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));assert.equal(saved.data.low_stock_threshold,null);
  await act(async()=>root.unmount());
 });

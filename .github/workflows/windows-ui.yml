@@ -16,6 +16,12 @@ jobs:
       JWT_SECRET: synthetic-windows-ui-ci-only-not-a-production-secret
     steps:
       - uses: actions/checkout@v4
+      - name: Record checked-out build revision
+        shell: bash
+        run: |
+          revision="$(git rev-parse HEAD)"
+          echo "APEX_BUILD_SHA=$revision" >> "$GITHUB_ENV"
+          echo "VITE_BUILD_SHA=$revision" >> "$GITHUB_ENV"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'

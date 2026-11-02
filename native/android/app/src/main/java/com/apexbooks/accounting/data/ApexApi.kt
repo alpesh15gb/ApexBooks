@@ -63,7 +63,10 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
         }
     }
 
-    suspend fun bytes(path: String, method: String = "GET", body: JSONObject? = null, retryKey: String? = null): ByteArray {
+    suspend fun bytes(path: String, method: String = "GET", body: JSONObject? = null, retryKey: String? = null): ByteArray = transfer(path,method,body?.toString()?.toByteArray(Charsets.UTF_8),retryKey,"application/json",null)
+    suspend fun rawBytes(path:String,method:String="GET",content:ByteArray?=null,contentType:String="application/octet-stream",retryKey:String?=null,maximumResponse:Int=3_000_000):ByteArray=transfer(path,method,content,retryKey,contentType,maximumResponse)
+    suspend fun upload(path:String,method:String,content:ByteArray,contentType:String,retryKey:String?=null):JSONObject {val result=rawBytes(path,method,content,contentType,retryKey);return withContext(Dispatchers.Default){JSONObject(result.toString(Charsets.UTF_8))}}
+    private suspend fun transfer(path:String,method:String,body:ByteArray?,retryKey:String?,contentType:String,maximumResponse:Int?):ByteArray {
       val sentToken=token
       return withContext(Dispatchers.IO) {
         val connection = URL(origin.trimEnd('/') + "/" + path.trimStart('/')).openConnection() as HttpURLConnection
@@ -71,11 +74,11 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
             connection.requestMethod = method; connection.instanceFollowRedirects=false
             // Optional compatibility discovery must not hold company startup behind the financial-write timeout.
             val capabilityProbe=method=="GET"&&path=="/api/capabilities"
-            connection.connectTimeout = if(capabilityProbe)1500 else 20_000; connection.readTimeout = if(capabilityProbe)1500 else 90_000
+            connection.connectTimeout = if(capabilityProbe)8000 else 20_000; connection.readTimeout = if(capabilityProbe)8000 else 90_000
             connection.setRequestProperty("Accept", "application/json"); connection.setRequestProperty("User-Agent", "ApexBooks-Android/${com.apexbooks.accounting.BuildConfig.VERSION_NAME}")
             if (sentToken.isNotBlank()) connection.setRequestProperty("Authorization", "Bearer $sentToken")
             if (retryKey != null) connection.setRequestProperty("Idempotency-Key", retryKey)
-            if (body != null) { connection.doOutput = true; connection.setRequestProperty("Content-Type", "application/json"); connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) } }
+            if (body != null) { connection.doOutput = true; connection.setRequestProperty("Content-Type", contentType);connection.setFixedLengthStreamingMode(body.size); connection.outputStream.use { it.write(body) } }
             val code = connection.responseCode
             if (code !in 200..299) {
                 val detail = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -84,7 +87,7 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
                 val expired=code==401&&!challenge&&invalidate(sentToken)
                 throw ApiFailure(code, if (expired) "Your session has ended. Sign in again." else message)
             }
-            connection.inputStream.use { it.readBytes() }
+            connection.inputStream.use { input -> if(maximumResponse==null)input.readBytes() else {val out=java.io.ByteArrayOutputStream();val buffer=ByteArray(16384);while(true){val count=input.read(buffer);if(count<0)break;if(out.size().toLong()+count>maximumResponse)throw ApiFailure(502,"The server response exceeds the allowed file or chunk size.");out.write(buffer,0,count)};out.toByteArray()} }
         } catch (failure: ApiFailure) { throw failure }
         catch (failure: java.net.SocketTimeoutException) { throw ApiFailure(0, "The server took too long to respond. Retry this same save before creating another transaction.") }
         catch (failure: java.io.IOException) { throw ApiFailure(0, "Cannot reach Apex Books. Check your connection. Retry the same save to recover an interrupted response.") }

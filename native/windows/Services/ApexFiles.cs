@@ -28,6 +28,12 @@ public static class ApexFiles
         await FileIO.WriteBytesAsync(file, bytes); return true;
     }
 
+    public static async Task<bool> SaveStream(Stream source,string name)
+    {
+        var clean=string.Concat(name.Select(c=>Path.GetInvalidFileNameChars().Contains(c)?'_':c));var picker=new FileSavePicker{SuggestedFileName=Path.GetFileNameWithoutExtension(clean)};picker.FileTypeChoices.Add("Apex Books backup",new List<string>{Path.GetExtension(clean)});WinRT.Interop.InitializeWithWindow.Initialize(picker,App.WindowHandle);var file=await picker.PickSaveFileAsync();if(file is null)return false;
+        try{using var output=await file.OpenStreamForWriteAsync();output.SetLength(0);source.Position=0;await source.CopyToAsync(output,32768);await output.FlushAsync();return true;}catch{try{await file.DeleteAsync();}catch{}throw;}
+    }
+
     public static async Task<byte[]> Read(StorageFile file, long maximum = 50_000_000)
     {
         var properties = await file.GetBasicPropertiesAsync(); if (properties.Size > (ulong)maximum) throw new Exception("This file exceeds the supported size.");

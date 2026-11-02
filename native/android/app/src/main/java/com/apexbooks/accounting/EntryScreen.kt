@@ -153,6 +153,7 @@ import org.json.JSONObject
                             if(editor.get("party_id").isBlank())Text("Select a saved customer to check their credit limit.",style=MaterialTheme.typography.bodySmall)
                             else editor.preview?.s("amount")?.takeIf{it.isNotBlank()}?.let{CustomerCreditStatus(vm,editor.get("party_id"),editor.get("date"),it)}
                         }
+                        if(editor.hasFixedLinkedReturn)Section("Return discount review"){Text("Fixed discounts are retained from the source, not automatically prorated for returned quantities. Review and adjust each amount explicitly.",style=MaterialTheme.typography.bodySmall);Toggle("I reviewed the fixed discount against returned quantities",!editor.fixedReturnReviewNeeded,{editor.acknowledgeReturnDiscount(it)})}
                         FoldSection("Discounts, notes & terms") {
                             Field("Document discount (%)", editor.get("document_discount_percent"), { change("document_discount_percent", it) }, number = true)
                             Toggle("Round total to nearest rupee", editor.flag("round_total"), { change("round_total", it.toString()) })
@@ -217,7 +218,7 @@ val supplyChoices=listOf("taxable" to "Taxable","nil_rated" to "Nil rated","exem
             Field("Rate (₹)",line.get("rate"),{line.set("rate",it)},Modifier.weight(1f),number=true)
         }
         Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
-            Field("Discount (%)",line.get("discount_percent"),{line.set("discount_percent",it)},Modifier.weight(1f),number=true)
+            Column(Modifier.weight(1f)){Choice("Line discount",line.discountMode,listOf("percent" to "Percentage (%)","amount" to "Fixed amount (₹)"),{line.chooseDiscountMode(it)});val discountKey=if(line.discountMode=="amount")"discount_amount"else"discount_percent";Field(if(line.discountMode=="amount")"Discount (₹)"else"Discount (%)",line.get(discountKey),{line.set(discountKey,it)},number=true)}
             if(editor.regular||editor.purchase)Field("GST (%)",line.get("gst_rate"),{line.set("gst_rate",it)},Modifier.weight(1f),number=true)
         }
         var expanded by remember{mutableStateOf(false)}

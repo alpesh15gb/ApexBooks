@@ -1,5 +1,25 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android"); id("org.jetbrains.kotlin.plugin.compose") }
 
+fun normalizedBuildRevision(value: String?): String = value
+    ?.takeIf { it.matches(Regex("(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})")) }?.lowercase() ?: "unknown"
+val verifyBuildRevision by tasks.registering {
+    doLast {
+        check(normalizedBuildRevision(null) == "unknown")
+        check(normalizedBuildRevision("not-a-revision") == "unknown")
+        check(normalizedBuildRevision("a".repeat(39)) == "unknown")
+        check(normalizedBuildRevision("A".repeat(40)) == "a".repeat(40))
+        check(normalizedBuildRevision("b".repeat(64)) == "b".repeat(64))
+        check(normalizedBuildRevision("a".repeat(40) + "\n") == "unknown")
+    }
+}
+tasks.named("preBuild").configure { dependsOn(verifyBuildRevision) }
+
+val sharedAssetDirectory=layout.buildDirectory.dir("generated/shared-assets")
+val prepareSharedAssets by tasks.registering(Sync::class) {
+    from("../../shared") { include("features.json", "openapi.json", "design-assets.json", "apex-mark.svg", "brand/**", "licenses/**") }
+    into(sharedAssetDirectory)
+}
+
 android {
     namespace = "com.apexbooks.accounting"
     compileSdk = 36
@@ -8,8 +28,10 @@ android {
         applicationId = "com.apexbooks.accounting"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "1.4.0"
+        versionCode = 10
+        versionName = "1.5.0"
+        val revision = normalizedBuildRevision(providers.environmentVariable("APEX_BUILD_SHA").orNull)
+        buildConfigField("String", "BUILD_REVISION", "\"$revision\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["keepSession"] = providers.gradleProperty("apexKeepQaSession").orElse("false").get()
     }
@@ -31,10 +53,11 @@ android {
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     buildFeatures { compose = true; buildConfig = true }
-    sourceSets["main"].assets.srcDir("../../shared")
+    sourceSets["main"].assets.srcDir(sharedAssetDirectory)
 }
 
 dependencies {
+    implementation(project(":backup-streaming"))
     implementation(platform("androidx.compose:compose-bom:2025.10.01"))
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation("androidx.compose.material3:material3")
@@ -54,3 +77,5 @@ dependencies {
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+
+tasks.named("preBuild").configure { dependsOn(prepareSharedAssets) }

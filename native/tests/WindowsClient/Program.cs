@@ -1,7 +1,10 @@
+using System.Security.Cryptography;
 using ApexBooks_Windows.Services;
 using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
+
+if(args.Length==2&&args[0]=="--local-complete-backup"){await CompleteTransferSmoke.Run(args[1]);return;}
 
 if(args.Contains("--clear-qa-session"))
 {
@@ -83,6 +86,7 @@ var recurringRetry=new RetrySubmission();recurringRetry.Body(new JsonObject{["oc
 
 var unsupported=ClientCapabilities.Parse(new JsonObject{["capabilities_version"]=2,["supported_features"]=new JsonArray("party_credit_limits")});
 Check(!unsupported.Supports("party_credit_limits")&&!ClientCapabilities.Parse(null).Supports("recurring_drafts")&&!ClientCapabilities.Parse(new JsonObject{["capabilities_version"]="1",["supported_features"]=new JsonArray("recurring_drafts")}).Supports("recurring_drafts"),"missing or unknown capability versions fail closed");
+var apiIdentity=ClientCapabilities.Parse(new JsonObject{["capabilities_version"]=1,["supported_features"]=new JsonArray(),["api_version"]="1.5.0",["build_revision"]=new string('A',40)});Check(apiIdentity.ApiVersion=="1.5.0"&&apiIdentity.BuildRevision==new string('a',40),"connected API identity uses validated cached capability metadata");Check(ClientCapabilities.Unavailable.ApiVersion=="unknown"&&ClientCapabilities.Unavailable.BuildRevision=="unknown","missing API identity never guesses client build metadata");
 var supported=ClientCapabilities.Parse(new JsonObject{["capabilities_version"]=1,["supported_features"]=new JsonArray("party_credit_limits","party_shipping_address","company_book_labels","unknown_future_feature")});
 Check(supported.Supports("party_credit_limits")&&!supported.Supports("party_payment_terms")&&!supported.Supports("unknown_future_feature"),"only advertised known features are enabled");
 var masterMetadata=new JsonObject{["phone"]="123",["credit_limit"]="0",["shipping_address"]="Delivery",["is_active"]=false,["payment_terms_days"]=30,["low_stock_threshold"]="10"};var filtered=supported.MasterData(masterMetadata);
@@ -99,6 +103,10 @@ var capabilityTransport=new CapabilityTransport();using(var client=new ApexApi("
  await client.Login("metadata@example.invalid","synthetic",false);Check(!client.Capabilities.Supports("party_credit_limits"),"new session immediately invalidates old capabilities");await client.EnsureCapabilities();Check(capabilityTransport.CapabilityCalls==2,"new sign-in refreshes capabilities once");client.ForgetSession();Check(!client.Capabilities.Supports("party_credit_limits"),"signout clears capability state");
 }
 
+var slowFeatures=new CapabilityTransport{DelayMilliseconds=2000};using(var client=new ApexApi("https://synthetic-cold-capabilities.invalid",slowFeatures)){
+ await client.Login("metadata@example.invalid","synthetic",false);var clock=System.Diagnostics.Stopwatch.StartNew();var core=client.LoadCompanyCore("cold-company");Check(await Task.WhenAny(core,Task.Delay(1000))==core,"core company load completes independently of2second capability response");await core;var coreMs=clock.ElapsedMilliseconds;Check(client.Capabilities.Pending&&!client.Capabilities.Supports("party_credit_limits"),"pending metadata is labelled checking and optional features fail closed");await client.EnsureCapabilities();Check(client.Capabilities.Supports("party_credit_limits")&&slowFeatures.CapabilityCalls==1,"slow successful capability response enables features without another request");Console.WriteLine($"COLD_CAPABILITIES core_ms={coreMs} capability_ms={clock.ElapsedMilliseconds} requests={slowFeatures.CapabilityCalls}");
+}
+
 var staleMetadata=new CapabilityTransport{Hold=true};using(var client=new ApexApi("https://synthetic-stale-metadata.invalid",staleMetadata)){
  await client.Login("metadata@example.invalid","synthetic",false);var pending=client.EnsureCapabilities();await staleMetadata.Entered.Task;client.ForgetSession();staleMetadata.Release.SetResult(true);await pending;Check(!client.Capabilities.Supports("party_credit_limits"),"late capability response cannot restore state after signout");
 }
@@ -111,6 +119,26 @@ foreach(var failure in new[]{"network","timeout","503","404","invalid"}){
 
 var staleRetry=new CapabilityTransport{Failure="network"};using(var client=new ApexApi("https://synthetic-stale-retry.invalid",staleRetry)){
  await client.Login("metadata@example.invalid","synthetic",false);await client.EnsureCapabilities();staleRetry.Failure="";staleRetry.Hold=true;var retry=client.RetryCapabilities();await staleRetry.Entered.Task;client.ForgetSession();staleRetry.Release.SetResult(true);await retry;Check(!client.Capabilities.Valid&&!client.Capabilities.Retryable,"late explicit capability retry cannot restore metadata after signout");
+}
+
+Check(BuildIdentity.Version=="1.5.0"&&BuildIdentity.Normalize(new string('A',40))==new string('a',40)&&BuildIdentity.Normalize(new string('b',64))==new string('b',64),"build identity accepts full40/64hex revisions and current1.5.0 version");foreach(var invalid in new string?[]{null,"","main","1234567",new string('a',39),new string('a',41),new string('g',40),new string('a',40)+"\n"," "+new string('a',40)})Check(BuildIdentity.Normalize(invalid)=="unknown","invalid or missing build revision is unknown");
+
+var fixedDiscount=new LineDiscountState(new JsonObject{["discount_amount"]="10",["discount_percent"]="0"});var fixedLine=new JsonObject{["quantity"]="1",["rate"]="100"};fixedDiscount.WriteTo(fixedLine);Check(fixedDiscount.Mode=="amount"&&fixedLine.Text("discount_amount")=="10"&&!fixedLine.ContainsKey("discount_percent"),"reopened fixed discount preserves10 and serializes only fixed key");fixedLine["quantity"]="0.5";fixedDiscount.WriteTo(fixedLine);Check(fixedLine.Text("discount_amount")=="10","quantity change never silently prorates fixed line discount");fixedDiscount.Select("percent");fixedDiscount.WriteTo(fixedLine);Check(fixedDiscount.Value=="0"&&!fixedLine.ContainsKey("discount_amount")&&fixedLine.Text("discount_percent")=="0","switching fixed to percent clears previous fixed discount");fixedDiscount.Value="15";fixedDiscount.Select("amount");fixedDiscount.WriteTo(fixedLine);Check(fixedDiscount.Value=="0"&&!fixedLine.ContainsKey("discount_percent"),"switching percent to fixed clears previous percentage");var percentDiscount=new LineDiscountState(new JsonObject{["discount_percent"]="12.5"});percentDiscount.WriteTo(fixedLine);Check(percentDiscount.Mode=="percent"&&fixedLine.Text("discount_percent")=="12.5"&&!fixedLine.ContainsKey("discount_amount"),"percentage-only legacy lines remain percentage discounts");
+
+Check(new LineDiscountState(new JsonObject{["discount_amount"]="0",["discount_percent"]="0"}).Mode=="amount","explicit zero fixed discount retains fixed mode on reopen");
+var discountReview=new FixedDiscountReview();var returnedLine=new JsonObject{["quantity"]="1",["discount_amount"]="10"};Check(FixedDiscountReview.Needed(true,new[]{returnedLine})&&!FixedDiscountReview.Needed(false,new[]{returnedLine})&&!FixedDiscountReview.Needed(true,new[]{new JsonObject{["discount_amount"]="0"}}),"only linked returns with positive fixed discounts require explicit review");Check(!discountReview.IsAcknowledged("line:0:1:10"),"new linked return starts unacknowledged");discountReview.Acknowledge("line:0:1:10");Check(discountReview.IsAcknowledged("line:0:1:10")&&!discountReview.IsAcknowledged("line:1:0.5:10")&&!discountReview.IsAcknowledged("line:2:1:10"),"quantity change and change-back revisions both invalidate fixed-discount acknowledgement");Check(!discountReview.IsAcknowledged("line:1:1:5"),"fixed amount edit invalidates return review");discountReview.Acknowledge("historical:0:1:10");Check(discountReview.IsAcknowledged("historical:0:1:10"),"unchanged historical note may retain its initial reviewed signature");
+
+var backupTransport=new BackupTransport();using(var client=new ApexApi("https://synthetic-transfer.invalid",backupTransport)){
+ await client.Login("transfer@example.invalid","synthetic",false);var transfer=new CompleteBackupTransfer(client);using var plaintext=new MemoryStream(backupTransport.Archive);
+ try{await transfer.UploadAndPreview(plaintext,"Restored synthetic");throw new Exception("Expected interrupted creation");}catch(ApiFailure e)when(e.Status==0){}Check(transfer.Pending,"unknown upload creation retains recovery state");
+ var preview=await transfer.UploadAndPreview(plaintext,"Restored synthetic");Check(!transfer.Pending&&preview.Text("digest")==CompleteBackupTransfer.Hash(backupTransport.Archive),"same upload key recovers and verifies complete preview digest");Check(backupTransport.CreateKeys.Distinct().Count()==1&&backupTransport.Uploaded.SequenceEqual(new[]{1}),"resumed upload skips acknowledged chunk zero");
+ try{await transfer.Commit();throw new Exception("Expected interrupted commit");}catch(ApiFailure e)when(e.Status==0){}Check(transfer.Pending,"unknown restore commit remains unresolved");var committed=await transfer.Commit();Check(committed.Text("company_id")=="restored-company"&&!transfer.Pending&&backupTransport.CommitDigests.Distinct().Count()==1,"commit retries exact stage and digest without duplicate company");
+ var export=new CompleteBackupTransfer(client);using(var archive=await export.DownloadExport("company"))Check(archive.Length==backupTransport.Archive.Length&&SHA256.HashData(archive).SequenceEqual(SHA256.HashData(backupTransport.Archive)),"complete export verifies every chunk and whole archive");
+ backupTransport.Tamper=true;try{using var archive=await export.DownloadExport("company");throw new Exception("Tampered chunk accepted");}catch(InvalidDataException){}Check(true,"tampered complete export is rejected before save");
+ var resume=new CompleteBackupTransfer(client,transfer.Metadata);using var different=new MemoryStream(new byte[backupTransport.Archive.Length]);try{await resume.UploadAndPreview(different,"Restored synthetic");throw new Exception("Different resume payload accepted");}catch(InvalidOperationException){}Check(true,"resume refuses a different file before further chunk writes");
+ try{await client.DownloadBounded("/api/companies/company/backup-exports/export-id/chunks/0",10);throw new Exception("Oversized download accepted");}catch(InvalidDataException){}Check(true,"binary transport rejects oversized response before materializing it");
+ var oldSession=new CompleteBackupTransfer(client);await client.Login("another@example.invalid","synthetic",false);try{await oldSession.StartExport("company");throw new Exception("Old session transfer continued");}catch(OperationCanceledException){}Check(true,"transfer cannot continue under a replacement account session");
+
 }
 
 var paging=new PagingTransport();using var pagingApi=new ApexApi("https://synthetic-paging.invalid",paging);
@@ -149,9 +177,25 @@ sealed class DelayedTransport:HttpMessageHandler
 
 sealed class CapabilityTransport:HttpMessageHandler
 {
- public string Failure="";public int CapabilityCalls;public bool SentAuthorization,Hold;public TaskCompletionSource<bool> Entered=new(TaskCreationOptions.RunContinuationsAsynchronously),Release=new(TaskCreationOptions.RunContinuationsAsynchronously);
+ public int DelayMilliseconds=20;public string Failure="";public int CapabilityCalls;public bool SentAuthorization,Hold;public TaskCompletionSource<bool> Entered=new(TaskCreationOptions.RunContinuationsAsynchronously),Release=new(TaskCreationOptions.RunContinuationsAsynchronously);
  protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation){
-  if(request.RequestUri!.AbsolutePath=="/api/capabilities"){Interlocked.Increment(ref CapabilityCalls);SentAuthorization|=request.Headers.Authorization is not null;if(Hold){Entered.SetResult(true);await Release.Task.WaitAsync(cancellation);}await Task.Delay(20,cancellation);if(Failure=="network")throw new HttpRequestException("synthetic offline");if(Failure=="timeout")throw new TaskCanceledException("synthetic timeout");if(Failure is "503" or "404")return new((HttpStatusCode)int.Parse(Failure)){Content=new StringContent("{}")};if(Failure=="invalid")return new(HttpStatusCode.OK){Content=new StringContent("not json")};return new(HttpStatusCode.OK){Content=new StringContent("{\"capabilities_version\":1,\"supported_features\":[\"party_credit_limits\"]}")};}
+  if(request.RequestUri!.AbsolutePath=="/api/capabilities"){Interlocked.Increment(ref CapabilityCalls);SentAuthorization|=request.Headers.Authorization is not null;if(Hold){Entered.SetResult(true);await Release.Task.WaitAsync(cancellation);}await Task.Delay(DelayMilliseconds,cancellation);if(Failure=="network")throw new HttpRequestException("synthetic offline");if(Failure=="timeout")throw new TaskCanceledException("synthetic timeout");if(Failure is "503" or "404")return new((HttpStatusCode)int.Parse(Failure)){Content=new StringContent("{}")};if(Failure=="invalid")return new(HttpStatusCode.OK){Content=new StringContent("not json")};return new(HttpStatusCode.OK){Content=new StringContent("{\"capabilities_version\":1,\"supported_features\":[\"party_credit_limits\"]}")};}
+  if(request.RequestUri!.AbsolutePath.Contains("/companies/"))return new(HttpStatusCode.OK){Content=new StringContent("[]")};
   return new(HttpStatusCode.OK){Content=new StringContent("{\"token\":\"synthetic-metadata-session\"}")};
+ }
+}
+
+sealed class BackupTransport:HttpMessageHandler
+{
+ public byte[] Archive=Enumerable.Range(0,524301).Select(i=>(byte)(i%251)).ToArray();public List<string> CreateKeys=[],CommitDigests=[];public List<int> Uploaded=[];public bool Tamper;bool created,committed;
+ JsonObject Metadata(bool export=false)=>new(){[export?"export_id":"upload_id"]=export?"export-id":"upload-id",["state"]=export?"ready":"uploading",["target_company_name"]="Restored synthetic",["byte_count"]=Archive.Length,["sha256"]=CompleteBackupTransfer.Hash(Archive),["chunk_size"]=524288,["chunk_count"]=2,["received_indices"]=new JsonArray(0),["chunks"]=new JsonArray(Enumerable.Range(0,2).Select(i=>(JsonNode)new JsonObject{["index"]=i,["size_bytes"]=Part(i).Length,["sha256"]=CompleteBackupTransfer.Hash(Part(i))}).ToArray())};
+ byte[] Part(int index)=>Archive.Skip(index*524288).Take(524288).ToArray();HttpResponseMessage Json(JsonNode value)=>new(HttpStatusCode.OK){Content=new StringContent(value.ToJsonString())};
+ protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation){var path=request.RequestUri!.AbsolutePath;
+ if(path=="/api/auth/login")return Json(new JsonObject{["token"]="transfer-test-session"});
+ if(path=="/api/backups/uploads"){CreateKeys.Add(request.Headers.GetValues("Idempotency-Key").Single());if(!created){created=true;throw new HttpRequestException("synthetic response lost after creation");}return Json(Metadata());}
+ if(path.EndsWith("/preview"))return Json(new JsonObject{["digest"]=CompleteBackupTransfer.Hash(Archive)});
+ if(path.EndsWith("/commit")){CommitDigests.Add(JsonNode.Parse(await request.Content!.ReadAsStringAsync())!.Text("digest"));if(!committed){committed=true;throw new HttpRequestException("synthetic response lost after commit");}return Json(new JsonObject{["company_id"]="restored-company",["digest"]=CompleteBackupTransfer.Hash(Archive),["already_restored"]=true});}
+ if(path.Contains("/chunks/")){var index=int.Parse(path.Split('/').Last());if(request.Method==HttpMethod.Put){var data=await request.Content!.ReadAsByteArrayAsync();Uploaded.Add(index);return Json(new JsonObject{["index"]=index,["size_bytes"]=data.Length,["sha256"]=CompleteBackupTransfer.Hash(data),["received"]=true});}var part=Part(index);var hash=CompleteBackupTransfer.Hash(part);if(Tamper)part[0]^=1;var result=new HttpResponseMessage(HttpStatusCode.OK){Content=new ByteArrayContent(part)};result.Headers.Add("X-Chunk-SHA256",hash);result.Headers.Add("X-Archive-SHA256",CompleteBackupTransfer.Hash(Archive));return result;}
+ return Json(Metadata(path.Contains("backup-exports")));
  }
 }

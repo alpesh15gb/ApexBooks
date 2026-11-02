@@ -53,6 +53,8 @@ class BookLabelTest(unittest.TestCase):
         c,h,b=self.context();r=c.get('/api/capabilities');self.assertEqual(r.status_code,200,r.text);value=r.json()
         self.assertEqual(value['capabilities_version'],1);self.assertIn('company_book_labels',value['supported_features']);self.assertIn('recurring_drafts',value['supported_features'])
         import main
+        self.assertEqual(value['api_version'],main.app.version);self.assertEqual(value['build_revision'],main.BUILD_REVISION)
+        self.assertRegex(value['build_revision'],r'^(unknown|[0-9a-f]{40}|[0-9a-f]{64})$')
         self.assertEqual('document_attachments' in value['supported_features'],bool(getattr(main.app.state,'document_attachments_ready',False) and getattr(main.app.state,'chunked_backups_ready',False)))
         self.assertEqual('chunked_backups' in value['supported_features'],bool(getattr(main.app.state,'chunked_backups_ready',False)))
         self.assertEqual(value['business_timezone'],'Asia/Kolkata');self.assertNotIn('companies',value);self.assertNotIn('records',value)

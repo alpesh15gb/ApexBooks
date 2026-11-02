@@ -100,7 +100,7 @@ public sealed partial class MainPage : Page
     internal async Task LoadCompanies()
     {
         var stamp=workspaceGeneration;var request=++companyLoads;
-        var metadata=Api.EnsureCapabilities();var loaded=(await Api.Send("/api/companies")).Array();
+        _=Api.EnsureCapabilities();var loaded=(await Api.Send("/api/companies")).Array();
         if(!Api.SignedIn||stamp!=workspaceGeneration||request!=companyLoads)return;
         Companies=loaded;
         if (!shellReady) BuildShell(); else host.Content=navigation;
@@ -109,7 +109,7 @@ public sealed partial class MainPage : Page
         SelectValue(companyPicker, CompanyId); if (companyPicker.SelectedIndex < 0 && companyPicker.Items.Count > 0) companyPicker.SelectedIndex = 0;
         changingCompanies = false;
         if (companyPicker.SelectedIndex >= 0) await ChooseCompany();
-        else { await metadata;if(!Api.SignedIn||stamp!=workspaceGeneration||request!=companyLoads)return;CompanyId="";Company=new();Records=new();Banks=new();recordsReady=false;posDrafts.Clear();leavePage=null;hasUnsavedPage=null;hasPendingPage=null;generation++;workspaceGeneration++;refreshSequence++;NativeUi.CloseDialog();Body.Children.Clear(); Body.Children.Add(Text("Welcome to Apex Books", 30, true)); Body.Children.Add(Text("Create your first company to start recording transactions.")); Body.Children.Add(AsyncButton("Create company", () => CompanyForm(), Error, true)); }
+        else { if(!Api.SignedIn||stamp!=workspaceGeneration||request!=companyLoads)return;CompanyId="";Company=new();Records=new();Banks=new();recordsReady=false;posDrafts.Clear();leavePage=null;hasUnsavedPage=null;hasPendingPage=null;generation++;workspaceGeneration++;refreshSequence++;NativeUi.CloseDialog();Body.Children.Clear(); Body.Children.Add(Text("Welcome to Apex Books", 30, true)); Body.Children.Add(Text("Create your first company to start recording transactions.")); Body.Children.Add(AsyncButton("Create company", () => CompanyForm(), Error, true));if(!Api.Capabilities.HasCoreAdditions)Body.Children.Add(CapabilityNotice()); }
     }
 
     private void BuildShell()
@@ -155,9 +155,9 @@ public sealed partial class MainPage : Page
         var leave=leavePage;leavePage=null;leave?.Invoke();hasUnsavedPage=null;hasPendingPage=null;
         CompanyId = id; Company = Companies.OfType<JsonObject>().First(r => r.Text("id") == id);Records=new();Banks=new();recordsReady=false;++generation;var current=++workspaceGeneration;var request=++refreshSequence;NativeUi.CloseDialog();
         Body.Children.Clear(); Body.Children.Add(Text("Loading " + Company.Text("name") + "…", 22, true));
-        var records = Api.Records(id); var banks = Api.Send(Api.CompanyPath(id, "/bank-accounts")); await Task.WhenAll(records, banks, Api.EnsureCapabilities());
+        var loaded=await Api.LoadCompanyCore(id);
         if (current != workspaceGeneration||request!=refreshSequence) return;
-        Records = await records; Banks = (await banks).Array();recordsReady=true; await Navigate(CurrentPage);
+        Records = loaded.Records; Banks = loaded.Banks;recordsReady=true; await Navigate(CurrentPage);
     }
 
     internal async Task Refresh()

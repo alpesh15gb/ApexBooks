@@ -1,3 +1,4 @@
+import { lineDiscountMode } from "./lineDiscount.js";
 import React, { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
@@ -257,7 +258,7 @@ export function DocumentItems({
         <span>ITEM / SERVICE</span>
         <span>QTY / UNIT</span>
         <span>RATE ₹</span>
-        <span>DISCOUNT %</span>
+        <span>DISCOUNT</span>
         {showTax && <span>GST %</span>}
         <span>AMOUNT</span>
         <span />
@@ -325,16 +326,20 @@ export function DocumentItems({
               />
             </label>
             <label>
-              <span className="mobile-field-label">Discount %</span>
+              <span className="mobile-field-label">Line discount</span>
+              <select name="discount_mode" aria-label={`Item ${index + 1} discount mode`} value={lineDiscountMode(line)} onChange={e => changeLine(index, e)} style={{ minHeight: 44 }}>
+                <option value="percent">Discount %</option><option value="amount">Discount ₹</option>
+              </select>
               <input
-                name="discount_percent"
+                name={lineDiscountMode(line) === "amount" ? "discount_amount" : "discount_percent"}
                 type="number"
                 min="0"
-                max="100"
+                max={lineDiscountMode(line) === "amount" ? undefined : "100"}
                 step="0.01"
-                aria-label={`Item ${index + 1} discount percent`}
-                value={line.discount_percent}
+                aria-label={`Item ${index + 1} discount ${lineDiscountMode(line) === "amount" ? "amount" : "percent"}`}
+                value={lineDiscountMode(line) === "amount" ? line.discount_amount ?? "0" : line.discount_percent ?? "0"}
                 onChange={(e) => changeLine(index, e)}
+                style={{ minHeight: 44 }}
               />
             </label>
             {showTax && (

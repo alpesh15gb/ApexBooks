@@ -37,6 +37,7 @@ public sealed class ApexApi : IDisposable
     private int loginSequence;
     private int capabilityGeneration;private Task? capabilityLoad;
     public ClientCapabilities Capabilities { get; private set; }=ClientCapabilities.Unavailable;
+    public int SessionGeneration {get{lock(sessionGate)return capabilityGeneration;}}
     public string Origin { get; }
     public string Email { get; private set; } = "";
     public bool SignedIn {get{lock(sessionGate)return sessionToken.Length>0;}}
@@ -86,20 +87,20 @@ public sealed class ApexApi : IDisposable
 
     public Task EnsureCapabilities()
     {
-        lock(sessionGate)return capabilityLoad??=LoadCapabilities(capabilityGeneration);
+        lock(sessionGate){if(capabilityLoad is not null)return capabilityLoad;Capabilities=ClientCapabilities.Checking;return capabilityLoad=LoadCapabilities(capabilityGeneration); }
     }
     public Task RetryCapabilities()
     {
-        lock(sessionGate){if(capabilityLoad is {IsCompleted:false})return capabilityLoad;if(!Capabilities.Retryable)return capabilityLoad??Task.CompletedTask;return capabilityLoad=LoadCapabilities(capabilityGeneration);}
+        lock(sessionGate){if(capabilityLoad is {IsCompleted:false})return capabilityLoad;if(!Capabilities.Retryable)return capabilityLoad??Task.CompletedTask;Capabilities=ClientCapabilities.Checking;return capabilityLoad=LoadCapabilities(capabilityGeneration);}
     }
     private async Task LoadCapabilities(int generation)
     {
         var found=ClientCapabilities.Unavailable;
         try{
-            using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(3));using var request=new HttpRequestMessage(HttpMethod.Get,"api/capabilities");using var response=await http.SendAsync(request,deadline.Token).ConfigureAwait(false);
+            using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(8));using var request=new HttpRequestMessage(HttpMethod.Get,"api/capabilities");using var response=await http.SendAsync(request,deadline.Token).ConfigureAwait(false);
             if(response.IsSuccessStatusCode){try{found=ClientCapabilities.Parse(JsonNode.Parse(await response.Content.ReadAsStringAsync(deadline.Token).ConfigureAwait(false)));}catch(System.Text.Json.JsonException){found=ClientCapabilities.Unavailable;}}
             else if((int)response.StatusCode>=500||(int)response.StatusCode is 408 or 429)found=ClientCapabilities.TransientFailure;
-        }catch(HttpRequestException){found=ClientCapabilities.TransientFailure;}catch(OperationCanceledException){found=ClientCapabilities.TransientFailure;}
+        }catch(HttpRequestException){found=ClientCapabilities.TransientFailure;}catch(IOException){found=ClientCapabilities.TransientFailure;}catch(OperationCanceledException){found=ClientCapabilities.TransientFailure;}
         lock(sessionGate){if(generation==capabilityGeneration)Capabilities=found;}
     }
 
@@ -153,7 +154,29 @@ public sealed class ApexApi : IDisposable
         return await response.Content.ReadAsByteArrayAsync();
     }
 
+    public async Task<JsonNode> SendBytes(string path,HttpMethod method,byte[] body,string mediaType,string? retryKey=null,CancellationToken cancellation=default)
+    {
+        using var request=new HttpRequestMessage(method,path.TrimStart('/'));var token=SessionToken();if(token.Length>0)request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",token);request.Content=new ByteArrayContent(body);request.Content.Headers.ContentType=new MediaTypeHeaderValue(mediaType);if(retryKey is not null)request.Headers.Add("Idempotency-Key",retryKey);
+        try{using var response=await http.SendAsync(request,cancellation).ConfigureAwait(false);var text=await response.Content.ReadAsStringAsync(cancellation).ConfigureAwait(false);if(!response.IsSuccessStatusCode)throw Failure(response.StatusCode,text,token);return JsonNode.Parse(text)??new JsonObject();}
+        catch(HttpRequestException){throw new ApiFailure(0,"Transfer response interrupted. Retry the original operation.");}catch(TaskCanceledException)when(!cancellation.IsCancellationRequested){throw new ApiFailure(0,"Transfer timed out. Retry the original operation.");}
+    }
+    public async Task<(byte[] Bytes,string Sha256,string ArchiveSha256)> DownloadBounded(string path,int maximum,CancellationToken cancellation=default)
+    {
+        var token=SessionToken();using var request=new HttpRequestMessage(HttpMethod.Get,path.TrimStart('/'));if(token.Length>0)request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",token);
+        using var response=await http.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,cancellation).ConfigureAwait(false);if(!response.IsSuccessStatusCode)throw Failure(response.StatusCode,await response.Content.ReadAsStringAsync(cancellation).ConfigureAwait(false),token);
+        if(response.Content.Headers.ContentLength>maximum)throw new InvalidDataException("Download exceeds its size limit.");using var output=new MemoryStream();using var input=await response.Content.ReadAsStreamAsync(cancellation).ConfigureAwait(false);var buffer=new byte[32768];int n;
+        while((n=await input.ReadAsync(buffer,cancellation).ConfigureAwait(false))>0){if(output.Length+n>maximum)throw new InvalidDataException("Download exceeds its size limit.");await output.WriteAsync(buffer.AsMemory(0,n),cancellation).ConfigureAwait(false);}
+        string Header(string name)=>response.Headers.TryGetValues(name,out var values)?values.FirstOrDefault()??"":"";
+        return(output.ToArray(),Header("X-Chunk-SHA256") is {Length:>0} chunk?chunk:Header("X-Content-SHA256"),Header("X-Archive-SHA256"));
+    }
+
     public string CompanyPath(string companyId, string suffix = "") => $"/api/companies/{Uri.EscapeDataString(companyId)}{suffix}";
+
+    public async Task<(JsonArray Records,JsonArray Banks)> LoadCompanyCore(string companyId)
+    {
+        _=EnsureCapabilities(); // Optional metadata never gates financial company readiness.
+        var records=Records(companyId);var banks=Send(CompanyPath(companyId,"/bank-accounts"));await Task.WhenAll(records,banks).ConfigureAwait(false);return(await records.ConfigureAwait(false),(await banks.ConfigureAwait(false)).Array());
+    }
 
     public async Task<JsonArray> Records(string companyId)
     {

@@ -56,3 +56,14 @@ The initial launch/login/company-switch/detail smoke passed on a hosted Windows
 runner at remote commit `185d422` (run `41522768677`). The expanded create/payment/
 dirty-draft journey must pass its own subsequent CI run; compilation is not proof
 that those additional UI steps passed.
+
+The next retained-evidence gate additionally seeds a synthetic purchase bill,
+opens its actual detail → Retained receipts, selects a generated PDF through the
+real Windows **Open** picker, uploads and archives via actual controls, verifies
+canonical bytes/hash/state, and enters Settings → complete-backup dialog without
+starting an export. It preserves all mandatory invoice250/collection100/balance150
+and dirty-draft assertions. Picker automation targets the English hosted runner's
+`Open` window and `File name` field; missing/inaccessible picker fails with the
+usual diagnostics rather than substituting a hidden API upload. This extension is
+compiled locally but **requires its own Windows CI execution** before success can
+be claimed. No OS permission/security changes are performed.

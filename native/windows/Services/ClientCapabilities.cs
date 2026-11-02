@@ -7,19 +7,26 @@ public sealed class ClientCapabilities
 {
     private static readonly HashSet<string> Known=["low_stock_reorder","party_price_history","party_payment_terms","master_lifecycle","party_shipping_address","party_credit_limits","recurring_drafts","company_book_labels","document_attachments","chunked_backups"];
     private readonly HashSet<string> features;
+    private JsonObject limits=new();
+    public string ApiVersion {get;private set;}="unknown";
+    public string BuildRevision {get;private set;}="unknown";
+    static string VersionLabel(string value)=>value.Length is >0 and <=64&&value.All(c=>char.IsAsciiLetterOrDigit(c)||c is '.' or '-' or '+')?value:"unknown";
+    public long Limit(string name,long fallback,long maximum){var value=limits[name];return value is JsonValue json&&json.TryGetValue<long>(out var number)&&number>0?Math.Min(number,maximum):fallback;}
     public static ClientCapabilities Unavailable { get; }=new(false,[]);
+    public static ClientCapabilities Checking { get; }=new(false,[],false,true);
     public static ClientCapabilities TransientFailure { get; }=new(false,[],true);
-    private ClientCapabilities(bool valid,IEnumerable<string> supported,bool retryable=false){Valid=valid;Retryable=retryable;features=new(supported.Where(Known.Contains),StringComparer.Ordinal);}
+    private ClientCapabilities(bool valid,IEnumerable<string> supported,bool retryable=false,bool pending=false){Valid=valid;Retryable=retryable;Pending=pending;features=new(supported.Where(Known.Contains),StringComparer.Ordinal);}
     public bool Valid { get; }
     public bool Retryable { get; }
-    public string Hint=>Retryable?"Unable to check features. Core accounting remains available. Retry the feature check when your connection is available.":UpgradeHint;
+    public bool Pending { get; }
+    public string Hint=>Pending?"Checking optional server features… Core accounting is ready independently.":Retryable?"Unable to check features. Core accounting remains available. Retry the feature check when your connection is available.":UpgradeHint;
     public bool Supports(string feature)=>Valid&&features.Contains(feature);
     public bool HasCoreAdditions=>new[]{"low_stock_reorder","party_price_history","party_payment_terms","master_lifecycle","party_shipping_address","party_credit_limits","recurring_drafts"}.All(Supports);
     public const string UpgradeHint="This server has not confirmed support for this newer feature. Core accounting remains available; upgrade the API and sign in again to refresh capabilities.";
     public static ClientCapabilities Parse(JsonNode? payload)
     {
         if(payload is not JsonObject obj||obj["capabilities_version"] is not JsonValue version||!version.TryGetValue<int>(out var value)||value!=1||obj["supported_features"] is not JsonArray list)return Unavailable;
-        var features=new List<string>();foreach(var item in list){if(item is not JsonValue entry||!entry.TryGetValue<string>(out var name))return Unavailable;features.Add(name);}return new(true,features);
+        var features=new List<string>();foreach(var item in list){if(item is not JsonValue entry||!entry.TryGetValue<string>(out var name))return Unavailable;features.Add(name);}return new(true,features){ApiVersion=VersionLabel(obj.Text("api_version")),BuildRevision=BuildIdentity.Normalize(obj.Text("build_revision")),limits=obj["limits"] is JsonObject bounds?(JsonObject)bounds.DeepClone():new()};
     }
     public void RequireMasterEditsSupported(JsonObject original,JsonObject candidate)
     {

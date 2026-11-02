@@ -59,7 +59,7 @@ export default function MasterForm({ kind, close, save, record, features = [] })
             track_stock: form.track_stock,
             barcode: form.barcode,
             item_type: form.item_type,tax_treatment:form.tax_treatment,
-            low_stock_threshold: form.track_stock && form.item_type !== "services" && form.low_stock_threshold !== "" && form.low_stock_threshold != null ? String(form.low_stock_threshold) : null,
+            low_stock_threshold: form.low_stock_threshold !== "" && form.low_stock_threshold != null ? String(form.low_stock_threshold) : null,
           };
       await save({ kind, name: form.name, data: supportedMasterData(data, features) });
     } catch (err) {
@@ -261,7 +261,7 @@ export default function MasterForm({ kind, close, save, record, features = [] })
                 Track stock quantities for this item
                 {record && " (fixed after creation)"}
               </label>
-              {supported("low_stock_reorder") && form.track_stock && form.item_type !== "services" && <label className="full">Low-stock threshold<input name="low_stock_threshold" type="number" min="0" step="0.001" value={form.low_stock_threshold ?? ""} onChange={update} placeholder="Disabled" /><small>Alerts when on-hand stock is at or below this quantity. Blank disables alerts. Changing this never posts stock or accounting entries.</small></label>}
+              {supported("low_stock_reorder") && ((form.track_stock && form.item_type !== "services") || (form.low_stock_threshold !== "" && form.low_stock_threshold != null)) && <label className="full">Low-stock threshold<input name="low_stock_threshold" type="number" min="0" step="0.001" value={form.low_stock_threshold ?? ""} onChange={update} placeholder="Disabled" /><small>Alerts when on-hand stock is at or below this quantity. Blank explicitly disables alerts. Clear this value before changing to a service or untracked item. Changing this never posts stock or accounting entries.</small></label>}
 
             </>
           )}

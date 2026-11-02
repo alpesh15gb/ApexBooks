@@ -469,7 +469,7 @@ function App() {
   useEffect(() => {
     let active = true; const token = localStorage.token; setCapabilities(null);
     if (signed) api("/capabilities").then(result => {
-      if (active && localStorage.token === token) setCapabilities({ features: capabilityFeatures(result), version: result.api_version });
+      if (active && localStorage.token === token) setCapabilities({ features: capabilityFeatures(result), version: result.api_version, revision: result.build_revision });
     }).catch(reason => {
       if (active && localStorage.token === token) setCapabilities({ features: [], reason: reason.status === 404 ? "The connected API does not yet advertise these features." : "API feature support could not be verified." });
     });
@@ -1126,6 +1126,7 @@ function App() {
             <CommerceWorkspace key={companyId} company={company} records={records} api={api} onPdf={downloadDocument}/>
           ) : page === "settings" ? (
             <SettingsWorkspace
+              apiBuild={capabilities}
               key={companyId}
               company={company}
               onAddCompany={() => setModal("company")}

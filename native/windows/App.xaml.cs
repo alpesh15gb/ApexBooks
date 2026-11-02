@@ -52,7 +52,7 @@ public partial class App : Application
     {
         Window = new MainWindow();
 #if DEBUG
-        Window.Title = $"Apex Books QA 1.3 · {System.Environment.ProcessId}";
+        Window.Title = $"Apex Books QA 1.5.0 · {System.Environment.ProcessId}";
 #endif
         DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
         Window.Activate();

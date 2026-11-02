@@ -94,8 +94,11 @@ import org.json.JSONObject
                 itemsIndexed(data.a("lines").objects()) { index, line -> Section {
                     Text("${index + 1}. ${line.s("description")}", fontWeight = FontWeight.SemiBold)
                     DetailValue("${line.s("quantity")} ${line.s("unit")} × ${money(line.s("rate"))}", money(line.decimal("taxable") + line.decimal("tax")))
+                    if(line.has("discount_amount")&&!line.isNull("discount_amount"))DetailValue("Fixed line discount",money(line.s("discount_amount")))else if(line.decimal("discount_percent").signum()!=0)DetailValue("Line discount",line.s("discount_percent")+"%")
+                    if(line.decimal("document_discount").signum()!=0)DetailValue("Document discount allocation",money(line.s("document_discount")))
                     if (vm.regular || line.decimal("tax").signum() != 0) DetailValue("GST ${line.s("gst_rate")}%", money(line.s("tax")))
                 } }
+                if(row.s("kind") in setOf("purchase_bill","expense")&&record!=null)item{OutlinedButton(onClick={vm.detail=null;vm.toolData=row;vm.tool="attachments"},modifier=Modifier.fillMaxWidth()){Text("Retained receipts & attachments")}}
                 if (data.s("notes").isNotBlank()) item { Section("Notes") { Text(data.s("notes")) } }
                 if (data.s("terms").isNotBlank()) item { Section("Terms") { Text(data.s("terms")) } }
                 if (vm.canWrite && row.s("kind") in vm.draftKinds && row.s("converted_to").isBlank() && record != null) item {

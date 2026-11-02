@@ -11,10 +11,13 @@ class LineState(initial:JSONObject=JSONObject(),regular:Boolean=false,val import
     // Lazy-list keys must be supported by Android Bundle state restoration.
     val uiKey:String=java.util.UUID.randomUUID().toString()
     val values=mutableStateMapOf<String,String>()
-    init { for(key in listOf("description","item_id","quantity","rate","hsn","unit","mrp","discount_percent","gst_rate","tax_treatment","itc_treatment"))values[key]=initial.s(key)
+    var discountMode by mutableStateOf(if(initial.has("discount_amount")&&!initial.isNull("discount_amount"))"amount" else "percent");private set
+    var discountRevision by mutableIntStateOf(0);private set
+    init { for(key in listOf("description","item_id","quantity","rate","hsn","unit","mrp","discount_percent","discount_amount","gst_rate","tax_treatment","itc_treatment"))values[key]=initial.s(key)
         if(get("quantity").isBlank())values["quantity"]="1";if(get("rate").isBlank())values["rate"]="0";if(get("gst_rate").isBlank())values["gst_rate"]=if(regular)"18" else "0";if(get("tax_treatment").isBlank())values["tax_treatment"]="taxable";if(get("itc_treatment").isBlank())values["itc_treatment"]="pending_review";values["price_includes_tax"]=initial.optBoolean("price_includes_tax").toString() }
     fun get(key:String)=values[key]?:""
-    fun set(key:String,value:String){values[key]=value}
+    fun set(key:String,value:String){if(key in setOf("quantity","discount_amount","discount_percent")&&get(key)!=value)discountRevision++;values[key]=value}
+    fun chooseDiscountMode(mode:String){require(mode in setOf("percent","amount"));if(mode!=discountMode){discountMode=mode;values["discount_percent"]="";values["discount_amount"]="";discountRevision++}}
     fun linkProduct(item:JSONObject,purchase:Boolean,regular:Boolean){
         val data=item.o("data");set("item_id",item.s("id"));set("description",item.s("name"))
         for(key in listOf("hsn","unit"))if(!importedFromOcr||data.s(key).isNotBlank())set(key,data.s(key))
@@ -23,7 +26,7 @@ class LineState(initial:JSONObject=JSONObject(),regular:Boolean=false,val import
         set("rate",data.s(if(purchase)"purchase_rate" else "sale_rate"));set("gst_rate",if(regular||purchase)data.s("gst_rate")else"0")
         var type=data.s("tax_treatment").ifBlank{"taxable"};if(regular&&!purchase&&data.decimal("gst_rate").signum()==0&&type=="taxable")type="nil_rated";set("tax_treatment",type)
     }
-    fun json():JSONObject=JSONObject().also{result->values.forEach{(key,value)->result.put(key,if(key=="price_includes_tax")value=="true" else if(key in setOf("discount_percent","mrp")&&value.isBlank())"0" else value)}}
+    fun json():JSONObject=JSONObject().also{result->values.forEach{(key,value)->if(key !in setOf("discount_percent","discount_amount")||key==if(discountMode=="amount")"discount_amount" else "discount_percent")result.put(key,if(key=="price_includes_tax")value=="true" else if(key in setOf("discount_percent","discount_amount","mrp")&&value.isBlank())"0" else value)}}
 }
 class AllocationState(id:String="",amount:String="") { var documentId by mutableStateOf(id);var amount by mutableStateOf(amount) }
 
@@ -37,6 +40,12 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     val document=kind in vm.documentKinds;val payment=kind in setOf("payment_in","payment_out");val master=kind in setOf("party","item")
     var saving by mutableStateOf(false);var scanning by mutableStateOf(false);var sourceLoading by mutableStateOf(false)
     var preview by mutableStateOf<JSONObject?>(null);var previewError by mutableStateOf("");var ocrTotal by mutableStateOf("")
+    private var returnEditRevision by mutableIntStateOf(0)
+    private var reviewedReturnSignature by mutableStateOf("")
+    val hasFixedLinkedReturn get()=kind in setOf("credit_note","debit_note")&&get("applied_to").isNotBlank()&&lines.any{it.discountMode=="amount"&&(it.get("discount_amount").toBigDecimalOrNull()?:BigDecimal.ZERO).signum()>0}
+    private val returnSignature get()=get("applied_to")+":"+returnEditRevision+":"+lines.joinToString("|"){it.uiKey+":"+it.discountRevision}
+    val fixedReturnReviewNeeded get()=hasFixedLinkedReturn&&reviewedReturnSignature!=returnSignature
+    fun acknowledgeReturnDiscount(checked:Boolean){reviewedReturnSignature=if(checked)returnSignature else ""}
     private var sourceSequence=0
     var retryKey=vm.key();private set
     private var initialSignature=""
@@ -56,11 +65,11 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         data.a("lines").objects().forEach{lines.add(LineState(it,regular))};if(document&&lines.isEmpty())lines.add(LineState(regular=regular))
         originalAllocations=(previous?.a("allocations")?.objects()?.takeIf{it.isNotEmpty()}?:data.a("allocations").objects()).ifEmpty{if(data.s("applied_to").isNotBlank())listOf(JSONObject().put("document_id",data.s("applied_to")).put("amount",source.s("amount")))else emptyList()}
         originalAllocations.forEach{allocations.add(AllocationState(it.s("document_id"),it.s("amount")))};if(payment&&allocations.isEmpty())allocations.add(AllocationState())
-        initialMasterFields=fields.toMap();initialSignature=body().toString()
+        initialMasterFields=fields.toMap();initialSignature=body().toString();if(previous!=null)reviewedReturnSignature=returnSignature
     }
     private fun supplierOrigin(data:JSONObject)=data.s("supplier_state").ifBlank{data.s("party_gstin").take(2).takeIf{it.length==2&&it.all{c->c.isDigit()}}?:vm.company.s("state_code")}
     fun get(key:String)=fields[key]?:""
-    fun set(key:String,value:String){fields[key]=value}
+    fun set(key:String,value:String){if(key in setOf("applied_to","document_discount_percent")&&get(key)!=value)returnEditRevision++;fields[key]=value}
     fun flag(key:String)=get(key)=="true"
     private var lastPartyShipping=""
     fun parties()=vm.records.filter{it.s("kind")=="party"&&selectableMaster(it,previous?.o("data")?.s("party_id")?:"")}
@@ -84,7 +93,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         val remaining=((get("amount").toBigDecimalOrNull()?:BigDecimal.ZERO)-others).max(BigDecimal.ZERO)
         row.amount=available.min(remaining).toPlainString()
     }
-    fun chooseSource(id:String){set("applied_to",id);if(id.isBlank()){sourceSequence++;sourceLoading=false;return};sourceLoading=true;val request=++sourceSequence;vm.task{try{val row=vm.api.record(companyId,id);if(vm.editor!==this||sourceSequence!=request)return@task;set("name",row.s("name"));val data=row.o("data");for(key in listOf("party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","supplier_state"))set(key,data.s(key));if(purchase)set("supplier_state",supplierOrigin(data));lines.clear();data.a("lines").objects().forEach{lines.add(LineState(it,regular))}}finally{if(request==sourceSequence)sourceLoading=false}}}
+    fun chooseSource(id:String){set("applied_to",id);if(id.isBlank()){sourceSequence++;sourceLoading=false;return};sourceLoading=true;val request=++sourceSequence;vm.task{try{val row=vm.api.record(companyId,id);if(vm.editor!==this||sourceSequence!=request)return@task;set("name",row.s("name"));val data=row.o("data");for(key in listOf("party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","supplier_state"))set(key,data.s(key));if(purchase)set("supplier_state",supplierOrigin(data));set("document_discount_percent",data.s("document_discount_percent").ifBlank{"0"});lines.clear();data.a("lines").objects().forEach{lines.add(LineState(it,regular))}}finally{if(request==sourceSequence)sourceLoading=false}}}
     fun body():JSONObject {
         val values=JSONObject()
         if(master){values.put("is_active",flag("is_active"));if(kind=="party")values.put("credit_limit",get("credit_limit").ifBlank{null}?:JSONObject.NULL);for(key in if(kind=="party")listOf("gstin","address","shipping_address","phone","email","party_type")else listOf("hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))values.put(key,get(key));if(kind=="item"){values.put("track_stock",flag("track_stock"));values.put("low_stock_threshold",get("low_stock_threshold").ifBlank{null}?:JSONObject.NULL)}else values.put("payment_terms_days",if(get("payment_terms_days").isBlank())JSONObject.NULL else get("payment_terms_days").toIntOrNull()?:get("payment_terms_days"))}
@@ -103,6 +112,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         saving=true
         vm.task{try{
             if(!retryPending){
+                if(fixedReturnReviewNeeded)throw Exception("Review the fixed discount against the quantities being returned before saving. It is not automatically prorated.")
                 if(get("name").isBlank())throw Exception("Enter a party or description.")
                 if(master&&ApiCapabilities.unsupportedChanges(initialMasterFields,fields,vm.supportedFeatures).isNotEmpty())throw Exception("Some edited settings are not supported by this server. Upgrade the API before saving these changes; they have not been saved.")
                 if(master)masterPlanningIssue(kind,get("payment_terms_days"),get("low_stock_threshold"),get("credit_limit"))?.let{throw Exception(it)}

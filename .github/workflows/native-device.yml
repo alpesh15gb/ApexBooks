@@ -23,6 +23,12 @@ jobs:
       JWT_SECRET: synthetic-native-device-ci-only-not-a-production-secret
     steps:
       - uses: actions/checkout@v4
+      - name: Record checked-out build revision
+        shell: bash
+        run: |
+          revision="$(git rev-parse HEAD)"
+          echo "APEX_BUILD_SHA=$revision" >> "$GITHUB_ENV"
+          echo "VITE_BUILD_SHA=$revision" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

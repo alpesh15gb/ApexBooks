@@ -14,6 +14,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Record checked-out build revision
+        shell: bash
+        run: |
+          revision="$(git rev-parse HEAD)"
+          echo "APEX_BUILD_SHA=$revision" >> "$GITHUB_ENV"
+          echo "VITE_BUILD_SHA=$revision" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -33,6 +39,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Record checked-out build revision
+        shell: bash
+        run: |
+          revision="$(git rev-parse HEAD)"
+          echo "APEX_BUILD_SHA=$revision" >> "$GITHUB_ENV"
+          echo "VITE_BUILD_SHA=$revision" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -46,6 +58,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       # EOF prevents accepting any new license; missing approval fails this step.
       - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' < /dev/null
+      - name: Verify streaming encrypted backups with a 64 MiB test heap
+        run: bash ../../android/gradlew -p . verifyBackupStreaming -PlargeMiB=320 --no-daemon --max-workers=2
+        working-directory: native/shared/AndroidBackupStreaming
       - run: bash gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon
         working-directory: native/android
       - uses: actions/upload-artifact@v4
@@ -60,12 +75,25 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Record checked-out build revision
+        shell: bash
+        run: |
+          revision="$(git rev-parse HEAD)"
+          echo "APEX_BUILD_SHA=$revision" >> "$GITHUB_ENV"
+          echo "VITE_BUILD_SHA=$revision" >> "$GITHUB_ENV"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
       - run: dotnet build native/windows/ApexBooks.Windows.csproj -c Debug -p:Platform=x64 -p:RuntimeIdentifier=win-x64
       - run: dotnet run --project native/tests/PortableClient/PortableClient.csproj -c Debug
       - run: dotnet run --project native/tests/WindowsClient/WindowsClient.csproj -c Debug
+      - name: Verify streaming encrypted backups with a 64 MiB managed heap
+        shell: pwsh
+        run: |
+          dotnet restore native/tests/WindowsBackupStreaming --locked-mode
+          dotnet build native/tests/WindowsBackupStreaming --no-restore
+          $env:DOTNET_GCHeapHardLimit="0x4000000"
+          dotnet native/tests/WindowsBackupStreaming/bin/Debug/net10.0/WindowsBackupStreaming.Tests.dll --max
   postgres-concurrency:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -85,6 +113,12 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Record checked-out build revision
+        shell: bash
+        run: |
+          revision="$(git rev-parse HEAD)"
+          echo "APEX_BUILD_SHA=$revision" >> "$GITHUB_ENV"
+          echo "VITE_BUILD_SHA=$revision" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

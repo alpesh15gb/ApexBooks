@@ -122,13 +122,14 @@ fun ActionDialog(
     enabled: Boolean = true,
     hasChanges: () -> Boolean = { false },
     unresolved: () -> Boolean = { false },
+    working: () -> Boolean = { false },
     onSave: suspend () -> Unit,
     onDismiss: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
     var saving by remember { mutableStateOf(false) }
     var discard by remember { mutableStateOf(false) }
-    fun close(){if(!saving){if(unresolved()){discard=false;vm.error="The previous save may already have posted. Retry the original save to recover its outcome before closing."}else if(hasChanges())discard=true else onDismiss()}}
+    fun close(){if(!saving&&!working()){if(unresolved()){discard=false;vm.error="The previous save may already have posted. Retry the original save to recover its outcome before closing."}else if(hasChanges())discard=true else onDismiss()}}
     Dialog(
         onDismissRequest = { close() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -145,7 +146,7 @@ fun ActionDialog(
                 Column {
                     Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        IconButton(enabled = !saving, onClick = { close() }) { Icon(Icons.Outlined.Close, "Close") }
+                        IconButton(enabled = !saving&&!working(), onClick = { close() }) { Icon(Icons.Outlined.Close, "Close") }
                     }
                     Column(
                         Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp),
@@ -158,9 +159,9 @@ fun ActionDialog(
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Message(vm.error, true) { vm.error = "" }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
-                                TextButton(enabled = !saving, onClick = { close() }) { Text("Cancel") }
+                                TextButton(enabled = !saving&&!working(), onClick = { close() }) { Text("Cancel") }
                                 Button(
-                                    enabled = enabled && !saving && vm.busy == 0,
+                                    enabled = enabled && !saving && !working() && vm.busy == 0,
                                     onClick = { saving = true; vm.task { try { onSave() } finally { saving = false } } }
                                 ) {
                                     if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(confirm)

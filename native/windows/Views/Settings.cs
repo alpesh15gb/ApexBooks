@@ -10,6 +10,10 @@ using static ApexBooks_Windows.Views.NativeUi;
 namespace ApexBooks_Windows;
 public sealed partial class MainPage
 {
+    private async Task AboutBuild()
+    {
+        var panel=Stack();panel.Children.Add(Text("Apex Books "+BuildIdentity.Version,24,true));panel.Children.Add(Text("Build revision",14,true));panel.Children.Add(Text(BuildIdentity.Revision,12));panel.Children.Add(Text("This nonsecret identifier comes from the explicit build-time checkout revision. Unknown means the build did not supply a valid full revision; the app never runs git to guess it.",12));panel.Children.Add(Text("API server · "+Api.Origin,12));panel.Children.Add(Text("Connected API version · "+Api.Capabilities.ApiVersion,12));panel.Children.Add(Text("Connected API build · "+Api.Capabilities.BuildRevision,12));await Dialog("About Apex Books",panel,()=>Task.CompletedTask,"Done");
+    }
     private Task SettingsPage()
     {
         var entries=new List<(string Title,string Detail,(string Label,Func<Task> Action)[] Actions)>();
@@ -20,8 +24,10 @@ public sealed partial class MainPage
             Add("Documents & branding","Company logo, signature, bank / UPI details and five document formats.",("Logo, signature and formats",Branding),("Transaction prefixes",Prefixes));
             Add("Accounting","Opening balances and accounting period controls.",("Opening balances",OpeningBalance),("Accounting period lock",PeriodLock));
             Add("Data & migration","Import, export and protect your books. Vyapar migration includes reconciliation; backup restore creates a separate company.",("Import Vyapar .vyb backup",VyaparMigration),("Import parties / items CSV",MasterCsvImport),("Export company data",DataExport),("Download backup",BackupCompany),("Restore company backup",RestoreCompany));
+            if(Supports("chunked_backups"))Add("Complete backup recovery","Resume or cancel your own staged transfers after a lost response or restart.",("Recover backup transfers",RecoverCompleteTransfers));
             Add("People & access","Manage company roles and permissions.",("Company members",Members));
         }
+        Add("About Apex Books","Version "+BuildIdentity.Version+" · build "+BuildIdentity.Revision+" · connected API "+Api.Capabilities.ApiVersion+" / "+Api.Capabilities.BuildRevision,("About this build",AboutBuild));
         Add("Account security","Protect your account and review changes. Remembered sign-in uses Windows Credential Manager.",("Password and sessions",Security),("One-use recovery codes",RecoveryCodes),("View audit history",AuditHistory));
         Add("Ecommerce","Company-scoped Bagisto channels, stock, orders and delivery review.",("Open ecommerce workspace",()=>Navigate("commerce")));
         var search=Input("Find a setting, for example logo, Vyapar or prefixes");var category=Select("Settings category",new[]{("all","All settings")}.Concat(entries.Select(e=>(e.Title,e.Title))),"all");var content=Stack(18);
@@ -66,11 +72,13 @@ public sealed partial class MainPage
     }
     private async Task BackupCompany()
     {
+        if(Supports("chunked_backups")){await CompleteBackupCompany();return;}
         var cid=CompanyId;var password=new PasswordBox{Header="Optional backup password · at least 12 characters"};var panel=Stack();panel.Children.Add(Text("Keep the backup and its password securely. Passwords cannot be recovered."));panel.Children.Add(password);
         await Dialog("Download company backup",panel,async()=>{if(password.Password.Length is >0 and <12)throw new Exception("Use at least 12 characters.");var bytes=await Api.Download(Api.CompanyPath(cid,"/backup"));var encrypted=password.Password.Length>0;if(encrypted)bytes=ApexFiles.EncryptBackup(bytes,password.Password);if(!await ApexFiles.Save(bytes,$"apex-{cid[..8]}-{J.Today}."+(encrypted?"apexbackup":"json.gz")))throw new Exception("Choose a destination to save the backup.");},"Download backup");
     }
     private async Task RestoreCompany()
     {
+        if(Supports("chunked_backups")){await RestoreCompleteCompany();return;}
         var file=await ApexFiles.Pick(".apexbackup",".gz",".json");if(file is null)return;var content=await ApexFiles.Read(file);var name=Input("Name for the restored company");var password=new PasswordBox{Header="Backup password · when encrypted"};var panel=Stack();panel.MinWidth=750;panel.Children.Add(Text(file.Name));panel.Children.Add(name);panel.Children.Add(password);var results=Stack();string encoded="",digest="",reviewedName="";
         panel.Children.Add(AsyncButton("Validate and preview",async()=>{encoded=Convert.ToBase64String(ApexFiles.PrepareRestore(content,password.Password));var result=await Api.Send("/api/backups/restore/preview",HttpMethod.Post,new JsonObject{["company_name"]=name.Text,["backup_base64"]=encoded});digest=result.Text("digest");reviewedName=name.Text;results.Children.Clear();RenderReport(results,result);},Error,true));panel.Children.Add(results);
         if(await Dialog("Restore into a new company",panel,async()=>{if(digest.Length==0||name.Text!=reviewedName)throw new Exception("Validate this backup and company name before restoring.");var result=await Api.Send("/api/backups/restore/commit",HttpMethod.Post,new JsonObject{["company_name"]=name.Text,["backup_base64"]=encoded,["digest"]=digest});CompanyId=result.Text("company_id");},"Restore reviewed backup"))await LoadCompanies();

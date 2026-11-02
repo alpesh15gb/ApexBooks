@@ -122,6 +122,33 @@ class LocalUiAcceptanceTest {
         assertEquals("Native-created invoice amount",0,created.decimal("amount").compareTo(java.math.BigDecimal("100")))
         assertEquals("Native-created invoice remains unpaid",0,created.decimal("outstanding").compareTo(java.math.BigDecimal("100")))
         assertEquals("Invoice save does not duplicate collection",1,saved.count{it.s("kind")=="payment_in"})
+        // Actual receipt controls + system picker. No API-upload shortcut is used.
+        val receiptName="apex-ui-receipt-${UUID.randomUUID()}.pdf"
+        val receiptPath="/sdcard/Download/$receiptName"
+        val receiptBytes="%PDF-1.4\n% Synthetic Android UI receipt\n%%EOF\n".toByteArray()
+        val encoded=android.util.Base64.encodeToString(receiptBytes,android.util.Base64.NO_WRAP)
+        device.executeShellCommand("mkdir -p /sdcard/Download; printf '%s' '$encoded' | base64 -d > '$receiptPath'")
+        try {
+            device.findObject(By.text("More")).click();scrollTo(device,"Purchase bills");device.findObject(By.text("Purchase bills")).click()
+            assertTrue(device.wait(Until.hasObject(By.text("UI Smoke Buyer")),30000));device.findObject(By.text("UI Smoke Buyer")).click()
+            scrollTo(device,"Retained receipts & attachments");device.findObject(By.text("Retained receipts & attachments")).click()
+            assertTrue(device.wait(Until.hasObject(By.text("Choose receipt · PDF / JPEG / PNG").enabled(true)),30000));device.findObject(By.text("Choose receipt · PDF / JPEG / PNG")).click()
+            assertTrue("Real Android document picker opens",device.wait(Until.hasObject(By.pkg("com.google.android.documentsui")),15000)||device.hasObject(By.pkg("com.android.documentsui")))
+            val roots=device.findObject(By.desc("Show roots"))?:device.findObject(By.desc("Open navigation drawer"))
+            if(roots!=null){roots.click();assertTrue(device.wait(Until.hasObject(By.text("Downloads")),15000));device.findObject(By.text("Downloads")).click()}
+            assertTrue("Synthetic PDF is selectable in the system picker",device.wait(Until.hasObject(By.text(receiptName)),15000));device.findObject(By.text(receiptName)).click()
+            scrollTo(device,"Upload receipt");device.findObject(By.text("Upload receipt")).click()
+            assertTrue("Receipt is retained after actual UI upload",device.wait(Until.hasObject(By.text("Archive · retain evidence")),30000));scrollTo(device,"Archive · retain evidence");device.findObject(By.text("Archive · retain evidence")).click()
+            scrollTo(device,"Show archived receipts");device.findObject(By.text("Show archived receipts")).click()
+            assertTrue(device.wait(Until.hasObject(By.textContains("Archived · retained")),30000))
+            val bill=saved.single{it.s("kind")=="purchase_bill"};val evidence=(api.request(api.company(companyIds.getValue(target),"/records/${bill.s("id")}/attachments"))as JSONObject).a("attachments").objects().single()
+            assertTrue("UI archive retains evidence",evidence.optBoolean("is_archived"));assertEquals(receiptBytes.size,evidence.optInt("size_bytes"));assertEquals(sha256(receiptBytes),evidence.s("sha256"))
+            device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-retained-receipt.png"))
+            device.findObject(By.desc("Close")).click();device.pressBack();device.findObject(By.text("More")).click();scrollTo(device,"Settings");device.findObject(By.text("Settings")).click()
+            scrollTo(device,"Download backup");device.findObject(By.text("Download backup")).click()
+            assertTrue("Complete-backup entry is capability gated and visible",device.wait(Until.hasObject(By.text("Complete company backup")),15000));assertTrue(device.hasObject(By.text("Encrypt saved backup")))
+            device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-complete-backup-entry.png"));device.findObject(By.desc("Close")).click()
+        } finally { device.executeShellCommand("rm -f '$receiptPath'") }
         api.logout()
     }
 }

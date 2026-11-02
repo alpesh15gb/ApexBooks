@@ -38,6 +38,11 @@
           "Microsoft.WindowsAppSDK.WinUI": "2.6.4"
         }
       },
+      "BouncyCastle.Cryptography": {
+        "type": "Transitive",
+        "resolved": "2.7.0",
+        "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
+      },
       "Microsoft.Web.WebView2": {
         "type": "Transitive",
         "resolved": "1.0.3719.77",
@@ -153,6 +158,12 @@
       },
       "apexbooks.printing": {
         "type": "Project"
+      },
+      "windowsbackupstreaming": {
+        "type": "Project",
+        "dependencies": {
+          "BouncyCastle.Cryptography": "[2.7.0, )"
+        }
       }
     },
     "net10.0-windows10.0.26100/win-x64": {

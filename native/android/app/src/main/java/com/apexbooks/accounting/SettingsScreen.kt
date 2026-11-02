@@ -51,6 +51,6 @@ private data class SettingGroup(val title:String,val detail:String,val actions:L
             Text(group.detail,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }}
         if(matches.isEmpty())item{Section{Text("No settings match. Try logo, backup or company.")}}
-        item{Text("Apex Books for Android · "+BuildConfig.VERSION_NAME,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+        item{Text("Apex Books for Android · "+BuildConfig.VERSION_NAME+"\nBuild · "+BuildConfig.BUILD_REVISION+"\nConnected API · "+vm.apiVersion+"\nAPI build · "+vm.apiBuildRevision,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
     }
 }

@@ -23,14 +23,21 @@
     <Product>Apex Books</Product>
     <Company>Apex Books</Company>
     <Description>Native accounting for GST and non-GST companies</Description>
-    <Version>1.3.3</Version>
+    <Version>1.5.0</Version>
   </PropertyGroup>
+
+  <!-- Explicit nonsecret checkout identity only; no runtime git calls or ambient SourceRevisionId inference. -->
+  <PropertyGroup>
+    <ApexBuildRevision>unknown</ApexBuildRevision>
+    <ApexBuildRevision Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(APEX_BUILD_SHA)', '\A(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})\z'))">$(APEX_BUILD_SHA)</ApexBuildRevision>
+  </PropertyGroup>
+  <ItemGroup><AssemblyMetadata Include="ApexBuildSha" Value="$(ApexBuildRevision)" /></ItemGroup>
 
   <ItemGroup Condition="'$(Configuration)' == 'Debug' and '$(ApexApiOrigin)' != ''">
     <AssemblyMetadata Include="ApexApiOrigin" Value="$(ApexApiOrigin)" />
   </ItemGroup>
 
-  <ItemGroup><Compile Remove="Printing\**\*.cs"/><ProjectReference Include="Printing\ApexBooks.Printing.csproj"/></ItemGroup>
+  <ItemGroup><Compile Remove="Printing\**\*.cs"/><ProjectReference Include="Printing\ApexBooks.Printing.csproj"/><ProjectReference Include="..\shared\WindowsBackupStreaming\WindowsBackupStreaming.csproj"/></ItemGroup>
 
   <ItemGroup>
     <Content Include="Assets\SplashScreen.scale-200.png" />
