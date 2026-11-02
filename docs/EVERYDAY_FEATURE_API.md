@@ -118,3 +118,56 @@ Clients may show the full proposed amount for a new credit sale, an unposted
 sales draft or its conversion. Do not project paid-cash POS or historical
 amendments as new credit sales (amendments would require a separate delta policy).
 The endpoint is read-only, and exceeding a limit never rejects a posting.
+
+## Recurring reviewed drafts (no automatic posting)
+
+Only `estimate`, `proforma`, `sales_order`, and `purchase_order` sources are
+supported. Expenses and posted invoices/bills are not recurring source kinds.
+There is no background job, email, external scheduler, journal or stock mutation.
+One explicit action creates one ordinary editable nonposting draft.
+
+- `POST /recurring-templates`: `{name,source_record_id,start_date,frequency,
+  interval:1,end_date:null,is_active:true}`. Frequency is `weekly` or `monthly`,
+  interval is an integer 1–12. The existing reviewed source is copied to a
+  server-validated input snapshot; clients cannot submit totals or replacement
+  lines. Up to 100 retained templates per company.
+- `GET /recurring-templates`: `{templates:[summary]}`.
+- `GET /recurring-templates/due?as_of=YYYY-MM-DD`: `{as_of,rows:[summary plus
+  overdue_days]}`. India business date (UTC+05:30, independent of server timezone) is default.
+  Response also includes `business_date` and `timezone:"Asia/Kolkata"`. Returns only the earliest ungenerated
+  occurrence per active template; overdue backlog is generated click-by-click.
+- `GET /recurring-templates/{id}`: summary plus `source_record_id` and
+  `draft:{kind,name,data}`.
+- `PUT /recurring-templates/{id}`: `{version,name,is_active,source_record_id?}`.
+  Optional source refresh explicitly changes future snapshot content only and
+  must retain the same draft kind. Schedule dates/frequency/interval are immutable;
+  pause and create a reviewed replacement template to change cadence.
+- `POST /recurring-templates/{id}/occurrences`: `{occurrence_date}`; required
+  `Idempotency-Key`. Returns `{template_id,occurrence_date,record,replayed}`.
+  Record uses the ordinary fresh detail representation. Date must equal the next
+  due date and must not be in the future. All successful writes return 200.
+
+Summary fields: `id,name,version,draft_kind,party_id,party_name,start_date,
+frequency,interval,end_date,is_active,next_due,last_generated_date,generated_count`.
+Null next_due means the inclusive end date/calendar boundary has been reached.
+Monthly dates retain the original anchor day, clamping only individual short
+months (31 January → 28/29 February → 31 March). Source due dates are saved as a
+0–3650-day offset, not reused as stale absolute dates. Generation recalculates
+normal document values and current company branding, never copies posting costs.
+
+All three writes support route-scoped retry keys (optional on template create/
+update for compatibility, but clients should always supply them). Replay precedes
+version/paused/next-date checks. Different retry keys for the same template/date
+return the same existing draft, even after restore or subsequent conversion.
+An internal unique occurrence marker backs the company-lock serialization.
+Received 409 means a definitive rejected transaction, not an in-progress request;
+clients may reload/correct. Timeouts/5xx remain unknown: retain the exact body/key.
+
+Company membership scopes reads; existing owner/editor permissions scope writes.
+Archived identities fail closed for new occurrences. Templates are hidden from
+normal financial registers and statement transactions but fully retained in
+portable backups. Restore validates template/snapshot references, schedule and
+complete occurrence history, remapping all record IDs. Generated draft lineage
+(`recurring_template_id`, `recurring_occurrence_date`) is server-owned and cannot
+be forged by generic creates or draft edits. Existing draft editing/conversion
+remains the only path to reviewed posting.

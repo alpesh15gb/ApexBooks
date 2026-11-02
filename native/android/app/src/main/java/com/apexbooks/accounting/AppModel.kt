@@ -41,6 +41,9 @@ class AppModel(application:Application):AndroidViewModel(application) {
     var pdf by mutableStateOf<PdfView?>(null)
     var tool by mutableStateOf("")
     var toolData by mutableStateOf<JSONObject?>(null)
+    private val recurringCommands=mutableMapOf<String,RecurringCommand>()
+    fun recurringCommand(scope:String)=recurringCommands.getOrPut(companyId+":"+scope){RecurringCommand()}
+    fun finishRecurring(scope:String){recurringCommands.remove(companyId+":"+scope)}
     private val posDrafts=mutableMapOf<String,EntryEditor>()
     val heldSaleCount get()=posDrafts.values.count{it.lines.isNotEmpty()||it.submission.unresolved}
     fun saleDraft():EntryEditor=posDrafts.getOrPut(companyId){EntryEditor(this,"pos").also{it.lines.clear();it.set("name","Walk-in customer")}}
@@ -63,8 +66,8 @@ class AppModel(application:Application):AndroidViewModel(application) {
     suspend fun chooseCompany(selected:JSONObject){val stamp=++generation;val request=++refreshSequence;company=selected;companyForm=false;tool="";toolData=null;records=emptyList();banks=emptyList();recordsReady=false;editor=null;detail=null;pdf=null;statement=null;coroutineScope{val rows=async{api.records(selected.s("id"))};val accounts=async{(api.request(api.company(selected.s("id"),"/bank-accounts")) as JSONArray).objects()};val loaded=rows.await();val loadedBanks=accounts.await();if(stamp==generation&&request==refreshSequence){records=loaded;banks=loadedBanks;recordsReady=true}}}
     suspend fun refresh(){val id=companyId;if(id.isBlank()||!signedIn)return;val stamp=generation;val request=++refreshSequence;coroutineScope{val rows=async{api.records(id)};val accounts=async{(api.request(api.company(id,"/bank-accounts")) as JSONArray).objects()};val loaded=rows.await();val loadedBanks=accounts.await();if(stamp==generation&&request==refreshSequence){records=loaded;banks=loadedBanks;recordsReady=true;revision++}}}
     fun navigate(key:String){page=key;error="";notice=""}
-    fun endLocalSession(){api.forget();signedIn=false;company=JSONObject();companies=emptyList();records=emptyList();banks=emptyList();recordsReady=false;editor=null;detail=null;statement=null;pdf=null;tool="";toolData=null;posDrafts.clear();companyForm=false;page="dashboard";error="";notice="";generation++;companyLoads++;refreshSequence++}
-    suspend fun logout(){check(posDrafts.values.none{it.submission.unresolved} && editor?.retryPending != true){"A save may already have posted. Return to the pending entry or held Point of Sale cart and retry the original save before signing out."};try{api.logout()}finally{endLocalSession()}}
+    fun endLocalSession(){api.forget();signedIn=false;company=JSONObject();companies=emptyList();records=emptyList();banks=emptyList();recordsReady=false;editor=null;detail=null;statement=null;pdf=null;tool="";toolData=null;posDrafts.clear();recurringCommands.clear();companyForm=false;page="dashboard";error="";notice="";generation++;companyLoads++;refreshSequence++}
+    suspend fun logout(){check(posDrafts.values.none{it.submission.unresolved} && recurringCommands.values.none{it.unresolved} && editor?.retryPending != true){"A save may already have posted. Return to the pending entry, recurring schedule, or held Point of Sale cart and retry the original save before signing out."};try{api.logout()}finally{endLocalSession()}}
     fun add(kind:String){if(!recordsReady){error="Wait for the complete company history before starting an entry.";return};editor=EntryEditor(this,kind)}
     fun edit(row:JSONObject){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));if(stamp==generation)editor=EntryEditor(this,full.s("kind"),previous=full)}}
     fun convert(row:JSONObject,targetKind:String?=null){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));if(stamp==generation)editor=EntryEditor(this,targetKind?:if(full.s("kind")=="purchase_order")"purchase_bill" else "sales_invoice",conversion=full)}}

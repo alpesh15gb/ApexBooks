@@ -99,6 +99,7 @@ import org.json.JSONObject
                 if (data.s("notes").isNotBlank()) item { Section("Notes") { Text(data.s("notes")) } }
                 if (data.s("terms").isNotBlank()) item { Section("Terms") { Text(data.s("terms")) } }
                 if (vm.canWrite && row.s("kind") in vm.draftKinds && row.s("converted_to").isBlank() && record != null) item {
+                    OutlinedButton(onClick={vm.detail=null;vm.toolData=row;vm.tool="recurring_new"},modifier=Modifier.fillMaxWidth()){Text("Create recurring draft schedule")}
                     if(row.s("kind") in setOf("estimate","proforma"))OutlinedButton(onClick={vm.detail=null;vm.convert(row,"sales_order")},modifier=Modifier.fillMaxWidth()){Text("Convert to sales order") }
                     OutlinedButton(onClick = { vm.detail = null; vm.convert(row) }, modifier = Modifier.fillMaxWidth()) { Text(if (row.s("kind") == "purchase_order") "Convert to purchase bill" else "Convert to invoice") }
                 }

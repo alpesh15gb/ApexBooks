@@ -3,8 +3,18 @@
 This is a separate gate from `WindowsClient`/`WindowsHosted` service tests. It
 launches the actual unpackaged Debug WinUI executable, uses Microsoft's managed
 UI Automation patterns to enter synthetic login details, switches companies,
-opens an invoice from the register and verifies its collection action. It saves
-app-window screenshots and an accessibility tree (no control values/passwords).
+opens an invoice from the register and verifies its collection action. It then
+creates a second 250-unit non-GST invoice **through the real form**, posts a
+100-unit partial receipt through the collection dialog, and verifies one receipt,
+one exact invoice allocation and a remaining balance of 150 against fresh API
+responses. Finally it checks Cancel → Keep editing preserves an unsaved customer,
+then Cancel → Discard produces no accounting record. Only the initial comparison
+invoice is API-seeded; the invoice under financial-journey test is UI-created.
+
+It saves app-window screenshots, an accessibility tree (no control values/passwords),
+`canonical-verification.json` with synthetic financial assertions, and `result.json`.
+Form entry uses UIA Value patterns resolved through control names or associated
+labels; no coordinate clicks, injected keystrokes or OS security changes are used.
 
 `.github/workflows/windows-ui.yml` publishes the app with its self-contained
 runtime and an embedded `ApexApiOrigin=http://127.0.0.1:8012`, starts an isolated
@@ -41,3 +51,8 @@ dotnet run --project native/tests/WindowsUi -c Release -- C:\synthetic\published
 
 The legacy `native/tools/Test-WindowsHosted.ps1` now requires `-ApiOrigin` and
 performs only local synthetic **service** acceptance; it is not real-UI evidence.
+
+The initial launch/login/company-switch/detail smoke passed on a hosted Windows
+runner at remote commit `185d422` (run `41522768677`). The expanded create/payment/
+dirty-draft journey must pass its own subsequent CI run; compilation is not proof
+that those additional UI steps passed.

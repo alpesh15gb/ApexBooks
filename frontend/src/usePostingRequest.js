@@ -1,10 +1,12 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPostingRequest } from './postingRequest.js';
+import { registerPostingRequest } from './postingRegistry.js';
 
-export function usePostingRequest() {
+export function usePostingRequest(options) {
   const request = useRef(null);
-  request.current ||= createPostingRequest();
+  request.current ||= createPostingRequest(options);
   const [, redraw] = useState(0);
+  useEffect(() => registerPostingRequest(request.current), []);
   const run = async (operation) => {
     const promise = request.current.run(operation);
     redraw(n => n + 1);

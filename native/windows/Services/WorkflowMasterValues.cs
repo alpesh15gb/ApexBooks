@@ -9,6 +9,18 @@ public static class WorkflowMasterValues
 {
     public static bool IsActive(JsonNode? row)=>row?["data"]?["is_active"] is null || row["data"].Flag("is_active");
     public static string ShippingAddress(JsonNode? data)=>data.Text("shipping_address") is {Length:>0} delivery?delivery:data.Text("address");
+    public static int RecurringInterval(string text)
+    {
+        if(int.TryParse(text.Trim(),NumberStyles.None,CultureInfo.InvariantCulture,out var value)&&value is >=1 and <=12)return value;
+        throw new FormatException("Recurring interval must be a whole number from 1 to 12.");
+    }
+    public static bool RecurringOccurrenceAllowed(bool active,string nextDue,string today)=>active&&DateOnly.TryParseExact(nextDue,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var due)&&DateOnly.TryParseExact(today,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var now)&&due<=now;
+    public static void RecurringWriteFailed(RetrySubmission submission,Exception error)
+    {
+        // This API serializes writes and checks replay before version/schedule conditions.
+        // Its received 409 is a definitive non-commit, not an in-progress response.
+        if(error is ApiFailure{Status:409})submission.Succeeded();else submission.Failed(error);
+    }
     public static JsonNode? CreditLimit(string text)
     {
         text=text.Trim();if(text.Length==0)return null;
@@ -31,7 +43,7 @@ public static class WorkflowMasterValues
     public static JsonNode? LowStockThreshold(string text)
     {
         text=text.Trim();if(text.Length==0)return null;
-        if(Regex.IsMatch(text,"^[0-9]+(\\.[0-9]{1,3})?$")&&decimal.TryParse(text,NumberStyles.AllowDecimalPoint,CultureInfo.InvariantCulture,out var quantity)&&quantity<=999999999999.999m)return JsonValue.Create(text);
+        if(Regex.IsMatch(text,"^[0-9]+(\\.[0-9]+)?$")&&decimal.TryParse(text,NumberStyles.AllowDecimalPoint,CultureInfo.InvariantCulture,out var quantity)&&quantity<=999999999999.999m&&decimal.Round(quantity,3)==quantity)return JsonValue.Create(quantity.ToString("0.###",CultureInfo.InvariantCulture));
         throw new FormatException("Low-stock threshold must be nonnegative, at most 999999999999.999 and have no more than 3 decimal places.");
     }
 }

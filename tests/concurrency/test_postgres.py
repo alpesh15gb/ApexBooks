@@ -60,6 +60,19 @@ class ConcurrentPostingTest(unittest.TestCase):
         if item: line.update(item_id=item['id'], description=item['name'])
         return {'kind': kind, 'name': 'Buyer', 'date': '2026-04-02', 'data': {'lines': [line]}}
 
+    def test_recurring_occurrence_is_unique_across_retry_keys(self):
+        source=self.create(self.sale(kind='sales_order'))
+        template=self.client.post(self.base+'/recurring-templates',headers={**self.headers,'Idempotency-Key':uuid4().hex},json={'name':'Concurrent recurring','source_record_id':source['id'],'start_date':'2026-04-02','frequency':'weekly'})
+        self.assertEqual(template.status_code,200,template.text);tid=template.json()['id']
+        body={'occurrence_date':'2026-04-02'};path='/recurring-templates/'+tid+'/occurrences'
+        results=self.race([(path,body,uuid4().hex) for _ in range(6)])
+        self.assertEqual([r.status_code for r in results],[200]*6,[r.text for r in results])
+        self.assertEqual(len({r.json()['record']['id'] for r in results}),1)
+        self.assertEqual(self.client.get(self.base+'/recurring-templates/'+tid,headers=self.headers).json()['generated_count'],1)
+        self.assertEqual(self.client.get(self.base+'/journals',headers=self.headers).json(),[])
+        backup=self.client.get(self.base+'/data-export.json',headers=self.headers).json()
+        self.assertEqual(backup['stock_movements'],[])
+
     def test_identical_retry_posts_exactly_once(self):
         body = self.sale()
         results = self.race([('/records', body, 'same-retry')] * 6)

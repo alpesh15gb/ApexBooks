@@ -10,7 +10,7 @@ from openpyxl import load_workbook
 dbfile = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
 dbfile.close()
 os.environ['DATABASE_URL'] = 'sqlite:///' + dbfile.name.replace('\\', '/')
-os.environ['JWT_SECRET'] = 'test-secret-for-api-tests'
+os.environ['JWT_SECRET'] = 'synthetic-test-secret-for-api-tests-only'
 from fastapi.testclient import TestClient
 from main import app, engine, Record
 from sqlalchemy.orm import Session
@@ -1001,7 +1001,7 @@ class ApiTest(unittest.TestCase):
                 self.assertEqual(extraction.status_code, 200, extraction.text)
                 self.assertEqual(extraction.json()['status'], 'review_required')
                 self.assertEqual(post.call_args.kwargs['json']['store'], False)
-            with patch.dict(os.environ, {'OCR_BASE_URL': 'http://82.112.236.81:8088/v1', 'OMNIROUTE_API_KEY': 'test-only-key', 'OCR_MODEL': 'APEXV1'}), patch('main.httpx.post', return_value=fake) as post:
+            with patch.dict(os.environ, {'OCR_BASE_URL': 'http://192.0.2.1:8088/v1', 'OMNIROUTE_API_KEY': 'test-only-key', 'OCR_MODEL': 'APEXV1'}), patch('main.httpx.post', return_value=fake) as post:
                 blocked = client.post(base + '/ocr/purchase-draft', headers=editor, json={'image_data_url': valid_image})
                 self.assertEqual(blocked.status_code, 503)
                 self.assertIn('HTTPS', blocked.json()['detail'])
@@ -1012,11 +1012,18 @@ class ApiTest(unittest.TestCase):
                 self.assertEqual(post.call_args.args[0], 'https://omniroute.example.com/v1/responses')
                 self.assertEqual(post.call_args.kwargs['json']['model'], 'APEXV1')
                 self.assertEqual(post.call_args.kwargs['headers']['Authorization'], 'Bearer test-only-key')
-            with patch.dict(os.environ, {'OCR_BASE_URL': 'http://82.112.236.81:8088/v1', 'OMNIROUTE': 'test-only-key', 'OCR_MODEL': 'APEXV1', 'OCR_ALLOW_INSECURE_HTTP': '1'}, clear=True), patch('main.httpx.post', return_value=fake) as post:
+            with patch.dict(os.environ, {'OCR_BASE_URL': 'http://192.0.2.1:8088/v1', 'OMNIROUTE': 'test-only-key', 'OCR_MODEL': 'APEXV1', 'OCR_ALLOW_INSECURE_HTTP': '1'}, clear=True), patch('main.httpx.post', return_value=fake) as post:
+                status = client.get('/api/ocr/status', headers=editor).json()
+                self.assertFalse(status['ready'])
+                self.assertIn('HTTPS', status['message'])
+                extraction = client.post(base + '/ocr/purchase-draft', headers=editor, json={'image_data_url': valid_image})
+                self.assertEqual(extraction.status_code, 503, extraction.text)
+                post.assert_not_called()
+            with patch.dict(os.environ, {'OCR_BASE_URL': 'http://127.0.0.1:8008/v1', 'OMNIROUTE': 'test-only-key', 'OCR_MODEL': 'APEXV1'}, clear=True), patch('main.httpx.post', return_value=fake) as post:
                 self.assertTrue(client.get('/api/ocr/status', headers=editor).json()['ready'])
                 extraction = client.post(base + '/ocr/purchase-draft', headers=editor, json={'image_data_url': valid_image})
                 self.assertEqual(extraction.status_code, 200, extraction.text)
-                self.assertEqual(post.call_args.args[0], 'http://82.112.236.81:8088/v1/responses')
+                self.assertEqual(post.call_args.args[0], 'http://127.0.0.1:8008/v1/responses')
                 self.assertEqual(post.call_args.kwargs['json']['model'], 'APEXV1')
             self.assertEqual(client.put(base + '/period-lock', headers=editor, json={'locked_through': '2026-10-30'}).status_code, 403)
             self.assertEqual(client.get('/api/companies', headers=viewer).json()[0]['role'], 'viewer')

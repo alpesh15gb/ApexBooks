@@ -2025,3 +2025,9 @@ h2 {
 .credit-status p { font-size:12px; color:#52665f; }
 .credit-limit-warning { border-color:#edc984; background:#fff8e8; }
 .credit-limit-warning>div>strong { color:#86520c; }
+.recurring-workspace { max-width:1180px; margin:auto; padding:28px; }
+.recurring-due,.recurring-library { margin-top:24px; }
+.recurring-due h2 { display:flex; align-items:center; gap:8px; }
+.recurring-row { display:grid; grid-template-columns:minmax(180px,2fr) minmax(140px,1fr) auto; align-items:center; gap:20px; padding:20px; border-top:1px solid #e5eaf0; }
+.recurring-row small { display:block; color:#60716b; margin-top:5px; }
+@media(max-width:650px) { .recurring-workspace { padding:16px; } .recurring-row { grid-template-columns:1fr; gap:12px; } .recurring-row .button { width:100%; } }

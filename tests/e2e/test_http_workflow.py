@@ -18,6 +18,41 @@ if urlparse(BASE).hostname not in {'127.0.0.1', 'localhost', '::1'}:
 
 
 class LiveAccountingWorkflow(unittest.TestCase):
+    def test_recurring_occurrence_replay_pause_and_viewer_are_nonposting(self):
+        credentials = {'email': f'recurring-{uuid4().hex}@example.invalid', 'password': 'Synthetic-only-password-42'}
+        self.request('POST', '/api/auth/register', credentials)
+        self.token = self.request('POST', '/api/auth/login', credentials)['token']
+        company = self.request('POST', '/api/companies', {'name': 'Synthetic recurring', 'tax_mode': 'unregistered'})
+        root = '/api/companies/' + company['id']
+        source = self.request('POST', root + '/records', {'kind': 'estimate', 'name': 'Synthetic recurring customer', 'date': '2026-04-02', 'data': {'shipping_address': 'Saved delivery snapshot', 'lines': [{'description': 'Recurring service', 'quantity': 1, 'rate': 120, 'gst_rate': 0}]}}, key=uuid4().hex)
+        financial = self.request('GET', root + '/reports/financial?from_date=2026-04-01&to_date=2026-04-30')
+        stock = self.request('GET', root + '/reports/stock?from_date=2026-04-01&to_date=2026-04-30')
+        template = self.request('POST', root + '/recurring-templates', {'name': 'Monthly synthetic', 'source_record_id': source['id'], 'start_date': '2026-04-02', 'frequency': 'monthly'}, key=uuid4().hex)
+        path = root + '/recurring-templates/' + template['id']
+        payload = {'occurrence_date': '2026-04-02'}
+        key = uuid4().hex
+        generated = self.request('POST', path + '/occurrences', payload, key=key)
+        for retry_key in (key, uuid4().hex):
+            replay = self.request('POST', path + '/occurrences', payload, key=retry_key)
+            self.assertTrue(replay['replayed'])
+            self.assertEqual(replay['record']['id'], generated['record']['id'])
+        self.assertEqual(generated['record']['kind'], 'estimate')
+        self.assertEqual(generated['record']['data']['shipping_address'], 'Saved delivery snapshot')
+        current = self.request('GET', path)
+        self.assertEqual(current['generated_count'], 1)
+        self.request('PUT', path, {'name': current['name'], 'version': current['version'], 'is_active': False}, key=uuid4().hex)
+        self.request('POST', path + '/occurrences', {'occurrence_date': '2026-05-02'}, status=409, key=uuid4().hex)
+        self.assertEqual(self.request('GET', root + '/journals'), [])
+        self.assertEqual(self.request('GET', root + '/reports/financial?from_date=2026-04-01&to_date=2026-04-30'), financial)
+        self.assertEqual(self.request('GET', root + '/reports/stock?from_date=2026-04-01&to_date=2026-04-30'), stock)
+        viewer_credentials = {'email': f'recurring-viewer-{uuid4().hex}@example.invalid', 'password': credentials['password']}
+        self.request('POST', '/api/auth/register', viewer_credentials)
+        viewer = self.request('POST', '/api/auth/login', viewer_credentials)['token']
+        self.request('GET', path, status=404, token=viewer)
+        self.request('POST', root + '/members', {'email': viewer_credentials['email'], 'role': 'viewer'}, status=201)
+        self.request('GET', path, token=viewer)
+        self.request('POST', path + '/occurrences', payload, status=403, token=viewer, key=uuid4().hex)
+
     def request(self, method, path, payload=None, status=200, token=None, key=None):
         headers = {'Content-Type': 'application/json'}
         if token or getattr(self, 'token', None):

@@ -1,3 +1,4 @@
+import { hasPendingPostings, postingNavigationMessage } from "./postingRegistry.js";
 import { apiErrorMessage } from "./apiErrors.js";
 import { fetchCompanyRecords } from "./companyRecords.js";
 import TransactionDetail from "./TransactionDetail.jsx";
@@ -17,12 +18,14 @@ import PosWorkspace from "./PosWorkspace.jsx";
 import { OpeningBalances, CreditSettlements } from "./AccountingWorkflows.jsx";
 import { isActiveMaster } from "./masterLifecycle.js";
 import { reorderDraft } from "./reorderDraft.js";
+import RecurringWorkspace from "./RecurringWorkspace.jsx";
 import ReorderWorkspace from "./ReorderWorkspace.jsx";
 import RecordEditor from "./RecordEditor.jsx";
 import BackupRestore from "./BackupRestore.jsx";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  CalendarDays,
   LayoutDashboard,
   UsersRound,
   ShoppingCart,
@@ -98,6 +101,7 @@ const sections = [
   { label: "Cash & bank", icon: Wallet, key: "bank_account" },
   { label: "Ledger", icon: FileText, key: "ledger" },
   { label: "Reports", icon: BarChart3, key: "reports" },
+  { label: "Recurring drafts", icon: CalendarDays, key: "recurring" },
   { label: "Ecommerce", icon: ShoppingBag, key: "commerce" },
   { label: "Settings", icon: Settings, key: "settings" },
 ];
@@ -714,6 +718,7 @@ function App() {
     setSearch("");
   }
   function startReorder(rows) {
+    if (postingNavigationBlocked()) return;
     if (!["owner", "editor"].includes(company?.role)) return;
     let seed;
     try { seed = reorderDraft(rows, records); } catch (reason) { setError(reason.message); return; }
@@ -738,11 +743,12 @@ function App() {
   }
   function closeDetail() { editorRequests.current.latest(); setDetail(null); }
   async function beginEdit(record) {
+    if (postingNavigationBlocked()) return;
     if (!["owner", "editor"].includes(company?.role)) return;
     const isCurrent = editorRequests.current.latest();
     try {
       const full = await api(`/companies/${companyId}/records/${record.id}`);
-      if (!isCurrent()) return;
+      if (!isCurrent() || postingNavigationBlocked()) return;
       rememberEditorContext();
       if (["party", "item"].includes(record.kind)) setEditingMaster(full);
       else {
@@ -759,11 +765,12 @@ function App() {
     }
   }
   async function beginConversion(record, targetKind) {
+    if (postingNavigationBlocked()) return;
     if (!["owner", "editor"].includes(company?.role)) return;
     const isCurrent = editorRequests.current.latest();
     try {
       const full = await api(`/companies/${companyId}/records/${record.id}`);
-      if (!isCurrent()) return;
+      if (!isCurrent() || postingNavigationBlocked()) return;
       rememberEditorContext();
       setEditingDraft(null);
       setConversionSource(full);
@@ -777,11 +784,12 @@ function App() {
     }
   }
   async function beginRelated(record, kind) {
+    if (postingNavigationBlocked()) return;
     if (!["owner", "editor"].includes(company?.role)) return;
     const isCurrent = editorRequests.current.latest();
     try {
       const full = await api(`/companies/${companyId}/records/${record.id}`);
-      if (!isCurrent()) return;
+      if (!isCurrent() || postingNavigationBlocked()) return;
       rememberEditorContext();
       setRelatedSource({ ...record, ...full });
       setEditingDraft(null);
@@ -819,7 +827,20 @@ function App() {
       setError(e.message);
     }
   }
+  function postingNavigationBlocked() {
+    if (!hasPendingPostings()) return false;
+    setError(postingNavigationMessage);
+    return true;
+  }
+  useEffect(() => {
+    const beforeUnload = event => {
+      if (hasPendingPostings()) { event.preventDefault(); event.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, []);
   async function signOut() {
+    if (postingNavigationBlocked()) return;
     if (document.querySelector(".overlay .modal")) return;
     const token = localStorage.token;
     if (token) {
@@ -841,7 +862,9 @@ function App() {
     setSigned(false);
   }
   function navigateWorkspace(kind, reference = "", filter = "all") {
+    if (postingNavigationBlocked()) return;
     if (modal === "record") { window.dispatchEvent(new window.Event("apex-close-editor")); return; }
+    if (document.querySelector(".overlay .modal")) return;
     editorRequests.current.latest();
     setDetail(null);
     const routes = {
@@ -867,6 +890,7 @@ function App() {
     if (group) setExpanded(group.label);
   }
   function createWorkspace(kind) {
+    if (postingNavigationBlocked()) return;
     if (!["owner", "editor"].includes(company?.role)) return;
     setEditorReturn(null);
     setEditingDraft(null);
@@ -889,10 +913,19 @@ function App() {
   }, [page]);
   useEffect(() => {
     const back = () => {
+      if (postingNavigationBlocked()) {
+        window.history.pushState({ apexPage: page }, "", `#/${page}`);
+        return;
+      }
       if (modal === "record" || detail) {
         window.history.pushState({ apexPage: page }, "", `#/${page}`);
         if (modal === "record") window.dispatchEvent(new window.Event("apex-close-editor"));
         else closeDetail();
+        return;
+      }
+      if (document.querySelector(".overlay .modal")) {
+        window.history.pushState({ apexPage: page }, "", `#/${page}`);
+        window.dispatchEvent(new window.Event("apex-close-workflow"));
         return;
       }
       const requested = window.location.hash.slice(2);
@@ -922,7 +955,7 @@ function App() {
               aria-label="Choose company"
               value={companyId}
               onChange={(e) => {
-                if (document.querySelector(".overlay .modal")) { e.currentTarget.value = companyId; return; }
+                if (postingNavigationBlocked() || document.querySelector(".overlay .modal")) { e.currentTarget.value = companyId; return; }
                 setCompanyId(e.target.value);
               }}
             >
@@ -981,7 +1014,7 @@ function App() {
           <div className="sidebar-workspace-status">
             <span /> Your books, connected
           </div>
-          <button onClick={() => setModal("company")}>
+          <button onClick={() => { if (!postingNavigationBlocked()) setModal("company"); }}>
             <Plus size={16} /> Add company
           </button>
           <button onClick={signOut}>
@@ -1020,6 +1053,8 @@ function App() {
               <p>If you were invited to an existing company, ask its owner to add this registered email, then refresh.</p>
               <button className="button secondary" onClick={loadCompanies}>Refresh company access</button>
             </section>
+          ) : page === "recurring" ? (
+            <RecurringWorkspace key={companyId} companyId={companyId} role={company.role} records={records} api={api} Modal={Modal} onReview={beginEdit} onRefresh={loadRecords} />
           ) : page === "reorder" ? (
             <ReorderWorkspace key={companyId} companyId={companyId} role={company.role} api={api} onReview={startReorder} onBack={() => navigateWorkspace("item")} />
           ) : page === "ledger" ? (

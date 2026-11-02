@@ -101,7 +101,7 @@ def install(app,m):
         profile=session.get(m.CompanyTaxProfile,company_id)
         previous={'name':record.name,'number':record.number,'date':record.date.isoformat(),'amount':str(record.amount),'data':{k:v for k,v in record.data.items() if k!='document_branding'}}
         # Source lineage is established by conversion/import, never by a draft edit.
-        submitted={key:value for key,value in body.data.items() if key not in {'source_document_id','created_at'} and not key.startswith('vyapar_')}
+        submitted={key:value for key,value in body.data.items() if key not in {'source_document_id','created_at','recurring_template_id','recurring_occurrence_date'} and not key.startswith('vyapar_')}
         m.validate_active_references(company_id,record.kind,body.name,{**record.data,**submitted},session,record)
         data,amount=m.calculate({**record.data,**submitted},company,profile.mode if profile else 'regular',record.kind,session)
         record.name=body.name.strip();record.number=number;record.date=body.date;record.amount=amount

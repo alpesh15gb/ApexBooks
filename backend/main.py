@@ -1,3 +1,5 @@
+from auth_config import require_jwt_secret
+from ocr_transport import validate_ocr_base_url
 from advance_tax import prepare as prepare_advance_tax, release as release_advance_tax
 import io
 import hashlib
@@ -40,9 +42,7 @@ if DATABASE_URL.startswith('postgres://'):
     DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql+psycopg://', 1)
 elif DATABASE_URL.startswith('postgresql://'):
     DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+psycopg://', 1)
-SECRET = os.getenv('JWT_SECRET', 'development-only-change-me')
-if DATABASE_URL.startswith('postgresql') and (SECRET == 'development-only-change-me' or len(SECRET) < 32):
-    raise RuntimeError('A unique JWT_SECRET of at least 32 characters is required for PostgreSQL deployments')
+SECRET = require_jwt_secret()
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args={'check_same_thread': False} if DATABASE_URL.startswith('sqlite') else {})
 if DATABASE_URL.startswith('sqlite'):
     @event.listens_for(engine, 'connect')
@@ -794,12 +794,8 @@ def ready(session: Session = Depends(db)):
     return {'status': 'ready', 'version': app.version}
 
 def ocr_configuration():
-    base_url = os.getenv('OCR_BASE_URL', 'https://api.openai.com/v1').rstrip('/')
-    target = urlparse(base_url)
-    if target.scheme not in {'https', 'http'} or not target.netloc or not base_url.endswith('/v1'):
-        raise HTTPException(503, 'OCR endpoint configuration is invalid')
-    if target.scheme == 'http' and target.hostname not in {'localhost', '127.0.0.1', '::1'} and os.getenv('OCR_ALLOW_INSECURE_HTTP') != '1':
-        raise HTTPException(503, 'OCR endpoint must use HTTPS for invoice images')
+    try: base_url = validate_ocr_base_url(os.getenv('OCR_BASE_URL', 'https://api.openai.com/v1'))
+    except ValueError as exc: raise HTTPException(503, str(exc)) from None
     external_provider = base_url != 'https://api.openai.com/v1'
     key = (os.getenv('OMNIROUTE_API_KEY') or os.getenv('OMNIROUTE', '')) if external_provider else os.getenv('OPENAI_API_KEY', '')
     if not key: raise HTTPException(503, 'OCR is not configured on this server')
@@ -1095,7 +1091,7 @@ def records(company_id: str, kind: str = '', compact:bool=False, offset:int=Quer
     projected = compact and session.bind.dialect.name in {'postgresql', 'sqlite'}
     q = select(Record.id, Record.kind, Record.name, Record.number, Record.date, Record.amount,
         compact_record_data(session.bind.dialect.name).label('data')) if projected else select(Record)
-    q = q.where(Record.company_id == company_id, Record.kind.not_in(['vyapar_backup_archive','document_branding','restore_marker']))
+    q = q.where(Record.company_id == company_id, Record.kind.not_in(['vyapar_backup_archive','document_branding','restore_marker','recurring_template']))
     if kind:q=q.where(Record.kind==kind)
     created_at = func.coalesce(Record.data['created_at'].as_string(), '')
     q=q.order_by(Record.date.desc(),created_at.desc(),Record.id.desc()).offset(offset)
@@ -1152,7 +1148,7 @@ def record_status(row, posted, *, applied=Decimal('0'), consumed=Decimal('0'), c
 @app.get('/api/companies/{company_id}/records/{record_id}')
 def get_record(company_id:str,record_id:str,user:User=Depends(current_user),session:Session=Depends(db)):
     company_for(company_id,user,session)
-    row=session.scalar(select(Record).where(Record.company_id==company_id,Record.id==record_id,Record.kind.not_in(['vyapar_backup_archive','restore_marker','document_branding'])))
+    row=session.scalar(select(Record).where(Record.company_id==company_id,Record.id==record_id,Record.kind.not_in(['vyapar_backup_archive','restore_marker','document_branding','recurring_template'])))
     if not row:raise HTTPException(404,'Record not found')
     allocations=[]
     for model in (PaymentAllocation,PaymentSplitAllocation):allocations += [{'document_id':r.document_id,'amount':str(r.amount)} for r in session.scalars(select(model).where(model.company_id==company_id,model.payment_id==row.id))]
@@ -1431,7 +1427,7 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             if previous.request_hash != request_hash: raise HTTPException(409, 'Idempotency key was used for a different request')
             existing = session.get(Record, previous.record_id)
             return {**obj(existing), 'posted': bool(session.scalar(select(RecordPosting.id).where(RecordPosting.company_id == company_id, RecordPosting.record_id == existing.id)))}
-    data, amount = body.data, money(body.amount)
+    data, amount = {k:v for k,v in body.data.items() if k not in {'recurring_template_id','recurring_occurrence_date'}}, money(body.amount)
     if body.kind in DOCUMENTS|POSTED_KINDS:
         validate_active_references(company_id, body.kind, body.name, data, session, historical_record)
     if body.kind in {'payment_in','payment_out','bank_transfer'}:
@@ -2747,7 +2743,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
 @app.get('/api/companies/{company_id}/export.{fmt}')
 def export(company_id: str, fmt: str, kind: str = '', user: User = Depends(current_user), session: Session = Depends(db)):
     c = company_for(company_id, user, session)
-    q = select(Record).where(Record.company_id == company_id)
+    q = select(Record).where(Record.company_id == company_id,Record.kind!='recurring_template')
     if kind: q = q.where(Record.kind == kind)
     rows = list(session.scalars(q.order_by(Record.date.desc())))
     out = io.BytesIO()
@@ -2834,3 +2830,6 @@ install_commerce(app, sys.modules[__name__])
 
 from everyday_features import install as install_everyday_features
 install_everyday_features(app, sys.modules[__name__])
+
+from recurring_drafts import install as install_recurring_drafts
+install_recurring_drafts(app, sys.modules[__name__])

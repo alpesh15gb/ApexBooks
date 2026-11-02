@@ -10,7 +10,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.math.BigDecimal
 
-@Composable fun ToolsScreen(vm:AppModel){key(vm.companyId,vm.tool){when(vm.tool){"reorder"->ReorderTool(vm);"branding"->BrandingTool(vm);"restore","vyapar","master_import","statement_import"->ImportTool(vm);"journal"->JournalTool(vm);"members"->MembersTool(vm);else->BasicTool(vm)}}}
+@Composable fun ToolsScreen(vm:AppModel){key(vm.companyId,vm.tool){when(vm.tool){"recurring","recurring_new","recurring_edit","recurring_occurrence"->RecurringTools(vm);"reorder"->ReorderTool(vm);"branding"->BrandingTool(vm);"restore","vyapar","master_import","statement_import"->ImportTool(vm);"journal"->JournalTool(vm);"members"->MembersTool(vm);else->BasicTool(vm)}}}
 @Composable private fun ToolInput(values:MutableMap<String,String>,key:String,label:String,number:Boolean=false,password:Boolean=false,multiline:Boolean=false,maximum:Int=500){Field(label,values[key]?:"",{values[key]=it},number=number,password=password,multiline=multiline,maximum=maximum)}
 
 @Composable private fun BasicTool(vm:AppModel){

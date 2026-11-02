@@ -23,7 +23,7 @@ def install(app,m):
         party=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==party_id,m.Record.kind=='party'))
         if not party:raise HTTPException(404,'Party not found')
         if from_date>to_date:raise HTTPException(422,'Start date must precede end date')
-        rows=list(session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.date<=to_date,m.Record.kind.not_in(['party','item','document_branding','restore_marker','vyapar_backup_archive']))))
+        rows=list(session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.date<=to_date,m.Record.kind.not_in(['party','item','document_branding','restore_marker','vyapar_backup_archive','recurring_template']))))
         rows=[r for r in rows if r.name.strip().casefold()==party.name.strip().casefold()]
         posted=set(session.scalars(select(m.RecordPosting.record_id).where(m.RecordPosting.company_id==company_id)))
         conversions={r.source_record_id:r.target_record_id for r in session.scalars(select(m.DocumentConversion).where(m.DocumentConversion.company_id==company_id))}
