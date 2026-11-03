@@ -37,6 +37,7 @@ public static class NativeUi
         }
     }
     private static DialogContext? active;
+    public static bool HasOpenDialog=>active is not null;
     public static void RefreshDialogActions(bool clearError = false) { if (active is not null) { if (clearError) active.Error.IsOpen = false; active.Update(); } }
     public static bool DialogError(Exception e){if(active is null)return false;active.Error.Message=e.Message;active.Error.IsOpen=true;return true;}
     public static void CloseDialog(){var current=active;active=null;if(current is not null){current.ForcedClose=true;current.Dialog.Hide();}}

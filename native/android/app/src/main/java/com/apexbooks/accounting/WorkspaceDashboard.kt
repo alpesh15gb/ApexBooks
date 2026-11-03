@@ -63,12 +63,13 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
         item{Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
             Text("AT A GLANCE",style=MaterialTheme.typography.labelSmall,color=ApexGreen,fontWeight=FontWeight.Bold,letterSpacing=1.sp)
+            Text("Server reports are fetched separately. Collections, charts and recent activity use saved history; they may reflect different updates. Use Refresh to reload both. No live or atomic snapshot is guaranteed.",style=MaterialTheme.typography.bodySmall)
             Heading("Business overview","${start.format(DateTimeFormatter.ofPattern("d MMM yyyy"))} – ${end.format(DateTimeFormatter.ofPattern("d MMM yyyy"))}")
             Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 for((key,label)in listOf("year" to "Financial year","month" to "This month","30days" to "30 days"))FilterChip(selected=period==key,onClick={period=key},label={Text(label)})
             }
         }}
-        if(!vm.recordsReady)item{Section("Loading transaction history"){Text("Live report totals are shown as they arrive. Collections, charts and billing become available when the full company history is ready.");if(vm.busy==0)OutlinedButton(onClick={vm.task{vm.refresh()}}){Text("Retry company data")}}}
+        if(!vm.recordsReady)item{Section("Loading transaction history"){Text("Server report totals are fetched separately from transaction history. Collections, charts and billing become available when the full company history is ready.");if(vm.busy==0)OutlinedButton(onClick={vm.task{vm.refresh()}}){Text("Retry company data")}}}
         if(vm.recordsReady&&vm.records.none{it.optBoolean("posted")})item{Section("Start your books"){
             Text("Create your first invoice or purchase. Customers and items can be added now or entered while billing.")
             if(vm.canWrite){
@@ -94,8 +95,8 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
         if(vm.recordsReady)item{OutlinedButton(onClick={vm.toolData=null;vm.tool="recurring"},modifier=Modifier.fillMaxWidth()){Text("Recurring draft schedules")}}
         if(vm.recordsReady)item{OutlinedButton(onClick={vm.tool="reorder"},modifier=Modifier.fillMaxWidth()){Text("Low stock & reorder review")}}
         if(vm.canWrite&&vm.recordsReady)item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Button(onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,14.dp)){Icon(Icons.Outlined.Add,null,Modifier.size(18.dp));Text("New invoice")};OutlinedButton(onClick={vm.add("purchase_bill")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,14.dp)){Icon(Icons.Outlined.DocumentScanner,null,Modifier.size(18.dp));Text("Add purchase")}}}
-        if(vm.recordsReady)item{Section("Sales & purchases"){MonthlyPerformance(vm.records,start,end);Text("Posted invoice values, including GST where applicable",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
-        if(vm.recordsReady)item{Section("Invoice collections"){
+        if(vm.recordsReady)item{Section("Sales & purchases · saved history"){MonthlyPerformance(vm.records,start,end);Text("Posted invoice values, including GST where applicable",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
+        if(vm.recordsReady)item{Section("Invoice collections · saved history"){
             Text("GET PAID",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             val fraction=if(issued>BigDecimal.ZERO)(settled.toFloat()/issued.toFloat()).coerceIn(0f,1f)else 0f
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(18.dp)){
@@ -121,7 +122,7 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
             for((key,label)in listOf("output" to "Output GST","book_itc" to "Input from entered bills")){val total=gst?.o(key)?.let{o->o.keys().asSequence().fold(BigDecimal.ZERO){sum,k->sum+o.decimal(k)}};Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(label);Text(total?.let{money(it)}?:"—",fontWeight=FontWeight.Medium)}}
             Text("Estimate from entered bills. Verify ITC eligibility and GSTR-2B before filing.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }}else item{Section("Your tax settings"){Text(if(vm.company.s("tax_mode")=="composition")"Composition accounting is active. Review composition reports for your liability."else"Non-GST accounting is active. Documents use your non-GST settings.")}}
-        item{Heading("Recent activity")}
+        item{Heading("Recent activity · saved history")}
         items(vm.records.filter{it.s("kind") !in setOf("party","item","bank_account")}.take(8),key={it.s("id")}){RecordCard(vm,it)}
         item{Spacer(Modifier.height(88.dp))}
     }

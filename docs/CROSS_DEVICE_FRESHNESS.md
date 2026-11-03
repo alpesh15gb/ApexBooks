@@ -23,3 +23,7 @@ No cross-company cache, new persisted credentials or financial payloads, automat
 ## Web checkpoint evidence
 
 Eleven full-app synthetic freshness cases pass, including deferred modal/throttle refresh, failed history with newer reports, hidden-page behavior, pending writes, company/session replacement and dashboard remount provenance. The complete web suite passes 240 tests, lint and production build. An independent final run of all eleven focused tests passes. This is not a claim of new real-browser upload or native device coverage.
+
+## Native checkpoint evidence
+
+The separate native checkpoint includes four authored Android state tests and 24 authored Windows assertions. Independent source review verified complete records/banks publication before timestamps, reset and stale-response guards, retained failure status across navigation, and Windows' second manual-refresh guard before publication/navigation. The Android lifecycle proof now compiles the actual history-status helper alongside its unchanged extracted lifecycle methods. XML, Python syntax, source-boundary checks and diff checks pass. Local Gradle/SDK/.NET are unavailable, so native compilation and test execution remain hosted-CI gates; no new actual-device run is claimed.
