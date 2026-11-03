@@ -34,7 +34,7 @@ test('cancelled fetch does not start network requests and error propagates witho
   let calls = 0;
   await assert.rejects(fetchCompanyRecords(async () => {
     if (++calls === 2) throw new Error('Network interrupted');
-    return Array.from({ length: 500 }, (_, id) => ({ id }));
+    return Array.from({ length: 500 }, (_, id) => ({ id: String(id) }));
   }, 'company'), /Network interrupted/);
 });
 
@@ -74,4 +74,29 @@ test('company change during an overlapping response does not restart the obsolet
   }, 'old-company', { isCurrent: () => current });
   assert.equal(result, null);
   assert.equal(calls, 2);
+});
+
+for (const [name, malformed] of [
+  ['oversized page', Array.from({ length: 501 }, (_, i) => ({ id: String(i) }))],
+  ['array row', [[]]], ['object instead of page', {}], ['string instead of page', 'bad'],
+  ['null row', [null]], ['primitive row', [42]], ['missing id', [{}]],
+  ['numeric id', [{ id: 123 }]], ['empty id', [{ id: '' }]], ['blank id', [{ id: '  ' }]],
+]) test(`reject malformed company page: ${name}`, async () => {
+  let progress = 0;
+  await assert.rejects(fetchCompanyRecords(async () => malformed, 'synthetic', { onProgress: () => progress++ }), /invalid company records/i);
+  assert.equal(progress, 0, 'invalid page is not counted as loaded');
+});
+
+test('invalid later page rejects complete scan without returning partial records', async () => {
+  let calls = 0;
+  await assert.rejects(fetchCompanyRecords(async () => ++calls === 1
+    ? Array.from({ length: 500 }, (_, i) => ({ id: String(i) }))
+    : [{ name: 'Missing identity' }], 'synthetic'), /invalid company records/i);
+  assert.equal(calls, 2);
+});
+
+test('empty page is confirmed empty; valid IDs and future fields remain unchanged', async () => {
+ assert.deepEqual(await fetchCompanyRecords(async()=>[], 'synthetic'), []);
+ const rows=[{id:' exact identity ',kind:'future_kind',future_field:{value:true}}];
+ assert.deepEqual(await fetchCompanyRecords(async()=>rows, 'synthetic'),rows);
 });

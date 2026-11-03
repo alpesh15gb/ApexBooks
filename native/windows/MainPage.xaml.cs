@@ -100,7 +100,7 @@ public sealed partial class MainPage : Page
     internal async Task LoadCompanies()
     {
         var stamp=workspaceGeneration;var request=++companyLoads;
-        _=Api.EnsureCapabilities();var loaded=(await Api.Send("/api/companies")).Array();
+        _=Api.EnsureCapabilities();var loaded=await Api.Companies();
         if(!Api.SignedIn||stamp!=workspaceGeneration||request!=companyLoads)return;
         Companies=loaded;
         if (!shellReady) BuildShell(); else host.Content=navigation;
@@ -162,7 +162,7 @@ public sealed partial class MainPage : Page
 
     internal async Task Refresh()
     {
-        var cid = CompanyId;if(cid.Length==0||!Api.SignedIn)return;var current=workspaceGeneration;var request=++refreshSequence; var rows = Api.Records(cid);var banks=Api.Send(Api.CompanyPath(cid,"/bank-accounts"));await Task.WhenAll(rows,banks); if (current != workspaceGeneration||request!=refreshSequence) return; Records = await rows;Banks=(await banks).Array();recordsReady=true; await Navigate(CurrentPage);
+        var cid = CompanyId;if(cid.Length==0||!Api.SignedIn)return;var current=workspaceGeneration;var request=++refreshSequence; var loaded=await Api.LoadCompanyCore(cid); if (current != workspaceGeneration||request!=refreshSequence) return; Records = loaded.Records;Banks=loaded.Banks;recordsReady=true; await Navigate(CurrentPage);
     }
 
     internal async Task Navigate(string page)

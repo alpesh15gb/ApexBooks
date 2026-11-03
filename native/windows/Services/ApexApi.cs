@@ -172,10 +172,24 @@ public sealed class ApexApi : IDisposable
 
     public string CompanyPath(string companyId, string suffix = "") => $"/api/companies/{Uri.EscapeDataString(companyId)}{suffix}";
 
+    static JsonArray RequireIdentityArray(JsonNode? response,string description,int? maximum=null)
+    {
+        if(response is not JsonArray rows || maximum is int limit && rows.Count>limit)
+            throw new InvalidDataException(description+" returned an invalid list. No incomplete company data was loaded. Refresh and try again.");
+        foreach(var row in rows)
+            if(row is not JsonObject item || item["id"] is not JsonValue id || !id.TryGetValue<string>(out var identity) || string.IsNullOrWhiteSpace(identity))
+                throw new InvalidDataException(description+" returned an invalid identity. No incomplete company data was loaded. Refresh and try again.");
+        return rows;
+    }
+
+    public async Task<JsonArray> Companies()=>RequireIdentityArray(await Send("/api/companies").ConfigureAwait(false),"Companies");
+    public async Task<JsonArray> BankAccounts(string companyId)=>RequireIdentityArray(await Send(CompanyPath(companyId,"/bank-accounts")).ConfigureAwait(false),"Bank accounts");
+
     public async Task<(JsonArray Records,JsonArray Banks)> LoadCompanyCore(string companyId)
     {
         _=EnsureCapabilities(); // Optional metadata never gates financial company readiness.
-        var records=Records(companyId);var banks=Send(CompanyPath(companyId,"/bank-accounts"));await Task.WhenAll(records,banks).ConfigureAwait(false);return(await records.ConfigureAwait(false),(await banks.ConfigureAwait(false)).Array());
+        var records=Records(companyId);var banks=BankAccounts(companyId);await Task.WhenAll(records,banks).ConfigureAwait(false);
+        var loadedRecords=await records.ConfigureAwait(false);var loadedBanks=await banks.ConfigureAwait(false);return(loadedRecords,loadedBanks);
     }
 
     public async Task<JsonArray> Records(string companyId)
@@ -187,7 +201,7 @@ public sealed class ApexApi : IDisposable
             var rows=new JsonArray();var seen=new HashSet<string>(StringComparer.Ordinal);
             for(var offset=0;;offset+=500)
             {
-                var page=(await Send(CompanyPath(companyId,$"/records?compact=true&limit=500&offset={offset}")).ConfigureAwait(false)).Array();
+                var page=RequireIdentityArray(await Send(CompanyPath(companyId,$"/records?compact=true&limit=500&offset={offset}")).ConfigureAwait(false),"Company records",500);
                 var overlap=false;
                 foreach(var item in page){if(!seen.Add(item.Text("id"))){overlap=true;break;}rows.Add(item.Copy());}
                 if(overlap)break;
