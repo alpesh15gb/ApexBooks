@@ -1,6 +1,7 @@
+import { bankUnmatchBlockReason, captureBankUnmatch, bankMatchRowBlockReason, isChangedBankMatch } from "./bankMatchRevision.js";
 import { businessDate } from "./businessDate.js";
 import StatementImportPreview from "./StatementImportPreview.jsx";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Wallet, FileText, Search, ArrowDownLeft } from "lucide-react";
 import CashBook from "./CashBook.jsx";
 import CashTransfer from "./CashTransfer.jsx";
@@ -20,12 +21,11 @@ async function api(path, options = {}) {
     },
   });
   const data = await response.json();
-  if (!response.ok)
-    throw Error(
-      typeof data.detail === "string"
-        ? data.detail
-        : `Request failed (${response.status})`,
-    );
+  if (!response.ok) {
+    const error = Error(typeof data.detail === "string" ? data.detail : `Request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 function parseBankCsv(source) {
@@ -107,7 +107,7 @@ function Metric({ label, value, icon: Icon, count = false }) {
   );
 }
 
-export default function BankWorkspace({ companyId, records, role, onSaved }) {
+export default function BankWorkspace({ companyId, records, role, onSaved, capabilities, onRetryCapabilities }) {
   const [banks, setBanks] = useState([
     { id: "default", name: "Bank clearing (legacy)", ledger_code: "SYS-BANK" },
   ]);
@@ -129,6 +129,15 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
   const [accountHint, setAccountHint] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [unmatchPending, setUnmatchPending] = useState(null), [unmatchBusy, setUnmatchBusy] = useState(false), [matchNotice, setMatchNotice] = useState("");
+  const unmatchActive = useRef(null), scope = useRef({key:"",generation:0});
+  const contextKey = JSON.stringify([companyId,bankId,asOf,openingBalance]);
+  if (scope.current.key !== contextKey) scope.current = {key:contextKey,generation:scope.current.generation+1};
+  const unmatchBlocked = bankUnmatchBlockReason(capabilities);
+  useEffect(() => {
+    setUnmatchPending(null); setUnmatchBusy(false); setMatchNotice(""); unmatchActive.current = null;
+    return () => { scope.current = {...scope.current,generation:scope.current.generation+1}; };
+  }, [contextKey]);
   const activeBank = banks.find((bank) => bank.id === bankId) || banks[0];
 
   useEffect(() => {
@@ -257,14 +266,30 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
       setBusy(false);
     }
   }
-  async function unmatch(line) {
+  async function unmatch(line, retry = false) {
+    if (!["owner","editor"].includes(role) || unmatchBlocked || unmatchActive.current || busy) return;
+    let operation;
+    try { operation = retry ? unmatchPending : captureBankUnmatch(companyId,line); }
+    catch (failure) { setMatchNotice(failure.message); return; }
+    if (!operation) return;
+    const generation = scope.current.generation;
+    unmatchActive.current = operation; setUnmatchBusy(true); setMatchNotice("");
     try {
-      await api(`/companies/${companyId}/bank-statement/${line.id}/match`, {
-        method: "DELETE",
-      });
-      setRevision((value) => value + 1);
-    } catch (err) {
-      setError(err.message);
+      await api(operation.path,{method:"DELETE",body:operation.body});
+      if (scope.current.generation !== generation) return;
+      setUnmatchPending(null); setMatchNotice("The reviewed match was removed. Statement balances are refreshing."); setRevision(value=>value+1);
+    } catch (failure) {
+      if (scope.current.generation !== generation) return;
+      if (failure.status >= 400 && failure.status < 500 && failure.status !== 408) {
+        setUnmatchPending(null);
+        setMatchNotice(failure.message + " No newer match was removed by this request. Reload and review the statement before another action.");
+        if (isChangedBankMatch(failure) || failure.status === 404) setRevision(value=>value+1);
+      } else {
+        setUnmatchPending(operation);
+        setMatchNotice("The unmatch response was not confirmed. Retry the original reviewed match below; a newer match will not be removed.");
+      }
+    } finally {
+      if (scope.current.generation === generation) { unmatchActive.current=null; setUnmatchBusy(false); }
     }
   }
   async function saveReview(event) {
@@ -469,6 +494,9 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
         selected account. Payment suggestions use amount, date, reference and
         party name; confirm every allocation.
       </div>
+      {unmatchBlocked && role !== "viewer" && <div className="info-box" role="status">{unmatchBlocked}{onRetryCapabilities && <button type="button" className="button secondary" onClick={onRetryCapabilities}>Check API support again</button>}</div>}
+      {matchNotice && <p className="info-box" role="status">{matchNotice}</p>}
+      {unmatchPending && <button type="button" className="button secondary" disabled={!["owner","editor"].includes(role) || unmatchBusy || busy || !!unmatchBlocked} onClick={() => unmatch(null,true)}>Retry original unmatch</button>}
       {error && <div className="error banner">{error}</div>}
       {summary && (
         <div className="summary-grid bank-summary">
@@ -566,13 +594,14 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
                   <td className="right amount">{money(line.amount)}</td>
                   <td>
                     {line.matched_record_id ? (
-                      <button
+                      <><button
                         className="link"
-                        disabled={role === "viewer"}
+                        title={bankMatchRowBlockReason(line) || unmatchBlocked || "Remove only this reviewed match"}
+                        disabled={!["owner","editor"].includes(role) || busy || unmatchBusy || !!unmatchPending || !!unmatchBlocked || !!bankMatchRowBlockReason(line)}
                         onClick={() => unmatch(line)}
                       >
                         Matched · Unmatch
-                      </button>
+                      </button>{bankMatchRowBlockReason(line) && <small>{bankMatchRowBlockReason(line)}</small>}</>
                     ) : (
                       <div className="bank-match-detail">
                         <div className="bank-allocation-status">

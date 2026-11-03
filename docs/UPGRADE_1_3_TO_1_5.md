@@ -24,6 +24,10 @@ The known repository baseline is `1e8d981149e8a4dce597ec49933b33887bcf00d6`, who
 | `f785bc142d69` | Optional book label, separate from legal company name | Downgrade drops chosen labels |
 | `g896cd253e70` | Retained immutable receipt bytes, tenant/record constraints and write keys | Downgrade discards retained evidence; archived evidence is still evidence |
 | `h907ef475a92` | Durable bounded backup jobs/chunks and storage reservations | Downgrade discards transfer and canonical recovery metadata |
+| `i018fa586ba3` | Durable company/operation-scoped manual journal and reversal retry bindings | Online downgrade refuses a populated retry-binding table; preserve bindings or use reviewed full recovery |
+| `j129ab697cb4` | SQLite-only index for the unchanged company record ordering; PostgreSQL revision-only step | Dropping this index removes the optimization without rewriting records |
+
+The current required head is `j129ab697cb4`. The SQLite index build requires a maintenance window appropriate to database size and available disk space; its local synthetic timing is not a production lock-duration guarantee. PostgreSQL gets no expression index because historical creation metadata is unbounded. Journal retry bindings are operational recovery state, not a substitute for posted accounting records or portable company backups. The guarded journal downgrade reserves the writer before checking emptiness (PostgreSQL table lock or SQLite writer reservation); offline downgrade is refused.
 
 These are additive forward migrations, not permission to skip a database backup or assume old code can safely keep writing. Use the standard versioned migration runner only after verifying the actual target revision and rehearsing on an isolated clone. An unexpected or unversioned schema must fail closed for manual review; do not stamp it to head to bypass differences. Current readiness intentionally refuses a database that has not reached the required schema.
 
@@ -31,10 +35,10 @@ These are additive forward migrations, not permission to skip a database backup 
 
 `python tests/upgrade/rehearse_legacy.py` archives the exact original commit above and runs baseline/current code in separate subprocesses against newly created temporary SQLite databases. It does not use an inherited database URL or a hosted target. It passed locally with:
 
-- Readiness **503 before migration → 200 after migration**, baseline `e674ab031c58` → current `h907ef475a92` through the standard Alembic runner.
+- Readiness **503 before migration → 200 after migration**, baseline `e674ab031c58` → current `j129ab697cb4` through the standard Alembic runner.
 - Exact preservation of all original columns/rows across **33 tables**, including 14 records, 11 journals/28 lines, five stock movements and one single/three split payment allocations. Fixture data includes openings, a purchase bill, invoices, partial customer/supplier payments, a linked credit note and expense.
-- Six canonical reports unchanged: financial, stock, parties, ageing, buyer statement and supplier statement. Only the new explicitly-null statement `converted_to` metadata is normalized; financial values are compared exactly.
-- A second migration run leaves the schema/old rows unchanged. An existing session token and old-client payload omitting new fields still support the exercised core read/draft-write paths.
+- Six canonical reports unchanged: financial, stock, parties, ageing, buyer statement and supplier statement. Only new explicitly-null statement `converted_to` metadata and a strictly-integer zero `party.data.version` are normalized; nonzero/malformed revisions are rejected and financial values are compared exactly.
+- A second migration run leaves the schema/old rows unchanged. An existing session token and old-client payload omitting new fields still support the exercised core read/draft-write paths. Unversioned master edits now explicitly return 409 without changing any original row; this breaking edit compatibility requires the coordinated API/client rollout in [master revision guidance](MASTER_EDIT_REVISIONS.md).
 - A receipt created **after** upgrade survives complete ZIP restore with exact bytes, financial-report equality and same-company commit replay. This is not pre-upgrade attachment preservation.
 - A pre-upgrade SQLite physical backup reopens under the original application with identical old rows/reports, without running a destructive downgrade.
 

@@ -13,18 +13,29 @@ public sealed partial class MainPage
     private readonly Dictionary<string,string> bankSelections=new();
     private async Task BankPage()
     {
-        var cid=CompanyId;var stamp=generation;var sequence=0;var bank=BankChoice(selected:bankSelections.GetValueOrDefault(cid,"default"));var date=new DateInput("Reconcile as of",J.Today);var opening=Input("Statement opening balance (₹)","0");var panel=Stack(18);
+        var cid=CompanyId;var stamp=generation;var bankSession=Api.SessionGeneration;var sequence=0;var bank=BankChoice(selected:bankSelections.GetValueOrDefault(cid,"default"));var date=new DateInput("Reconcile as of",J.Today);var opening=Input("Statement opening balance (₹)","0");var panel=Stack(18);
         string Query()=>"?bank_account_id="+Uri.EscapeDataString(Value(bank))+"&as_of="+date.Value;
         async Task Load()
         {
-            var call=++sequence;var bid=Value(bank);var tasks=new[]{Api.Send(Api.CompanyPath(cid,"/bank-statement"+Query())),Api.Send(Api.CompanyPath(cid,"/bank-reconciliation"+Query()+"&opening_balance="+Uri.EscapeDataString(opening.Text))),Api.Send(Api.CompanyPath(cid,"/bank-reconciliation/reviews?bank_account_id="+Uri.EscapeDataString(bid))),Api.Send(Api.CompanyPath(cid,"/bank-statement?bank_account_id="+Uri.EscapeDataString(bid)))};await Task.WhenAll(tasks);if(stamp!=generation||call!=sequence)return;
+            var call=++sequence;var bid=Value(bank);var displayedAsOf=date.Value;var tasks=new[]{Api.Send(Api.CompanyPath(cid,"/bank-statement"+Query())),Api.Send(Api.CompanyPath(cid,"/bank-reconciliation"+Query()+"&opening_balance="+Uri.EscapeDataString(opening.Text))),Api.Send(Api.CompanyPath(cid,"/bank-reconciliation/reviews?bank_account_id="+Uri.EscapeDataString(bid))),Api.Send(Api.CompanyPath(cid,"/bank-statement?bank_account_id="+Uri.EscapeDataString(bid)))};await Task.WhenAll(tasks);if(stamp!=generation||call!=sequence)return;
             panel.Children.Clear();RenderReport(panel,await tasks[1],"Reconciliation");var lines=(await tasks[0]).Array();var allLines=(await tasks[3]).Array();var used=allLines.SelectMany(l=>l?["allocations"].Array()??new()).GroupBy(a=>a.Text("record_id")).ToDictionary(g=>g.Key,g=>g.Sum(a=>a.Number("amount")));
             foreach(var line in lines.OfType<JsonObject>())
             {
                 var card=Stack();card.Children.Add(Text($"{line.Text("date")} · {line.Text("description")} · {J.Money(line.Number("amount"))}",15,true));card.Children.Add(Text(line.Text("reference"),12));
                 foreach(var allocation in line["allocations"].Array().OfType<JsonObject>())
                 {var a=allocation;var row=Records.FirstOrDefault(r=>r.Text("id")==a.Text("record_id"));var controls=Columns(Text($"{row.Text("number")} · {row.Text("name")} · {J.Money(a.Number("amount"))}"),AsyncButton("Remove match",async()=>{await Api.Send(Api.CompanyPath(cid,"/bank-statement/allocations/"+a.Text("id")),HttpMethod.Delete);await Load();},Error));if(CanWrite)card.Children.Add(controls);}
-                if(CanWrite&&line.Text("matched_record_id").Length>0)card.Children.Add(AsyncButton("Unmatch",async()=>{await Api.Send(Api.CompanyPath(cid,$"/bank-statement/{line.Text("id")}/match"),HttpMethod.Delete);await Load();},Error));
+                if(CanWrite&&line.Text("matched_record_id").Length>0){
+                    var displayedLine=line.Copy().Object();ExactBankUnmatch? unmatchIntent=null;
+                    bool UnmatchScope()=>cid==CompanyId&&stamp==generation&&bankSession==Api.SessionGeneration&&call==sequence&&Value(bank)==bid&&date.Value==displayedAsOf&&CanWrite;
+                    var unmatch=AsyncButton("Unmatch",async()=>{
+                        if(!UnmatchScope())throw new OperationCanceledException("The statement view changed. Reload and review its current match.");
+                        unmatchIntent??=new ExactBankUnmatch(Api,cid,displayedLine);
+                        // Keep this exact intent for retry; never fetch a replacement token.
+                        await unmatchIntent.Remove(UnmatchScope);if(UnmatchScope())await Load();
+                    },Error);
+                    unmatch.IsEnabled=Supports("bank_match_revisions");card.Children.Add(unmatch);
+                    if(!unmatch.IsEnabled){card.Children.Add(Text("Exact unmatch is disabled until bank match revision protection is confirmed. After checking features, reload this statement.",12));card.Children.Add(CapabilityNotice());}
+                }
                 if(CanWrite&&line.Number("remaining_amount")>0&&line.Text("matched_record_id").Length==0)
                 {
                     var candidates=Records.OfType<JsonObject>().Where(r=>r.Flag("posted")&&string.CompareOrdinal(r.Text("date"),date.Value)<=0&&BankMovement(r,bid)!=0&&Math.Sign(BankMovement(r,bid))==Math.Sign(line.Number("amount"))&&r.Number("amount")-used.GetValueOrDefault(r.Text("id"))>0&&!allLines.Any(l=>l.Text("matched_record_id")==r.Text("id"))).OrderByDescending(r=>r.Text("number").Length>0&&line.Text("reference").Contains(r.Text("number"),StringComparison.OrdinalIgnoreCase)).ToArray();
@@ -91,10 +102,35 @@ public sealed partial class MainPage
     }
     private async Task JournalForm(JsonArray accounts)
     {
-        var cid=CompanyId;var panel=Stack();panel.MinWidth=700;var date=new DateInput("Date",J.Today);var reference=Input("Unique reference");var memo=Input("Memo");panel.Children.Add(Columns(date.View,reference));panel.Children.Add(memo);var rows=new List<(ComboBox Account,TextBox Debit,TextBox Credit)>();var holder=Stack();
+        var cid=CompanyId;var stamp=generation;var session=Api.SessionGeneration;var verifiedAtOpen=Supports("journal_idempotency");var submission=new JournalSubmission(Api,cid);
+        bool Current()=>cid==CompanyId&&stamp==generation&&session==Api.SessionGeneration&&CanWrite;
+        var panel=Stack();panel.MinWidth=700;var date=new DateInput("Date",J.Today);var reference=Input("Unique reference");var memo=Input("Memo");panel.Children.Add(Columns(date.View,reference));panel.Children.Add(memo);var rows=new List<(ComboBox Account,TextBox Debit,TextBox Credit)>();var holder=Stack();
         void Add(){var account=Select("Account",accounts.Select(a=>(a.Text("id"),a.Text("code")+" · "+a.Text("name"))));var debit=Input("Debit (₹)","0");var credit=Input("Credit (₹)","0");var row=Columns(account,debit,credit);rows.Add((account,debit,credit));holder.Children.Add(row);var remove=Button("Remove line",()=>{rows.Remove((account,debit,credit));holder.Children.Remove(row);});row.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});Grid.SetColumn(remove,3);row.Children.Add(remove);}
-        Add();Add();panel.Children.Add(holder);panel.Children.Add(Button("Add line",Add));if(await Dialog("Balanced journal entry",panel,async()=>{await Api.Send(Api.CompanyPath(cid,"/journals"),HttpMethod.Post,new JsonObject{["date"]=date.Value,["reference"]=reference.Text,["memo"]=memo.Text,["lines"]=new JsonArray(rows.Select(r=>(JsonNode)new JsonObject{["account_id"]=Value(r.Account),["debit"]=r.Debit.Text,["credit"]=r.Credit.Text}).ToArray())});},"Post journal"))await Refresh();
+        Add();Add();panel.Children.Add(holder);panel.Children.Add(Button("Add line",Add));
+        if(!verifiedAtOpen){panel.Children.Add(Text("Posting is disabled until journal retry protection is confirmed. Check features, then close and reopen this form.",12));panel.Children.Add(CapabilityNotice());}
+        JsonObject Body()=>new(){["date"]=date.Value,["reference"]=reference.Text,["memo"]=memo.Text,["lines"]=new JsonArray(rows.Select(r=>(JsonNode)new JsonObject{["account_id"]=Value(r.Account),["debit"]=r.Debit.Text,["credit"]=r.Credit.Text}).ToArray())};
+        var baseline=Body().ToJsonString();
+        var saved=await Dialog("Balanced journal entry",panel,async()=>{
+            var body=Body();SetFormEnabled(panel,false);panel.IsHitTestVisible=false;
+            try{await submission.Save(body,Current);}
+            catch(Exception error){if(submission.ReviewRequired)throw new Exception(error.Message+" "+JournalSubmission.ReviewGuidance,error);if(submission.Unresolved)throw new Exception("The journal outcome is unknown. Original date, reference and lines are locked. Retry Post journal to recover this same command; do not create a replacement.",error);throw;}
+            finally{SetFormEnabled(panel,submission.InputsEditable);panel.IsHitTestVisible=submission.InputsEditable;}
+        },"Post journal",canSave:()=>!submission.ReviewRequired&&verifiedAtOpen&&Supports("journal_idempotency")&&Current(),hasChanges:()=>Body().ToJsonString()!=baseline,unresolved:()=>submission.Unresolved);
+        if(saved&&Current())await Refresh();
     }
     private async Task ReverseJournal(JsonObject journal)
-    {var cid=CompanyId;var panel=Stack();var date=new DateInput("Reversal date",J.Today);var reference=Input("Reversal reference");var reason=Input("Reason","",true);panel.Children.Add(Text("The original journal stays in the audit history. This posts an equal opposite journal."));foreach(var field in new UIElement[]{date.View,reference,reason})panel.Children.Add(field);if(await Dialog("Reverse "+journal.Text("reference"),panel,async()=>{await Api.Send(Api.CompanyPath(cid,$"/journals/{journal.Text("id")}/reverse"),HttpMethod.Post,new JsonObject{["date"]=date.Value,["reference"]=reference.Text,["reason"]=reason.Text});},"Post reversal"))await Refresh();}
+    {
+        var cid=CompanyId;var stamp=generation;var session=Api.SessionGeneration;var originalId=journal.Text("id");var originalReference=journal.Text("reference");var verifiedAtOpen=Supports("journal_idempotency");var submission=new JournalSubmission(Api,cid,originalId);
+        bool Current()=>cid==CompanyId&&stamp==generation&&session==Api.SessionGeneration&&CanWrite;
+        var panel=Stack();var date=new DateInput("Reversal date",J.Today);var reference=Input("Reversal reference");var reason=Input("Reason","",true);panel.Children.Add(Text("The original journal stays in the audit history. This posts an equal opposite journal."));foreach(var field in new UIElement[]{date.View,reference,reason})panel.Children.Add(field);
+        if(!verifiedAtOpen){panel.Children.Add(Text("Reversal posting is disabled until journal retry protection is confirmed. Check features, then close and reopen this form.",12));panel.Children.Add(CapabilityNotice());}
+        JsonObject Body()=>new(){["date"]=date.Value,["reference"]=reference.Text,["reason"]=reason.Text};var baseline=Body().ToJsonString();
+        var saved=await Dialog("Reverse "+originalReference,panel,async()=>{
+            var body=Body();SetFormEnabled(panel,false);panel.IsHitTestVisible=false;
+            try{await submission.Save(body,Current);}
+            catch(Exception error){if(submission.ReviewRequired)throw new Exception(error.Message+" "+JournalSubmission.ReviewGuidance,error);if(submission.Unresolved)throw new Exception("The reversal outcome is unknown. Original journal, date, reference and reason are locked. Retry Post reversal to recover this same command; do not create a replacement.",error);throw;}
+            finally{SetFormEnabled(panel,submission.InputsEditable);panel.IsHitTestVisible=submission.InputsEditable;}
+        },"Post reversal",canSave:()=>!submission.ReviewRequired&&verifiedAtOpen&&Supports("journal_idempotency")&&Current(),hasChanges:()=>Body().ToJsonString()!=baseline,unresolved:()=>submission.Unresolved);
+        if(saved&&Current())await Refresh();
+    }
 }

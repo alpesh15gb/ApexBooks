@@ -11,8 +11,8 @@ class RetrySubmission {
         return JSONObject(pending!!)
     }
     fun succeeded() { pending = null }
-    fun failed(error: Exception) {
+    fun failed(error: Exception, definitiveConflict: Boolean = false) {
         // A timeout, server error, or in-progress conflict may follow a committed write.
-        if (error is ApiFailure && error.status in 400..499 && error.status !in setOf(408, 409)) pending = null
+        if (error is ApiFailure && (error.status in 400..499 && error.status !in setOf(408, 409) || definitiveConflict && error.status == 409)) pending = null
     }
 }

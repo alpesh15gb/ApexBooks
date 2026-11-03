@@ -1,0 +1,235 @@
+{
+  "method": "Warm local SQLite/TestClient; independent temporary process/database per size; one warmup and three read samples; not cold startup/network/native/PostgreSQL; no production data",
+  "results": [
+    {
+      "records": 3000,
+      "fixture": {
+        "journals": 3000,
+        "journal_lines": 6000,
+        "split_allocations": 1000
+      },
+      "full_response_equal": true,
+      "index": {
+        "build_commit_ms": 82.07,
+        "index_bytes_dbstat": 368640
+      },
+      "baseline": {
+        "first_page": {
+          "ms": 171.24,
+          "requests": 1,
+          "sql_queries": 7,
+          "bytes": 158998,
+          "cursor_ms": 135.07,
+          "plan": [
+            [
+              8,
+              0,
+              61,
+              "SEARCH records USING INDEX ix_records_company_id (company_id=?)"
+            ],
+            [
+              74,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          "median_ms": 156.37,
+          "samples_ms": [
+            135.97,
+            156.37,
+            171.24
+          ]
+        },
+        "full_scan": {
+          "ms": 1044.58,
+          "requests": 7,
+          "sql_queries": 46,
+          "bytes": 952898,
+          "cursor_ms": 749.62,
+          "plan": [
+            [
+              8,
+              0,
+              61,
+              "SEARCH records USING INDEX ix_records_company_id (company_id=?)"
+            ],
+            [
+              74,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          "median_ms": 944.32,
+          "samples_ms": [
+            944.32,
+            911.09,
+            1044.58
+          ]
+        },
+        "insert100_heavy_rows_statement_median_ms": 14.17
+      },
+      "indexed": {
+        "first_page": {
+          "ms": 57.59,
+          "requests": 1,
+          "sql_queries": 7,
+          "bytes": 158998,
+          "cursor_ms": 1.25,
+          "plan": [
+            [
+              8,
+              0,
+              62,
+              "SEARCH records USING INDEX ix_records_company_order (company_id=?)"
+            ]
+          ],
+          "median_ms": 65.34,
+          "samples_ms": [
+            68.64,
+            65.34,
+            57.59
+          ]
+        },
+        "full_scan": {
+          "ms": 295.36,
+          "requests": 7,
+          "sql_queries": 46,
+          "bytes": 952898,
+          "cursor_ms": 22.71,
+          "plan": [
+            [
+              8,
+              0,
+              62,
+              "SEARCH records USING INDEX ix_records_company_order (company_id=?)"
+            ]
+          ],
+          "median_ms": 411.1,
+          "samples_ms": [
+            411.1,
+            569.06,
+            295.36
+          ]
+        },
+        "insert100_heavy_rows_statement_median_ms": 17.76
+      }
+    },
+    {
+      "records": 5000,
+      "fixture": {
+        "journals": 5000,
+        "journal_lines": 10000,
+        "split_allocations": 1666
+      },
+      "full_response_equal": true,
+      "index": {
+        "build_commit_ms": 191.06,
+        "index_bytes_dbstat": 610304
+      },
+      "baseline": {
+        "first_page": {
+          "ms": 210.64,
+          "requests": 1,
+          "sql_queries": 7,
+          "bytes": 159007,
+          "cursor_ms": 177.5,
+          "plan": [
+            [
+              8,
+              0,
+              61,
+              "SEARCH records USING INDEX ix_records_company_id (company_id=?)"
+            ],
+            [
+              74,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          "median_ms": 200.76,
+          "samples_ms": [
+            200.51,
+            200.76,
+            210.64
+          ]
+        },
+        "full_scan": {
+          "ms": 2363.64,
+          "requests": 11,
+          "sql_queries": 74,
+          "bytes": 1588908,
+          "cursor_ms": 2047.09,
+          "plan": [
+            [
+              8,
+              0,
+              61,
+              "SEARCH records USING INDEX ix_records_company_id (company_id=?)"
+            ],
+            [
+              74,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          "median_ms": 2363.64,
+          "samples_ms": [
+            2106.77,
+            2378.8,
+            2363.64
+          ]
+        },
+        "insert100_heavy_rows_statement_median_ms": 18.09
+      },
+      "indexed": {
+        "first_page": {
+          "ms": 215.28,
+          "requests": 1,
+          "sql_queries": 7,
+          "bytes": 159007,
+          "cursor_ms": 2.01,
+          "plan": [
+            [
+              8,
+              0,
+              62,
+              "SEARCH records USING INDEX ix_records_company_order (company_id=?)"
+            ]
+          ],
+          "median_ms": 58.08,
+          "samples_ms": [
+            54.2,
+            58.08,
+            215.28
+          ]
+        },
+        "full_scan": {
+          "ms": 540.91,
+          "requests": 11,
+          "sql_queries": 74,
+          "bytes": 1588908,
+          "cursor_ms": 52.3,
+          "plan": [
+            [
+              8,
+              0,
+              62,
+              "SEARCH records USING INDEX ix_records_company_order (company_id=?)"
+            ]
+          ],
+          "median_ms": 540.91,
+          "samples_ms": [
+            517.89,
+            640.91,
+            540.91
+          ]
+        },
+        "insert100_heavy_rows_statement_median_ms": 15.91
+      }
+    }
+  ]
+}

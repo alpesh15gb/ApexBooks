@@ -1,3 +1,4 @@
+from master_test_helpers import fresh_master_edit
 import os
 import base64
 import io
@@ -304,17 +305,17 @@ class ApiTest(unittest.TestCase):
                 existing.data = {**existing.data, 'legacy_note': 'preserve'}
                 session.commit()
             update = {'name': 'Contact A', 'party_type': 'customer', 'phone': '+91 12345', 'email': 'new@example.com', 'address': 'Pune'}
-            self.assertEqual(client.put(base + '/masters/' + master_id, headers=viewer, json=update).status_code, 403)
-            self.assertEqual(client.put('/api/companies/' + other['id'] + '/masters/' + master_id, headers=owner, json=update).status_code, 404)
-            self.assertEqual(client.put(base + '/masters/' + master_id, headers=owner, json={**update, 'name': 'Renamed'}).status_code, 422)
-            self.assertEqual(client.put(base + '/masters/' + master_id, headers=owner, json={**update, 'email': 'invalid'}).status_code, 422)
-            saved = client.put(base + '/masters/' + master_id, headers=owner, json=update)
+            self.assertEqual(client.put(base + '/masters/' + master_id, headers=viewer, json={**(update), 'version': 0}).status_code, 403)
+            self.assertEqual(client.put('/api/companies/' + other['id'] + '/masters/' + master_id, headers=owner, json={**(update), 'version': 0}).status_code, 404)
+            self.assertEqual(client.put(base + '/masters/' + master_id, headers=owner, json=fresh_master_edit(client, base + '/masters/' + master_id, owner, {**update, 'name': 'Renamed'})).status_code, 422)
+            self.assertEqual(client.put(base + '/masters/' + master_id, headers=owner, json=fresh_master_edit(client, base + '/masters/' + master_id, owner, {**update, 'email': 'invalid'})).status_code, 422)
+            saved = client.put(base + '/masters/' + master_id, headers=owner, json=fresh_master_edit(client, base + '/masters/' + master_id, owner, update))
             self.assertEqual(saved.status_code, 200, saved.text)
             self.assertEqual(saved.json()['data']['email'], 'new@example.com')
             self.assertEqual(saved.json()['data']['legacy_note'], 'preserve')
             self.assertEqual(next(r for r in client.get(base + '/records', headers=owner).json() if r['id'] == master_id)['data']['phone'], '+91 12345')
             item = client.post(base + '/records', headers=owner, json={'kind': 'item', 'name': 'Fixed stock', 'data': {'track_stock': False}}).json()
-            self.assertEqual(client.put(base + '/masters/' + item['id'], headers=owner, json={'name': 'Fixed stock', 'track_stock': True}).status_code, 422)
+            self.assertEqual(client.put(base + '/masters/' + item['id'], headers=owner, json=fresh_master_edit(client, base + '/masters/' + item['id'], owner, {'name': 'Fixed stock', 'track_stock': True})).status_code, 422)
             imported = client.post(base + '/masters/import', headers=owner, json={'kind': 'party', 'dry_run': False, 'rows': [{'name': 'Imported contact', 'phone': '55555', 'email': 'import@example.com'}]})
             self.assertEqual(imported.status_code, 200, imported.text)
             self.assertEqual(next(r for r in client.get(base + '/records', headers=owner).json() if r['name'] == 'Imported contact')['data']['email'], 'import@example.com')
@@ -1109,7 +1110,8 @@ class ApiTest(unittest.TestCase):
             payment_id = next(r['id'] for r in records if r['kind'] == 'payment_in')
             self.assertEqual(client.post(base + '/bank-statement/' + line_id + '/match', headers=headers, json={'record_id': payment_id}).status_code, 200)
             self.assertEqual(client.get(base + '/bank-reconciliation', headers=headers).json()['unmatched'], 0)
-            self.assertEqual(client.delete(base + '/bank-statement/' + line_id + '/match', headers=headers).status_code, 200)
+            reviewed_line = client.get(base + '/bank-statement', headers=headers).json()[0]
+            self.assertEqual(client.request('DELETE', base + '/bank-statement/' + line_id + '/match', headers=headers, json={'expected_record_id': reviewed_line['matched_record_id'], 'expected_match_revision': reviewed_line['match_revision']}).status_code, 200)
             self.assertEqual(client.get(base + '/bank-reconciliation', headers=headers).json()['unmatched'], 1)
             transfer = client.post(base + '/records', headers=headers, json={'kind': 'bank_transfer', 'name': 'Cash deposit', 'date': '2026-10-31', 'amount': '30.00', 'data': {'direction': 'cash_to_bank'}})
             self.assertEqual(transfer.status_code, 200, transfer.text)
@@ -1128,7 +1130,7 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(bank_line.status_code, 200, bank_line.text)
             pos_line_id = next(line['id'] for line in client.get(base + '/bank-statement', headers=headers).json() if line['amount'] == '40.00')
             self.assertEqual(client.post(base + '/bank-statement/' + pos_line_id + '/match', headers=headers, json={'record_id': pos.json()['id']}).status_code, 200)
-            conversion = {'kind': 'sales_invoice', 'name': 'Prospect', 'date': '2026-10-31', 'data': {'source_document_id': auto.json()['id'], 'lines': [{'description': 'Quote', 'quantity': 1, 'rate': 10, 'gst_rate': 0}]}}
+            conversion = {'kind': 'sales_invoice', 'name': 'Prospect', 'date': '2026-10-31', 'data': {'source_document_id': auto.json()['id'], 'source_document_version': auto.json()['data'].get('version', 0), 'lines': [{'description': 'Quote', 'quantity': 1, 'rate': 10, 'gst_rate': 0}]}}
             idempotent_headers = {**headers, 'Idempotency-Key': 'conversion-qa-1'}
             converted = client.post(base + '/records', headers=idempotent_headers, json=conversion)
             self.assertEqual(converted.status_code, 200, converted.text)

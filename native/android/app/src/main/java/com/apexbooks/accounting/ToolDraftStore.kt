@@ -1,13 +1,15 @@
 package com.apexbooks.accounting
 
-import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.*
 import com.apexbooks.accounting.data.RetrySubmission
 import java.util.UUID
 
 /** Session-only financial tool drafts. AppModel ownership survives activity recreation. */
 class ToolDraft {
+    var journalReviewRequired by mutableStateOf(false)
     val key=UUID.randomUUID().toString()
     val submission=RetrySubmission()
+    val settlement=SettlementCommand(submission,key)
     val values=mutableStateMapOf<String,String>()
 }
 class ToolDraftStore {

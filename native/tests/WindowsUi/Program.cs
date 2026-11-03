@@ -35,6 +35,61 @@ decimal Number(JsonNode? node,string key)=>decimal.TryParse(node?[key]?.ToString
 AutomationElement Wait(Func<AutomationElement?> find,string description,int seconds=60){var timeout=Stopwatch.StartNew();while(timeout.Elapsed.TotalSeconds<seconds){try{var element=find();if(element is not null)return element;}catch(ElementNotAvailableException){}if(app?.HasExited==true)throw new Exception($"WinUI exited with {app.ExitCode} while waiting for {description}");Thread.Sleep(250);}throw new Exception("UI timeout: "+description);}
 AutomationElement? Find(string name,ControlType? type=null)=>window?.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>().FirstOrDefault(x=>x.Current.Name==name&&(type is null||x.Current.ControlType==type));
 AutomationElement? ReadyButton(string label){var button=Find(label,ControlType.Button);return button is not null&&button.Current.IsEnabled&&!button.Current.IsOffscreen?button:null;}
+AutomationElement FocusReadyButton(string label)
+{
+    // The viewport can change when preview/credit information arrives. Re-evaluate
+    // owned scrolling throughout readiness rather than passively waiting below fold.
+    var timeout=Stopwatch.StartNew();var scrollSteps=0;var stable=0;
+    var diagnostics=new Queue<string>();
+    void Record(string value){diagnostics.Enqueue(value);while(diagnostics.Count>20)diagnostics.Dequeue();}
+    string Bounds(System.Windows.Rect bounds)=>$"{bounds.X:0.0},{bounds.Y:0.0},{bounds.Width:0.0},{bounds.Height:0.0}";
+    while(timeout.Elapsed.TotalSeconds<60){
+        if(app?.HasExited==true)throw new Exception($"WinUI exited with {app.ExitCode} while revealing {label}");
+        try{
+            var button=Find(label,ControlType.Button);
+            if(button is null){stable=0;Thread.Sleep(250);continue;}
+            var bounds=button.Current.BoundingRectangle;
+            var visible=!button.Current.IsOffscreen&&bounds.Width>0&&bounds.Height>0;
+            Record($"t={timeout.ElapsedMilliseconds} button={Bounds(bounds)} enabled={button.Current.IsEnabled} offscreen={button.Current.IsOffscreen} steps={scrollSteps}");
+            if(visible&&button.Current.IsEnabled){
+                // Focus only the identified app-descendant button; it never invokes it.
+                button.SetFocus();Thread.Sleep(150);
+                var ready=ReadyButton(label);var readyBounds=ready?.Current.BoundingRectangle;
+                if(ready is not null&&readyBounds is {Width:>0,Height:>0}){
+                    if(++stable>=2)return ready;
+                    continue;
+                }
+                stable=0;
+            }else stable=0;
+            var currentBounds=button.Current.BoundingRectangle;
+            var needsReveal=button.Current.IsOffscreen||currentBounds.Width<=0||currentBounds.Height<=0;
+            if(needsReveal&&scrollSteps<80){
+                if(button.TryGetCurrentPattern(ScrollItemPattern.Pattern,out var item)){
+                    Record("ScrollIntoView attempt");
+                    ((ScrollItemPattern)item).ScrollIntoView();scrollSteps++;Thread.Sleep(150);
+                }
+                var afterItem=button.Current.BoundingRectangle;
+                if(scrollSteps<80&&(button.Current.IsOffscreen||afterItem.Width<=0||afterItem.Height<=0)){
+                    // Walk only from this app descendant toward the launched window.
+                    var ancestor=TreeWalker.RawViewWalker.GetParent(button);ScrollPattern? scroll=null;
+                    for(var depth=0;ancestor is not null&&depth<32;depth++,ancestor=TreeWalker.RawViewWalker.GetParent(ancestor)){
+                        if(ancestor.Equals(window)||ancestor.Equals(AutomationElement.RootElement)||ancestor.Current.ProcessId!=window!.Current.ProcessId)break;
+                        if(ancestor.TryGetCurrentPattern(ScrollPattern.Pattern,out var pattern)&&((ScrollPattern)pattern).Current.VerticallyScrollable){scroll=(ScrollPattern)pattern;break;}
+                    }
+                    if(scroll is not null){
+                        var target=button.Current.BoundingRectangle;var viewport=ancestor!.Current.BoundingRectangle;
+                        var direction=target.Height>0&&target.Bottom<viewport.Top?ScrollAmount.SmallDecrement:ScrollAmount.SmallIncrement;
+                        Record($"viewport={Bounds(viewport)} percent={scroll.Current.VerticalScrollPercent:0.0} view={scroll.Current.VerticalViewSize:0.0} direction={direction}");
+                        scroll.Scroll(ScrollAmount.NoAmount,direction);scrollSteps++;
+                    }else Record("No scrollable app ancestor currently exposed");
+                }
+            }
+        }catch(ElementNotAvailableException){stable=0;Record("App control changed during readiness inspection");}
+        Thread.Sleep(250);
+    }
+    throw new Exception("UI timeout: "+label+" visible, enabled and positive bounds after owned scrolling; "+string.Join(" | ",diagnostics));
+}
+
 AutomationElement? EditField(string label)
 {
     if(window is null)return null;
@@ -53,39 +108,95 @@ AutomationElement? EditField(string label)
 string Value(AutomationElement element)=>((ValuePattern)element.GetCurrentPattern(ValuePattern.Pattern)).Current.Value;
 void Invoke(AutomationElement element){if(element.TryGetCurrentPattern(InvokePattern.Pattern,out var pattern))((InvokePattern)pattern).Invoke();else if(element.TryGetCurrentPattern(SelectionItemPattern.Pattern,out pattern))((SelectionItemPattern)pattern).Select();else throw new Exception("Control has no supported Invoke/Selection pattern: "+element.Current.Name);}
 void Set(AutomationElement element,string value){if(!element.TryGetCurrentPattern(ValuePattern.Pattern,out var pattern))throw new Exception("Control has no supported Value pattern: "+element.Current.Name);((ValuePattern)pattern).SetValue(value);}
+nint discoveredPickerAnchor=0;
+nint LiveAppAnchor()
+{
+    try{
+        if(app is null||app.HasExited)return 0;
+        app.Refresh();var handle=app.MainWindowHandle;
+        NativePickerWindows.GetWindowThreadProcessId(handle,out var pid);
+        return WindowOwnership.ValidAnchor(handle,app.Id,pid,!app.HasExited,NativePickerWindows.IsWindowVisible(handle))?handle:0;
+    }catch(InvalidOperationException){return 0;}
+}
+bool ReadyPicker(AutomationElement candidate,string title,nint anchor)
+{
+    var info=candidate.Current;var hwnd=(nint)info.NativeWindowHandle;var bounds=info.BoundingRectangle;
+    NativePickerWindows.GetWindowThreadProcessId(hwnd,out var candidatePid);
+    return candidatePid==(uint)info.ProcessId&&info.Name==title&&info.IsEnabled&&!info.IsOffscreen&&bounds.Width>0&&bounds.Height>0
+        &&NativePickerWindows.IsWindowVisible(hwnd)&&NativePickerWindows.IsWindowEnabled(hwnd)
+        &&WindowOwnership.StablePicker(hwnd,anchor,LiveAppAnchor(),h=>NativePickerWindows.GetWindow(h,4));
+}
+AutomationElement? OwnedPicker(string title)
+{
+    discoveredPickerAnchor=0;var anchor=LiveAppAnchor();if(anchor==0)return null;
+    // Use the live launched-process native anchor, not the cached WinUI content HWND.
+    var liveWindow=AutomationElement.FromHandle(anchor);
+    foreach(var candidate in liveWindow.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Window)).Cast<AutomationElement>())
+        if(ReadyPicker(candidate,title,anchor)){discoveredPickerAnchor=anchor;return candidate;}
+    foreach(var candidate in AutomationElement.RootElement.FindAll(TreeScope.Children,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Window)).Cast<AutomationElement>()){
+        try{if(ReadyPicker(candidate,title,anchor)){discoveredPickerAnchor=anchor;return candidate;}}
+        catch(ElementNotAvailableException){/* Never broaden scope for disappearing candidates. */}
+    }
+    // Some shell pickers are absent from desktop UIA children. Only obtain UIA
+    // from a visible/enabled native HWND whose bounded owner chain reaches our live app.
+    AutomationElement? found=null;var examined=0;
+    NativePickerWindows.EnumWindows((hwnd,_)=>{
+        if(++examined>2048||LiveAppAnchor()!=anchor)return false;
+        try{
+        if(!NativePickerWindows.IsWindowVisible(hwnd)||!NativePickerWindows.IsWindowEnabled(hwnd)||!WindowOwnership.StablePicker(hwnd,anchor,LiveAppAnchor(),h=>NativePickerWindows.GetWindow(h,4)))return true;
+        var caption=new StringBuilder(128);NativePickerWindows.GetWindowText(hwnd,caption,caption.Capacity);
+        if(caption.ToString()!=title)return true;
+        try{var candidate=AutomationElement.FromHandle(hwnd);if((nint)candidate.Current.NativeWindowHandle==hwnd&&ReadyPicker(candidate,title,anchor)){found=candidate;return false;}}
+        catch(ElementNotAvailableException){/* A disappeared owned window is not a replacement picker. */}
+        }catch(InvalidOperationException){/* Unavailable provider; no action or scope expansion. */}
+        return true;
+    },0);
+    if(found is not null)discoveredPickerAnchor=anchor;
+    return found;
+}
 void ChooseNativeFile(string title,string action,string path)
 {
-    var dialog=Wait(()=>window?.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Window)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==title&&!e.Current.IsOffscreen),"owned system "+title+" picker",120);
-    var field=Wait(()=>dialog.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Edit)).Cast<AutomationElement>().FirstOrDefault(e=>(e.Current.Name is "File name:" or "File name"||e.Current.AutomationId=="1148")&&e.TryGetCurrentPattern(ValuePattern.Pattern,out _)),title+" File name");
+    var dialog=Wait(()=>OwnedPicker(title),"app-owned system "+title+" picker",120);
+    var anchor=discoveredPickerAnchor;
+    void RequireSamePicker(){if(anchor==0||!ReadyPicker(dialog,title,anchor))throw new Exception("Picker or launched app anchor changed; refusing to retarget file action.");}
+    void RequirePickerControl(AutomationElement control,bool keyboard=false){
+        RequireSamePicker();var current=control.Current;var bounds=current.BoundingRectangle;
+        if(!current.IsEnabled||current.IsOffscreen||bounds.Width<=0||bounds.Height<=0||(keyboard&&!current.HasKeyboardFocus))throw new Exception("Picker control is no longer ready or focused; refusing file input.");
+    }
+    void SendPickerKey(AutomationElement control,string key){RequirePickerControl(control,true);System.Windows.Forms.SendKeys.SendWait(key);}
+    RequireSamePicker();
+    var field=Wait(()=>dialog.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Edit)).Cast<AutomationElement>().FirstOrDefault(e=>(e.Current.Name is "File name:" or "File name"||e.Current.AutomationId=="1148")&&e.Current.IsEnabled&&!e.Current.IsOffscreen&&e.Current.BoundingRectangle.Width>0&&e.Current.BoundingRectangle.Height>0&&e.TryGetCurrentPattern(ValuePattern.Pattern,out _)),title+" File name");
+    RequireSamePicker();
     if(action=="Save"){
         // ValuePattern can change the shell edit's displayed text without
         // updating its selected filename. Use genuine keyboard input and commit
         // the edit before activating Save. No retry after activation.
-        field.SetFocus();Wait(()=>field.Current.HasKeyboardFocus?field:null,"Save filename keyboard focus",10);
-        System.Windows.Forms.SendKeys.SendWait("^a");System.Windows.Forms.SendKeys.SendWait("{BACKSPACE}");
+        RequirePickerControl(field);field.SetFocus();Wait(()=>field.Current.HasKeyboardFocus?field:null,"Save filename keyboard focus",10);
+        SendPickerKey(field,"^a");SendPickerKey(field,"{BACKSPACE}");
         Wait(()=>Value(field)==""?field:null,"Save filename cleared",10);
         var typed="";var deadline=Stopwatch.StartNew();
         foreach(var character in path){
+            RequireSamePicker();
             if(deadline.Elapsed>TimeSpan.FromSeconds(30)||!field.Current.HasKeyboardFocus)throw new Exception("Save filename lost focus or exceeded typing deadline.");
             var key=character switch{'{'=>"{{}",'}'=>"{}}",'+' or '^' or '%' or '~' or '(' or ')'=>"{"+character+"}",_=>character.ToString()};
-            System.Windows.Forms.SendKeys.SendWait(key);typed+=character;
+            SendPickerKey(field,key);typed+=character;
             Wait(()=>Value(field)==typed?field:null,"Save filename character "+typed.Length,5);
         }
         Check("Save filename keyboard entry matches exact destination",Value(field)==path);
-        System.Windows.Forms.SendKeys.SendWait("{TAB}");
+        SendPickerKey(field,"{TAB}");
         Wait(()=>!field.Current.HasKeyboardFocus?field:null,"Save filename committed on Tab",10);
-    }else Set(field,path);
+    }else {RequirePickerControl(field);Set(field,path);}
     Check(title+" picker contains exact requested path",Value(field)==path);
-    var confirm=Wait(()=>dialog.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Button)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==action&&e.Current.IsEnabled),title+" "+action+" button");
+    var confirm=Wait(()=>dialog.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Button)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==action&&e.Current.IsEnabled&&!e.Current.IsOffscreen&&e.Current.BoundingRectangle.Width>0&&e.Current.BoundingRectangle.Height>0),title+" "+action+" button");
     if(action=="Save"){
         // Shell Save can make outgoing COM calls. UIA Invoke dispatches a
         // synchronous input call and produced RPC_E_CANTCALLOUT_ININPUTSYNCCALL
         // on the hosted runner. Use one genuine keyboard activation instead.
-        confirm.SetFocus();Wait(()=>confirm.Current.HasKeyboardFocus?confirm:null,"native Save button keyboard focus",10);
+        RequirePickerControl(confirm);confirm.SetFocus();Wait(()=>confirm.Current.HasKeyboardFocus?confirm:null,"native Save button keyboard focus",10);
         Check("committed Save destination survives button focus",Value(field)==path);
         Snapshot("10-native-save-destination");
-        System.Windows.Forms.SendKeys.SendWait(" ");
-    }else Invoke(confirm);
+        SendPickerKey(confirm," ");
+    }else {RequirePickerControl(confirm);Invoke(confirm);}
 }
 void Snapshot(string name){if(window is null)return;var rectangle=window.Current.BoundingRectangle;if(rectangle.Width<1||rectangle.Height<1)throw new Exception("App has no visible capture rectangle.");using var bitmap=new Drawing.Bitmap((int)rectangle.Width,(int)rectangle.Height);using(var graphics=Drawing.Graphics.FromImage(bitmap))graphics.CopyFromScreen((int)rectangle.X,(int)rectangle.Y,0,0,bitmap.Size);bitmap.Save(Path.Combine(evidence,name+".png"),Drawing.Imaging.ImageFormat.Png);
     // Only this synthetic app window, never the desktop or credentials. Bounded diagnostic for log-only artifact readers.
@@ -128,6 +239,17 @@ try{
     var reference="UI"+Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();const string createdBuyer="UI Created Partial-Payment Buyer";
     Set(Wait(()=>EditField("Customer / supplier"),"invoice customer"),createdBuyer);
     Set(Wait(()=>EditField("Reference number"),"invoice reference"),reference);
+    Invoke(Wait(()=>ReadyButton("+ Create customer here"),"inline customer entry"));
+    Set(Wait(()=>EditField("New customer name"),"inline customer name"),"Cancelled inline customer");
+    Invoke(FocusReadyButton("Cancel inline create"));
+    Check("inline customer cancel preserves original invoice reference",Value(Wait(()=>EditField("Reference number"),"original invoice reference after child cancel"))==reference);
+    Invoke(Wait(()=>ReadyButton("+ Create customer here"),"reopen inline customer entry"));
+    Set(Wait(()=>EditField("New customer name"),"new customer name"),createdBuyer);
+    Invoke(FocusReadyButton("Create and use customer"));
+    Wait(()=>Find("Create and use customer",ControlType.Button) is null?window:null,"inline customer returned to same invoice");
+    Check("inline customer selection preserves invoice reference",Value(Wait(()=>EditField("Reference number"),"invoice reference after inline create"))==reference);
+    var inlineParty=(await CompanyRecords(cid)).OfType<JsonObject>().Single(r=>r["kind"]?.ToString()=="party"&&r["name"]?.ToString()==createdBuyer);
+
     var itemSelector=Wait(()=>EditField("Item / service"),"visible invoice item selector");
     // Confirm keyboard ownership and acknowledge each visible edit before sending more.
     // Never blindly repeat a whole string after uncertain keyboard delivery.
@@ -163,11 +285,23 @@ try{
     Check("visible item selector accepted genuine user text",Value(itemSelector)==itemDescription);
     Set(Wait(()=>EditField("Quantity"),"invoice line quantity"),"1");
     Set(Wait(()=>EditField("Rate (₹)"),"invoice line rate"),"250");
+    Invoke(FocusReadyButton("+ Create item here"));
+    var inlineItemName="UI Inline Service "+reference;
+    Set(Wait(()=>EditField("New item name"),"new inline item name"),inlineItemName);
+    Set(Wait(()=>EditField("New item sale rate (₹)"),"inline service rate"),"0");
+    Invoke(FocusReadyButton("Create and use item"));
+    Wait(()=>Find("Create and use item",ControlType.Button) is null?window:null,"inline service returned to invoice");
+    Check("inline item preserves existing line quantity and rate",Value(Wait(()=>EditField("Quantity"),"existing quantity after inline item"))=="1"&&Value(Wait(()=>EditField("Rate (₹)"),"existing rate after inline item"))=="250");
+    var inlineItem=(await CompanyRecords(cid)).OfType<JsonObject>().Single(r=>r["kind"]?.ToString()=="item"&&r["name"]?.ToString()==inlineItemName);
+
     Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Text)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name.StartsWith("Subtotal ",StringComparison.Ordinal)&&e.Current.Name.Contains("Total ",StringComparison.Ordinal)),"server-calculated invoice preview");
     Snapshot("03-invoice-form");Invoke(Wait(()=>Find("Save invoice",ControlType.Button),"save invoice button"));
     Wait(()=>Find("Save invoice",ControlType.Button) is null?window:null,"invoice form saved and closed");
     var createdRows=await CompanyRecords(cid);var created=createdRows.OfType<JsonObject>().SingleOrDefault(r=>r["number"]?.ToString()==reference)??throw new Exception("UI invoice did not appear in canonical records.");
     var createdId=created["id"]!.GetValue<string>();
+    var inlineInvoice=await Get($"/api/companies/{cid}/records/{createdId}");var invoiceLines=inlineInvoice["data"]!["lines"]!.AsArray();
+    Check("inline masters use returned IDs without replacing existing line",inlineInvoice["data"]?["party_id"]?.ToString()==inlineParty["id"]?.ToString()&&invoiceLines.Count==2&&invoiceLines[1]?["item_id"]?.ToString()==inlineItem["id"]?.ToString()&&Number(invoiceLines[0],"rate")==250&&Number(invoiceLines[1],"rate")==0);
+
     Check("invoice was created through the real form exactly once",createdRows.OfType<JsonObject>().Count(r=>r["number"]?.ToString()==reference)==1&&created["name"]?.ToString()==createdBuyer&&Number(created,"amount")==250&&Number(created,"outstanding")==250);
     Invoke(Wait(()=>Find(reference,ControlType.Button),"UI-created invoice register row"));Wait(()=>Find(createdBuyer),"UI-created invoice detail");
     Invoke(Wait(()=>Find("Record payment received",ControlType.Button),"collect partial invoice payment"));
@@ -194,11 +328,8 @@ try{
     Invoke(NavigationItem("Dashboard"));Invoke(Wait(()=>Find("Purchases  ↗",ControlType.Button),"purchase register shortcut"));
     Invoke(Wait(()=>Find(evidenceBill["number"]!.GetValue<string>(),ControlType.Button),"synthetic purchase bill row"));Invoke(Wait(()=>Find("Retained receipts",ControlType.Button),"purchase bill retained evidence action"));
     Wait(()=>Find("No retained receipts. Upload original evidence to keep it with this transaction."),"empty receipt panel");Invoke(Wait(()=>Find("Choose receipt and upload",ControlType.Button),"native receipt upload action"));
-    // Genuine system picker interaction; no hidden app state or direct upload API substitution.
-    // Hosted Windows evidence shows this owned dialog nested beneath the app, not a desktop child.
-    var picker=Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Window)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name=="Open"&&!e.Current.IsOffscreen),"owned system Open file picker inside app UIA tree");
-    var filename=Wait(()=>picker.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Edit)).Cast<AutomationElement>().FirstOrDefault(e=>(e.Current.Name is "File name:" or "File name"||e.Current.AutomationId=="1148")&&e.TryGetCurrentPattern(ValuePattern.Pattern,out _)),"system picker File name field");Set(filename,evidenceFile);
-    Invoke(Wait(()=>picker.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Button)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name=="Open"&&e.Current.IsEnabled),"system picker Open button"));
+    // Genuine system picker interaction, scoped by app subtree or native ownership.
+    ChooseNativeFile("Open","Open",evidenceFile);
     Wait(()=>Find("Archive retained receipt",ControlType.Button),"receipt uploaded through system picker");Snapshot("07-retained-receipt");
     var evidencePath=$"/api/companies/{cid}/records/{evidenceBill["id"]!.GetValue<string>()}/attachments";var uploaded=(await Get(evidencePath))["attachments"]!.AsArray();var expectedSha=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(evidenceBytes)).ToLowerInvariant();
     Check("real receipt picker uploaded exactly one matching retained file",uploaded.Count==1&&uploaded[0]?["sha256"]?.ToString()==expectedSha&&Number(uploaded[0],"size_bytes")==evidenceBytes.Length);
@@ -253,5 +384,18 @@ try{
     await File.WriteAllTextAsync(Path.Combine(evidence,"receipt-verification.json"),new JsonObject{["record_id"]=evidenceBill["id"]!.DeepClone(),["attachment_id"]=archived[0]?["id"]?.DeepClone(),["sha256"]=expectedSha,["is_archived"]=true,["ui_file_picker_used"]=true}.ToJsonString());
     Dump();
     await File.WriteAllTextAsync(Path.Combine(evidence,"result.json"),new JsonObject{["passed"]=true,["api_origin"]=origin.ToString(),["checks"]=new JsonArray(checks.Select(x=>(JsonNode)JsonValue.Create(x)!).ToArray())}.ToJsonString());
-}catch(Exception e){try{Dump();Snapshot("failure-visible-app");}catch{}await File.WriteAllTextAsync(Path.Combine(evidence,"failure.txt"),e.ToString());throw;}
+}catch(Exception e){try{PickerDiagnostics.Write(evidence,app,window);}catch{}try{Dump();Snapshot("failure-visible-app");}catch{}await File.WriteAllTextAsync(Path.Combine(evidence,"failure.txt"),e.ToString());throw;}
 finally{if(app is not null&&!app.HasExited){app.Kill(entireProcessTree:true);app.WaitForExit(10000);}}
+
+static class NativePickerWindows
+{
+    internal delegate bool Callback(nint hwnd,nint state);
+    [System.Runtime.InteropServices.DllImport("user32.dll",ExactSpelling=true)]internal static extern bool EnumWindows(Callback callback,nint state);
+    [System.Runtime.InteropServices.DllImport("user32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode)]internal static extern int GetWindowText(nint hwnd,StringBuilder text,int count);
+    [System.Runtime.InteropServices.DllImport("user32.dll",ExactSpelling=true)]internal static extern bool IsWindowVisible(nint hwnd);
+    [System.Runtime.InteropServices.DllImport("user32.dll",ExactSpelling=true)]internal static extern bool IsWindowEnabled(nint hwnd);
+    [System.Runtime.InteropServices.DllImport("user32.dll",ExactSpelling=true)]
+    internal static extern nint GetWindow(nint hwnd,uint command);
+    [System.Runtime.InteropServices.DllImport("user32.dll",ExactSpelling=true)]
+    internal static extern uint GetWindowThreadProcessId(nint hwnd,out uint processId);
+}

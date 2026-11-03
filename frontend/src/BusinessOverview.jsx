@@ -232,6 +232,8 @@ export default function BusinessOverview({
   onCreate,
   refreshKey = 0,
   recordsReady = true,
+  historyNotice = "",
+  historyLoadedAt = null,
 }) {
   const [period, setPeriod] = useState("year"),
     [result, setResult] = useState(null),
@@ -360,9 +362,11 @@ export default function BusinessOverview({
           Reports & GST <ArrowUpRight size={14} />
         </button>
         <span className="books-status">
-          <CircleCheck size={14} /> {data && recordsReady ? "Books loaded" : error ? "Unable to load books" : "Loading books"}
+          <CircleCheck size={14} /> {historyNotice ? "Company history needs refresh" : data && recordsReady ? "Books loaded" : error ? "Unable to load books" : !recordsReady ? "Company history not confirmed" : "Loading books"}
         </span>
       </nav>
+      <p className="dashboard-history-caption">Summary reports refresh independently. Charts, invoice collections, attention counts and activity use the company-history snapshot{historyLoadedAt ? ` loaded ${new Date(historyLoadedAt).toLocaleString()}` : " (not confirmed for this session)"}. Use Refresh to check for newer records.</p>
+      {historyNotice && <p className="info-box" role="status">{historyNotice}</p>}
       {error && (
         <div className="error banner">
           {error}
@@ -414,11 +418,11 @@ export default function BusinessOverview({
           <ChevronRight size={14} />
         </button>
         <button onClick={() => onNavigate("purchase_bill", "", "unpaid")}>
-          <strong>{openBills.length}</strong> unpaid bills{" "}
+          <strong>{recordsReady ? openBills.length : "—"}</strong> unpaid bills{" "}
           <ChevronRight size={14} />
         </button>
         <button onClick={() => onNavigate("estimate", "", "draft")}>
-          <strong>{quotes.length}</strong> open estimates{" "}
+          <strong>{recordsReady ? quotes.length : "—"}</strong> open estimates{" "}
           <ChevronRight size={14} />
         </button>
       </div>
@@ -437,7 +441,7 @@ export default function BusinessOverview({
                   : "Last 30 days"}
             </span>
           </div>
-          <SalesChart records={records} start={start} end={end} />
+          {recordsReady ? <SalesChart records={records} start={start} end={end} /> : <p role="status">Company history is not confirmed. Refresh company data to view this chart.</p>}
         </section>
         <section className="insight-card collection-insight">
           <div className="insight-heading">
@@ -456,10 +460,10 @@ export default function BusinessOverview({
           <div className="collection-content">
             <div
               className="collection-ring"
-              style={{ "--collection-ratio": `${ratio}%` }}
+              style={{ "--collection-ratio": `${recordsReady ? ratio : 0}%` }}
             >
               <div>
-                <strong>{Math.round(ratio)}%</strong>
+                <strong>{recordsReady ? `${Math.round(ratio)}%` : "—"}</strong>
                 <small>settled</small>
               </div>
             </div>
@@ -467,7 +471,7 @@ export default function BusinessOverview({
               <div>
                 <i className="legend-sales" />
                 <span>
-                  Settled<strong>{money(settled)}</strong>
+                  Settled<strong>{recordsReady ? money(settled) : "—"}</strong>
                 </span>
               </div>
               <div>
@@ -734,7 +738,8 @@ export default function BusinessOverview({
                 ))}
               </tbody>
             </table>
-            {!activity.length && (
+            {!recordsReady && <p role="status">Company history is not confirmed. Refresh company data to view recent activity.</p>}
+            {recordsReady && !activity.length && (
               <div className="chart-empty">
                 <FileText size={30} />
                 <strong>Your books start here</strong>

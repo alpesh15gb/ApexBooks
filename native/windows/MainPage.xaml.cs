@@ -16,6 +16,8 @@ public sealed partial class MainPage : Page
     internal JsonObject Company = new();
     internal string CompanyId = "", CurrentPage = "dashboard";
     private bool recordsReady;
+    private readonly HistorySnapshotStatus historySnapshot=new();
+    private readonly TextBlock historySnapshotBanner=Text("",12);
     internal bool CanWrite => recordsReady && Company.Text("role") is ("owner" or "editor");
     internal bool IsOwner => Company.Text("role") == "owner";
     private NavigationView navigation = new();
@@ -36,8 +38,8 @@ public sealed partial class MainPage : Page
     {
         InitializeComponent();
         FontFamily=WorkspaceFont;
-        Root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });Root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });Root.RowDefinitions.Add(new RowDefinition());
-        Root.Children.Add(progress);Grid.SetRow(notice,1);Root.Children.Add(notice);Grid.SetRow(host,2);Root.Children.Add(host);
+        Root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });Root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });Root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });Root.RowDefinitions.Add(new RowDefinition());
+        Root.Children.Add(progress);Grid.SetRow(notice,1);Root.Children.Add(notice);historySnapshotBanner.Margin=new Thickness(24,8,24,8);historySnapshotBanner.Visibility=Visibility.Collapsed;Grid.SetRow(historySnapshotBanner,2);Root.Children.Add(historySnapshotBanner);Grid.SetRow(host,3);Root.Children.Add(host);
         var origin = ApexApi.ProductionOrigin;
 #if DEBUG
         origin = Environment.GetEnvironmentVariable("APEX_BOOKS_API_ORIGIN")
@@ -62,7 +64,7 @@ public sealed partial class MainPage : Page
 
     private void ShowLogin()
     {
-        leavePage=null;hasUnsavedPage=null;hasPendingPage=null;posDrafts.Clear();CompanyId = ""; Company = new(); Records = new(); Banks = new();recordsReady=false; Companies = new(); generation++;workspaceGeneration++;companyLoads++;refreshSequence++;CurrentPage="dashboard"; Body.Children.Clear(); NativeUi.CloseDialog();
+        leavePage=null;hasUnsavedPage=null;hasPendingPage=null;posDrafts.Clear();CompanyId = ""; Company = new(); Records = new(); Banks = new();recordsReady=false; Companies = new(); generation++;workspaceGeneration++;companyLoads++;refreshSequence++;CurrentPage="dashboard";ResetHistorySnapshot(); Body.Children.Clear(); NativeUi.CloseDialog();
         var card = Stack(20); card.Width = 380;
         card.Children.Add(AppLogo(340));
         card.Children.Add(Text("Your business, in balance.", 18));
@@ -100,7 +102,7 @@ public sealed partial class MainPage : Page
     internal async Task LoadCompanies()
     {
         var stamp=workspaceGeneration;var request=++companyLoads;
-        _=Api.EnsureCapabilities();var loaded=(await Api.Send("/api/companies")).Array();
+        _=Api.EnsureCapabilities();var loaded=await Api.Companies();
         if(!Api.SignedIn||stamp!=workspaceGeneration||request!=companyLoads)return;
         Companies=loaded;
         if (!shellReady) BuildShell(); else host.Content=navigation;
@@ -109,7 +111,7 @@ public sealed partial class MainPage : Page
         SelectValue(companyPicker, CompanyId); if (companyPicker.SelectedIndex < 0 && companyPicker.Items.Count > 0) companyPicker.SelectedIndex = 0;
         changingCompanies = false;
         if (companyPicker.SelectedIndex >= 0) await ChooseCompany();
-        else { if(!Api.SignedIn||stamp!=workspaceGeneration||request!=companyLoads)return;CompanyId="";Company=new();Records=new();Banks=new();recordsReady=false;posDrafts.Clear();leavePage=null;hasUnsavedPage=null;hasPendingPage=null;generation++;workspaceGeneration++;refreshSequence++;NativeUi.CloseDialog();Body.Children.Clear(); Body.Children.Add(Text("Welcome to Apex Books", 30, true)); Body.Children.Add(Text("Create your first company to start recording transactions.")); Body.Children.Add(AsyncButton("Create company", () => CompanyForm(), Error, true));if(!Api.Capabilities.HasCoreAdditions)Body.Children.Add(CapabilityNotice()); }
+        else { if(!Api.SignedIn||stamp!=workspaceGeneration||request!=companyLoads)return;CompanyId="";Company=new();Records=new();Banks=new();recordsReady=false;posDrafts.Clear();leavePage=null;hasUnsavedPage=null;hasPendingPage=null;generation++;workspaceGeneration++;refreshSequence++;ResetHistorySnapshot();NativeUi.CloseDialog();Body.Children.Clear(); Body.Children.Add(Text("Welcome to Apex Books", 30, true)); Body.Children.Add(Text("Create your first company to start recording transactions.")); Body.Children.Add(AsyncButton("Create company", () => CompanyForm(), Error, true));if(!Api.Capabilities.HasCoreAdditions)Body.Children.Add(CapabilityNotice()); }
     }
 
     private void BuildShell()
@@ -153,16 +155,48 @@ public sealed partial class MainPage : Page
     {
         var id = Value(companyPicker); if (id.Length == 0) return;
         var leave=leavePage;leavePage=null;leave?.Invoke();hasUnsavedPage=null;hasPendingPage=null;
-        CompanyId = id; Company = Companies.OfType<JsonObject>().First(r => r.Text("id") == id);Records=new();Banks=new();recordsReady=false;++generation;var current=++workspaceGeneration;var request=++refreshSequence;NativeUi.CloseDialog();
+        CompanyId = id; Company = Companies.OfType<JsonObject>().First(r => r.Text("id") == id);Records=new();Banks=new();recordsReady=false;++generation;var current=++workspaceGeneration;var request=++refreshSequence;ResetHistorySnapshot();NativeUi.CloseDialog();
         Body.Children.Clear(); Body.Children.Add(Text("Loading " + Company.Text("name") + "…", 22, true));
-        var loaded=await Api.LoadCompanyCore(id);
-        if (current != workspaceGeneration||request!=refreshSequence) return;
-        Records = loaded.Records; Banks = loaded.Banks;recordsReady=true; await Navigate(CurrentPage);
+        if(!await LoadHistorySnapshot(id,current,request))return;
+        await Navigate(CurrentPage);
     }
 
-    internal async Task Refresh()
+    internal Task Refresh()=>RefreshHistory(false);
+    private bool ManualRefreshAllowed()=>HistorySnapshotStatus.ManualRefreshAllowed(NativeUi.HasOpenDialog,hasPendingPage?.Invoke()==true,hasUnsavedPage?.Invoke()==true);
+    private Task ManualRefresh()
     {
-        var cid = CompanyId;if(cid.Length==0||!Api.SignedIn)return;var current=workspaceGeneration;var request=++refreshSequence; var rows = Api.Records(cid);var banks=Api.Send(Api.CompanyPath(cid,"/bank-accounts"));await Task.WhenAll(rows,banks); if (current != workspaceGeneration||request!=refreshSequence) return; Records = await rows;Banks=(await banks).Array();recordsReady=true; await Navigate(CurrentPage);
+        if(!ManualRefreshAllowed())throw new InvalidOperationException("Finish or close the current editor and resolve any pending save before refreshing company history.");
+        return RefreshHistory(true);
+    }
+    private async Task RefreshHistory(bool manual)
+    {
+        var cid = CompanyId;if(cid.Length==0||!Api.SignedIn)return;var current=workspaceGeneration;var request=++refreshSequence;
+        if(!await LoadHistorySnapshot(cid,current,request,manual))return;
+        await Navigate(CurrentPage);
+    }
+
+    private void RenderHistorySnapshot()
+    {
+        historySnapshotBanner.Visibility=CompanyId.Length>0?Visibility.Visible:Visibility.Collapsed;
+        historySnapshotBanner.Text=historySnapshot.Message;
+    }
+    private void ResetHistorySnapshot(){historySnapshot.Reset(workspaceGeneration,Api.SessionGeneration);RenderHistorySnapshot();}
+    private async Task<bool> LoadHistorySnapshot(string cid,int workspace,int request,bool manual=false)
+    {
+        var session=Api.SessionGeneration;
+        bool Current()=>cid==CompanyId&&workspace==workspaceGeneration&&request==refreshSequence&&session==Api.SessionGeneration;
+        if(!Current()||!historySnapshot.Begin(workspace,session,request))return false;
+        RenderHistorySnapshot();
+        try{
+            var loaded=await Api.LoadCompanyCore(cid);
+            if(!Current())return false;
+            if(manual&&!ManualRefreshAllowed()){historySnapshot.Defer(workspace,session,request);RenderHistorySnapshot();return false;}
+            Records=loaded.Records;Banks=loaded.Banks;recordsReady=true;
+            historySnapshot.Complete(workspace,session,request,DateTimeOffset.UtcNow);RenderHistorySnapshot();return true;
+        }catch{
+            if(Current()){historySnapshot.Fail(workspace,session,request);RenderHistorySnapshot();}
+            throw;
+        }
     }
 
     internal async Task Navigate(string page)
@@ -175,7 +209,7 @@ public sealed partial class MainPage : Page
         heading.Children.Add(Text(page=="dashboard"?"Business overview":FeatureCatalog.Title(page), 28, true));
         var detail = Text(Company.Text("tax_mode") == "regular" ? "GST registered · " + Company.Text("gstin") : Company.Text("tax_mode") == "composition" ? "Composition company" : "Not GST registered", 12); detail.Foreground = Muted; heading.Children.Add(detail);Body.Children.Add(heading);
         if(!Api.Capabilities.HasCoreAdditions)Body.Children.Add(CapabilityNotice());
-        if(!recordsReady){Body.Children.Add(Text("Loading complete company history…",20,true));Body.Children.Add(Text("Balances and billing become available once all records are ready. No partial totals are shown."));Body.Children.Add(AsyncButton("Retry company data",Refresh,Error));return;}
+        if(!recordsReady){Body.Children.Add(Text("Loading complete company history…",20,true));Body.Children.Add(Text("Balances and billing become available once all records are ready. No partial totals are shown."));Body.Children.Add(AsyncButton("Retry company data",ManualRefresh,Error));return;}
         if (page == "dashboard") await Dashboard();
         else if (page == "reports") await ReportsPage();
         else if (page == "settings") await SettingsPage();
@@ -195,7 +229,7 @@ public sealed partial class MainPage : Page
     {
         var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         var search = Input("Search name or reference"); search.Width = 340;
-        var add = AsyncButton("Add " + FeatureCatalog.Singular(kind), () => NewEntry(kind), Error, true); add.IsEnabled = CanWrite; toolbar.Children.Add(add); toolbar.Children.Add(AsyncButton("Refresh", Refresh, Error)); toolbar.Children.Add(search); Body.Children.Add(toolbar);
+        var add = AsyncButton("Add " + FeatureCatalog.Singular(kind), () => NewEntry(kind), Error, true); add.IsEnabled = CanWrite; toolbar.Children.Add(add); toolbar.Children.Add(AsyncButton("Refresh", ManualRefresh, Error)); toolbar.Children.Add(search); Body.Children.Add(toolbar);
         if (kind == "item") { var stock = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 }; var opening = AsyncButton("Opening stock", StockOpening, Error); var adjust = AsyncButton("Adjust stock", StockAdjust, Error); opening.IsEnabled = adjust.IsEnabled = CanWrite; stock.Children.Add(opening); stock.Children.Add(adjust); Body.Children.Add(stock); }
         if(CanWrite && kind is "payment_in" or "payment_out" or "credit_note" or "debit_note")Body.Children.Add(AsyncButton(kind is "payment_in" or "payment_out"?"Apply / refund advance":"Apply / refund note credit",()=>SettleBalance(kind is "credit_note" or "debit_note"),Error));
         var master=kind is "party" or "item";var masterStatus=Select("Master status",[("all","All masters"),("active","Active"),("archived","Archived")]);var page=0;const int size=50;

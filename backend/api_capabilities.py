@@ -1,5 +1,5 @@
 """Public implementation metadata only; never exposes company or financial data."""
-BASE_FEATURES=('low_stock_reorder','party_price_history','party_payment_terms','master_lifecycle','party_shipping_address','party_credit_limits','recurring_drafts')
+BASE_FEATURES=('low_stock_reorder','party_price_history','party_payment_terms','master_lifecycle','party_shipping_address','party_credit_limits','recurring_drafts','master_edit_revisions','document_conversion_revisions','bank_match_revisions','journal_idempotency')
 
 def install(app,m):
     @app.get('/api/capabilities')

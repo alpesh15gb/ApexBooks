@@ -1,5 +1,12 @@
+import { useCompanyRefresh } from "./useCompanyRefresh.js";
+import DocumentLayoutPreference from "./DocumentLayoutPreference.jsx";
+import { currentPostingSession, assertPostingSession } from "./postingSession.js";
+import { journalPostingBlockReason, captureJournalRequest, sendJournalRequest, isDefiniteJournalConflict, journalReconciliationWarning } from "./journalPosting.js";
+import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
+import { inlineItemCreator } from "./inlineItem.js";
+import { inlinePartyCreator } from "./inlineParty.js";
 import { businessDate, businessFinancialYear } from "./businessDate.js";
-import { CORE_ENHANCEMENTS, capabilityFeatures, supportsFeature, routeFeature, companyDisplayName } from "./capabilities.js";
+import { CORE_ENHANCEMENTS, capabilityFeatures, supportsFeature, routeFeature, companyDisplayName, masterEditBlockReason } from "./capabilities.js";
 import { hasPendingPostings, postingNavigationMessage } from "./postingRegistry.js";
 import { apiErrorMessage } from "./apiErrors.js";
 import { fetchCompanyRecords } from "./companyRecords.js";
@@ -7,7 +14,7 @@ import TransactionDetail from "./TransactionDetail.jsx";
 import { relatedRecordActions, settlementLabel } from "./recordLifecycle.js";
 import { createRequestScope } from "./requestScope.js";
 import RegisterControls from "./RegisterControls.jsx";
-import { compareRegisterRecords } from "./registerOrder.js";
+import { useRegisterRecords } from "./registerSelection.js";
 import SettingsWorkspace from "./SettingsWorkspace.jsx";
 import CommerceWorkspace from "./CommerceWorkspace.jsx";
 import RegisterOverview from "./RegisterOverview.jsx";
@@ -25,7 +32,7 @@ import ReorderWorkspace from "./ReorderWorkspace.jsx";
 import RecordEditor from "./RecordEditor.jsx";
 import BackupRestore from "./BackupRestore.jsx";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 const CompleteBackup = React.lazy(() => import("./CompleteBackup.jsx"));
 import { createRoot } from "react-dom/client";
 import {
@@ -140,29 +147,41 @@ const today = () => businessDate();
 const api = async (path, options = {}) => {
   const { rawResponse = false, ...fetchOptions } = options;
   const mutation = options.method && !["GET", "HEAD"].includes(options.method);
+  const requestSession = currentPostingSession();
   let response;
   try { response = await fetch("/api" + path, {
     ...fetchOptions,
     headers: {
       "Content-Type": "application/json",
-      ...(localStorage.token
-        ? { Authorization: `Bearer ${localStorage.token}` }
+      ...(requestSession
+        ? { Authorization: `Bearer ${requestSession}` }
         : {}),
       ...options.headers,
     },
   }); } catch (failure) {
+    assertPostingSession(requestSession, "response");
     if (failure.name === "AbortError") throw failure;
     const error = new Error(apiErrorMessage(0, {}, mutation));
     error.status = 0;
     throw error;
   }
+  assertPostingSession(requestSession, "response");
   if (!response.ok) {
     let e = await response.json().catch(() => ({}));
+    assertPostingSession(requestSession, "response");
     const error = new Error(apiErrorMessage(response.status, e, mutation));
     error.status = response.status;
     throw error;
   }
-  return rawResponse ? response : response.json();
+  if (rawResponse) return response;
+  try {
+    const data = await response.json();
+    assertPostingSession(requestSession, "response");
+    return data;
+  } catch (error) {
+    assertPostingSession(requestSession, "response");
+    throw error;
+  }
 };
 
 function Auth({ onLogin }) {
@@ -432,6 +451,7 @@ function App() {
     [rawRecords, setRecords] = useState([]),
     [recordsCompanyId, setRecordsCompanyId] = useState(""),
     [recordsLoadError, setRecordsLoadError] = useState(""),
+    [recordsUpdatedAt, setRecordsUpdatedAt] = useState(null),
     [page, setPage] = useState(() => labels[window.location.hash.slice(2)] ? window.location.hash.slice(2) : "dashboard"),
     [expanded, setExpanded] = useState("Sales"),
     [modal, setModal] = useState(""),
@@ -449,7 +469,6 @@ function App() {
     [search, setSearch] = useState(""),
     [menu, setMenu] = useState(false),
     [error, setError] = useState(""),
-    [docTemplate, setDocTemplate] = useState("classic"),
     [conversionSource, setConversionSource] = useState(null),
     [relatedSource, setRelatedSource] = useState(null),
     [draftSeed, setDraftSeed] = useState(null),
@@ -469,9 +488,9 @@ function App() {
   useEffect(() => {
     let active = true; const token = localStorage.token; setCapabilities(null);
     if (signed) api("/capabilities").then(result => {
-      if (active && localStorage.token === token) setCapabilities({ features: capabilityFeatures(result), version: result.api_version, revision: result.build_revision });
+      if (active && localStorage.token === token) setCapabilities({ features: capabilityFeatures(result), version: result.api_version, revision: result.build_revision, status: "verified" });
     }).catch(reason => {
-      if (active && localStorage.token === token) setCapabilities({ features: [], reason: reason.status === 404 ? "The connected API does not yet advertise these features." : "API feature support could not be verified." });
+      if (active && localStorage.token === token) setCapabilities({ features: [], status: reason.status === 404 ? "unsupported" : "unverified", reason: reason.status === 404 ? "The connected API does not yet advertise these features." : "API feature support could not be verified." });
     });
     return () => { active = false; };
   }, [signed, capabilityRevision]);
@@ -513,6 +532,7 @@ function App() {
     const controller = new AbortController();
     recordsAbort.current = controller;
     const isCurrent = workspaceScope.current.latest();
+    const requestSession = currentPostingSession();
     setRecordsLoadError("");
     setRecordsLoading(true);
     setRecordsProgress(0);
@@ -522,9 +542,10 @@ function App() {
         isCurrent, signal: controller.signal,
         onProgress: count => { if (isCurrent()) setRecordsProgress(count); },
       });
-      if (rows && isCurrent()) {
+      if (rows && isCurrent() && currentPostingSession() === requestSession) {
         setRecords(rows);
         setRecordsCompanyId(id);
+        setRecordsUpdatedAt({ companyId: id, session: requestSession, at: Date.now() });
         setError(current => current === recordsLoadError ? "" : current);
         return rows;
       }
@@ -551,6 +572,7 @@ function App() {
     setRecords([]);
     setRecordsCompanyId("");
     setRecordsLoadError("");
+    setRecordsUpdatedAt(null);
     setConversionSource(null);
     setRelatedSource(null);
     setDraftSeed(null);
@@ -574,29 +596,20 @@ function App() {
     if (companyId) {
       localStorage.companyId = companyId;
       loadRecords(companyId, { refreshReports: false });
-      const preferencesCurrent = workspaceScope.current.capture();
-      api(`/companies/${companyId}/preferences`)
-        .then((p) => {
-          if (preferencesCurrent())
-            setDocTemplate(p.document_template);
-        })
-        .catch((e) => {
-          if (preferencesCurrent()) setError(e.message);
-        });
+
     }
     return () => recordsAbort.current?.abort();
   }, [companyId]);
-  useEffect(() => {
-    let lastRefresh = 0;
-    const refresh = () => {
-      if (!signed || !companyId || document.visibilityState === "hidden" || document.querySelector(".overlay .modal") || Date.now() - lastRefresh < 1500) return;
-      lastRefresh = Date.now();
-      loadRecords(companyId);
-    };
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
-    return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
-  }, [signed, companyId]);
+  const { deferred: refreshDeferred, sessionChanged: refreshSessionChanged, requestRefresh } = useCompanyRefresh({ signed, companyId, refresh: () => loadRecords(companyId) });
+  const historyNotice = refreshSessionChanged
+    ? "The signed-in session changed. Reload the workspace before relying on these books."
+    : recordsLoadError
+      ? "Company history may be out of date because its refresh failed. Summary reports and history refresh separately. Use Refresh to retry."
+      : refreshDeferred
+        ? "Company history may be out of date. A refresh is pending; close the dialog or finish the pending save, then use Refresh if needed."
+        : recordsLoading && recordsReady
+          ? "Showing previously confirmed company history while refreshing. Summary reports and history refresh separately."
+          : "";
   const activeRegisterFilter =
     ["party", "item"].includes(page) && !supported("master_lifecycle") ? "all" : registerFilter.page === page ? registerFilter.value : "all";
   const transactionRegister = !["party", "item"].includes(page);
@@ -604,40 +617,9 @@ function App() {
     registerQuery.page === page
       ? registerQuery
       : { period: "all", from: "", to: "", party: "", sort: "newest" };
-  const scopedRecords = records.filter(
-    (r) =>
-      r.kind === page &&
-      (!transactionRegister ||
-        ((!query.from || r.date >= query.from) &&
-          (!query.to || r.date <= query.to) &&
-          (!query.party || r.name === query.party))),
-  );
-  const filtered = scopedRecords
-    .filter(
-      (r) =>
-        `${r.name} ${r.number} ${r.date}`
-          .toLowerCase()
-          .includes(search.toLowerCase()) &&
-        (activeRegisterFilter === "all" ||
-          (activeRegisterFilter === "active" && isActiveMaster(r)) ||
-          (activeRegisterFilter === "inactive" && !isActiveMaster(r)) ||
-          (activeRegisterFilter === "unpaid" &&
-            r.posted &&
-            Number(r.outstanding) > 0) ||
-          (activeRegisterFilter === "paid" &&
-            r.posted &&
-            Number(r.outstanding) === 0) ||
-          (activeRegisterFilter === "overdue" &&
-            r.posted &&
-            Number(r.outstanding) > 0 &&
-            r.data?.due_date &&
-            r.data.due_date < today()) ||
-          (activeRegisterFilter === "draft" && !r.converted_to) ||
-          (activeRegisterFilter === "converted" && !!r.converted_to) ||
-          (activeRegisterFilter === "posted" && r.posted) ||
-          (activeRegisterFilter === "unposted" && r.posted === false)),
-    )
-    .sort((a, b) => compareRegisterRecords(a, b, query.sort));
+  const { scopedRecords, filtered } = useRegisterRecords({
+    companyId, records, page, query, search, activeRegisterFilter, asOf: today(),
+  });
   useEffect(
     () => setRegisterPage(1),
     [page, companyId, search, activeRegisterFilter, registerQuery],
@@ -680,12 +662,24 @@ function App() {
     }
     closeRecord(refreshed);
   }
+  const createInlineParty = inlinePartyCreator({
+    api, companyId, isCurrent: workspaceScope.current.capture(),
+    token: localStorage.token, getToken: () => localStorage.token,
+    onCreated: created => setRecords(rows => [...rows.filter(row => row.id !== created.id), created]),
+  });
+  const createInlineItem = inlineItemCreator({
+    api, companyId, isCurrent: workspaceScope.current.capture(),
+    token: localStorage.token, getToken: () => localStorage.token,
+    onCreated: created => setRecords(rows => [...rows.filter(row => row.id !== created.id), created]),
+  });
   async function saveMaster(body) {
     const isCurrent = workspaceScope.current.capture();
     if (editingMaster) {
+      const blocked = masterEditBlockReason(capabilities);
+      if (blocked) throw new Error(blocked);
       await api(`/companies/${companyId}/masters/${editingMaster.id}`, {
         method: "PUT",
-        body: JSON.stringify({ name: body.name, ...body.data }),
+        body: JSON.stringify({ name: body.name, ...body.data, version: editingMaster.data?.version ?? 0 }),
       });
       if (!isCurrent()) return;
       const refreshed = await loadRecords();
@@ -1063,7 +1057,7 @@ function App() {
           onMenu={() => setMenu(true)}
         />
         <div className="content">
-          {companyId && <div className="workspace-sync-line" role="status">{company?.book_label?.trim() && <strong className="workspace-book-label" title={`Book label: ${company.book_label}`}>{company.book_label}</strong>}<span className={recordsLoading ? "sync-active" : "sync-idle"} /><span>{recordsLoading ? recordsReady ? "Refreshing company data…" : `Loading company data${recordsProgress ? ` · ${recordsProgress.toLocaleString()} records` : "…"}` : recordsLoadError ? "Refresh needed" : recordsReady ? "Company data loaded" : "Connecting to your company…"}</span><button className="link" disabled={recordsLoading} onClick={() => loadRecords()}>Refresh</button></div>}
+          {companyId && <div className="workspace-sync-line" role="status">{company?.book_label?.trim() && <strong className="workspace-book-label" title={`Book label: ${company.book_label}`}>{company.book_label}</strong>}<span className={recordsLoading ? "sync-active" : "sync-idle"} /><span>{recordsLoading ? recordsReady ? "Refreshing company data…" : `Loading company data${recordsProgress ? ` · ${recordsProgress.toLocaleString()} records` : "…"}` : refreshSessionChanged ? "Session changed · reload workspace" : recordsLoadError ? "Refresh needed" : refreshDeferred ? "Refresh pending" : recordsReady ? "Company data loaded" : "Connecting to your company…"}</span><button className="link" disabled={recordsLoading} onClick={requestRefresh}>Refresh</button>{recordsUpdatedAt?.companyId === companyId && recordsUpdatedAt.session === currentPostingSession() && <small className="workspace-history-time">Last loaded {new Date(recordsUpdatedAt.at).toLocaleString()}</small>}{historyNotice && <small className="workspace-history-notice">{historyNotice}</small>}</div>}
           {capabilities && CORE_ENHANCEMENTS.some(feature => !supported(feature)) && <details className="info-box"><summary>Some newer tools are unavailable on the connected API</summary><p>{capabilities.reason || "Update the API to enable all supported workflows."} Existing core workspaces remain available. Unsupported settings are not submitted.</p><button className="button secondary" onClick={() => setCapabilityRevision(value => value + 1)}>Check API support again</button></details>}
           {error && (
             <div className="error banner" onClick={() => setError("")}>
@@ -1088,9 +1082,11 @@ function App() {
           ) : page === "reorder" ? (
             <ReorderWorkspace key={companyId} companyId={companyId} role={company.role} api={api} onReview={startReorder} onBack={() => navigateWorkspace("item")} />
           ) : page === "ledger" ? (
-            <Ledger key={companyId} companyId={companyId} role={company?.role} />
+            <Ledger key={companyId} companyId={companyId} role={company?.role} capabilities={capabilities} onRetryCapabilities={() => setCapabilityRevision(value => value + 1)} />
           ) : page === "bank_account" ? (
             <BankWorkspace
+              capabilities={capabilities}
+              onRetryCapabilities={() => setCapabilityRevision(value => value + 1)}
               key={companyId}
               companyId={companyId}
               records={records}
@@ -1108,6 +1104,8 @@ function App() {
               records={records}
               refreshKey={booksRevision}
               recordsReady={recordsReady}
+              historyNotice={historyNotice}
+              historyLoadedAt={recordsUpdatedAt?.companyId === companyId && recordsUpdatedAt.session === currentPostingSession() ? recordsUpdatedAt.at : null}
               api={api}
               onNavigate={navigateWorkspace}
               onCreate={createWorkspace}
@@ -1190,46 +1188,7 @@ function App() {
                       <Prefixes companyId={companyId} role={company?.role} />
                     </div>
                     <div className="settings-block" id="setting-formats">
-                      <label>
-                        Document PDF layout
-                        <select
-                          className="form-select"
-                          value={docTemplate}
-                          disabled={company?.role !== "owner"}
-                          onChange={async (e) => {
-                            try {
-                              const value = e.target.value;
-                              await api(`/companies/${companyId}/preferences`, {
-                                method: "PUT",
-                                body: JSON.stringify({
-                                  document_template: value,
-                                }),
-                              });
-                              setDocTemplate(value);
-                            } catch (err) {
-                              setError(err.message);
-                            }
-                          }}
-                        >
-                          {[
-                            "modern",
-                            "vintage",
-                            "mrp_discount",
-                            "elegant",
-                            "evergreen",
-                            "classic",
-                            "compact",
-                            "bold",
-                            "minimal",
-                          ].map((t) => (
-                            <option key={t} value={t}>
-                              {t === "mrp_discount"
-                                ? "MRP + Discount"
-                                : t[0].toUpperCase() + t.slice(1)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <DocumentLayoutPreference companyId={companyId} role={company?.role} api={api} />
                       <div className="document-template-gallery">
                         {[
                           "modern",
@@ -1692,6 +1651,8 @@ function App() {
             features={features}
             kind={page}
             record={editingMaster}
+            editBlockReason={editingMaster ? masterEditBlockReason(capabilities) : ""}
+            checkEditSupport={() => setCapabilityRevision(value => value + 1)}
             close={() => {
               setEditingMaster(null);
               closeRecord();
@@ -1701,6 +1662,8 @@ function App() {
         ) : (
           <RecordEditor
             features={features}
+            capabilities={capabilities}
+            onRetryCapabilities={() => setCapabilityRevision(value => value + 1)}
             key={`${companyId}-${page}-${editorCycle}`}
             api={api}
             Modal={Modal}
@@ -1719,6 +1682,8 @@ function App() {
             edit={!!editingDraft}
             close={closeRecord}
             save={saveRecord}
+            createParty={createInlineParty}
+            createItem={createInlineItem}
           />
         ))}
       {modal === "stock_opening" && (
@@ -1955,7 +1920,16 @@ function Members({ companyId, role }) {
   );
 }
 
-function Ledger({ companyId, role }) {
+function Ledger({ companyId, role, capabilities, onRetryCapabilities }) {
+  const journalPosting = usePostingRequest({isDefinitiveRetryError:isDefiniteJournalConflict}), reversalPosting = usePostingRequest({isDefinitiveRetryError:isDefiniteJournalConflict});
+  const [reconcileRequired, setReconcileRequired] = useState(false);
+  const journalLocked = journalPosting.pending || reversalPosting.pending;
+  const journalBlockReason = journalPostingBlockReason(capabilities);
+  useEffect(() => {
+    const protect = event => { if (journalPosting.isLocked() || reversalPosting.isLocked()) { event.preventDefault(); event.returnValue = ""; } };
+    window.addEventListener("beforeunload", protect);
+    return () => window.removeEventListener("beforeunload", protect);
+  }, [journalPosting, reversalPosting]);
   const canWrite = ["owner", "editor"].includes(role);
   const submitting = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -2032,61 +2006,38 @@ function Ledger({ companyId, role }) {
   }
   async function postJournal(e) {
     e.preventDefault();
-    if (!canWrite || submitting.current) return;
-    submitting.current = true;
-    setBusy(true);
+    if (!canWrite || submitting.current || reversalPosting.isLocked()) return;
     setError("");
+    if (journalBlockReason || reconcileRequired) { setError(journalBlockReason || journalReconciliationWarning); return; }
+    let request;
+    try { if (!journalPosting.pending) request = captureJournalRequest(companyId,entry,localStorage.token); }
+    catch (failure) { setError(failure.message); return; }
+    submitting.current = true; setBusy(true);
+    const company = companyId, isCurrent = workspaceScope.current.capture(), wasPending = journalPosting.pending;
     try {
-      if (entry.debit_account === entry.credit_account)
-        throw new Error("Choose different accounts for debit and credit");
-      await api(`/companies/${companyId}/journals`, {
-        method: "POST",
-        body: JSON.stringify({
-          date: entry.date,
-          reference: entry.reference,
-          memo: entry.memo,
-          lines: [
-            { account_id: entry.debit_account, debit: entry.amount },
-            { account_id: entry.credit_account, credit: entry.amount },
-          ],
-        }),
-      });
-      setEntry({
-        date: today(),
-        reference: "",
-        memo: "",
-        debit_account: "",
-        credit_account: "",
-        amount: "",
-      });
+      await journalPosting.run(() => sendJournalRequest(api,request,localStorage.token,activeCompany.current));
+      if (activeCompany.current !== company || !isCurrent()) return;
+      setEntry({ date:today(), reference:"", memo:"", debit_account:"", credit_account:"", amount:"" });
       await load();
-    } catch (err) {
-      setError(err.message + (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
-    } finally {
-      submitting.current = false;
-      setBusy(false);
-    }
+    } catch (err) { if (activeCompany.current === company && isCurrent()) { setError(err.message); if (wasPending && isDefiniteJournalConflict(err)) setReconcileRequired(true); } }
+    finally { submitting.current=false; if (activeCompany.current === company && isCurrent()) setBusy(false); }
   }
   async function reverseEntry(e) {
     e.preventDefault();
-    if (!canWrite || submitting.current) return;
-    submitting.current = true;
-    setBusy(true);
+    if (!canWrite || submitting.current || journalPosting.isLocked()) return;
     setError("");
+    if (journalBlockReason || reconcileRequired) { setError(journalBlockReason || journalReconciliationWarning); return; }
+    let request;
+    try { if (!reversalPosting.pending) request = captureJournalRequest(companyId,reversal,localStorage.token,reversing.id); }
+    catch (failure) { setError(failure.message); return; }
+    submitting.current = true; setBusy(true);
+    const company=companyId, isCurrent=workspaceScope.current.capture(), wasPending=reversalPosting.pending;
     try {
-      await api(`/companies/${companyId}/journals/${reversing.id}/reverse`, {
-        method: "POST",
-        body: JSON.stringify(reversal),
-      });
-      setReversing(null);
-      setReversal({ date: today(), reference: "", reason: "" });
-      await load();
-    } catch (err) {
-      setError(err.message + (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
-    } finally {
-      submitting.current = false;
-      setBusy(false);
-    }
+      await reversalPosting.run(() => sendJournalRequest(api,request,localStorage.token,activeCompany.current));
+      if (activeCompany.current !== company || !isCurrent()) return;
+      setReversing(null); setReversal({date:today(),reference:"",reason:""}); await load();
+    } catch (err) { if (activeCompany.current === company && isCurrent()) { setError(err.message); if (wasPending && isDefiniteJournalConflict(err)) setReconcileRequired(true); } }
+    finally { submitting.current=false; if (activeCompany.current === company && isCurrent()) setBusy(false); }
   }
   const accountName = (id) =>
     accounts.find((a) => a.id === id)?.name || "Account";
@@ -2101,6 +2052,9 @@ function Ledger({ companyId, role }) {
         </div>
       </div>
       {error && <div className="error banner">{error}</div>}
+      {canWrite && journalBlockReason && <div className="info-box" role="status">{journalBlockReason}<button className="button secondary" type="button" onClick={onRetryCapabilities} disabled={busy}>Check API support again</button></div>}
+      {reconcileRequired && <div className="info-box" role="alert">{journalReconciliationWarning}<button type="button" className="button secondary" onClick={() => setReconcileRequired(false)}>I reviewed journal history; allow a new request</button></div>}
+      {journalLocked && <p className="info-box" role="status">{pendingPostingMessage} Keep this page open; retry recovery is held only for this session.</p>}
       <div className="info-box ledger-note">
         New invoices, bills, payments, notes, POS sales and expenses post to the
         ledger automatically. Older prototype records remain unposted.
@@ -2174,7 +2128,7 @@ function Ledger({ companyId, role }) {
           <h2>New journal entry</h2>
           <p>Each entry has an equal debit and credit.</p>
           <form className="form-grid ledger-form" onSubmit={postJournal}>
-            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy}>
+            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy || journalLocked}>
             <label>
               Date
               <input
@@ -2237,13 +2191,10 @@ function Ledger({ companyId, role }) {
                 onChange={(e) => setEntry({ ...entry, amount: e.target.value })}
               />
             </label>
-            <button
-              className="button primary full"
-              disabled={accounts.length < 2}
-            >
-              Post journal
-            </button>
           </fieldset>
+            <button className="button primary full" disabled={!canWrite || busy || accounts.length < 2 || reversalPosting.pending || !!journalBlockReason || reconcileRequired}>
+              {journalPosting.pending ? "Retry original journal" : "Post journal"}
+            </button>
           </form>
         </section>}
       </div>
@@ -2263,7 +2214,7 @@ function Ledger({ companyId, role }) {
                     : ""}
               </span>
               {canWrite && !j.reversed_by && !j.reversal_of && !j.source_record_id && (
-                <button className="link" onClick={() => setReversing(j)}>
+                <button className="link" disabled={busy || journalLocked || !!journalBlockReason} onClick={() => { if (!journalPosting.isLocked() && !reversalPosting.isLocked()) setReversing(j); }}>
                   Reverse entry
                 </button>
               )}
@@ -2340,10 +2291,12 @@ function Ledger({ companyId, role }) {
         <Modal
           title="Reverse journal"
           subtitle={`Create an opposite entry for ${reversing.reference}. The original stays in history.`}
-          close={() => { if (!busy) setReversing(null); }}
+          close={() => { if (!busy && !reversalPosting.isLocked()) setReversing(null); }}
         >
+          {journalBlockReason && <div className="info-box" role="status">{journalBlockReason}<button className="button secondary" type="button" onClick={onRetryCapabilities} disabled={busy}>Check API support again</button></div>}
+          {reconcileRequired && <div className="info-box" role="alert">{journalReconciliationWarning}<button type="button" className="button secondary" onClick={() => setReconcileRequired(false)}>I reviewed journal history; allow a new request</button></div>}
           <form className="form-grid" onSubmit={reverseEntry}>
-            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy}>
+            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy || reversalPosting.pending}>
             <label>
               Date
               <input
@@ -2377,18 +2330,20 @@ function Ledger({ companyId, role }) {
                 }
               />
             </label>
+          </fieldset>
             {error && <div className="error full">{error}</div>}
+            {reversalPosting.pending && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
             <div className="modal-actions full">
               <button
                 type="button"
                 className="button secondary"
-                onClick={() => setReversing(null)}
+                disabled={busy || reversalPosting.pending}
+                onClick={() => { if (!reversalPosting.isLocked()) setReversing(null); }}
               >
                 Cancel
               </button>
-              <button className="button primary">Create reversal</button>
+              <button className="button primary" disabled={!canWrite || busy || journalPosting.pending || !!journalBlockReason || reconcileRequired}>{reversalPosting.pending ? "Retry original reversal" : "Create reversal"}</button>
             </div>
-          </fieldset>
           </form>
         </Modal>
       )}

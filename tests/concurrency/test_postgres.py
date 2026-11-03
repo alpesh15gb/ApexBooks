@@ -69,6 +69,191 @@ class ConcurrentPostingTest(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=4) as pool:
             return list(pool.map(send, range(4)))
 
+    def test_two_master_edits_share_one_revision_only_one_wins(self):
+        item = self.create({'kind': 'item', 'name': 'Concurrent master',
+                            'data': {'sale_rate': 100}})
+        path = self.base + '/masters/' + item['id']
+        gate = Barrier(2)
+        def save(rate):
+            with TestClient(app, client=('pg-master-' + uuid4().hex, 50000)) as client:
+                gate.wait(timeout=15)
+                return client.put(path, headers=self.headers,
+                    json={'name': item['name'], 'version': 0, 'sale_rate': rate})
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(save, (120, 130)))
+        self.assertEqual(sorted(r.status_code for r in results), [200, 409],
+                         [r.text for r in results])
+        winner = next(r.json() for r in results if r.status_code == 200)
+        current = self.client.get(self.base + '/records/' + item['id'],
+                                  headers=self.headers).json()
+        self.assertEqual(current['data']['version'], 1)
+        self.assertEqual(current['data']['sale_rate'], winner['data']['sale_rate'])
+        events = self.client.get(self.base + '/audit-events', headers=self.headers).json()
+        edits = [e for e in events if e['action'] == 'master.updated' and e['entity_id'] == item['id']]
+        self.assertEqual(len(edits), 1)
+
+    def test_conversion_source_edit_and_original_revision_have_one_winner(self):
+        source_payload = self.sale('sales_order')
+        source = self.create(source_payload)
+        converted = {**source_payload, 'kind': 'sales_invoice', 'data': {
+            **source_payload['data'], 'source_document_id': source['id'],
+            'source_document_version': source['data'].get('version', 0)}}
+        edited = {**source_payload, 'number': source['number'], 'data': {
+            'version': 0, 'lines': [{**source_payload['data']['lines'][0], 'rate': 200}]}}
+        gate = Barrier(2)
+        def send(edit):
+            with TestClient(app, client=('pg-conversion-' + uuid4().hex, 50000)) as client:
+                gate.wait(timeout=15)
+                if edit:
+                    return client.put(self.base + '/drafts/' + source['id'],
+                                      headers=self.headers, json=edited)
+                return client.post(self.base + '/records', headers={**self.headers,
+                    'Idempotency-Key': uuid4().hex}, json=converted)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(send, (True, False)))
+        self.assertEqual(sorted(r.status_code for r in results), [200, 409],
+                         [r.text for r in results])
+        current = self.client.get(self.base + '/records/' + source['id'],
+                                  headers=self.headers).json()
+        journals = self.client.get(self.base + '/journals', headers=self.headers).json()
+        if results[0].status_code == 200:
+            self.assertEqual(current['data']['version'], 1)
+            self.assertIsNone(current['converted_to'])
+            self.assertEqual(journals, [])
+            self.assertTrue(results[1].json()['detail'].startswith('Conversion source changed;'))
+        else:
+            self.assertEqual(current['data'].get('version', 0), 0)
+            self.assertEqual(current['converted_to'], results[1].json()['id'])
+            self.assertEqual(len(journals), 1)
+
+    def test_same_key_conversion_replays_once_after_source_is_consumed(self):
+        source_payload = self.sale('sales_order')
+        source = self.create(source_payload)
+        converted = {**source_payload, 'kind': 'sales_invoice', 'data': {
+            **source_payload['data'], 'source_document_id': source['id'],
+            'source_document_version': source['data'].get('version', 0)}}
+        key = uuid4().hex
+        results = self.race([('/records', converted, key)] * 4)
+        self.assertEqual([r.status_code for r in results], [200] * 4,
+                         [r.text for r in results])
+        ids = {r.json()['id'] for r in results}
+        self.assertEqual(len(ids), 1)
+        replay = self.client.post(self.base + '/records', headers={**self.headers,
+            'Idempotency-Key': key}, json=converted)
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertIn(replay.json()['id'], ids)
+        duplicate = self.client.post(self.base + '/records', headers={**self.headers,
+            'Idempotency-Key': uuid4().hex}, json=converted)
+        self.assertEqual(duplicate.status_code, 409, duplicate.text)
+        self.assertEqual(len(self.client.get(self.base + '/journals', headers=self.headers).json()), 1)
+        current = self.client.get(self.base + '/records/' + source['id'], headers=self.headers).json()
+        self.assertIn(current['converted_to'], ids)
+
+    def test_concurrent_partial_returns_share_original_inventory_cost_budget(self):
+        from decimal import Decimal
+        item = self.create({'kind': 'item', 'name': 'Fractional return cost',
+                            'data': {'track_stock': True}})
+        line = {'item_id': item['id'], 'description': item['name'], 'quantity': 6,
+                'rate': '0.01', 'discount_percent': 50, 'gst_rate': 0}
+        self.create({'kind': 'purchase_bill', 'name': 'Supplier', 'date': '2026-04-02',
+                     'data': {'lines': [line]}})
+        sale_line = {**line, 'rate': 1, 'discount_percent': 0}
+        sale = self.create({'kind': 'sales_invoice', 'name': 'Buyer', 'date': '2026-04-02',
+                            'data': {'lines': [sale_line]}})
+        note = {'kind': 'credit_note', 'name': 'Buyer', 'date': '2026-04-02',
+                'data': {'applied_to': sale['id'], 'lines': [{**sale_line, 'quantity': 3}]}}
+        results = self.race([('/records', note, uuid4().hex) for _ in range(2)])
+        self.assertEqual([r.status_code for r in results], [200, 200], [r.text for r in results])
+        self.assertEqual(len({r.json()['id'] for r in results}), 2)
+        costs = [Decimal(r.json()['data']['lines'][0]['inventory_cost']) for r in results]
+        self.assertEqual(sorted(costs), [Decimal('0.01'), Decimal('0.02')])
+        self.assertEqual(sum(costs), Decimal(sale['data']['lines'][0]['inventory_cost']))
+        self.assertEqual(sum(Decimal(r.json()['data']['lines'][0]['quantity']) for r in results), 6)
+        query = {'from_date': '2026-04-01', 'to_date': '2026-04-30'}
+        stock = self.client.get(self.base + '/reports/stock', headers=self.headers, params=query).json()['rows'][0]
+        report = self.client.get(self.base + '/reports/financial', headers=self.headers, params=query).json()
+        inventory = next(a for a in report['accounts'] if a['code'] == 'SYS-INVENTORY')
+        cogs = next(a for a in report['accounts'] if a['code'] == 'SYS-COGS')
+        self.assertEqual(Decimal(stock['closing_quantity']), 6)
+        self.assertEqual(Decimal(stock['closing_value']), Decimal('0.03'))
+        self.assertEqual(Decimal(inventory['closing_balance']), Decimal(stock['closing_value']))
+        self.assertEqual(Decimal(cogs['closing_balance']), 0)
+        self.assertEqual(Decimal(report['balance_difference']), 0)
+        extra = self.client.post(self.base + '/records', headers=self.headers, json=note)
+        self.assertEqual(extra.status_code, 422, extra.text)
+        self.assertEqual(len(self.client.get(self.base + '/journals', headers=self.headers).json()), 4)
+
+    def test_bank_unmatch_generation_survives_concurrent_rematch_and_aba(self):
+        records=[self.create({'kind':'bank_transfer','name':name,'date':'2026-04-02',
+            'amount':100,'data':{'direction':'cash_to_bank'}}) for name in ('Deposit A','Deposit B')]
+        self.client.post(self.base+'/bank-statement/import',headers=self.headers,json={
+            'lines':[{'date':'2026-04-02','description':'Deposit','amount':100}]}).raise_for_status()
+        def row():return self.client.get(self.base+'/bank-statement',headers=self.headers).json()[0]
+        line=row();path=self.base+'/bank-statement/'+line['id']+'/match'
+        self.client.post(path,headers=self.headers,json={'record_id':records[0]['id']}).raise_for_status()
+        from sqlalchemy import event
+        from main import engine
+        queries=[]
+        def capture(conn,cursor,statement,parameters,context,executemany):
+            if statement.lstrip().upper().startswith('SELECT') and 'bank_statement_lines' in statement:queries.append(statement)
+        event.listen(engine,'before_cursor_execute',capture)
+        try:snapshot=row()
+        finally:event.remove(engine,'before_cursor_execute',capture)
+        self.assertEqual(len(queries),1,queries);self.assertIn('audit_events',queries[0]);self.assertIn('JOIN',queries[0])
+        token={'expected_record_id':snapshot['matched_record_id'],
+                             'expected_match_revision':snapshot['match_revision']}
+        results=self.concurrent_http('DELETE',path,headers=self.headers,json=token)
+        self.assertEqual(sorted(r.status_code for r in results),[200,409,409,409],[r.text for r in results])
+        self.assertEqual(row()['match_revision'],2)
+        # A lost-response retry competes with a fresh match while the line is empty.
+        gate=Barrier(2)
+        def send(rematch):
+            with TestClient(app) as client:
+                gate.wait(timeout=15)
+                if rematch:return client.post(path,headers=self.headers,json={'record_id':records[1]['id']})
+                return client.request('DELETE',path,headers=self.headers,json=token)
+        with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(send,(True,False)))
+        self.assertEqual([r.status_code for r in results],[200,409],[r.text for r in results])
+        current=row();self.assertEqual(current['matched_record_id'],records[1]['id']);self.assertEqual(current['match_revision'],3)
+        self.client.request('DELETE',path,headers=self.headers,json={
+            'expected_record_id':current['matched_record_id'],'expected_match_revision':current['match_revision']}).raise_for_status()
+        self.client.post(path,headers=self.headers,json={'record_id':records[0]['id']}).raise_for_status()
+        self.assertEqual(self.client.request('DELETE',path,headers=self.headers,json=token).status_code,409)
+        self.assertEqual(row()['matched_record_id'],records[0]['id']);self.assertEqual(row()['match_revision'],5)
+        self.assertEqual(len(self.client.get(self.base+'/journals',headers=self.headers).json()),2)
+
+    def test_manual_journal_and_reversal_commands_replay_after_concurrency_and_lock(self):
+        accounts=[]
+        for code,category in [('QA-CASH','asset'),('QA-EQUITY','equity')]:
+            response=self.client.post(self.base+'/accounts',headers=self.headers,
+                json={'code':code,'name':code,'category':category})
+            self.assertEqual(response.status_code,201,response.text);accounts.append(response.json())
+        body={'date':'2026-04-02','reference':'OPEN','memo':'Synthetic manual journal',
+              'lines':[{'account_id':accounts[0]['id'],'debit':100},{'account_id':accounts[1]['id'],'credit':100}]}
+        key=uuid4().hex
+        results=self.race([('/journals',body,key)]*4)
+        self.assertEqual([r.status_code for r in results],[201]*4,[r.text for r in results])
+        original=results[0].json();self.assertTrue(all(r.json()==original for r in results))
+        path='/journals/'+original['id']+'/reverse'
+        reversal={'date':'2026-04-03','reference':'REV','reason':'Synthetic correction'}
+        results=self.race([(path,reversal,key)]*4)
+        self.assertEqual([r.status_code for r in results],[201]*4,[r.text for r in results])
+        reversed_entry=results[0].json();self.assertTrue(all(r.json()==reversed_entry for r in results))
+        self.client.put(self.base+'/period-lock',headers=self.headers,json={'locked_through':'2026-04-03'}).raise_for_status()
+        for route,payload,expected in [('/journals',body,original),(path,reversal,reversed_entry)]:
+            replay=self.client.post(self.base+route,headers={**self.headers,'Idempotency-Key':key},json=payload)
+            self.assertEqual(replay.status_code,201,replay.text);self.assertEqual(replay.json(),expected)
+        changed=self.client.post(self.base+'/journals',headers={**self.headers,'Idempotency-Key':key},json={**body,'memo':'Changed'})
+        self.assertEqual(changed.status_code,409,changed.text)
+        self.assertEqual(len(self.client.get(self.base+'/journals',headers=self.headers).json()),2)
+        trial=self.client.get(self.base+'/trial-balance',headers=self.headers,params={'through':'2026-04-03'}).json()
+        self.assertEqual(trial['total_debit'],'0.00');self.assertEqual(trial['total_credit'],'0.00')
+        from sqlalchemy import select,func
+        from sqlalchemy.orm import Session
+        from main import engine,JournalCommand
+        with Session(engine) as session:
+            self.assertEqual(session.scalar(select(func.count(JournalCommand.id)).where(JournalCommand.company_id==self.base.rsplit('/',1)[-1])),2)
+
     def test_attachment_concurrent_dedupe_and_key_binding(self):
         import hashlib
         bill = self.create({'kind': 'expense', 'name': 'Concurrent receipt',
@@ -275,6 +460,154 @@ class ConcurrentPostingTest(unittest.TestCase):
         self.assertEqual(response.status_code,401,response.text)
         self.assertEqual(self.client.get('/api/companies',headers=self.headers).status_code,401)
         self.assertEqual(self.client.post('/api/auth/login',json={**self.credentials,'password':new_password}).status_code,200)
+
+
+    def test_financial_and_trial_reports_keep_snapshot_during_first_post(self):
+        from unittest.mock import patch
+        from sqlalchemy.orm import Session
+        from decimal import Decimal
+        original=Session.execute
+        gate=Barrier(2)
+        observed=[]
+        def execute(session,statement,*args,**kwargs):
+            result=original(session,statement,*args,**kwargs)
+            sql=str(statement)
+            if 'ledger_accounts' in sql and 'journal_lines' in sql and not observed:
+                rows=result.all();observed.append(sql)
+                gate.wait(timeout=15);gate.wait(timeout=15)
+                return iter(rows)
+            return result
+        def post():
+            gate.wait(timeout=15)
+            with TestClient(app) as client:
+                response=client.post(self.base+'/records',headers=self.headers,json={'kind':'expense','name':'Concurrent report expense','date':'2026-04-02','amount':100})
+                self.assertEqual(response.status_code,200,response.text)
+            gate.wait(timeout=15)
+        for route,params,expected in [('/reports/financial',{'from_date':'2026-04-01','to_date':'2026-04-30'},0),('/trial-balance',{'through':'2026-04-30'},100)]:
+            observed.clear()
+            with patch.object(Session,'execute',execute),ThreadPoolExecutor(1) as pool:
+                future=pool.submit(post)
+                result=self.client.get(self.base+route,headers=self.headers,params=params)
+                future.result(timeout=20)
+            self.assertEqual(result.status_code,200,result.text);self.assertEqual(len(observed),1)
+            if route.endswith('financial'):
+                self.assertEqual(result.json()['accounts'],[])
+                self.assertEqual(Decimal(result.json()['expenses']),expected)
+                self.assertEqual(Decimal(result.json()['balance_difference']),0)
+            else:
+                self.assertEqual(Decimal(result.json()['total_debit']),expected)
+                self.assertEqual(Decimal(result.json()['total_credit']),expected)
+        fresh=self.client.get(self.base+'/reports/financial',headers=self.headers,params={'from_date':'2026-04-01','to_date':'2026-04-30'}).json()
+        self.assertEqual(Decimal(fresh['expenses']),200)
+        self.assertEqual(Decimal(fresh['balance_difference']),0)
+
+
+    def test_nested_restore_identity_and_concurrent_legacy_commit(self):
+        import base64
+        self.create({'kind':'expense','name':'Restore identity QA','date':'2026-04-02','amount':100})
+        raw=self.client.get(self.base+'/data-export.json',headers=self.headers).content
+        def body_for(raw,name):
+            body={'company_name':name,'backup_base64':base64.b64encode(raw).decode()}
+            preview=self.client.post('/api/backups/restore/preview',headers=self.headers,json=body)
+            self.assertEqual(preview.status_code,200,preview.text)
+            return {**body,'digest':preview.json()['digest']}
+        body=body_for(raw,'PG first restore')
+        replies=self.concurrent_http('POST','/api/backups/restore/commit',headers=self.headers,json=body)
+        self.assertEqual([r.status_code for r in replies],[200]*4,[r.text for r in replies])
+        self.assertEqual(len({r.json()['company_id'] for r in replies}),1)
+        self.assertEqual(sum(bool(r.json().get('already_restored')) for r in replies),3)
+        restored='/api/companies/'+replies[0].json()['company_id']
+        nested=self.client.get(restored+'/data-export.json',headers=self.headers).content
+        body=body_for(nested,'PG nested restore')
+        replies=self.concurrent_http('POST','/api/backups/restore/commit',headers=self.headers,json=body)
+        self.assertEqual([r.status_code for r in replies],[200]*4,[r.text for r in replies])
+        ids={r.json()['company_id'] for r in replies};self.assertEqual(len(ids),1)
+        again=self.client.post('/api/backups/restore/commit',headers=self.headers,json=body)
+        self.assertEqual(again.status_code,200,again.text);self.assertTrue(again.json()['already_restored']);self.assertIn(again.json()['company_id'],ids)
+        # A copied ancestral digest must not identify the nested copy itself.
+        original=self.client.post('/api/backups/restore/commit',headers=self.headers,json=body_for(raw,'PG nested restore'))
+        self.assertEqual(original.status_code,200,original.text);self.assertNotIn(original.json()['company_id'],ids)
+
+
+    def test_concurrent_multiline_final_return_uses_one_residual_and_stock_budget(self):
+        from decimal import Decimal
+        lines=[]
+        for index,(rate,discount,itc) in enumerate([(100,'10','pending_review'),(50,'4','ineligible')]):
+            lines.append({'description':'Residual stock '+str(index),'quantity':2,'rate':rate,'gst_rate':0,'discount_amount':discount,'price_includes_tax':True,'itc_treatment':itc})
+        # This fixture is unregistered; provision a separate regular synthetic
+        # company to exercise the pending/ineligible GST paise boundary.
+        company=self.client.post('/api/companies',headers=self.headers,json={'name':'Regular residual QA','tax_mode':'regular','state_code':'36','gstin':'36AAAAA0000A1Z5'}).json()
+        self.base='/api/companies/'+company['id']
+        for line in lines:
+            item=self.create({'kind':'item','name':line['description'],'data':{'track_stock':True}});line['item_id']=item['id'];line['gst_rate']=18
+        source=self.create({'kind':'purchase_bill','name':'Supplier','date':'2026-04-02','data':{'place_of_supply':'36','supplier_state':'36','lines':lines}})
+        partial=[{**line,'quantity':1,'discount_amount':str(Decimal(line['discount_amount'])/2)} for line in lines]
+        note={'kind':'debit_note','name':'Supplier','date':'2026-04-03','data':{'applied_to':source['id'],'place_of_supply':'36','supplier_state':'36','lines':partial}}
+        self.create(note)
+        key=uuid4().hex
+        responses=self.race([('/records',note,key)]*4)
+        self.assertEqual([r.status_code for r in responses],[200]*4,[r.text for r in responses])
+        self.assertEqual(len({r.json()['id'] for r in responses}),1)
+        self.assertEqual(responses[0].json()['data']['return_rounding']['method'],'source_remaining_unique_lines')
+        extra=self.client.post(self.base+'/records',headers={**self.headers,'Idempotency-Key':uuid4().hex},json=note)
+        self.assertEqual(extra.status_code,422,extra.text)
+        query={'from_date':'2026-04-01','to_date':'2026-04-30'}
+        stock=self.client.get(self.base+'/reports/stock',headers=self.headers,params=query).json()['rows']
+        self.assertTrue(all(Decimal(row['closing_quantity'])==0 and Decimal(row['closing_value'])==0 for row in stock))
+        financial=self.client.get(self.base+'/reports/financial',headers=self.headers,params=query).json()
+        self.assertEqual(Decimal(financial['balance_difference']),0)
+        self.assertEqual(Decimal(next(row['closing_balance'] for row in financial['accounts'] if row['code']=='SYS-INVENTORY')),0)
+
+
+    def test_note_date_amendment_and_refund_share_chronology_lock(self):
+        from decimal import Decimal
+        for source_kind,note_kind,payment_kind,refund_kind in (
+                ('sales_invoice','credit_note','payment_in','customer_refund'),
+                ('purchase_bill','debit_note','payment_out','supplier_refund')):
+            with self.subTest(kind=note_kind):
+                line={'description':'Chronology service','quantity':1,'rate':100,'gst_rate':0}
+                source=self.create({'kind':source_kind,'name':'Chronology party','date':'2026-04-02','data':{'lines':[line]}})
+                self.create({'kind':payment_kind,'name':source['name'],'date':'2026-04-02','amount':100,'data':{'applied_to':source['id']}})
+                note=self.create({'kind':note_kind,'name':source['name'],'date':'2026-04-03','data':{'lines':[line],'applied_to':source['id']}})
+                edit_path=self.base+'/documents/'+note['id']
+                refund_path=self.base+'/credits/'+note['id']+'/settle'
+                edit={'kind':note_kind,'name':note['name'],'number':note['number'],'date':'2026-04-05','amount':note['amount'],'data':{**note['data'],'version':0}}
+                refund={'kind':'credit','date':'2026-04-04','amount':20,'data':{'action':'refund','payment_account':'cash'}}
+                gate=Barrier(2)
+                def send(method,path,body):
+                    with TestClient(app,client=('pg-note-date-'+uuid4().hex,50000)) as client:
+                        gate.wait(timeout=15)
+                        return client.request(method,path,headers={**self.headers,'Idempotency-Key':uuid4().hex},json=body)
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    pending_edit=pool.submit(send,'PUT',edit_path,edit)
+                    pending_refund=pool.submit(send,'POST',refund_path,refund)
+                    amended,refunded=pending_edit.result(timeout=30),pending_refund.result(timeout=30)
+                self.assertIn((amended.status_code,refunded.status_code),[(200,422),(422,201)],(amended.text,refunded.text))
+                if amended.status_code==200:
+                    # Populate a settlement regardless of which serialized operation won.
+                    refunded=self.client.post(refund_path,headers={**self.headers,'Idempotency-Key':uuid4().hex},json={**refund,'date':'2026-04-05'})
+                    self.assertEqual(refunded.status_code,201,refunded.text)
+                current=self.client.get(self.base+'/records/'+note['id'],headers=self.headers).json()
+                self.assertLessEqual(current['date'],refunded.json()['date'])
+                same_day={**edit,'date':refunded.json()['date'],'data':{**current['data'],'version':current['data'].get('version',0)}}
+                key={**self.headers,'Idempotency-Key':uuid4().hex}
+                saved=self.client.put(edit_path,headers=key,json=same_day)
+                self.assertEqual(saved.status_code,200,saved.text)
+                journals=self.client.get(self.base+'/journals',headers=self.headers).json()
+                replay=self.client.put(edit_path,headers=key,json=same_day)
+                self.assertEqual(replay.status_code,200,replay.text);self.assertEqual(replay.json(),saved.json())
+                rejected=self.client.put(edit_path,headers={**self.headers,'Idempotency-Key':uuid4().hex},json={**same_day,'date':'2026-04-06','data':{**saved.json()['data'],'version':saved.json()['data']['version']}})
+                self.assertEqual(rejected.status_code,422,rejected.text)
+                self.assertIn('Revised note date cannot follow',rejected.json()['detail'])
+                self.assertEqual(self.client.get(self.base+'/journals',headers=self.headers).json(),journals)
+                rows=self.client.get(self.base+'/records',headers=self.headers).json()
+                refunds=[r for r in rows if r['kind']==refund_kind and r['data'].get('credit_note_id')==note['id']]
+                self.assertEqual(len(refunds),1)
+                current=next(r for r in rows if r['id']==note['id'])
+                self.assertLessEqual(current['date'],refunds[0]['date'])
+                self.assertEqual(Decimal(current['credit_remaining']),80)
+                report=self.client.get(self.base+'/reports/financial',headers=self.headers,params={'from_date':'2026-04-01','to_date':'2026-04-30'}).json()
+                self.assertEqual(Decimal(report['balance_difference']),0)
 
 
 if __name__ == '__main__':

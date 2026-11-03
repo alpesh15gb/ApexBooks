@@ -6,6 +6,7 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 from main import Base
+from record_order import include_schema_object
 
 config = context.config
 if config.config_file_name:
@@ -28,7 +29,7 @@ def run_migrations_online():
     engine = create_engine(database_url, poolclass=pool.NullPool,
                            connect_args={'check_same_thread': False} if database_url.startswith('sqlite') else {})
     with engine.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True, include_object=include_schema_object(connection.dialect.name))
         with context.begin_transaction():
             context.run_migrations()
     engine.dispose()

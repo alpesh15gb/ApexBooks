@@ -16,4 +16,11 @@ class ApiCapabilitiesTest {
     @Test fun unknownContractAndMissingFlagsFailClosed(){assertTrue(ApiCapabilities.parse(JSONObject()).isEmpty());assertTrue(ApiCapabilities.parse(JSONObject("""{"capabilities_version":2,"supported_features":["master_lifecycle"]}""")).isEmpty());assertEquals(setOf("master_lifecycle"),ApiCapabilities.parse(JSONObject("""{"capabilities_version":1,"supported_features":["master_lifecycle",23]}""")))}
     @Test fun legacyMasterPayloadOmitsUnsupportedAdditiveMetadata(){val value=JSONObject().put("name","Party").put("address","Billing");ApiCapabilities.masterFields.keys.forEach{value.put(it,"value")};ApiCapabilities.filterMaster(value,setOf("party_payment_terms"));assertEquals("Party",value.getString("name"));assertEquals("Billing",value.getString("address"));assertTrue(value.has("payment_terms_days"));assertFalse(value.has("is_active"));assertFalse(value.has("shipping_address"));assertFalse(value.has("credit_limit"));assertFalse(value.has("low_stock_threshold"))}
     @Test fun sharedDatesUseIndiaBoundaryNotHostTimezone(){assertEquals("2026-11-02",businessDate(Instant.parse("2026-11-02T18:29:59Z")).toString());assertEquals("2026-11-03",businessDate(Instant.parse("2026-11-02T18:30:00Z")).toString())}
+    @Test fun existingMasterEditsRequireVerifiedRevisionCapability(){
+        assertFalse(protectedMasterEditAllowed(true,emptySet()))
+        assertFalse(protectedMasterEditAllowed(true,setOf("master_lifecycle")))
+        assertTrue(protectedMasterEditAllowed(true,setOf("master_edit_revisions")))
+        assertTrue(protectedMasterEditAllowed(false,emptySet()))
+    }
+
 }

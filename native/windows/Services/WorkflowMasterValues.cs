@@ -7,6 +7,42 @@ namespace ApexBooks_Windows.Services;
 /// <summary>Optional master defaults are validated before any request; the API remains authoritative.</summary>
 public static class WorkflowMasterValues
 {
+    public static bool DocumentWriteFailed(RetrySubmission submission,Exception error,bool conversion,bool amendment=false,bool wasUnknown=false)
+    {
+        // Access/validation errors on a replay do not resolve an earlier interrupted edit.
+        // Keep its frozen body and key until the server can confirm that same command.
+        if(amendment&&wasUnknown)return false;
+        if(conversion&&error is ApiFailure{Status:409} failure&&(failure.Message is "Conversion source revision required; update the app and reopen the source document before converting" or "Conversion source changed; reopen it and review the conversion again")){
+            submission.Succeeded();return true;
+        }
+        submission.Failed(error);return false;
+    }
+    public static long SourceDocumentVersion(JsonObject openedData)
+    {
+        if(!openedData.ContainsKey("version"))return 0;
+        var token=openedData["version"];
+        if(token is null||!long.TryParse(token.ToJsonString(),NumberStyles.None,CultureInfo.InvariantCulture,out var version))throw new InvalidOperationException("The source document revision is invalid. Close and reopen the conversion after refreshing.");
+        return version;
+    }
+    // Copy the source header percentage, not its calculated per-line allocations or round-off.
+    public static string SourceDocumentDiscount(JsonNode? data) => data.Text("document_discount_percent") is { Length: > 0 } value ? value : "0";
+
+    public static JsonObject DocumentPreview(JsonObject candidate,string? editingRecordId)
+    {
+        var preview=candidate.Copy().Object();var data=preview["data"].Object();preview["name"]="Preview";
+        data.Remove("preview_record_id");
+        if((preview.Text("kind") is "credit_note" or "debit_note")&&!string.IsNullOrWhiteSpace(editingRecordId))data["preview_record_id"]=editingRecordId;
+        preview["data"]=data.Copy();return preview;
+    }
+    public static JsonObject MasterUpdate(JsonObject openedData,JsonObject editedData,string name)
+    {
+        // Only the snapshot opened by the editor supplies the concurrency token.
+        var token=openedData["version"];
+        long version=0;
+        if(openedData.ContainsKey("version")&&(token is null||!long.TryParse(token.ToJsonString(),NumberStyles.None,CultureInfo.InvariantCulture,out version)))
+            throw new InvalidOperationException("The opened master has an invalid revision. Close, refresh the company, and reopen it before editing.");
+        var body=editedData.Copy().Object();body["version"]=version;body["name"]=name.Trim();return body;
+    }
     public static bool IsActive(JsonNode? row)=>row?["data"]?["is_active"] is null || row["data"].Flag("is_active");
     public static string ShippingAddress(JsonNode? data)=>data.Text("shipping_address") is {Length:>0} delivery?delivery:data.Text("address");
     public static int RecurringInterval(string text)

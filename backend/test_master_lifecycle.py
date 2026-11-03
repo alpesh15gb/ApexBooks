@@ -1,4 +1,5 @@
 """Archiving masters preserves history and never strands existing settlements."""
+from master_test_helpers import fresh_master_edit
 import base64,json,unittest
 from uuid import uuid4
 import test_everyday_features
@@ -13,7 +14,7 @@ class MasterLifecycleTest(unittest.TestCase):
         line={'item_id':item['id'],'description':item['name'],'quantity':1,'rate':100,'gst_rate':0}
         return c,h,b,party,item,line
     def toggle(self,c,h,b,row,active):
-        r=c.put(b+'/masters/'+row['id'],headers=h,json={**row['data'],'name':row['name'],'is_active':active})
+        r=c.put(b+'/masters/'+row['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+row['id'], h, {**row['data'],'name':row['name'],'is_active':active}))
         self.assertEqual(r.status_code,200,r.text);return r.json()
     def test_archive_reactivate_blocks_new_pos_drafts_and_name_only_bypass(self):
         c,h,b,p,i,line=self.setup_rows()
@@ -37,9 +38,9 @@ class MasterLifecycleTest(unittest.TestCase):
         blank=self.post(c,h,b,'estimate',p['name'],{'lines':[line],'shipping_address':''})
         self.assertEqual(blank['data']['shipping_address'],'')
         p=self.toggle(c,h,b,p,False)
-        r=c.put(b+'/masters/'+p['id'],headers=h,json={'name':p['name']})
+        r=c.put(b+'/masters/'+p['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+p['id'], h, {'name':p['name']}))
         self.assertEqual(r.status_code,200,r.text);self.assertFalse(r.json()['data']['is_active']);self.assertEqual(r.json()['data']['shipping_address'],'Warehouse 2')
-        changed=c.put(b+'/masters/'+p['id'],headers=h,json={'name':p['name'],'shipping_address':'New depot','is_active':True})
+        changed=c.put(b+'/masters/'+p['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+p['id'], h, {'name':p['name'],'shipping_address':'New depot','is_active':True}))
         self.assertEqual(changed.status_code,200,changed.text)
         self.assertEqual(c.get(b+'/records/'+invoice['id'],headers=h).json()['data']['shipping_address'],'Warehouse 2')
         self.assertEqual(self.post(c,h,b,'sales_order',p['name'],{'lines':[line]})['data']['shipping_address'],'New depot')
@@ -57,7 +58,7 @@ class MasterLifecycleTest(unittest.TestCase):
         self.assertEqual(r.status_code,200,r.text)
         r=c.put(b+'/drafts/'+draft['id'],headers=h,json={**edit,'kind':'estimate','number':draft['number'],'data':{'version':1,'lines':[{**line,'item_id':other['id'],'description':other['name']}]}})
         self.assertEqual(r.status_code,422,r.text)
-        conversion=c.post(b+'/records',headers=h,json={'kind':'sales_order','name':p['name'],'date':'2026-04-02','data':{'source_document_id':draft['id'],'lines':[line]}})
+        conversion=c.post(b+'/records',headers=h,json={'kind':'sales_order','name':p['name'],'date':'2026-04-02','data':{'source_document_id':draft['id'],'source_document_version':draft['data'].get('version',0),'lines':[line]}})
         self.assertEqual(conversion.status_code,422,conversion.text)
         payment=c.post(b+'/records',headers=h,json={'kind':'payment_in','name':p['name'],'amount':20,'date':'2026-04-02','data':{'applied_to':invoice['id']}})
         self.assertEqual(payment.status_code,200,payment.text)
@@ -97,20 +98,20 @@ class MasterLifecycleTest(unittest.TestCase):
         creds={'email':uuid4().hex+'@lifecycle.invalid','password':'Synthetic-lifecycle-password'}
         c.post('/api/auth/register',json=creds).raise_for_status()
         viewer={'Authorization':'Bearer '+c.post('/api/auth/login',json=creds).json()['token']}
-        self.assertEqual(c.put(b+'/masters/'+p['id'],headers=viewer,json={'name':p['name'],'is_active':False}).status_code,404)
+        self.assertEqual(c.put(b+'/masters/'+p['id'],headers=viewer,json={**({'name':p['name'],'is_active':False}), 'version': 0}).status_code,404)
         c.post(b+'/members',headers=h,json={'email':creds['email'],'role':'viewer'}).raise_for_status()
-        self.assertEqual(c.put(b+'/masters/'+p['id'],headers=viewer,json={'name':p['name'],'is_active':False}).status_code,403)
+        self.assertEqual(c.put(b+'/masters/'+p['id'],headers=viewer,json={**({'name':p['name'],'is_active':False}), 'version': 0}).status_code,403)
         other=c.post('/api/companies',headers=h,json={'name':'Other lifecycle','tax_mode':'unregistered'}).json()['id']
-        self.assertEqual(c.put('/api/companies/'+other+'/masters/'+p['id'],headers=h,json={'name':p['name'],'is_active':False}).status_code,404)
+        self.assertEqual(c.put('/api/companies/'+other+'/masters/'+p['id'],headers=h,json={**({'name':p['name'],'is_active':False}), 'version': 0}).status_code,404)
         self.toggle(c,h,b,i,False)
-        updated=c.put(b+'/masters/'+i['id'],headers=h,json={'name':i['name'],'item_type':'services'})
+        updated=c.put(b+'/masters/'+i['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+i['id'], h, {'name':i['name'],'item_type':'services'}))
         self.assertEqual(updated.status_code,200,updated.text);self.assertFalse(updated.json()['data']['is_active'])
         self.assertEqual(c.get(b+'/journals',headers=h).json(),[])
 
     def test_metadata_validation_reorder_restore_roundtrip(self):
         c,h,b,p,i,line=self.setup_rows()
         for value in ('false',0,None):
-            r=c.put(b+'/masters/'+p['id'],headers=h,json={'name':p['name'],'is_active':value});self.assertEqual(r.status_code,422,r.text)
+            r=c.put(b+'/masters/'+p['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+p['id'], h, {'name':p['name'],'is_active':value}));self.assertEqual(r.status_code,422,r.text)
         for kind,data in [('party',{'shipping_address':'x'*501}),('item',{'shipping_address':'depot'})]:
             r=c.post(b+'/records',headers=h,json={'kind':kind,'name':'Invalid','data':data});self.assertEqual(r.status_code,422,r.text)
         goods=self.post(c,h,b,'item','Archived goods',{'track_stock':True,'low_stock_threshold':1,'is_active':False})

@@ -119,3 +119,71 @@ keyboard input, commits the edit with Tab, verifies the exact text again after
 focusing Save, and captures the picker before one activation. The expected-path
 file and encrypted-envelope checks remain mandatory; no alternate file is accepted.
 The destination-binding explanation is an inference pending the next Windows run.
+
+
+Picker discovery first searches the app UIA subtree. For desktop-level shell
+windows, it verifies the app HWND still belongs to the launched process and
+requires the candidate's native `GW_OWNER` chain to reach that HWND. Matching
+process IDs or window titles alone never authorize a candidate. Traversal rejects
+zero handles, cycles and chains beyond 64 hops. The same finder is used for
+receipt upload, encrypted Save and restore Open; all real file and hash assertions
+remain mandatory. `WindowOwnership.cs` is linked into portable/client tests with
+direct, nested, unrelated, cyclic and depth-boundary regressions. A new hosted run
+is required to validate desktop-level picker execution.
+
+
+The native inline-master candidate adds real-UI steps to the financial journey:
+cancel an inline customer without losing the invoice reference, create/select a
+customer, then create a zero-rate service after entering the existing250 line.
+The appended review line must preserve the original quantity/rate; the saved
+invoice must contain both returned master IDs and exactly two lines. The existing
+250 invoice,100 collection,150 balance, dirty-discard, receipt and encrypted-backup
+assertions remain unchanged. These new steps are authored but not yet compiled or
+executed in the current environment, which lacks .NET. No runtime pass is claimed.
+
+
+PR5 run `41592390939` passed inline customer creation/cancellation and preserved
+the invoice reference, then showed the item-create action below the dialog's
+viewport. Focus alone did not reveal it. The test now uses ScrollItem when
+available or the button's nearest vertical ScrollPattern ancestor (bounded40
+small steps), then still requires a visible enabled button before invocation.
+It never scrolls the desktop or invokes the hidden action. Runtime recheck pending.
+
+### Picker discovery diagnostics
+
+On a failed synthetic run, `picker-diagnostics.json` records the launched app's
+HWND/PID, matching top-level `Open`/`Save As` UIA and native window metadata, and
+bounded native owner chains. It captures at most 16 candidates per source and
+32 owner nodes per candidate; it reads no filename fields or document contents.
+Native enumeration is diagnostic only. Picker selection still requires the
+existing app subtree or verified native ownership chain, with visible/enabled
+controls. No extra picker activation, upload or action retry is performed.
+
+This diagnostic addition passed local diff/source checks; compilation and runtime
+capture require the Windows CI runner because the local .NET SDK is unavailable.
+
+### PR32 owned reveal follow-up
+
+Run 41673718317 (artifact 13250416085) reached the inline-item action after customer creation and exact/rapid item typing. The failure screenshot and accessibility tree show `+ Create item here` present below the visible form area; no item-create action or POST was issued. The earlier helper scrolled once, then waited passively. The exact cause of the later visibility state is not established by those older diagnostics.
+
+The test now reevaluates only the identified app control and its owned scroll container during a bounded readiness wait, retaining visible/enabled/positive-size requirements before the existing single action. Failure output includes bounded geometry and scroll diagnostics. All accounting and backup assertions remain unchanged. Local .NET is unavailable; compilation and real hosted UI execution are pending for this test-only correction.
+
+
+### Live picker anchor regression
+
+The synthetic PR41 failure artifact showed a visible shell Open dialog owned by
+its launched process's main HWND, while the cached WinUI content UIA HWND differed
+and desktop UIA children omitted the dialog. Picker discovery now refreshes the
+launched Process.MainWindowHandle and verifies its native PID and visibility.
+It retains UIA subtree/desktop discovery and adds bounded native enumeration
+(maximum 2048 windows), but only materializes a candidate with FromHandle after
+its visible/enabled native owner chain reaches that verified live anchor. The UIA
+handle, native PID, title, visibility, enabled state and positive bounds must match.
+A title or same process ID alone never qualifies a picker. The captured anchor
+and ownership are checked again before file input and the single final action;
+a changed anchor aborts rather than retrying or retargeting. Existing financial,
+file, hash and backup assertions are unchanged.
+
+Seven additional pure anchor-policy assertions run in both portable and Windows
+client suites. Local static checks are not compilation or native picker proof;
+the corrected real picker path requires a hosted Windows UI run.

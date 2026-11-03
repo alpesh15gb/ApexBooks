@@ -32,6 +32,8 @@ class AllocationState(id:String="",amount:String="") { var documentId by mutable
 
 class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,val conversion:JSONObject?=null) {
     val companyId=vm.companyId;val workspaceStamp=vm.workspaceStamp();val regular=vm.regular
+    private val conversionRevision=conversion?.let{ConversionRevision(it)}
+    private val originalVersion=previous?.o("data")?.optInt("version")?:0
     val fields=mutableStateMapOf<String,String>()
     val lines=mutableStateListOf<LineState>()
     val allocations=mutableStateListOf<AllocationState>()
@@ -51,10 +53,54 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     private var initialSignature=""
     private var initialMasterFields:Map<String,String> = emptyMap()
     val submission=RetrySubmission()
-    var retryPending by mutableStateOf(false);private set
+    private var ownRetryPending by mutableStateOf(false)
+    val retryPending:Boolean get()=ownRetryPending||inlineMaster?.retryPending==true
+    var inlineMaster by mutableStateOf<EntryEditor?>(null);private set
+    private val inlineRecords=mutableStateListOf<JSONObject>()
+    val canCreateInline get()=inlineMasterAllowed(kind,previous!=null,conversion!=null,vm.canWrite)&&vm.inWorkspace(companyId,workspaceStamp)
+    fun beginInlineMaster(masterKind:String){
+        if(!canCreateInline||vm.editor!==this||saving||scanning||sourceLoading||retryPending||inlineMaster!=null)return
+        require(masterKind in setOf("party","item"))
+        if(masterKind=="item"&&!canAppendInlineItem(lines,regular)){vm.error="The invoice already has 100 lines. Remove a line first.";return}
+        inlineMaster=EntryEditor(vm,masterKind).also{if(masterKind=="party")it.set("party_type","customer")}
+        vm.error=""
+    }
+    fun closeInlineMaster(){val child=inlineMaster?:return;if(child.saving||child.retryPending)return;inlineMaster=null;vm.error=""}
+    suspend fun saveInlineMaster(){
+        val child=inlineMaster?:return
+        check(canCreateInline&&vm.editor===this){"This invoice workspace is no longer active."}
+        check(!child.saving)
+        if(child.kind=="item")check(canAppendInlineItem(lines,regular)){"The invoice already has 100 lines."}
+        child.saving=true
+        try{
+            if(!child.retryPending){
+                require(child.get("name").isNotBlank()){"Enter a name."}
+                masterPlanningIssue(child.kind,child.get("payment_terms_days"),child.get("low_stock_threshold"),child.get("credit_limit"))?.let{throw Exception(it)}
+                require(child.flag("is_active")){"Create an active master to use it in this invoice."}
+                if(child.kind=="item"&&child.get("item_type")=="services")require(!child.flag("track_stock")){"Services cannot track stock."}
+            }
+            val body=child.submission.body(child.body())
+            child.ownRetryPending=true // Also blocks sign-out while the POST is in flight.
+            val created=try{vm.api.saveRecord(companyId,body,child.retryKey) as JSONObject}catch(e:Exception){
+                child.submission.failed(e,definitiveConflict=inlineDuplicateConflict(e));child.ownRetryPending=child.submission.unresolved
+                if(!child.ownRetryPending)child.renewRetryKey()
+                if(inlineDuplicateConflict(e))throw Exception("A master with this name already exists. No existing master was selected. Change the name, or cancel and select it explicitly in the invoice.")
+                throw e
+            }
+            check(inlineMasterResponseMatches(created,body,companyId)){"The creation response could not be verified. Retry the original creation to recover its identity; do not create a replacement."}
+            child.submission.succeeded();child.ownRetryPending=false
+            if(!vm.inWorkspace(companyId,workspaceStamp)||vm.editor!==this||inlineMaster!==child)return
+            inlineRecords.add(created)
+            vm.acceptCreatedMaster(created,companyId,workspaceStamp)
+            val selectable=vm.records.firstOrNull{it.s("id")==created.s("id")}?:created
+            if(!selectable.o("data").optBoolean("is_active",true)){inlineMaster=null;vm.error="The master was created but is now archived. It was not selected. Refresh and reactivate it in Parties or Items before using it; do not create a replacement.";return}
+            if(child.kind=="party")chooseParty(created.s("id")) else appendInlineItem(lines,selectable,regular)
+            inlineMaster=null;vm.notice="${friendly(child.kind)} created and selected. Review the invoice before saving."
+        }finally{child.saving=false}
+    }
     val canSaveAndNew get()=document&&previous==null&&conversion==null
     fun changed()=if(master)fields.toMap()!=initialMasterFields else body().toString()!=initialSignature
-    fun renewRetryKey(){retryKey=vm.key();submission.succeeded();retryPending=false}
+    fun renewRetryKey(){retryKey=vm.key();submission.succeeded();ownRetryPending=false}
     init {
         val source=previous?:conversion?:JSONObject();val data=source.o("data")
         for(key in listOf("credit_limit","payment_terms_days","low_stock_threshold","party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","supplier_state","due_date","notes","terms","category","payment_account","bank_account_id","applied_to","advance_supply","advance_gst_rate","document_discount_percent","tender_amount","gstin","address","phone","email","party_type","hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))fields[key]=data.s(key)
@@ -72,8 +118,8 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     fun set(key:String,value:String){if(key in setOf("applied_to","document_discount_percent")&&get(key)!=value)returnEditRevision++;fields[key]=value}
     fun flag(key:String)=get(key)=="true"
     private var lastPartyShipping=""
-    fun parties()=vm.records.filter{it.s("kind")=="party"&&selectableMaster(it,previous?.o("data")?.s("party_id")?:"")}
-    fun items(line:LineState)=vm.records.filter{it.s("kind")=="item"&&selectableMaster(it,if(previous!=null)line.originalItemId else "")}
+    fun parties()=(vm.records+inlineRecords).distinctBy{it.s("id")}.filter{it.s("kind")=="party"&&selectableMaster(it,previous?.o("data")?.s("party_id")?:"")}
+    fun items(line:LineState)=(vm.records+inlineRecords).distinctBy{it.s("id")}.filter{it.s("kind")=="item"&&selectableMaster(it,if(previous!=null)line.originalItemId else "")}
     fun chooseParty(id:String){if(id.isBlank()){set("party_id","");return};val party=parties().find{it.s("id")==id}?:return;set("name",party.s("name"));set("party_id",id);val data=party.o("data");set("party_address",data.s("address"));set("party_phone",data.s("phone"));set("party_gstin",data.s("gstin"));val shipping=partyShippingAddress(party);fields["shipping_address"]=shippingForPartySelection(get("shipping_address"),lastPartyShipping,shipping);lastPartyShipping=shipping;set(if(purchase)"supplier_state" else "place_of_supply",data.s("gstin").take(2).ifBlank{vm.company.s("state_code")})}
     fun changePartyName(value:String){if(!value.trim().equals(get("name").trim(),true)){for(key in listOf("party_id","party_address","party_gstin","party_phone"))set(key,"");if(get("shipping_address")==lastPartyShipping)fields["shipping_address"]="";lastPartyShipping="";set("place_of_supply",vm.company.s("state_code"));set("supplier_state",vm.company.s("state_code"))};set("name",value)}
     fun chooseItem(line:LineState,id:String){val item=items(line).find{it.s("id")==id}?:return;line.linkProduct(item,purchase,regular)}
@@ -104,11 +150,15 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
             if(payment){values.put("is_advance",flag("is_advance"));values.put("advance_supply",get("advance_supply"));values.put("advance_gst_rate",get("advance_gst_rate"));values.put("allocations",JSONArray(if(flag("is_advance"))emptyList<JSONObject>()else allocations.map{JSONObject().put("document_id",it.documentId).put("amount",it.amount)}))}
         }
         if(master)ApiCapabilities.filterMaster(values,vm.supportedFeatures)
-        if(previous!=null)values.put("version",previous.o("data").optInt("version"));if(conversion!=null)values.put("source_document_id",conversion.s("id"))
+        if(previous!=null)values.put("version",originalVersion);conversionRevision?.applyTo(values)
         return JSONObject().put("kind",kind).put("name",get("name")).put("number",get("number")).put("date",get("date")).put("amount",if(document||master)"0"else get("amount")).put("data",values)
     }
+    val conversionSupported get()=protectedConversionAllowed(conversionRevision!=null,vm.supportedFeatures)
+    val masterEditSupported get()=protectedMasterEditAllowed(master&&previous!=null,vm.supportedFeatures)
     fun save(keepOpen:Boolean=false){
-        if(saving||scanning||sourceLoading||!vm.inWorkspace(companyId,workspaceStamp))return
+        if(saving||scanning||sourceLoading||inlineMaster!=null||!vm.inWorkspace(companyId,workspaceStamp))return
+        if(!masterEditSupported){vm.error="Protected master editing is unavailable. ${vm.capabilityHint}";return}
+        if(!conversionSupported){vm.error="Protected draft conversion is unavailable. ${vm.capabilityHint}";return}
         saving=true
         vm.task{try{
             if(!retryPending){
@@ -118,12 +168,22 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
                 if(master)masterPlanningIssue(kind,get("payment_terms_days"),get("low_stock_threshold"),get("credit_limit"))?.let{throw Exception(it)}
                 if(payment&&!flag("is_advance")&&(allocations.isEmpty()||allocations.any{it.documentId.isBlank()}))throw Exception("Allocate the payment or record an advance.")
             }
+            val wasUnknown=submission.unresolved
             val body=submission.body(body())
             try {
                 if(master&&previous!=null){val flat=copy(body.o("data")).put("name",body.s("name"));vm.api.request(vm.api.company(companyId,"/masters/${previous.s("id")}"),"PUT",flat)}
                 else vm.api.saveRecord(companyId,body,retryKey,previous)
-                submission.succeeded();retryPending=false
-            }catch(e:Exception){submission.failed(e);retryPending=submission.unresolved;throw e}
+                submission.succeeded();ownRetryPending=false
+            }catch(e:Exception){
+                // Master revision conflicts are definitive rejection of this attempt,
+                // unlike a financial request that may still be in progress.
+                val masterConflict=master&&previous!=null&&e is ApiFailure&&e.status==409
+                val conversionConflict=definitiveConversionConflict(conversionRevision!=null,e)
+                recordEditWriteFailed(submission,e,previous!=null&&!master,wasUnknown,masterConflict||conversionConflict);ownRetryPending=submission.unresolved
+                if(conversionConflict)throw ApiFailure(409,"${e.message} Your entered values remain here. Copy any needed changes, then close, refresh and reopen the source to compare before converting again. An earlier interrupted attempt may already have saved.")
+                if(masterConflict)throw ApiFailure(409,"${e.message ?: "The server rejected this master revision."} Your entered values remain here. Close the editor, refresh company data, and reopen to compare before saving again. An earlier interrupted attempt may already have saved.")
+                throw e
+            }
             if(!vm.inWorkspace(companyId,workspaceStamp))return@task
             if(vm.editor===this)vm.editor=if(keepOpen&&canSaveAndNew)EntryEditor(vm,kind)else null
             // Saving succeeded even if the subsequent list refresh fails. Never resubmit it.
