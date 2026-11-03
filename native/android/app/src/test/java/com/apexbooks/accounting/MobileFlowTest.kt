@@ -4,6 +4,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MobileFlowTest {
+    @org.junit.Test fun selectionLabelsExposeVisibleContextAndValue(){
+        org.junit.Assert.assertEquals("Saved party · Enter manually",selectionDescription("Saved party","Enter manually"))
+        org.junit.Assert.assertEquals("Item / service · Synthetic item",selectionDescription("Item / service","Synthetic item"))
+        org.junit.Assert.assertEquals("Due date · optional · Not set",selectionDescription("Due date · optional",""))
+    }
+
     @Test fun allTransactionKindsHaveStableNavigationAndCreationGroups() {
         val expected = setOf("sales_invoice", "estimate", "proforma", "sales_order", "payment_in", "credit_note", "pos", "purchase_bill", "payment_out", "expense", "purchase_order", "debit_note")
         assertEquals(expected, MobileNavigation.transactions.toSet())

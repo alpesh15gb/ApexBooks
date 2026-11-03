@@ -3,6 +3,7 @@ package com.apexbooks.accounting
 import android.content.Intent
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import com.apexbooks.accounting.data.*
@@ -29,9 +30,20 @@ class LocalUiAcceptanceTest {
         }
     }
 
-    private fun scrollTo(device:UiDevice,text:String) {
-        repeat(10){if(device.hasObject(By.text(text)))return;device.swipe(device.displayWidth/2,device.displayHeight*3/4,device.displayWidth/2,device.displayHeight/4,30);device.waitForIdle()}
-        assertTrue("Visible action: $text",device.hasObject(By.text(text)))
+    private fun scrollTo(device:UiDevice,text:String)=scrollTo(device,By.text(text),text)
+    private fun scrollTo(device:UiDevice,selector:BySelector,label:String) {
+        if(device.wait(Until.hasObject(selector),2000))return
+        repeat(8){if(device.hasObject(selector))return;device.swipe(device.displayWidth/2,device.displayHeight*3/4,device.displayWidth/2,device.displayHeight/4,30);device.waitForIdle()}
+        // A previous action can leave the same form scrolled below its next control.
+        repeat(16){if(device.hasObject(selector))return;device.swipe(device.displayWidth/2,device.displayHeight/4,device.displayWidth/2,device.displayHeight*3/4,30);device.waitForIdle()}
+        assertTrue("Visible action: $label",device.hasObject(selector))
+    }
+    private fun chooseSavedParty(device:UiDevice){
+        val selector=By.desc("Saved party · Enter manually")
+        scrollTo(device,selector,"Saved party selector")
+        assertTrue("Saved party is an accessible clickable control",device.findObject(selector).isClickable)
+        device.findObject(selector).click()
+        assertTrue(device.wait(Until.hasObject(By.text("UI Smoke Buyer")),15000));device.findObject(By.text("UI Smoke Buyer")).click()
     }
 
     @Test fun signInAndSwitchSyntheticCompanies():Unit=runBlocking {
@@ -99,23 +111,22 @@ class LocalUiAcceptanceTest {
         assertTrue("Exact seeded low-stock item is visible after scrolling",device.hasObject(By.text("UI Reorder Item")))
         scrollTo(device,"Review purchase order · 1 items");device.findObject(By.text("Review purchase order · 1 items")).click()
         assertTrue(device.wait(Until.hasObject(By.text("New Purchase Order")),15000))
-        device.findObject(By.text("Enter manually")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("UI Smoke Buyer")),15000));device.findObject(By.text("UI Smoke Buyer")).click()
+        chooseSavedParty(device)
         device.findObject(By.text("Next: add items")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("UI Reorder Item")),15000));device.findObject(By.text("UI Reorder Item")).click()
+        assertTrue("Reorder draft preserves the selected item",device.wait(Until.hasObject(By.desc("Item / service · UI Reorder Item")),15000))
         scrollTo(device,"Check this party’s item prices");device.findObject(By.text("Check this party’s item prices")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("Last posted price for this exact party and item.")),30000))
+        scrollTo(device,"Last posted price for this exact party and item.");assertTrue(device.hasObject(By.text("Last posted price for this exact party and item.")))
         scrollTo(device,"Apply suggested price & tax basis");device.findObject(By.text("Apply suggested price & tax basis")).click()
         device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-reorder-price-review.png"))
         device.findObject(By.desc("Close entry")).click()
         assertTrue(device.wait(Until.hasObject(By.text("Discard draft")),15000));device.findObject(By.text("Discard draft")).click()
         scrollTo(device,"New invoice");device.findObject(By.text("New invoice")).click()
         assertTrue(device.wait(Until.hasObject(By.text("New Sales Invoice")),15000))
-        device.findObject(By.text("Enter manually")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("UI Smoke Buyer")),15000));device.findObject(By.text("UI Smoke Buyer")).click()
+        chooseSavedParty(device)
         scrollTo(device,"Check party payment terms");device.findObject(By.text("Check party payment terms")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("Use suggested due date")),30000));device.findObject(By.text("Use suggested due date")).click()
-        assertTrue("Explicit terms Apply sets the suggested date",device.hasObject(By.text(java.time.LocalDate.parse(today()).plusDays(30).toString())))
+        scrollTo(device,"Use suggested due date");assertTrue(device.hasObject(By.text("Use suggested due date")));device.findObject(By.text("Use suggested due date")).click()
+        scrollTo(device,By.desc("Due date · optional · "+java.time.LocalDate.parse(today()).plusDays(30).toString()),"Applied due date")
+        assertTrue("Explicit terms Apply sets the suggested date",device.hasObject(By.desc("Due date · optional · "+java.time.LocalDate.parse(today()).plusDays(30).toString())))
         device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-party-terms-review.png"))
         device.findObject(By.desc("Close entry")).click()
         assertTrue(device.wait(Until.hasObject(By.text("Keep editing")),15000));device.findObject(By.text("Keep editing")).click()
@@ -128,10 +139,9 @@ class LocalUiAcceptanceTest {
         // Create a real second invoice entirely through the native document editor.
         scrollTo(device,"New invoice");device.findObject(By.text("New invoice")).click()
         assertTrue(device.wait(Until.hasObject(By.text("New Sales Invoice")),15000))
-        device.findObject(By.text("Enter manually")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("UI Smoke Buyer")),15000));device.findObject(By.text("UI Smoke Buyer")).click()
+        chooseSavedParty(device)
         device.findObject(By.text("Next: add items")).click()
-        scrollTo(device,"Enter a description");device.findObject(By.text("Enter a description")).click()
+        val itemSelector=By.desc("Item / service · Enter a description");scrollTo(device,itemSelector,"Item / service selector");device.findObject(itemSelector).click()
         assertTrue(device.wait(Until.hasObject(By.text("UI Reorder Item")),15000));device.findObject(By.text("UI Reorder Item")).click()
         device.findObject(By.text("Review document")).click()
         assertTrue("API preview enables native save",device.wait(Until.hasObject(By.text("Save invoice").enabled(true)),30000))
@@ -160,9 +170,9 @@ class LocalUiAcceptanceTest {
             if(roots!=null){roots.click();assertTrue(device.wait(Until.hasObject(By.text("Downloads")),15000));device.findObject(By.text("Downloads")).click()}
             assertTrue("Synthetic PDF is selectable in the system picker",device.wait(Until.hasObject(By.text(receiptName)),15000));device.findObject(By.text(receiptName)).click()
             scrollTo(device,"Upload receipt");device.findObject(By.text("Upload receipt")).click()
-            assertTrue("Receipt is retained after actual UI upload",device.wait(Until.hasObject(By.text("Archive · retain evidence")),30000));scrollTo(device,"Archive · retain evidence");device.findObject(By.text("Archive · retain evidence")).click()
+            scrollTo(device,"Archive · retain evidence");assertTrue("Receipt is retained after actual UI upload",device.hasObject(By.text("Archive · retain evidence")));device.findObject(By.text("Archive · retain evidence")).click()
             scrollTo(device,"Show archived receipts");device.findObject(By.text("Show archived receipts")).click()
-            assertTrue(device.wait(Until.hasObject(By.textContains("Archived · retained")),30000))
+            scrollTo(device,By.textContains("Archived · retained"),"Archived receipt state");assertTrue(device.hasObject(By.textContains("Archived · retained")))
             val bill=saved.single{it.s("kind")=="purchase_bill"};val evidence=(api.request(api.company(companyIds.getValue(target),"/records/${bill.s("id")}/attachments"))as JSONObject).a("attachments").objects().single()
             assertTrue("UI archive retains evidence",evidence.optBoolean("is_archived"));assertEquals(receiptBytes.size,evidence.optInt("size_bytes"));assertEquals(sha256(receiptBytes),evidence.s("sha256"))
             device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-retained-receipt.png"))
