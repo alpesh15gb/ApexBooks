@@ -1,0 +1,62 @@
+name: Isolated company-generation proof (not deployable)
+on:
+  pull_request:
+    paths:
+      - 'tests/proofs/company_generation/**'
+      - '.github/workflows/company-generation-proof.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: company-generation-proof-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  disposable-postgres-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: generation_proof
+          POSTGRES_PASSWORD: synthetic-generation-proof-only
+          POSTGRES_DB: apex_concurrency_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U generation_proof -d apex_concurrency_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: Install pinned test dependencies
+        run: python -m pip install -r backend/requirements-dev.txt
+      - name: Verify pure target guards and generated SQL
+        working-directory: tests/proofs/company_generation
+        run: python -m unittest -v test_postgres_generation_sql
+      - name: Run proof only after loopback and fresh-empty-schema checks
+        env:
+          # This credential belongs only to the disposable service above.
+          APEX_TEST_DATABASE_URL: postgresql+psycopg://generation_proof:synthetic-generation-proof-only@127.0.0.1:${{ job.services.postgres.ports[5432] }}/apex_concurrency_test
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p generation-proof-evidence
+          # The script rejects remote/overridden targets and any existing user
+          # relations before existing migrations or proof DDL. It never resets DBs.
+          python tests/proofs/company_generation/test_postgres_generation.py \
+            --output generation-proof-evidence/result.json
+      - name: Retain bounded synthetic results, including failed proofs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: company-generation-proof-${{ github.run_id }}
+          path: generation-proof-evidence/result.json
+          if-no-files-found: warn
+          retention-days: 7
