@@ -47,7 +47,6 @@ test('cancel keeps the same invoice mounted, restores focus and preserves draft 
   assert.equal(invoiceForm(), original); assert.equal(original.parentElement.hidden, true);
   await change('.inline-party-form [name=name]', 'Do not save');
   await act(async () => child().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
-  await act(async () => new Promise(resolve => setTimeout(resolve, 5)));
   assert.equal(child(), null); assert.equal(document.activeElement, button('Create item/service and add line'));
   await submitInvoice(); assert.equal(view.saved.name, 'New buyer'); assert.equal(view.saved.data.lines[0].rate, '125');
   assert.equal(view.saved.data.shipping_address, 'Manual delivery'); assert.equal(view.saved.data.due_date, '2026-12-01'); assert.equal(view.saved.data.notes, 'Keep my edited notes');
@@ -209,9 +208,31 @@ test('numeric and string zero sale rates are usable and creation focuses the add
   for (const rate of [0, '0']) {
   const view = await mount({ createItem: async () => ({ ...item, data: { ...item.data, sale_rate: rate } }) });
   await click('Create item/service and add line'); await submitChild();
-  await act(async () => new Promise(resolve => setTimeout(resolve, 5)));
   assert.equal(document.activeElement.getAttribute('aria-label'), 'Item 2 quantity');
   assert.equal(document.querySelector('[aria-label="Item 2 rate"]').value, '0');
   await act(async () => view.root.unmount());
+  }
+});
+
+test('item success focus follows the committed line without relying on a timer', async () => {
+  const view = await mount();
+  await click('Create item/service and add line');
+  const originalTimeout = globalThis.setTimeout;
+  const deferred = [];
+  try {
+    // Deliberately hold zero-delay callbacks. Focus must be set by the commit,
+    // not by whichever side of a concurrent render a timer happens to land on.
+    globalThis.setTimeout = (callback, delay, ...args) => {
+      if (delay === 0) { deferred.push(() => callback(...args)); return 0; }
+      return originalTimeout(callback, delay, ...args);
+    };
+    await submitChild();
+    assert.equal(child(), null);
+    assert.equal(invoiceForm().parentElement.hidden, false);
+    assert.equal(document.activeElement, document.querySelector('[aria-label="Item 2 quantity"]'));
+    assert.equal(deferred.length, 0);
+  } finally {
+    globalThis.setTimeout = originalTimeout;
+    await act(async () => view.root.unmount());
   }
 });

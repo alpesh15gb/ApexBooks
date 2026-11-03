@@ -12,7 +12,7 @@ import {
   useDocumentPreview,
 } from "./DocumentWorkbench.jsx";
 import { prepareInvoiceImage } from "./prepareInvoiceImage.js";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { availableMasters, partyShippingAddress, shippingForPartySelection } from "./masterLifecycle.js";
 import CreditStatus from "./CreditStatus.jsx";
 import PriceHistory from "./PriceHistory.jsx";
@@ -69,12 +69,26 @@ export default function RecordEditor({
   const [createdItems, setCreatedItems] = useState([]);
   const [itemAdded, setItemAdded] = useState("");
   const itemButton = useRef(null);
+  const itemFocusTarget = useRef(null);
+  useLayoutEffect(() => {
+    if (inlineItem || !itemFocusTarget.current) return;
+    // The invoice is visible and its new line is committed before focus moves.
+    // A timer can run before React commits, focusing a hidden or obsolete field.
+    const target = itemFocusTarget.current;
+    itemFocusTarget.current = null;
+    if (target === "quantity") {
+      const quantities = itemButton.current?.form?.querySelectorAll('.document-item-row [name="quantity"]');
+      quantities?.[quantities.length - 1]?.focus();
+    } else {
+      itemButton.current?.focus();
+    }
+  }, [inlineItem]);
   const itemLockRef = useRef(false);
   const updateItemLock = useCallback(value => { itemLockRef.current = value; setItemLocked(value); }, []);
   const dismissItem = () => {
     if (itemLockRef.current) return;
+    itemFocusTarget.current = "trigger";
     setInlineItem(false);
-    setTimeout(() => itemButton.current?.focus(), 0);
   };
   const retainedParties = edit || relatedSource ? [initial?.data?.party_id].filter(Boolean) : [];
   const retainedItems = edit || relatedSource ? (initial?.data?.lines || []).map(line => line.item_id).filter(Boolean) : [];
@@ -560,11 +574,8 @@ export default function RecordEditor({
               return pristine ? [added] : [...current, added];
             });
             setItemAdded(`${created.name} added as a new line. Review quantity, rate, discount and tax before saving.`);
+            itemFocusTarget.current = "quantity";
             setDirty(true); updateItemLock(false); setInlineItem(false);
-            setTimeout(() => {
-              const quantities = itemButton.current?.form?.querySelectorAll('.document-item-row [name="quantity"]');
-              quantities?.[quantities.length - 1]?.focus();
-            }, 0);
           }} />}
         <div hidden={inlineParty || inlineItem}>
         <form
