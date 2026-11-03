@@ -1,3 +1,4 @@
+import { inlinePartyCreator } from "./inlineParty.js";
 import { businessDate, businessFinancialYear } from "./businessDate.js";
 import { CORE_ENHANCEMENTS, capabilityFeatures, supportsFeature, routeFeature, companyDisplayName, masterEditBlockReason } from "./capabilities.js";
 import { hasPendingPostings, postingNavigationMessage } from "./postingRegistry.js";
@@ -680,6 +681,11 @@ function App() {
     }
     closeRecord(refreshed);
   }
+  const createInlineParty = inlinePartyCreator({
+    api, companyId, isCurrent: workspaceScope.current.capture(),
+    token: localStorage.token, getToken: () => localStorage.token,
+    onCreated: created => setRecords(rows => [...rows.filter(row => row.id !== created.id), created]),
+  });
   async function saveMaster(body) {
     const isCurrent = workspaceScope.current.capture();
     if (editingMaster) {
@@ -1723,6 +1729,7 @@ function App() {
             edit={!!editingDraft}
             close={closeRecord}
             save={saveRecord}
+            createParty={createInlineParty}
           />
         ))}
       {modal === "stock_opening" && (
