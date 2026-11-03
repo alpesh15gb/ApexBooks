@@ -1,3 +1,4 @@
+import { captureConversionSource, conversionBlockReason, isDefiniteConversionConflict } from "./conversionRevision.js";
 import InlineItemForm from "./InlineItemForm.jsx";
 import InlinePartyForm from "./InlinePartyForm.jsx";
 import { changeLineDiscount, serializeLineDiscount, lineDiscountMode } from "./lineDiscount.js";
@@ -20,6 +21,8 @@ import PaymentAllocations from "./PaymentAllocations.jsx";
 export default function RecordEditor({
   kind,
   features = [],
+  capabilities,
+  onRetryCapabilities,
   company,
   companyId,
   records,
@@ -38,6 +41,9 @@ export default function RecordEditor({
   today,
   edit = false,
 }) {
+  const conversion = useRef(captureConversionSource(source, edit)).current;
+  const [conversionRejected, setConversionRejected] = useState("");
+  const conversionBlocked = conversionRejected || conversionBlockReason(conversion, capabilities, features);
   const supported = feature => supportsFeature(features, feature);
   const termsSupported = supported("party_payment_terms");
   const doc = documentKinds.includes(kind),
@@ -259,7 +265,7 @@ export default function RecordEditor({
   }, [kind]);
   const saveAction = useRef("close");
   const [submissionKey] = useState(() => crypto.randomUUID());
-  const posting = usePostingRequest();
+  const posting = usePostingRequest({ isDefinitiveRetryError: error => !!conversion && isDefiniteConversionConflict(error) });
   const { busy: saving, pending } = posting;
   useEffect(() => {
     const unload = event => {
@@ -449,6 +455,7 @@ export default function RecordEditor({
     if (!canWrite || saving || scanning || loadingSource || inlineParty || inlineItem) return;
     setError("");
     try {
+      if (conversionBlocked) throw Error(conversionBlocked);
       if (requiresDiscountReview && reviewedReturnDiscounts !== returnDiscountReviewKey) throw Error("Review the fixed discounts for the returned quantities before saving.");
       const payload = {
           kind,
@@ -473,7 +480,8 @@ export default function RecordEditor({
                   form.payment_account === "bank"
                     ? form.bank_account_id
                     : undefined,
-                source_document_id: edit ? undefined : source?.id,
+                source_document_id: conversion?.id,
+                source_document_version: conversion?.version,
                 version: edit ? source?.data?.version || 0 : undefined,
                 notes: form.notes,
                 terms: form.terms,
@@ -508,6 +516,7 @@ export default function RecordEditor({
       const options = { keepOpen: saveAction.current === "new" };
       await posting.run(() => save(payload, submissionKey, options));
     } catch (err) {
+      if (conversion && isDefiniteConversionConflict(err)) setConversionRejected(err.message + ". Close this form, reopen the source and review its current contents before converting. Your entered details remain visible here.");
       setError(err.message);
     }
   }
@@ -1043,6 +1052,7 @@ export default function RecordEditor({
           )}
           </fieldset>
           {pending && !saving && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
+          {conversionBlocked && <div className="info-box full" role="status">{conversionBlocked}{onRetryCapabilities && !conversionRejected && <button type="button" className="button secondary" disabled={saving} onClick={onRetryCapabilities}>Check API support again</button>}</div>}
           {error && <div className="error full">{error}</div>}
           <div className="modal-actions full document-actions">
             {doc && (
@@ -1078,7 +1088,7 @@ export default function RecordEditor({
             )}
             <button
               className="button primary"
-              disabled={!canWrite || saving || scanning || loadingSource}
+              disabled={!canWrite || saving || scanning || loadingSource || !!conversionBlocked}
             >
               {loadingSource
                 ? "Loading document…"

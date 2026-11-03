@@ -87,7 +87,7 @@ import org.json.JSONObject
                         if (editor.document && step < 2) Button(enabled = idle, onClick = { next() }, modifier = Modifier.weight(1f)) { Text(if (step == 0) "Next: add items" else "Review document"); Icon(Icons.Outlined.ChevronRight, null) }
                         else {
                             if (!editor.document && editor.canSaveAndNew) OutlinedButton(onClick = { editor.save(true) }, enabled = idle && vm.busy == 0, modifier = Modifier.weight(1f)) { Text("Save & new") }
-                            Button(onClick = { editor.save() }, enabled = editor.masterEditSupported && idle && vm.busy == 0 && (editor.retryPending || !editor.document || editor.preview != null), modifier = Modifier.weight(1f)) {
+                            Button(onClick = { editor.save() }, enabled = editor.masterEditSupported && editor.conversionSupported && idle && vm.busy == 0 && (editor.retryPending || !editor.document || editor.preview != null), modifier = Modifier.weight(1f)) {
                                 if (editor.saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                                 else Text(if(editor.retryPending) "Retry original save" else if (editor.sourceLoading) "Loading source…" else if (editor.previous != null) "Save changes" else "Save ${when (editor.kind) { "sales_invoice" -> "invoice"; "purchase_bill" -> "bill"; "payment_in" -> "receipt"; "payment_out" -> "payment"; else -> "record" }}")
                             }
@@ -95,6 +95,7 @@ import org.json.JSONObject
                     }
                 }
             } }) { padding -> Column(Modifier.padding(padding).fillMaxSize().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                if(!editor.conversionSupported){Message("Converting this draft requires verified source revision protection on the server.",true);FeatureUpgradeHint(vm)}
                 if (editor.scanning) Message("Reading your purchase image…")
                 if(editor.retryPending) Message("The previous save has an unknown outcome. Retry original save submits the original values, not subsequent edits. Resolve it before creating another document.")
                 if (editor.ocrTotal.isNotBlank()) Message("Scanned total ${money(editor.ocrTotal)}. Review the extracted details and items before saving.")

@@ -18,6 +18,9 @@ public sealed partial class MainPage
         var inlineAllowed=kind=="sales_invoice"&&previous is null&&conversion is null&&returnSource is null&&draftSeed is null&&CanWrite;
         if (conversion is not null) conversion = (await Api.Record(cid, conversion.Text("id"))).Object();
         if (stamp != generation) return;
+        var conversionId=conversion?.Text("id")??"";
+        long? conversionVersion=conversion is null?null:WorkflowMasterValues.SourceDocumentVersion(conversion["data"].Object());
+        var conversionVerifiedAtOpen=Supports("document_conversion_revisions");
         var source = previous ?? conversion ?? returnSource ?? draftSeed; var data = source?["data"].Object() ?? new();
         var regular = Company.Text("tax_mode") == "regular"; var purchase = kind is "purchase_bill" or "purchase_order" or "debit_note" or "expense";
         var panel = Stack(16); panel.Width = Math.Clamp(((App.Window.Content as FrameworkElement)?.ActualWidth ?? 1240) - 112, 420, 1320);
@@ -25,6 +28,7 @@ public sealed partial class MainPage
         var info = new InfoBar { IsClosable = true };
         void LocalError(Exception e) { info.Severity = InfoBarSeverity.Error; info.Message = e.Message; info.IsOpen = true; }
         panel.Children.Add(info);if(!Api.Capabilities.HasCoreAdditions)panel.Children.Add(CapabilityNotice());
+        if(conversion is not null&&!conversionVerifiedAtOpen){panel.Children.Add(Text("Conversion saving is disabled until the API confirms source revision protection. Check features, then close and reopen this conversion. Ordinary document creation remains available.",12));panel.Children.Add(CapabilityNotice());}
         var party = new AutoSuggestBox { Header = kind == "expense" ? "Supplier / expense description" : "Customer / supplier", Text = source.Text("name"), PlaceholderText = "Choose a party or enter a name" };
         var number = Input("Reference number", previous.Text("number"));number.PlaceholderText="Assigned on save";number.MaxLength=16;
         var date = new DateInput("Document date", previous.Text("date") is { Length: > 0 } d ? d : J.Today);
@@ -57,7 +61,7 @@ public sealed partial class MainPage
             if (tender.Text.Length > 0) values["tender_amount"] = tender.Text;
             if (appliedTo.Length > 0) values["applied_to"] = appliedTo;
             if (previous is not null) values["version"] = data["version"].Copy() ?? JsonValue.Create(0);
-            if (conversion is not null) values["source_document_id"] = conversion.Text("id");
+            if(conversionVersion is { } sourceRevision){values["source_document_id"]=conversionId;values["source_document_version"]=sourceRevision;}
             return values;
         }
         string FixedSignature()=>appliedTo+"|"+string.Join("|",lines.Select(line=>line.DiscountReviewIdentity+":"+line.DiscountReviewRevision+":"+line.Quantity.Text+":"+line.Data().Text("discount_amount")));
@@ -212,6 +216,7 @@ public sealed partial class MainPage
         var baseline=BodyValue().ToJsonString();var keepNew=false;
         async Task Save()
         {
+            if(conversion is not null)Api.Capabilities.RequireDocumentConversionSupport();
             if(inlineOpen)throw new Exception("Finish or cancel the inline master creation before saving this invoice.");
             if(sourceLoading)throw new Exception("Wait for the source document to finish loading.");
             if(!submission.Unresolved&&NeedsFixedReview()&&!fixedReview.IsAcknowledged(FixedSignature()))throw new Exception("Review each fixed ₹ discount against the quantities being returned, then acknowledge the review before saving.");
@@ -223,11 +228,11 @@ public sealed partial class MainPage
             }
             if (kind is "credit_note" or "debit_note" && appliedTo.Length == 0) throw new Exception("Choose the original posted document.");
             try{await Api.SaveRecord(cid, submission.Body(BodyValue()), retryKey, previous);submission.Succeeded();}
-            catch(Exception e){submission.Failed(e);NativeUi.SetFormEnabled(panel,!submission.Unresolved);if(submission.Unresolved)throw new Exception("The save outcome is unknown. The original values are locked; press Save again to safely recover the same document.",e);throw;}
+            catch(Exception e){var revisionConflict=WorkflowMasterValues.DocumentWriteFailed(submission,e,conversion is not null);NativeUi.SetFormEnabled(panel,!submission.Unresolved);if(revisionConflict)throw new Exception(e.Message+" Your entered values remain in this form. Copy any needed changes, then close, refresh and reopen the source to compare. If an earlier attempt was interrupted, it may already have saved; check the destination before creating another.",e);if(submission.Unresolved)throw new Exception("The save outcome is unknown. The original values are locked; press Save again to safely recover the same document.",e);throw;}
         }
         var saved = await Dialog((previous is not null ? "Edit " : "New ") + FeatureCatalog.Singular(kind), panel, Save,
             previous is null ? "Save " + (kind=="purchase_bill"?"bill":kind=="sales_invoice"?"invoice":"document") : "Save changes",
-            canSave:()=>!sourceLoading&&!inlineOpen,unresolved:()=>submission.Unresolved||inlineCommand?.Unresolved==true,hasChanges:()=>inlineOpen||BodyValue().ToJsonString()!=baseline,
+            canSave:()=>!sourceLoading&&!inlineOpen&&(conversion is null||conversionVerifiedAtOpen&&Supports("document_conversion_revisions")),unresolved:()=>submission.Unresolved||inlineCommand?.Unresolved==true,hasChanges:()=>inlineOpen||BodyValue().ToJsonString()!=baseline,
             saveAndNew:previous is null&&conversion is null?async()=>{await Save();keepNew=true;}:null,stickyFooter:Card(totals));
         previewRequest?.Cancel(); if (saved && cid == CompanyId) await Refresh();
         if(saved&&keepNew&&cid==CompanyId)await EditDocument(kind);

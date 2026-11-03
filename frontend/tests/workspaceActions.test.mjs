@@ -174,7 +174,8 @@ test('estimate detail can create a linked nonposting sales order', async () => {
     await act(async () => document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
     assert.equal(posts[0].kind, 'sales_order');
     assert.equal(posts[0].data.source_document_id, 'estimate');
-  }, [estimate]);
+    assert.equal(posts[0].data.source_document_version, 0);
+  }, [estimate], [...CORE_ENHANCEMENTS, 'document_conversion_revisions']);
 });
 
 test('initial company history does not duplicate the dashboard report requests', async () => {
@@ -276,4 +277,15 @@ test('transient capability retry enables the same master form without replacing 
     assert.equal(masterWrites[0].sale_rate, '130');
     assert.equal(capabilityCalls, 2);
   }, [{ id: 'retry-item', kind: 'item', name: 'Retry item', data: { version: 3, sale_rate: '100' } }], () => ++capabilityCalls === 1 ? { status: 503 } : CORE_ENHANCEMENTS);
+});
+
+test('conversion editor on old API stays reviewable but cannot submit without revision protection', async () => {
+  const estimate = { id:'old-quote',kind:'estimate',name:'Buyer',number:'EST-OLD',date:'2026-11-02',amount:'100',posted:false,data:{version:4,lines:[{description:'Service',quantity:'1',rate:'100',gst_rate:'0'}]} };
+  await workspace('owner',async({click,posts,dom})=>{
+    await click('Estimates');await click('EST-OLD');await click('Create sales order');
+    assert.match(document.querySelector('.modal').textContent,/API needs an update for protected document conversion/);
+    const save=[...document.querySelectorAll('.modal button')].find(button=>button.textContent==='Save sales order');assert.equal(save.disabled,true);
+    await act(async()=>document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})));assert.equal(posts.length,0);
+    assert.equal(document.querySelector('.modal input[name=rate]').value,'100');
+  },[estimate],CORE_ENHANCEMENTS);
 });

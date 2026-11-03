@@ -92,6 +92,63 @@ class ConcurrentPostingTest(unittest.TestCase):
         edits = [e for e in events if e['action'] == 'master.updated' and e['entity_id'] == item['id']]
         self.assertEqual(len(edits), 1)
 
+    def test_conversion_source_edit_and_original_revision_have_one_winner(self):
+        source_payload = self.sale('sales_order')
+        source = self.create(source_payload)
+        converted = {**source_payload, 'kind': 'sales_invoice', 'data': {
+            **source_payload['data'], 'source_document_id': source['id'],
+            'source_document_version': source['data'].get('version', 0)}}
+        edited = {**source_payload, 'number': source['number'], 'data': {
+            'version': 0, 'lines': [{**source_payload['data']['lines'][0], 'rate': 200}]}}
+        gate = Barrier(2)
+        def send(edit):
+            with TestClient(app, client=('pg-conversion-' + uuid4().hex, 50000)) as client:
+                gate.wait(timeout=15)
+                if edit:
+                    return client.put(self.base + '/drafts/' + source['id'],
+                                      headers=self.headers, json=edited)
+                return client.post(self.base + '/records', headers={**self.headers,
+                    'Idempotency-Key': uuid4().hex}, json=converted)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(send, (True, False)))
+        self.assertEqual(sorted(r.status_code for r in results), [200, 409],
+                         [r.text for r in results])
+        current = self.client.get(self.base + '/records/' + source['id'],
+                                  headers=self.headers).json()
+        journals = self.client.get(self.base + '/journals', headers=self.headers).json()
+        if results[0].status_code == 200:
+            self.assertEqual(current['data']['version'], 1)
+            self.assertIsNone(current['converted_to'])
+            self.assertEqual(journals, [])
+            self.assertTrue(results[1].json()['detail'].startswith('Conversion source changed;'))
+        else:
+            self.assertEqual(current['data'].get('version', 0), 0)
+            self.assertEqual(current['converted_to'], results[1].json()['id'])
+            self.assertEqual(len(journals), 1)
+
+    def test_same_key_conversion_replays_once_after_source_is_consumed(self):
+        source_payload = self.sale('sales_order')
+        source = self.create(source_payload)
+        converted = {**source_payload, 'kind': 'sales_invoice', 'data': {
+            **source_payload['data'], 'source_document_id': source['id'],
+            'source_document_version': source['data'].get('version', 0)}}
+        key = uuid4().hex
+        results = self.race([('/records', converted, key)] * 4)
+        self.assertEqual([r.status_code for r in results], [200] * 4,
+                         [r.text for r in results])
+        ids = {r.json()['id'] for r in results}
+        self.assertEqual(len(ids), 1)
+        replay = self.client.post(self.base + '/records', headers={**self.headers,
+            'Idempotency-Key': key}, json=converted)
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertIn(replay.json()['id'], ids)
+        duplicate = self.client.post(self.base + '/records', headers={**self.headers,
+            'Idempotency-Key': uuid4().hex}, json=converted)
+        self.assertEqual(duplicate.status_code, 409, duplicate.text)
+        self.assertEqual(len(self.client.get(self.base + '/journals', headers=self.headers).json()), 1)
+        current = self.client.get(self.base + '/records/' + source['id'], headers=self.headers).json()
+        self.assertIn(current['converted_to'], ids)
+
     def test_attachment_concurrent_dedupe_and_key_binding(self):
         import hashlib
         bill = self.create({'kind': 'expense', 'name': 'Concurrent receipt',

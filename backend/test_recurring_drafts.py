@@ -80,7 +80,7 @@ class RecurringDraftTest(unittest.TestCase):
         backup=c.get(b+'/data-export.json',headers=h).json();self.assertEqual(backup['stock_movements'],[])
         self.assertEqual(self.generate(c,h,b,t,'2026-04-30').status_code,409)
         # A separately reviewed conversion posts once (use untracked line for this test).
-        draft=generated[0];invoice=c.post(b+'/records',headers=h,json={'kind':'sales_invoice','name':p['name'],'date':'2026-04-01','data':{'source_document_id':draft['id'],'lines':[{'description':'Reviewed service','quantity':1,'rate':100,'gst_rate':0}]}})
+        draft=generated[0];invoice=c.post(b+'/records',headers=h,json={'kind':'sales_invoice','name':p['name'],'date':'2026-04-01','data':{'source_document_id':draft['id'],'source_document_version':draft['data'].get('version',0),'lines':[{'description':'Reviewed service','quantity':1,'rate':100,'gst_rate':0}]}})
         self.assertEqual(invoice.status_code,200,invoice.text);self.assertEqual(len(c.get(b+'/journals',headers=h).json()),1)
         replay=self.generate(c,h,b,t,'2026-01-31').json();self.assertEqual(replay['record']['converted_to'],invoice.json()['id'])
 

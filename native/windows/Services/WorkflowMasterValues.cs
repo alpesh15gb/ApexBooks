@@ -7,6 +7,20 @@ namespace ApexBooks_Windows.Services;
 /// <summary>Optional master defaults are validated before any request; the API remains authoritative.</summary>
 public static class WorkflowMasterValues
 {
+    public static bool DocumentWriteFailed(RetrySubmission submission,Exception error,bool conversion)
+    {
+        if(conversion&&error is ApiFailure{Status:409} failure&&(failure.Message is "Conversion source revision required; update the app and reopen the source document before converting" or "Conversion source changed; reopen it and review the conversion again")){
+            submission.Succeeded();return true;
+        }
+        submission.Failed(error);return false;
+    }
+    public static long SourceDocumentVersion(JsonObject openedData)
+    {
+        if(!openedData.ContainsKey("version"))return 0;
+        var token=openedData["version"];
+        if(token is null||!long.TryParse(token.ToJsonString(),NumberStyles.None,CultureInfo.InvariantCulture,out var version))throw new InvalidOperationException("The source document revision is invalid. Close and reopen the conversion after refreshing.");
+        return version;
+    }
     public static JsonObject DocumentPreview(JsonObject candidate,string? editingRecordId)
     {
         var preview=candidate.Copy().Object();var data=preview["data"].Object();preview["name"]="Preview";

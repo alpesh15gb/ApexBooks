@@ -11,4 +11,5 @@
   <ItemGroup><Compile Include="../../windows/Services/InlineMasterSubmission.cs" Link="InlineMasterSubmission.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../../windows/Services/MonthChartAggregation.cs" Link="MonthChartAggregation.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../WindowsClient/MonthChartAggregationTests.cs" Link="MonthChartAggregationTests.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../WindowsClient/ConversionRevisionTests.cs" Link="ConversionRevisionTests.cs" /></ItemGroup>
 </Project>

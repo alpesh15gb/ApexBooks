@@ -1121,7 +1121,7 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(bank_line.status_code, 200, bank_line.text)
             pos_line_id = next(line['id'] for line in client.get(base + '/bank-statement', headers=headers).json() if line['amount'] == '40.00')
             self.assertEqual(client.post(base + '/bank-statement/' + pos_line_id + '/match', headers=headers, json={'record_id': pos.json()['id']}).status_code, 200)
-            conversion = {'kind': 'sales_invoice', 'name': 'Prospect', 'date': '2026-10-31', 'data': {'source_document_id': auto.json()['id'], 'lines': [{'description': 'Quote', 'quantity': 1, 'rate': 10, 'gst_rate': 0}]}}
+            conversion = {'kind': 'sales_invoice', 'name': 'Prospect', 'date': '2026-10-31', 'data': {'source_document_id': auto.json()['id'], 'source_document_version': auto.json()['data'].get('version', 0), 'lines': [{'description': 'Quote', 'quantity': 1, 'rate': 10, 'gst_rate': 0}]}}
             idempotent_headers = {**headers, 'Idempotency-Key': 'conversion-qa-1'}
             converted = client.post(base + '/records', headers=idempotent_headers, json=conversion)
             self.assertEqual(converted.status_code, 200, converted.text)
