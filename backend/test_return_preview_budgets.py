@@ -58,7 +58,7 @@ class ReturnPreviewBudgetTest(unittest.TestCase):
         note['data']['applied_to']=foreign['id']
         self.assertEqual(c.post(b+'/documents/preview',headers=h,json=note).status_code,422)
         self.assertEqual(c.post(b+'/records',headers=h,json=note).status_code,422)
-    def test_multiline_inclusive_rounding_limit_is_visible_before_save(self):
+    def test_multiline_inclusive_final_residual_still_enforces_exhausted_source(self):
         c,h,b=self.context('regular')
         lines=[{'description':'Pending','quantity':2,'rate':100,'gst_rate':18,'discount_amount':'10','itc_treatment':'pending_review','price_includes_tax':True}, {'description':'Ineligible','quantity':2,'rate':50,'gst_rate':18,'discount_amount':'4','itc_treatment':'ineligible','price_includes_tax':True}]
         source=c.post(b+'/records',headers=h,json={'kind':'purchase_bill','name':'Supplier','date':'2026-04-01','data':{'place_of_supply':'36','lines':lines}});self.assertEqual(source.status_code,200,source.text)
@@ -66,7 +66,8 @@ class ReturnPreviewBudgetTest(unittest.TestCase):
         for line in partial:line['quantity']=1;line['discount_amount']=str(D(line['discount_amount'])/2)
         note={'kind':'debit_note','name':'Supplier','date':'2026-04-02','data':{'place_of_supply':'36','applied_to':source.json()['id'],'lines':partial}}
         self.parity(c,h,b,note,200)
-        rejected=self.parity(c,h,b,note,422);self.assertEqual(rejected.json()['detail'],'Note tax exceeds the original document tax')
+        final=self.parity(c,h,b,note,200);self.assertEqual(final.json()['data']['return_rounding']['method'],'source_remaining_unique_lines')
+        rejected=self.parity(c,h,b,note,422);self.assertEqual(rejected.json()['detail'],'Notes exceed the original document amount')
     def test_unchanged_legacy_posted_classification_preview_matches_metadata_amendment(self):
         from unittest.mock import patch
         from uuid import uuid4
