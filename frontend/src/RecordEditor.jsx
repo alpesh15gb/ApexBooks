@@ -1,3 +1,4 @@
+import InlinePartyForm from "./InlinePartyForm.jsx";
 import { changeLineDiscount, serializeLineDiscount, lineDiscountMode } from "./lineDiscount.js";
 import { supportsFeature } from "./capabilities.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
@@ -10,7 +11,7 @@ import {
   useDocumentPreview,
 } from "./DocumentWorkbench.jsx";
 import { prepareInvoiceImage } from "./prepareInvoiceImage.js";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { availableMasters, partyShippingAddress, shippingForPartySelection } from "./masterLifecycle.js";
 import CreditStatus from "./CreditStatus.jsx";
 import PriceHistory from "./PriceHistory.jsx";
@@ -26,6 +27,7 @@ export default function RecordEditor({
   draftSeed,
   close,
   save,
+  createParty,
   api,
   Modal,
   labels,
@@ -49,15 +51,27 @@ export default function RecordEditor({
   const initial = source || relatedSource || draftSeed;
   const [priceLine, setPriceLine] = useState(null), [termsSuggestion, setTermsSuggestion] = useState(null), [termsError, setTermsError] = useState("");
   const lastShippingDefault = useRef("");
+  const [inlineParty, setInlineParty] = useState(false);
+  const [partyLocked, setPartyLocked] = useState(false);
+  const [createdParties, setCreatedParties] = useState([]);
+  const partyButton = useRef(null);
+  const partyLockRef = useRef(false);
+  const updatePartyLock = useCallback(value => { partyLockRef.current = value; setPartyLocked(value); }, []);
+  const dismissParty = () => {
+    if (partyLockRef.current) return;
+    setInlineParty(false);
+    setTimeout(() => partyButton.current?.focus(), 0);
+  };
   const retainedParties = edit || relatedSource ? [initial?.data?.party_id].filter(Boolean) : [];
   const retainedItems = edit || relatedSource ? (initial?.data?.lines || []).map(line => line.item_id).filter(Boolean) : [];
-  const partyChoices = availableMasters(records, "party", ["payment_in", "payment_out"].includes(kind) ? records.filter(record => record.kind === "party").map(record => record.id) : retainedParties);
+  const partyChoices = availableMasters([...records, ...createdParties.filter(row => !records.some(record => record.id === row.id))], "party", ["payment_in", "payment_out"].includes(kind) ? records.filter(record => record.kind === "party").map(record => record.id) : retainedParties);
   const itemChoices = availableMasters(records, "item", retainedItems);
   const canWrite = ["owner", "editor"].includes(company.role);
   const isPayment = ["payment_in", "payment_out"].includes(kind);
   const [dirty, setDirty] = useState(false),
     [confirmClose, setConfirmClose] = useState(false);
   const requestClose = () => {
+    if (inlineParty) { dismissParty(); return; }
     if (saving || scanning || pending) return;
     if (dirty) setConfirmClose(true);
     else close();
@@ -220,13 +234,13 @@ export default function RecordEditor({
   const { busy: saving, pending } = posting;
   useEffect(() => {
     const unload = event => {
-      if (dirty || saving || pending) { event.preventDefault(); event.returnValue = ""; }
+      if (dirty || saving || pending || partyLocked) { event.preventDefault(); event.returnValue = ""; }
     };
     const back = () => requestClose();
     window.addEventListener("beforeunload", unload);
     window.addEventListener("apex-close-editor", back);
     return () => { window.removeEventListener("beforeunload", unload); window.removeEventListener("apex-close-editor", back); };
-  }, [dirty, saving, pending, scanning]);
+  }, [dirty, saving, pending, scanning, inlineParty, partyLocked]);
 
   async function scan(e) {
     const file = e.target.files?.[0];
@@ -403,7 +417,7 @@ export default function RecordEditor({
   }
   async function submit(e) {
     e.preventDefault();
-    if (!canWrite || saving || scanning || loadingSource) return;
+    if (!canWrite || saving || scanning || loadingSource || inlineParty) return;
     setError("");
     try {
       if (requiresDiscountReview && reviewedReturnDiscounts !== returnDiscountReviewKey) throw Error("Review the fixed discounts for the returned quantities before saving.");
@@ -502,6 +516,22 @@ export default function RecordEditor({
         variant={doc ? "document" : undefined}
         close={requestClose}
       >
+        {inlineParty && <InlinePartyForm today={today} features={features} initialName={form.name} createParty={createParty}
+          onLockChange={updatePartyLock} close={dismissParty} onCreated={created => {
+            if (!created) return;
+            const nextDefault = partyShippingAddress(created);
+            const previousDefault = lastShippingDefault.current;
+            setCreatedParties(current => [...current.filter(row => row.id !== created.id), created]);
+            setForm(current => ({ ...current, name: created.name, party_id: created.id,
+              party_address: created.data?.address || "", party_gstin: created.data?.gstin || "",
+              party_phone: created.data?.phone || "",
+              shipping_address: shippingForPartySelection(current.shipping_address, previousDefault, nextDefault),
+              place_of_supply: created.data?.gstin?.slice(0, 2) || company.state_code }));
+            lastShippingDefault.current = nextDefault;
+            setDirty(true); updatePartyLock(false); setInlineParty(false);
+            setTimeout(() => partyButton.current?.focus(), 0);
+          }} />}
+        <div hidden={inlineParty}>
         <form
           onSubmit={submit}
           onChangeCapture={() => setDirty(true)}
@@ -767,6 +797,7 @@ export default function RecordEditor({
                 targets={targets}
                 onSelectSource={selectSource}
               />
+              {kind === "sales_invoice" && !edit && !source && !relatedSource && createParty && <div className="full"><button ref={partyButton} type="button" className="button secondary" onClick={() => setInlineParty(true)}>Create new party</button></div>}
               <datalist id="apex-party-options">
                 {partyChoices
                   .map((r) => (
@@ -1005,6 +1036,7 @@ export default function RecordEditor({
             </button>
           </div>
         </form>
+        </div>
       </Modal>
       {priceLine && <PriceHistory api={api} companyId={companyId} party={priceLine.party} item={priceLine.item} side={purchase ? "purchase" : "sales"} Modal={Modal} close={() => setPriceLine(null)} apply={price => {
         setLines(current => current.map((line, index) => index === priceLine.index && line.item_id === priceLine.item.item_id ? { ...line, ...price } : line));
