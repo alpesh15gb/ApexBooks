@@ -1,8 +1,10 @@
 # Disposable PostgreSQL page-projection comparison
 
 This is a test-only comparison harness, **not a production query/index change**.
-Both test-only candidates completed hosted PostgreSQL comparisons; their separate
-results are recorded below. Neither establishes a clear first-page gain.
+Both test-only candidates completed the original heavy-workload PostgreSQL
+comparisons below. Neither established a clear first-page gain. An additionally
+authorized workload matrix now tests the unchanged V2 query; those expanded
+results remain pending.
 PostgreSQL execution requires the dedicated disposable CI service. Local syntax
 and guard tests do not establish PostgreSQL correctness or timings.
 
@@ -31,7 +33,10 @@ Each run inserts exactly N synthetic posted records, N journals, 2N journal line
 N posting links, floor(N/3) allocations and 20 named banks. These are direct
 read-profiling fixtures, not an end-to-end accounting posting acceptance test.
 There are no item/stock records. Invoice lines and saved totals are synthetic.
-Each record has roughly 36 KB of branding/source metadata plus up to 20 lines.
+The heavy payload has roughly 36 KB of branding/source metadata plus 20 lines;
+medium uses 5 KB plus 10 lines, and lean omits branding/source metadata with one
+line. Payment rows have no lines. The mandatory 12 KB legacy-key outlier remains
+in every fixture, including tiny lean histories.
 A fixed random seed produces high-entropy synthetic text by default, rather than
 unrealistically compressible repeated letters. `--json-shape compressible` is an
 explicit comparison option; run it against another fresh database. Logical JSON,
@@ -48,12 +53,13 @@ After fixture creation, explicit ANALYZE initializes statistics on the relevant
 read tables. Each first-page (500), deep-page (last 500), entire scan and bank-list
 measurement has one discarded warmup and three retained samples PER variant.
 Baseline/candidate order alternates on the same fixture. Full scan
-includes the final empty page. Actual in-process TestClient HTTP time, executed
+stops at its first short page: an empty terminal page for exact multiples of 500,
+or the short first page for the tiny 25/250-row fixtures. Actual in-process TestClient HTTP time, executed
 SQLAlchemy cursor-event count/time, response bytes and a result hash are reported. Repeated
 reads across both variants must have identical raw HTTP bytes and values/order; first/deep pages must match the full
 scan, with unique IDs, expected row counts, posted state and compact projection.
 
-Captured first/deep record SELECTs are rerun with EXPLAIN (ANALYZE, BUFFERS,
+Captured first/middle/deep record SELECTs are rerun with EXPLAIN (ANALYZE, BUFFERS,
 VERBOSE, FORMAT JSON) in an explicitly read-only transaction with a 120-second statement
 timeout. Plans run **after** timed samples and are not included in their times.
 The artifact contains only plans, numeric statistics and synthetic result hashes,
@@ -92,9 +98,9 @@ remain untouched. Match/rewrite counts are asserted against request counts.
 This interception adds Python query-matching overhead to BOTH timed variants;
 these are comparison numbers, not an uninstrumented production latency claim.
 
-VERBOSE plan gates require a 500-row, three-distinct-output narrow LIMIT boundary without
+VERBOSE plan gates require an expected-page-row-count (up to 500), three-distinct-output narrow LIMIT boundary without
 raw data/compact JSON, and compact-projection output nodes processing at most
-500 rows. Join algorithm is not prescribed. Baseline/candidate plan structures
+the expected page row count. Join algorithm is not prescribed. Baseline/candidate plan structures
 and projection node counts are emitted for independent review. First-page
 regression from extra primary-key lookups is possible and must be considered,
 not hidden by a deep-page gain.
@@ -209,3 +215,45 @@ baseline. These remain synthetic PostgreSQL 17 measurements, not cold-process,
 WAN or native-device guarantees. The agreed first-page objective was not met, so
 this investigation stops with the documented tradeoff. No further candidate or
 application optimization is proposed or shipped from this experiment.
+
+
+## Expanded workload assessment (pending; unchanged V2 query)
+
+A new, separately authorized test-only assessment uses six fresh disposable jobs:
+25 lean, 250 medium, 3000 lean, 3000 medium, 3000 heavy and 5000 heavy. The
+`--payload lean|medium|heavy` argument is validated, as are the bounded record
+sizes. Dates remain spread by default. The fixture version is `payload_matrix_v1`;
+an explicit equal-date/equal-created-key pair is present even in tiny histories.
+The candidate remains `shared_original_created_order_expression_v2`, not a new
+algorithm. Prior heavy-run results must not be relabelled as this matrix’s result.
+
+First, middle, deepest and complete reads retain alternating warm samples and
+exact HTTP-byte/order parity. Page bounds adapt to tiny histories. The initial
+pair for each mode is retained separately from warm medians; `--initial-variant`
+can alternate which variant runs first. These observations follow fixture writes
+and ANALYZE and **are not cold-cache measurements**. A fresh connection or app
+process would not clear PostgreSQL/OS caches; no privileged cache reset, server
+restart or cold-disk guarantee is attempted.
+
+After timings, four simultaneous read clients run for each variant. One global
+interceptor is scoped to each batch, with synchronized counters and no overlapping
+engine timing listeners. Each response must equal its corresponding serial
+reference byte-for-byte. This is an untimed correctness check, not a throughput
+benchmark or concurrent financial-write test.
+
+A separate synthetic party-only company supplies captured, actual first/deep
+record SELECTs. A second connection holds a transaction that changes a record’s
+ordering key and visible metadata together. Baseline and candidate must both see
+the complete old page while the writer remains uncommitted, then the complete new
+page after commit. The writer uses a scoped update and rolls back on failure.
+This tests visibility under a genuinely overlapping writer, **not a commit during
+an executing SELECT**, and not atomicity of all status queries in an HTTP response
+or multiple pages in a scan. No production query, migration or index changes.
+
+The writer check independently constructs every expected projected row and first/
+deep ID order from the seeded fixture, rather than treating baseline equality as
+truth. It asserts exactly one scoped row was updated, and sets 15-second statement
+and 5-second lock timeouts on its direct reader/writer transactions. Concurrent
+HTTP futures have 120-second waits, but Python cannot cancel a running HTTP worker
+and executor shutdown may still wait; the workflow’s 15-minute job timeout is the
+outer bound, not a claimed fully bounded 120-second batch.

@@ -45,16 +45,18 @@ def validate_environment(environ):
         raise ValueError('Remove PG-prefixed libpq environment overrides for this isolated profile')
 
 
-def arguments():
+def arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--size', type=int, choices=(3000, 5000), required=True)
+    parser.add_argument('--size', type=int, choices=(25, 250, 3000, 5000), required=True)
+    parser.add_argument('--payload', choices=('lean', 'medium', 'heavy'), default='heavy')
+    parser.add_argument('--initial-variant', choices=('baseline', 'candidate'), default='baseline')
     parser.add_argument('--date-shape', choices=('same-day', 'spread'), default='spread')
     parser.add_argument('--json-shape', choices=('entropy', 'compressible'), default='entropy')
     parser.add_argument('--output', type=Path, help='Write bounded pure JSON artifact; otherwise stdout')
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def fixture(m, client, size, date_shape, json_shape):
+def fixture(m, client, size, date_shape, json_shape, payload):
     from sqlalchemy.orm import Session
     credentials = {'email': uuid4().hex + '@pg-profile.invalid', 'password': 'Synthetic-only-profile-password'}
     client.post('/api/auth/register', json=credentials).raise_for_status()
@@ -74,16 +76,21 @@ def fixture(m, client, size, date_shape, json_shape):
         for index in range(size):
             payment = index % 3 == 2
             amount = Decimal('30') if payment else Decimal('100')
-            data = {'version': index % 4, 'company_snapshot': {'name': company['name'], 'address': 'Synthetic address'},
-                'document_branding': {'logo': 'data:image/png;base64,' + blob(16000), 'signature': blob(8000)},
-                'vyapar_source': {'fixture': blob(12000)},
-                'lines': [] if payment else [{'description': f'Synthetic service {line}', 'quantity': '1', 'rate': '5', 'gst_rate': '0', 'taxable': '5.00', 'tax': '0.00'} for line in range(20)]}
+            line_count = {'lean': 1, 'medium': 10, 'heavy': 20}[payload]
+            data = {'version': index % 4,
+                'lines': [] if payment else [{'description': f'Synthetic service {line}', 'quantity': '1',
+                    'rate': str(100 // line_count), 'gst_rate': '0', 'taxable': f'{100 // line_count}.00', 'tax': '0.00'} for line in range(line_count)]}
+            if payload != 'lean':
+                logo, signature, source = (16000, 8000, 12000) if payload == 'heavy' else (2000, 1000, 2000)
+                data.update(company_snapshot={'name': company['name'], 'address': 'Synthetic address'},
+                    document_branding={'logo': 'data:image/png;base64,' + blob(logo), 'signature': blob(signature)},
+                    vyapar_source={'fixture': blob(source)})
             if index != 0:  # Missing, null, mixed legacy JSON types, long and tied text.
                 data['created_at'] = created_values[index-1] if index <= len(created_values) else f'2026-04-02T{(index//3600)%24:02}:{(index//60)%60:02}:{index%60:02}+00:00'
-            if index in (10, 375):
+            if index in (10, 11, 375):
                 data['created_at'] = '2026-04-02T00:00:10+00:00'  # Same date even in spread mode; id breaks tie.
             logical_bytes += len(json.dumps(data).encode())
-            day = date(2026, 4, 2) + timedelta(days=index % 365 if date_shape == 'spread' else 0)
+            day = date(2026, 4, 2) + timedelta(days=(10 if index == 11 else index % 365) if date_shape == 'spread' else 0)
             row = m.Record(id=str(uuid4()), company_id=cid, kind='payment_in' if payment else 'sales_invoice', name='Synthetic buyer', number=f'PG-BENCH-{index}', date=day, amount=amount, data=data)
             journal = m.Journal(id=str(uuid4()), company_id=cid, date=day, reference='AUTO:' + row.id, memo='Synthetic read benchmark', created_by=owner)
             session.add_all([row, journal]); session.flush()
@@ -132,20 +139,25 @@ def page_candidate(m, statement):
 
 
 @contextmanager
-def comparison(m, enabled):
+def comparison(m, enabled, captured=None):
     from sqlalchemy.orm import Session
     from unittest.mock import patch
+    from threading import Lock
+    counter_lock = Lock()
     original = Session.execute
     counts = {'matched': 0, 'rewritten': 0, 'other_execute_calls': 0}
     def execute(session, statement, *args, **kwargs):
         candidate = page_candidate(m, statement)
-        if candidate is None:
-            counts['other_execute_calls'] += 1
-        else:
-            counts['matched'] += 1
-            if enabled:
-                statement = candidate
-                counts['rewritten'] += 1
+        with counter_lock:
+            if candidate is None:
+                counts['other_execute_calls'] += 1
+            else:
+                counts['matched'] += 1
+                if enabled:
+                    statement = candidate
+                    counts['rewritten'] += 1
+                if captured is not None:
+                    captured.append(statement)
         return original(session, statement, *args, **kwargs)
     with patch.object(Session, 'execute', execute):
         yield counts
@@ -163,12 +175,12 @@ def explain(m, captured):
             return cn.exec_driver_sql('EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON) ' + sql, params).scalar_one()
 
 
-def narrow_page_limits(plan):
+def narrow_page_limits(plan, expected_rows=500):
     """Recognize only the observed PG narrow keys, allowing exact duplicates."""
     result = []
     def walk(node):
         values = node.get('Output', [])
-        if node['Node Type'] == 'Limit' and node.get('Actual Rows') == 500 and node.get('Actual Loops') == 1:
+        if node['Node Type'] == 'Limit' and node.get('Actual Rows') == expected_rows and node.get('Actual Loops') == 1:
             distinct = set(values)
             aliases = [match.group(1) for value in distinct
                        if (match := re.fullmatch(r'(records(?:_[0-9]+)?)\.id', value))]
@@ -193,6 +205,12 @@ def projection_nodes(plan):
     return result
 
 
+def page_offset(mode, size):
+    if mode == 'deep': return max(0, size - 500)
+    if mode == 'middle': return (size // 2 // 500) * 500
+    return 0
+
+
 def measure(m, client, headers, base, mode, size):
     from sqlalchemy import event
     queries = []; rows = []; raw = []; payload_bytes = 0; requests = 0
@@ -203,7 +221,7 @@ def measure(m, client, headers, base, mode, size):
     event.listen(m.engine, 'after_cursor_execute', after)
     start = time.perf_counter()
     try:
-        offsets = range(0, size + 1, 500) if mode == 'full' else [size - 500 if mode == 'deep' else 0]
+        offsets = range(0, size + 1, 500) if mode == 'full' else [page_offset(mode, size)]
         for offset in offsets:
             params = {'compact': True, 'limit': 500, 'offset': offset}
             response = client.get(base + ('/bank-accounts' if mode == 'banks' else '/records'), headers=headers,
@@ -219,7 +237,7 @@ def measure(m, client, headers, base, mode, size):
     if mode != 'banks':
         assert all(row['posted'] is True and row['data']['lines'] == [] and
                    not any(k in row['data'] for k in ('vyapar_source', 'document_branding', 'company_snapshot')) for row in rows)
-        assert len(rows) == (size if mode == 'full' else 500)
+        assert len(rows) == (size if mode == 'full' else min(500, size - page_offset(mode, size)))
         assert len({row['id'] for row in rows}) == len(rows)
     else: assert len(rows) == 21
     stats = {'wall_ms': round(elapsed, 3), 'cursor_ms': round(sum(q[2] for q in queries), 3),
@@ -278,6 +296,111 @@ def edge_checks(m, client, headers, base, size):
     return results
 
 
+def concurrent_reads(m, headers, base, size):
+    """One interceptor per batch, no global timing listeners during concurrency."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from fastapi.testclient import TestClient
+    offsets = [0, page_offset('middle', size), page_offset('deep', size), 0]
+    expected = []
+    with TestClient(m.app, client=('pg-serial-' + uuid4().hex, 50000)) as client:
+        for offset in offsets:
+            response = client.get(base + '/records', headers=headers, params={'compact': True, 'limit': 500, 'offset': offset})
+            response.raise_for_status(); expected.append(response.content)
+    results = {}
+    for enabled in (False, True):
+        barrier = Barrier(4)
+        def read(index):
+            with TestClient(m.app, client=('pg-reader-' + uuid4().hex, 50000)) as client:
+                barrier.wait(timeout=15)
+                response = client.get(base + '/records', headers=headers,
+                    params={'compact': True, 'limit': 500, 'offset': offsets[index]})
+                response.raise_for_status()
+                return response.content
+        with comparison(m, enabled) as counts:
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                futures = [pool.submit(read, index) for index in range(4)]
+                # A future timeout does not cancel a running HTTP worker; the CI
+                # job's 15-minute timeout remains the outer execution bound.
+                responses = [future.result(timeout=120) for future in futures]
+        assert responses == expected
+        assert counts['matched'] == 4 and counts['rewritten'] == (4 if enabled else 0)
+        results['candidate' if enabled else 'baseline'] = {'readers': 4, 'bytes_equal': True, 'interceptor': counts}
+    return results
+
+
+def writer_visibility(m, client, headers):
+    """Exact captured page SELECTs overlap an uncommitted writer, then see commit.
+
+    This does not place a commit during SELECT or assert whole-API atomicity.
+    """
+    from sqlalchemy import update
+    from sqlalchemy.orm import Session
+    response = client.post('/api/companies', headers=headers, json={'name': 'Synthetic writer visibility', 'tax_mode': 'unregistered'})
+    response.raise_for_status(); cid = response.json()['id']; base = '/api/companies/' + cid
+    ids = []; expected_rows = {}
+    with Session(m.engine) as session:
+        for index in range(12):
+            row = m.Record(company_id=cid, kind='party', name=f'Before {index}', number=f'SNAPSHOT-{index}', date=date(2026, 4, 2), amount=0,
+                data={'created_at': f'2026-04-02T00:00:{index:02}+00:00', 'version': 0, 'is_active': True})
+            session.add(row); session.flush(); ids.append(row.id)
+            expected_rows[row.id] = {'id': row.id, 'kind': 'party', 'name': f'Before {index}',
+                'number': f'SNAPSHOT-{index}', 'date': date(2026, 4, 2), 'amount': Decimal('0.00'),
+                'data': {'created_at': f'2026-04-02T00:00:{index:02}+00:00', 'version': 0, 'is_active': True}}
+        session.commit()
+    queries = {}
+    for offset in (0, 9):
+        for enabled in (False, True):
+            captured = []
+            with comparison(m, enabled, captured) as counts:
+                response = client.get(base + '/records', headers=headers,
+                    params={'compact': True, 'limit': 3, 'offset': offset})
+                response.raise_for_status()
+            assert counts['matched'] == 1 and len(captured) == 1
+            queries[offset, enabled] = captured[0]
+    def read(query):
+        with Session(m.engine) as session:
+            session.connection().exec_driver_sql("SET LOCAL statement_timeout = '15s'")
+            session.connection().exec_driver_sql("SET LOCAL lock_timeout = '5s'")
+            return [dict(row) for row in session.execute(query).mappings()]
+    before = {key: read(query) for key, query in queries.items()}
+    old_order = list(reversed(ids))
+    for offset in (0, 9):
+        expected = [expected_rows[record_id] for record_id in old_order[offset:offset+3]]
+        assert before[offset, False] == before[offset, True] == expected
+    with m.engine.connect() as writer:
+        transaction = writer.begin()
+        try:
+            writer.exec_driver_sql("SET LOCAL statement_timeout = '15s'")
+            writer.exec_driver_sql("SET LOCAL lock_timeout = '5s'")
+            changed_rows = writer.execute(update(m.Record).where(m.Record.company_id == cid, m.Record.id == ids[0]).values(
+                name='After commit', data={'created_at': '2027-01-01T00:00:00+00:00', 'version': 1, 'is_active': False}))
+            assert changed_rows.rowcount == 1
+            # Independent read connections overlap the OPEN, uncommitted write transaction.
+            during = {key: read(query) for key, query in queries.items()}
+            assert during == before
+            for (offset, enabled), rows in during.items():
+                assert rows == [expected_rows[record_id] for record_id in old_order[offset:offset+3]]
+                assert all(row['id'] in ids for row in rows)
+            transaction.commit()
+        finally:
+            if transaction.is_active: transaction.rollback()
+    after = {key: read(query) for key, query in queries.items()}
+    new_order = [ids[0]] + ids[:0:-1]
+    expected_rows[ids[0]] = {**expected_rows[ids[0]], 'name': 'After commit',
+        'data': {'created_at': '2027-01-01T00:00:00+00:00', 'version': 1, 'is_active': False}}
+    for offset in (0, 9):
+        expected = [expected_rows[record_id] for record_id in new_order[offset:offset+3]]
+        assert after[offset, False] == after[offset, True] == expected
+        assert after[offset, False] != before[offset, False]
+        assert all(row['id'] in ids for row in after[offset, False])
+    changed = after[0, True][0]
+    assert changed['id'] == ids[0] and changed['name'] == 'After commit'
+    assert changed['data']['version'] == 1 and changed['data']['is_active'] is False
+    return {'captured_queries': 4, 'uncommitted_writer_reads_old': True, 'committed_writer_reads_new': True,
+            'baseline_candidate_equal': True, 'scope': 'Exact first/deep record SELECT only; no mid-statement commit or whole-API/full-scan atomicity claim'}
+
+
 def write_artifact(path, output):
     """Preserve bounded pure JSON diagnostics before a later assertion can fail."""
     encoded = json.dumps(output, indent=2, allow_nan=False) + '\n'
@@ -318,7 +441,7 @@ def main():
     with TestClient(m.app, client=('pg-profile-' + uuid4().hex, 50000)) as client:
         setup_start = time.perf_counter()
         print(f'Building {args.size} synthetic records ({args.date_shape}, {args.json_shape})', file=sys.stderr, flush=True)
-        headers, base, logical_bytes = fixture(m, client, args.size, args.date_shape, args.json_shape)
+        headers, base, logical_bytes = fixture(m, client, args.size, args.date_shape, args.json_shape, args.payload)
         setup_ms = (time.perf_counter() - setup_start) * 1000
         with m.engine.begin() as cn:
             for table in ('records', 'journals', 'journal_lines', 'record_postings', 'payment_split_allocations', 'bank_accounts'):
@@ -328,6 +451,9 @@ def main():
         results = {}; snapshots = {}; plans = {}; projections = {}
         output = {'completed': False, 'phase': 'fixture_ready',
                   'candidate_variant': 'shared_original_created_order_expression_v2',
+                  'fixture_version': 'payload_matrix_v1',
+                  'initial_observation_scope': 'First pair after seed/ANALYZE for each mode; not cold caches or process, excluded from warm medians',
+                  'payload': args.payload, 'initial_variant': args.initial_variant, 'initial_observations': {},
                   'scope': 'Synthetic loopback PostgreSQL; warm in-process TestClient, analyzed fixture; no network/native startup claim',
                   'postgres_version': version, 'size': args.size, 'date_shape': args.date_shape, 'json_shape': args.json_shape,
                   'fixture': {'records': args.size, 'journals': args.size, 'journal_lines': 2 * args.size,
@@ -335,12 +461,13 @@ def main():
                               'setup_ms': round(setup_ms, 3), **storage},
                   'measurements': results, 'plans': plans, 'projection_nodes': projections, 'edge_checks': []}
         write_artifact(args.output, output)
-        for mode in ('first', 'deep', 'full', 'banks'):
+        for mode in ('first', 'middle', 'deep', 'full', 'banks'):
             print('Comparing ' + mode, file=sys.stderr, flush=True)
             samples = {'baseline': [], 'candidate': []}; reference = None; captured = {}
             # Alternate order to reduce a consistent warm-cache advantage.
+            variants = ('baseline', 'candidate') if args.initial_variant == 'baseline' else ('candidate', 'baseline')
             for attempt in range(4):
-                for variant in (('baseline', 'candidate') if attempt % 2 == 0 else ('candidate', 'baseline')):
+                for variant in (variants if attempt % 2 == 0 else tuple(reversed(variants))):
                     with comparison(m, variant == 'candidate') as counts:
                         rows, raw, stats, queries = measure(m, client, headers, base, mode, args.size)
                     expected = 0 if mode == 'banks' else stats['requests']
@@ -350,6 +477,7 @@ def main():
                     if reference is None: reference = (rows, raw)
                     else: assert (rows, raw) == reference, 'Comparison changed exact response bytes, values or ordering'
                     if attempt: samples[variant].append(stats)
+                    else: output['initial_observations'].setdefault(mode, {})[variant] = stats
                     captured[variant] = queries
             snapshots[mode] = reference[0]
             results[mode] = {variant: {'samples': data,
@@ -359,22 +487,30 @@ def main():
                 for variant, data in samples.items()}
             output['phase'] = mode + ':measurements_complete'
             write_artifact(args.output, output)
-            if mode in ('first', 'deep'):
+            if mode in ('first', 'middle', 'deep'):
                 plans[mode] = {variant: explain(m, query) for variant, query in captured.items()}
                 projections[mode] = {variant: projection_nodes(plan) for variant, plan in plans[mode].items()}
                 output['phase'] = mode + ':plan_validation_pending'
                 write_artifact(args.output, output)
-                boundaries = narrow_page_limits(plans[mode]['candidate'])
+                expected_page_rows = min(500, args.size - page_offset(mode, args.size))
+                boundaries = narrow_page_limits(plans[mode]['candidate'], expected_page_rows)
                 assert boundaries, 'Missing narrow page boundary below projection'
                 assert projections[mode]['candidate'], 'VERBOSE plan did not identify compact projection'
-                assert all(node['rows'] * node['loops'] <= 500 for node in projections[mode]['candidate']), 'Candidate projected skipped rows'
+                assert all(node['rows'] * node['loops'] <= expected_page_rows for node in projections[mode]['candidate']), 'Candidate projected skipped rows'
         output['phase'] = 'snapshot_validation_pending'
         write_artifact(args.output, output)
         assert snapshots['first'] == snapshots['full'][:500]
+        assert snapshots['middle'] == snapshots['full'][page_offset('middle', args.size):page_offset('middle', args.size) + 500]
         assert snapshots['deep'] == snapshots['full'][-500:]
         output['phase'] = 'edge_validation_pending'
         write_artifact(args.output, output)
         output['edge_checks'] = edge_checks(m, client, headers, base, args.size)
+        output['phase'] = 'concurrent_read_validation_pending'
+        write_artifact(args.output, output)
+        output['concurrent_reads'] = concurrent_reads(m, headers, base, args.size)
+        output['phase'] = 'writer_visibility_validation_pending'
+        write_artifact(args.output, output)
+        output['writer_visibility'] = writer_visibility(m, client, headers)
         output['completed'] = True
         output['phase'] = 'complete'
         write_artifact(args.output, output)

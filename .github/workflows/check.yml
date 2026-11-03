@@ -165,13 +165,31 @@ jobs:
         env:
           APEX_TEST_DATABASE_URL: postgresql+psycopg://apex_test:synthetic-ci-password@127.0.0.1:5432/apex_concurrency_test
   postgres-load-profile:
-    name: PostgreSQL company-load profile (${{ matrix.records }} records)
+    name: PostgreSQL company-load profile (${{ matrix.records }} ${{ matrix.payload }} records)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        records: [3000, 5000]
+        include:
+          - records: 25
+            payload: lean
+            initial: baseline
+          - records: 250
+            payload: medium
+            initial: candidate
+          - records: 3000
+            payload: lean
+            initial: baseline
+          - records: 3000
+            payload: medium
+            initial: candidate
+          - records: 3000
+            payload: heavy
+            initial: baseline
+          - records: 5000
+            payload: heavy
+            initial: candidate
     services:
       postgres:
         image: postgres:17
@@ -195,13 +213,13 @@ jobs:
       - name: Verify profile target guards without connecting
         run: python tests/performance/test_postgres_company_load_guard.py
       - name: Profile only the fresh disposable PostgreSQL database
-        run: python tests/performance/postgres_company_load.py --size ${{ matrix.records }} --output postgres-company-load-${{ matrix.records }}.json
+        run: python tests/performance/postgres_company_load.py --size ${{ matrix.records }} --payload ${{ matrix.payload }} --initial-variant ${{ matrix.initial }} --output postgres-company-load-${{ matrix.records }}-${{ matrix.payload }}.json
         env:
           APEX_TEST_DATABASE_URL: postgresql+psycopg://apex_test:synthetic-ci-password@127.0.0.1:5432/apex_concurrency_test
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: postgres-company-load-${{ matrix.records }}
-          path: postgres-company-load-${{ matrix.records }}.json
+          name: postgres-company-load-${{ matrix.records }}-${{ matrix.payload }}
+          path: postgres-company-load-${{ matrix.records }}-${{ matrix.payload }}.json
           if-no-files-found: warn
           retention-days: 7
