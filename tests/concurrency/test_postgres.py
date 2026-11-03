@@ -462,5 +462,45 @@ class ConcurrentPostingTest(unittest.TestCase):
         self.assertEqual(self.client.post('/api/auth/login',json={**self.credentials,'password':new_password}).status_code,200)
 
 
+    def test_financial_and_trial_reports_keep_snapshot_during_first_post(self):
+        from unittest.mock import patch
+        from sqlalchemy.orm import Session
+        from decimal import Decimal
+        original=Session.execute
+        gate=Barrier(2)
+        observed=[]
+        def execute(session,statement,*args,**kwargs):
+            result=original(session,statement,*args,**kwargs)
+            sql=str(statement)
+            if 'ledger_accounts' in sql and 'journal_lines' in sql and not observed:
+                rows=result.all();observed.append(sql)
+                gate.wait(timeout=15);gate.wait(timeout=15)
+                return iter(rows)
+            return result
+        def post():
+            gate.wait(timeout=15)
+            with TestClient(app) as client:
+                response=client.post(self.base+'/records',headers=self.headers,json={'kind':'expense','name':'Concurrent report expense','date':'2026-04-02','amount':100})
+                self.assertEqual(response.status_code,200,response.text)
+            gate.wait(timeout=15)
+        for route,params,expected in [('/reports/financial',{'from_date':'2026-04-01','to_date':'2026-04-30'},0),('/trial-balance',{'through':'2026-04-30'},100)]:
+            observed.clear()
+            with patch.object(Session,'execute',execute),ThreadPoolExecutor(1) as pool:
+                future=pool.submit(post)
+                result=self.client.get(self.base+route,headers=self.headers,params=params)
+                future.result(timeout=20)
+            self.assertEqual(result.status_code,200,result.text);self.assertEqual(len(observed),1)
+            if route.endswith('financial'):
+                self.assertEqual(result.json()['accounts'],[])
+                self.assertEqual(Decimal(result.json()['expenses']),expected)
+                self.assertEqual(Decimal(result.json()['balance_difference']),0)
+            else:
+                self.assertEqual(Decimal(result.json()['total_debit']),expected)
+                self.assertEqual(Decimal(result.json()['total_credit']),expected)
+        fresh=self.client.get(self.base+'/reports/financial',headers=self.headers,params={'from_date':'2026-04-01','to_date':'2026-04-30'}).json()
+        self.assertEqual(Decimal(fresh['expenses']),200)
+        self.assertEqual(Decimal(fresh['balance_difference']),0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
