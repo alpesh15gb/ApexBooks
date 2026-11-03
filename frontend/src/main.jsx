@@ -1,3 +1,4 @@
+import DocumentLayoutPreference from "./DocumentLayoutPreference.jsx";
 import { currentPostingSession, assertPostingSession } from "./postingSession.js";
 import { journalPostingBlockReason, captureJournalRequest, sendJournalRequest, isDefiniteJournalConflict, journalReconciliationWarning } from "./journalPosting.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
@@ -466,7 +467,6 @@ function App() {
     [search, setSearch] = useState(""),
     [menu, setMenu] = useState(false),
     [error, setError] = useState(""),
-    [docTemplate, setDocTemplate] = useState("classic"),
     [conversionSource, setConversionSource] = useState(null),
     [relatedSource, setRelatedSource] = useState(null),
     [draftSeed, setDraftSeed] = useState(null),
@@ -591,15 +591,7 @@ function App() {
     if (companyId) {
       localStorage.companyId = companyId;
       loadRecords(companyId, { refreshReports: false });
-      const preferencesCurrent = workspaceScope.current.capture();
-      api(`/companies/${companyId}/preferences`)
-        .then((p) => {
-          if (preferencesCurrent())
-            setDocTemplate(p.document_template);
-        })
-        .catch((e) => {
-          if (preferencesCurrent()) setError(e.message);
-        });
+
     }
     return () => recordsAbort.current?.abort();
   }, [companyId]);
@@ -1190,46 +1182,7 @@ function App() {
                       <Prefixes companyId={companyId} role={company?.role} />
                     </div>
                     <div className="settings-block" id="setting-formats">
-                      <label>
-                        Document PDF layout
-                        <select
-                          className="form-select"
-                          value={docTemplate}
-                          disabled={company?.role !== "owner"}
-                          onChange={async (e) => {
-                            try {
-                              const value = e.target.value;
-                              await api(`/companies/${companyId}/preferences`, {
-                                method: "PUT",
-                                body: JSON.stringify({
-                                  document_template: value,
-                                }),
-                              });
-                              setDocTemplate(value);
-                            } catch (err) {
-                              setError(err.message);
-                            }
-                          }}
-                        >
-                          {[
-                            "modern",
-                            "vintage",
-                            "mrp_discount",
-                            "elegant",
-                            "evergreen",
-                            "classic",
-                            "compact",
-                            "bold",
-                            "minimal",
-                          ].map((t) => (
-                            <option key={t} value={t}>
-                              {t === "mrp_discount"
-                                ? "MRP + Discount"
-                                : t[0].toUpperCase() + t.slice(1)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <DocumentLayoutPreference companyId={companyId} role={company?.role} api={api} />
                       <div className="document-template-gallery">
                         {[
                           "modern",
