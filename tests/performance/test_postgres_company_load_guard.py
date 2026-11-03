@@ -37,5 +37,55 @@ class ProfileUrlGuardTest(unittest.TestCase):
                 profile.validate_url(url)
 
 
+
+class CandidateQueryTest(unittest.TestCase):
+    def test_exact_compact_match_and_page_boundary_without_database(self):
+        from types import SimpleNamespace
+        from sqlalchemy import JSON, String, Date, Numeric, Column, Table, MetaData, select, func, cast, Text, case, update
+        from sqlalchemy.dialects.postgresql import JSONB, ARRAY, dialect
+        record = Table('records', MetaData(), Column('id', String), Column('company_id', String),
+            Column('kind', String), Column('name', String), Column('number', String), Column('date', Date),
+            Column('amount', Numeric), Column('data', JSON)).c
+        def compact(_):
+            data = cast(record.data, JSONB)
+            for key in ('vyapar_source', 'image_data_url', 'company_snapshot', 'document_branding'): data = data.op('-')(key)
+            return case((record.kind.in_(['item', 'party']), data), else_=func.jsonb_set(data, cast(['lines'], ARRAY(Text)), cast([], JSONB)))
+        m = SimpleNamespace(Record=record, compact_record_data=compact)
+        columns = [record.id, record.kind, record.name, record.number, record.date, record.amount, compact('postgresql').label('data')]
+        original = (select(*columns).where(record.company_id == 'synthetic', record.kind.not_in(['vyapar_backup_archive', 'document_branding', 'restore_marker', 'recurring_template']))
+            .order_by(record.date.desc(), func.coalesce(record.data['created_at'].as_string(), '').desc(), record.id.desc()).offset(4500).limit(500))
+        candidate = profile.page_candidate(m, original)
+        self.assertIsNotNone(candidate)
+        sql = str(candidate.compile(dialect=dialect()))
+        self.assertIn('JOIN (SELECT records.id AS page_id, records.date AS page_date,', sql)
+        self.assertIn('LIMIT', sql); self.assertIn('OFFSET', sql)
+        self.assertIn('ORDER BY profile_page.page_date DESC, profile_page.page_created_at DESC, profile_page.page_id DESC', sql)
+        inner = candidate.get_final_froms()[0].right.element
+        self.assertEqual(list(inner.selected_columns.keys()), ['page_id', 'page_date', 'page_created_at'])
+        self.assertEqual(inner._offset_clause.value, 4500); self.assertEqual(inner._limit_clause.value, 500)
+        self.assertNotIn('jsonb_set', str(inner.compile(dialect=dialect())))
+        self.assertIsNotNone(profile.page_candidate(m, original.limit(None)))
+        self.assertIsNotNone(profile.page_candidate(m, original.where(record.kind == 'payment_in')))
+        for unrelated in (select(record.id), select(record), update(record.id.table).values(name='no'), original.order_by(None), original.where(record.amount > 0)):
+            self.assertIsNone(profile.page_candidate(m, unrelated))
+        from sqlalchemy.orm import Session
+        from unittest.mock import patch
+        received = []
+        def fake_execute(session, statement, *args, **kwargs):
+            received.append(statement)
+            return 'synthetic-result'
+        with patch.object(Session, 'execute', fake_execute):
+            with self.assertRaisesRegex(RuntimeError, 'synthetic failure'):
+                with profile.comparison(m, True) as counts:
+                    with Session() as session:
+                        self.assertEqual(session.execute(original), 'synthetic-result')
+                        self.assertEqual(session.execute(select(record.id)), 'synthetic-result')
+                    self.assertEqual(counts, {'matched': 1, 'rewritten': 1, 'other_execute_calls': 1})
+                    raise RuntimeError('synthetic failure')
+            self.assertIs(Session.execute, fake_execute)
+        self.assertIn('profile_page', str(received[0].compile(dialect=dialect())))
+        self.assertNotIn('profile_page', str(received[1].compile(dialect=dialect())))
+
+
 if __name__ == '__main__':
     unittest.main()
