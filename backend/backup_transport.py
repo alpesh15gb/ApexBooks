@@ -123,6 +123,8 @@ def install(app,m):
         if job and job.state in ACTIVE_STATES and aware(job.expires_at)<=now():
             release(job,session,'expired');session.commit()
         if job and job.state in ('cancelled','expired'):raise HTTPException(410,'This backup transfer is closed; begin a new one')
+        if job and job.direction=='import' and job.state=='restored':
+            m.company_for(job.restored_company_id,user,session)
         return job
     def reserve(user,direction,amount,session,company_id=None):
         if amount>limits.BACKUP_ARCHIVE_MAX_BYTES:raise HTTPException(413,'Archive exceeds the configured complete-backup limit')
@@ -141,6 +143,8 @@ def install(app,m):
         if not job or (company_id is not None and job.company_id!=company_id):raise HTTPException(404,'Backup transfer not found')
         if lock and session.bind.dialect.name=='sqlite':
             session.execute(update(m.BackupJob).where(m.BackupJob.id==job.id).values(state=m.BackupJob.state));session.refresh(job)
+        if direction=='import' and job.state=='restored':
+            m.company_for(job.restored_company_id,user,session)
         if direction=='export':
             company=m.company_for(job.company_id,user,session)
             if company.owner_id!=user.id:raise HTTPException(403,'Only the current company owner can export its complete backup')

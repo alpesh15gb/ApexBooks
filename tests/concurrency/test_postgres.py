@@ -502,5 +502,32 @@ class ConcurrentPostingTest(unittest.TestCase):
         self.assertEqual(Decimal(fresh['balance_difference']),0)
 
 
+    def test_nested_restore_identity_and_concurrent_legacy_commit(self):
+        import base64
+        self.create({'kind':'expense','name':'Restore identity QA','date':'2026-04-02','amount':100})
+        raw=self.client.get(self.base+'/data-export.json',headers=self.headers).content
+        def body_for(raw,name):
+            body={'company_name':name,'backup_base64':base64.b64encode(raw).decode()}
+            preview=self.client.post('/api/backups/restore/preview',headers=self.headers,json=body)
+            self.assertEqual(preview.status_code,200,preview.text)
+            return {**body,'digest':preview.json()['digest']}
+        body=body_for(raw,'PG first restore')
+        replies=self.concurrent_http('POST','/api/backups/restore/commit',headers=self.headers,json=body)
+        self.assertEqual([r.status_code for r in replies],[200]*4,[r.text for r in replies])
+        self.assertEqual(len({r.json()['company_id'] for r in replies}),1)
+        self.assertEqual(sum(bool(r.json().get('already_restored')) for r in replies),3)
+        restored='/api/companies/'+replies[0].json()['company_id']
+        nested=self.client.get(restored+'/data-export.json',headers=self.headers).content
+        body=body_for(nested,'PG nested restore')
+        replies=self.concurrent_http('POST','/api/backups/restore/commit',headers=self.headers,json=body)
+        self.assertEqual([r.status_code for r in replies],[200]*4,[r.text for r in replies])
+        ids={r.json()['company_id'] for r in replies};self.assertEqual(len(ids),1)
+        again=self.client.post('/api/backups/restore/commit',headers=self.headers,json=body)
+        self.assertEqual(again.status_code,200,again.text);self.assertTrue(again.json()['already_restored']);self.assertIn(again.json()['company_id'],ids)
+        # A copied ancestral digest must not identify the nested copy itself.
+        original=self.client.post('/api/backups/restore/commit',headers=self.headers,json=body_for(raw,'PG nested restore'))
+        self.assertEqual(original.status_code,200,original.text);self.assertNotIn(original.json()['company_id'],ids)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
