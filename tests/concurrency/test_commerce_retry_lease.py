@@ -2,7 +2,8 @@
 
 Run only on the existing disposable loopback PostgreSQL test database. No remote
 commerce calls, delivery processing, production mutations, or counter triggers.
-The race assertion intentionally fails on the uncorrected application.
+The race assertion failed on the original uncorrected application; it remains
+a regression gate for the guarded update.
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -65,7 +66,8 @@ def main():
     from test_postgres import ConcurrentPostingTest
     import main as m
     from commerce import now
-    from commerce_worker import claim
+    from commerce_worker import claim,finish
+    from fastapi import HTTPException
     from sqlalchemy import event,insert,select,text,inspect,update
     if 'poc_company_generation' in inspect(m.engine).get_table_names():raise SystemExit('Generation prototype must be absent')
     evidence=[]
@@ -138,6 +140,37 @@ def main():
                     self.assertEqual(response.status_code,409,'Stale retry must reject after a concurrent worker claim')
                     self.assertEqual(current['status'],'processing');self.assertEqual(current['lease_until'],job['lease_until'])
                     self.assertEqual(current['attempts'],1)
+        def test_failed_claim_aba_rejects_stale_attempt_then_allows_reviewed_retry(self):
+            for direction in ('inbox','outbox'):
+                with self.subTest(direction=direction):
+                    connection_id,path=self.connection();row=self.failed_row(direction,connection_id)
+                    table=m.commerce.t[direction];read_done=threading.Event();release=threading.Event();original=m.commerce.one
+                    def paused_read(session,target,*criteria):
+                        found=original(session,target,*criteria)
+                        if target is table and found and found['id']==row['id']:
+                            read_done.set()
+                            if not release.wait(8):raise AssertionError('ABA read release timed out')
+                        return found
+                    pool=ThreadPoolExecutor(max_workers=1)
+                    try:
+                        with patch.object(m.commerce,'one',side_effect=paused_read):
+                            pending=pool.submit(self.client.post,path+'/retry/'+direction+'/'+row['id'],headers=self.headers)
+                            self.assertTrue(read_done.wait(5))
+                            job=claim(direction,connection_id);self.assertIsNotNone(job);self.assertEqual(job['id'],row['id'])
+                            finish(direction,job,error=HTTPException(503,'Synthetic retryable failure'))
+                            current=self.current(direction,row)
+                            self.assertEqual(current['status'],'retry');self.assertIsNone(current['lease_until']);self.assertEqual(current['attempts'],1)
+                            release.set();response=pending.result(timeout=10)
+                    finally:release.set();pool.shutdown(wait=True)
+                    self.assertEqual(response.status_code,409,response.text)
+                    self.assertEqual(self.current(direction,row),current)
+                    # Explicitly retry the now-reviewed new failed attempt.
+                    accepted=self.client.post(path+'/retry/'+direction+'/'+row['id'],headers=self.headers)
+                    self.assertEqual(accepted.status_code,200,accepted.text)
+                    saved=self.current(direction,row);self.assertEqual(saved['status'],'pending');self.assertEqual(saved['attempts'],1)
+                    evidence.append({'direction':direction,'case':'claim_failure_ABA','stale_retry_status':409,
+                                     'new_attempt_preserved':True,'reviewed_retry_status':200,'external_delivery':False})
+
         def test_valid_failed_retries_and_pending_repeat_contract(self):
             for direction in ('inbox','outbox'):
                 for status in ('retry','review'):
@@ -162,7 +195,7 @@ def main():
     event.listen(m.engine,'before_cursor_execute',timeout)
     # Explicit methods avoid running all inherited financial tests a second time.
     suite=unittest.TestSuite(RetryLeaseTest(name) for name in (
-        'test_claimed_lease_cannot_be_overwritten_by_stale_retry','test_valid_failed_retries_and_pending_repeat_contract'))
+        'test_claimed_lease_cannot_be_overwritten_by_stale_retry','test_failed_claim_aba_rejects_stale_attempt_then_allows_reviewed_retry','test_valid_failed_retries_and_pending_repeat_contract'))
     checkpoint('tests_started')
     result=unittest.TextTestRunner(verbosity=2).run(suite)
     payload={'completed':result.wasSuccessful(),'phase':'tests_finished','tests_run':result.testsRun,'failures':len(result.failures),'errors':len(result.errors),

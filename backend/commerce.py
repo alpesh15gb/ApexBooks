@@ -593,7 +593,16 @@ def install(app, m):
         t = service.t[direction]; row = service.one(session, t, t.c.connection_id == c['id'], t.c.id == message_id)
         if not row: raise HTTPException(404, 'Message not found')
         if row['status'] not in ('review', 'retry'): raise HTTPException(409, 'Only failed messages can be retried')
-        session.execute(update(t).where(t.c.id == message_id).values(status='pending', available_at=now(), lease_until=None, error='')); session.commit()
+        # Bind the observed attempt/lease as well as status to reject worker ABA.
+        changed = session.execute(update(t).where(
+            t.c.company_id == company_id, t.c.connection_id == c['id'], t.c.id == message_id,
+            t.c.status == row['status'], t.c.attempts == row['attempts'],
+            t.c.lease_until == row['lease_until'] if row['lease_until'] is not None else t.c.lease_until.is_(None)
+        ).values(status='pending', available_at=now(), lease_until=None, error=''))
+        if changed.rowcount != 1:
+            session.rollback()
+            raise HTTPException(409, 'Message changed while retrying; refresh its current status before retrying')
+        session.commit()
         return {'status': 'pending'}
     @app.get('/api/internal/commerce/drain', include_in_schema=False)
     def scheduled_delivery(request: Request):
