@@ -214,6 +214,7 @@ Check(WorkflowMasterValues.SourceDocumentDiscount(new JsonObject{["document_disc
 Check(returnDiscountSource.ToJsonString()==returnDiscountBefore,"header selection does not mutate source fixed discount ITC inclusive price or rounding");
 Check(!WorkflowMasterValues.DocumentPreview(new JsonObject{["kind"]="sales_invoice",["data"]=new JsonObject()},"invoice-id")["data"].Object().ContainsKey("preview_record_id"),"non-return amendment never receives return preview exclusion");
 
+await CompanyReadContractTests.Run(Check);
 await JournalSubmissionTests.Run(Check);
 await ExactBankUnmatchTests.Run(Check);
 await ConversionRevisionTests.Run(Check);

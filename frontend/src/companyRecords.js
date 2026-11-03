@@ -14,6 +14,9 @@ export async function fetchCompanyRecords(request, companyId, { isCurrent = () =
       if (!isCurrent() || signal?.aborted) return null;
       const batch = await request(`/companies/${companyId}/records?compact=true&limit=${COMPANY_PAGE_SIZE}&offset=${offset}`, { signal });
       if (!isCurrent() || signal?.aborted) return null;
+      if (!Array.isArray(batch) || batch.length > COMPANY_PAGE_SIZE || batch.some(row => !row || typeof row !== 'object' || Array.isArray(row) || typeof row.id !== 'string' || !row.id.trim())) {
+        throw new Error('Invalid company records response. Refresh again; no partial records were loaded.');
+      }
       for (const row of batch) {
         if (seen.has(row.id)) { overlap = true; break; }
         seen.add(row.id);

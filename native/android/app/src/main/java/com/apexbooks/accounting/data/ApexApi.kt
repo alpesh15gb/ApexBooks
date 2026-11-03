@@ -96,22 +96,9 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
     }
 
     suspend fun records(companyId: String): List<JSONObject> = withContext(Dispatchers.Default) {
-        // Offset pages are not a snapshot. An insertion/reorder between pages can
-        // repeat a financial row; never publish or silently deduplicate that scan.
-        repeat(2) {
-            val rows = mutableListOf<JSONObject>()
-            val seen = hashSetOf<String>()
-            var offset = 0
-            while (true) {
-                val page = (request(company(companyId, "/records?compact=true&limit=500&offset=$offset")) as JSONArray).objects()
-                if (page.any { !seen.add(it.s("id")) }) break
-                rows.addAll(page)
-                if (page.size < 500) return@withContext rows
-                offset += 500
-            }
-        }
-        throw ApiFailure(409, "Company records changed while loading. No incomplete history was loaded. Refresh and try again.")
+        collectCompanyRecords{offset->request(company(companyId,"/records?compact=true&limit=500&offset=$offset"))}
     }
+
     suspend fun record(companyId: String, id: String): JSONObject = request(company(companyId, "/records/${encode(id)}")) as JSONObject
     suspend fun saveRecord(companyId: String, body: JSONObject, retryKey: String, previous: JSONObject? = null): JSONObject {
         val suffix = if (previous == null) "/records" else if (body.s("kind") in setOf("estimate", "proforma", "sales_order", "purchase_order")) "/drafts/${previous.s("id")}" else "/documents/${previous.s("id")}"

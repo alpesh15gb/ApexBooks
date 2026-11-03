@@ -16,4 +16,5 @@
   <ItemGroup><Compile Include="../WindowsClient/ExactBankUnmatchTests.cs" Link="ExactBankUnmatchTests.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../../windows/Services/JournalSubmission.cs" Link="JournalSubmission.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../WindowsClient/JournalSubmissionTests.cs" Link="JournalSubmissionTests.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../WindowsClient/CompanyReadContractTests.cs" Link="CompanyReadContractTests.cs" /></ItemGroup>
 </Project>
