@@ -1102,7 +1102,8 @@ class ApiTest(unittest.TestCase):
             payment_id = next(r['id'] for r in records if r['kind'] == 'payment_in')
             self.assertEqual(client.post(base + '/bank-statement/' + line_id + '/match', headers=headers, json={'record_id': payment_id}).status_code, 200)
             self.assertEqual(client.get(base + '/bank-reconciliation', headers=headers).json()['unmatched'], 0)
-            self.assertEqual(client.delete(base + '/bank-statement/' + line_id + '/match', headers=headers).status_code, 200)
+            reviewed_line = client.get(base + '/bank-statement', headers=headers).json()[0]
+            self.assertEqual(client.request('DELETE', base + '/bank-statement/' + line_id + '/match', headers=headers, json={'expected_record_id': reviewed_line['matched_record_id'], 'expected_match_revision': reviewed_line['match_revision']}).status_code, 200)
             self.assertEqual(client.get(base + '/bank-reconciliation', headers=headers).json()['unmatched'], 1)
             transfer = client.post(base + '/records', headers=headers, json={'kind': 'bank_transfer', 'name': 'Cash deposit', 'date': '2026-10-31', 'amount': '30.00', 'data': {'direction': 'cash_to_bank'}})
             self.assertEqual(transfer.status_code, 200, transfer.text)

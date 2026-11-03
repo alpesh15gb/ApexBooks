@@ -13,18 +13,29 @@ public sealed partial class MainPage
     private readonly Dictionary<string,string> bankSelections=new();
     private async Task BankPage()
     {
-        var cid=CompanyId;var stamp=generation;var sequence=0;var bank=BankChoice(selected:bankSelections.GetValueOrDefault(cid,"default"));var date=new DateInput("Reconcile as of",J.Today);var opening=Input("Statement opening balance (₹)","0");var panel=Stack(18);
+        var cid=CompanyId;var stamp=generation;var bankSession=Api.SessionGeneration;var sequence=0;var bank=BankChoice(selected:bankSelections.GetValueOrDefault(cid,"default"));var date=new DateInput("Reconcile as of",J.Today);var opening=Input("Statement opening balance (₹)","0");var panel=Stack(18);
         string Query()=>"?bank_account_id="+Uri.EscapeDataString(Value(bank))+"&as_of="+date.Value;
         async Task Load()
         {
-            var call=++sequence;var bid=Value(bank);var tasks=new[]{Api.Send(Api.CompanyPath(cid,"/bank-statement"+Query())),Api.Send(Api.CompanyPath(cid,"/bank-reconciliation"+Query()+"&opening_balance="+Uri.EscapeDataString(opening.Text))),Api.Send(Api.CompanyPath(cid,"/bank-reconciliation/reviews?bank_account_id="+Uri.EscapeDataString(bid))),Api.Send(Api.CompanyPath(cid,"/bank-statement?bank_account_id="+Uri.EscapeDataString(bid)))};await Task.WhenAll(tasks);if(stamp!=generation||call!=sequence)return;
+            var call=++sequence;var bid=Value(bank);var displayedAsOf=date.Value;var tasks=new[]{Api.Send(Api.CompanyPath(cid,"/bank-statement"+Query())),Api.Send(Api.CompanyPath(cid,"/bank-reconciliation"+Query()+"&opening_balance="+Uri.EscapeDataString(opening.Text))),Api.Send(Api.CompanyPath(cid,"/bank-reconciliation/reviews?bank_account_id="+Uri.EscapeDataString(bid))),Api.Send(Api.CompanyPath(cid,"/bank-statement?bank_account_id="+Uri.EscapeDataString(bid)))};await Task.WhenAll(tasks);if(stamp!=generation||call!=sequence)return;
             panel.Children.Clear();RenderReport(panel,await tasks[1],"Reconciliation");var lines=(await tasks[0]).Array();var allLines=(await tasks[3]).Array();var used=allLines.SelectMany(l=>l?["allocations"].Array()??new()).GroupBy(a=>a.Text("record_id")).ToDictionary(g=>g.Key,g=>g.Sum(a=>a.Number("amount")));
             foreach(var line in lines.OfType<JsonObject>())
             {
                 var card=Stack();card.Children.Add(Text($"{line.Text("date")} · {line.Text("description")} · {J.Money(line.Number("amount"))}",15,true));card.Children.Add(Text(line.Text("reference"),12));
                 foreach(var allocation in line["allocations"].Array().OfType<JsonObject>())
                 {var a=allocation;var row=Records.FirstOrDefault(r=>r.Text("id")==a.Text("record_id"));var controls=Columns(Text($"{row.Text("number")} · {row.Text("name")} · {J.Money(a.Number("amount"))}"),AsyncButton("Remove match",async()=>{await Api.Send(Api.CompanyPath(cid,"/bank-statement/allocations/"+a.Text("id")),HttpMethod.Delete);await Load();},Error));if(CanWrite)card.Children.Add(controls);}
-                if(CanWrite&&line.Text("matched_record_id").Length>0)card.Children.Add(AsyncButton("Unmatch",async()=>{await Api.Send(Api.CompanyPath(cid,$"/bank-statement/{line.Text("id")}/match"),HttpMethod.Delete);await Load();},Error));
+                if(CanWrite&&line.Text("matched_record_id").Length>0){
+                    var displayedLine=line.Copy().Object();ExactBankUnmatch? unmatchIntent=null;
+                    bool UnmatchScope()=>cid==CompanyId&&stamp==generation&&bankSession==Api.SessionGeneration&&call==sequence&&Value(bank)==bid&&date.Value==displayedAsOf&&CanWrite;
+                    var unmatch=AsyncButton("Unmatch",async()=>{
+                        if(!UnmatchScope())throw new OperationCanceledException("The statement view changed. Reload and review its current match.");
+                        unmatchIntent??=new ExactBankUnmatch(Api,cid,displayedLine);
+                        // Keep this exact intent for retry; never fetch a replacement token.
+                        await unmatchIntent.Remove(UnmatchScope);if(UnmatchScope())await Load();
+                    },Error);
+                    unmatch.IsEnabled=Supports("bank_match_revisions");card.Children.Add(unmatch);
+                    if(!unmatch.IsEnabled){card.Children.Add(Text("Exact unmatch is disabled until bank match revision protection is confirmed. After checking features, reload this statement.",12));card.Children.Add(CapabilityNotice());}
+                }
                 if(CanWrite&&line.Number("remaining_amount")>0&&line.Text("matched_record_id").Length==0)
                 {
                     var candidates=Records.OfType<JsonObject>().Where(r=>r.Flag("posted")&&string.CompareOrdinal(r.Text("date"),date.Value)<=0&&BankMovement(r,bid)!=0&&Math.Sign(BankMovement(r,bid))==Math.Sign(line.Number("amount"))&&r.Number("amount")-used.GetValueOrDefault(r.Text("id"))>0&&!allLines.Any(l=>l.Text("matched_record_id")==r.Text("id"))).OrderByDescending(r=>r.Text("number").Length>0&&line.Text("reference").Contains(r.Text("number"),StringComparison.OrdinalIgnoreCase)).ToArray();

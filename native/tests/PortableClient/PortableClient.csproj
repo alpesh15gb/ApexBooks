@@ -12,4 +12,6 @@
   <ItemGroup><Compile Include="../../windows/Services/MonthChartAggregation.cs" Link="MonthChartAggregation.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../WindowsClient/MonthChartAggregationTests.cs" Link="MonthChartAggregationTests.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../WindowsClient/ConversionRevisionTests.cs" Link="ConversionRevisionTests.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../windows/Services/ExactBankUnmatch.cs" Link="ExactBankUnmatch.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../WindowsClient/ExactBankUnmatchTests.cs" Link="ExactBankUnmatchTests.cs" /></ItemGroup>
 </Project>
