@@ -1812,30 +1812,35 @@ def post_stock_adjustment(company_id: str, body: StockAdjustmentInput, request: 
         amount = money(body.quantity * body.unit_cost)
         quantity, cost_value = body.quantity, amount
         debit_key, credit_key = 'inventory', 'inventory_gain'
-    if amount <= 0 or amount > Decimal('9999999999999.99'):
+    if amount < 0 or amount > Decimal('9999999999999.99'):
         raise HTTPException(422, 'Adjustment value is outside the supported range')
+    if amount == 0 and (held_qty < 0 or held_value < 0 or held_qty == 0 and held_value != 0):
+        raise HTTPException(409, 'Stock valuation is inconsistent; review the existing movements before adjusting')
     record = Record(company_id=company_id, kind='stock_adjustment', name=item.name, date=body.date,
         amount=amount, data={'item_id': item.id, 'direction': body.direction,
             'quantity': str(body.quantity), 'cost_value': str(amount),
             'unit_cost': str(body.unit_cost) if body.unit_cost is not None else None,
-            'reason': body.reason.strip(), 'unit': item.data.get('unit', '')})
+            'reason': body.reason.strip(), 'unit': item.data.get('unit', ''),
+            **({'zero_value_adjustment': True, 'valuation_quantity_before': str(held_qty),
+                'valuation_value_before': str(held_value)} if amount == 0 else {})})
     session.add(record)
     try:
         session.flush()
         record.number = 'ADJ-' + record.id[:8].upper()
-        journal = Journal(company_id=company_id, date=body.date, reference='AUTO:' + record.id,
-                          memo=f'Stock {body.direction}: {item.name} — {body.reason.strip()}'[:500], created_by=user.id)
-        session.add(journal); session.flush()
-        session.add(JournalLine(company_id=company_id, journal_id=journal.id,
-            account_id=system_account(company_id, debit_key, session), debit=amount, credit=Decimal('0')))
-        session.add(JournalLine(company_id=company_id, journal_id=journal.id,
-            account_id=system_account(company_id, credit_key, session), debit=Decimal('0'), credit=amount))
-        session.add(RecordPosting(company_id=company_id, record_id=record.id, journal_id=journal.id))
+        if amount > 0:
+            journal = Journal(company_id=company_id, date=body.date, reference='AUTO:' + record.id,
+                              memo=f'Stock {body.direction}: {item.name} — {body.reason.strip()}'[:500], created_by=user.id)
+            session.add(journal); session.flush()
+            session.add(JournalLine(company_id=company_id, journal_id=journal.id,
+                account_id=system_account(company_id, debit_key, session), debit=amount, credit=Decimal('0')))
+            session.add(JournalLine(company_id=company_id, journal_id=journal.id,
+                account_id=system_account(company_id, credit_key, session), debit=Decimal('0'), credit=amount))
+            session.add(RecordPosting(company_id=company_id, record_id=record.id, journal_id=journal.id))
         session.add(StockMovement(company_id=company_id, item_id=item.id, source_record_id=record.id,
                                   line_index=0, date=body.date, quantity=quantity, cost_value=cost_value))
         audit(session, company_id, user, 'stock.adjustment_posted', 'item', item.id,
               {'direction': body.direction, 'quantity': str(body.quantity),
-               'value': str(amount), 'record_id': record.id})
+               'value': str(amount), 'record_id': record.id, 'posted': amount > 0})
         if hasattr(sys.modules[__name__], 'commerce_stock_changed'): commerce_stock_changed(company_id, session)
         if retry_key:
             session.add(IdempotencyKey(company_id=company_id, key=retry_key, request_hash=request_digest, record_id=record.id))
@@ -1843,7 +1848,7 @@ def post_stock_adjustment(company_id: str, body: StockAdjustmentInput, request: 
     except IntegrityError:
         session.rollback()
         raise HTTPException(409, 'Stock adjustment conflicts with an existing entry')
-    return {**obj(record), 'posted': True}
+    return {**obj(record), 'posted': amount > 0}
 
 @app.get('/api/companies/{company_id}/accounts')
 def list_accounts(company_id: str, user: User = Depends(current_user), session: Session = Depends(db)):

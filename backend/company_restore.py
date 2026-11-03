@@ -2,7 +2,7 @@
 import base64,gzip,hashlib,io,json,re,zlib
 from collections import defaultdict
 from datetime import date,datetime
-from decimal import Decimal,InvalidOperation
+from decimal import Decimal,InvalidOperation,ROUND_HALF_UP
 from uuid import uuid4
 from fastapi import Depends,HTTPException
 from pydantic import BaseModel,Field
@@ -163,17 +163,75 @@ def validate(payload):
             if not matched or identity in verified_zero_stock:return False
             verified_zero_stock.add(identity);return True
         return False
+    zero_adjustments={row['id'] for row in groups['records']
+        if row['kind']=='stock_adjustment' and row['data'].get('zero_value_adjustment') is True}
+    verified_zero_adjustments=set()
+    def verified_zero_adjustment(source,movement):
+        if not source or source['id'] not in zero_adjustments:return False
+        data=source['data'];item=indexes['records'].get(data.get('item_id'))
+        if (source['id'] in posted or number(source['amount'])!=0 or not item or
+                item['kind']!='item' or not item['data'].get('track_stock') or
+                movement.get('item_id')!=item['id'] or type(movement.get('line_index')) is not int or
+                movement['line_index']!=0 or movement.get('cost_value') is None or
+                number(movement['cost_value'],signed=True)!=0 or number(data.get('cost_value'))!=0 or
+                data.get('direction') not in ('increase','decrease') or
+                not isinstance(data.get('reason'),str) or not 1<=len(data['reason'].strip())<=500):return False
+        quantity=number(data.get('quantity'),3)
+        if quantity<=0:return False
+        held_quantity=number(data.get('valuation_quantity_before'),3)
+        held_value=number(data.get('valuation_value_before'))
+        if held_quantity==0 and held_value!=0:return False
+        if data['direction']=='decrease':
+            if held_quantity<=0 or quantity>held_quantity:return False
+            expected=held_value if quantity==held_quantity else (held_value*quantity/held_quantity).quantize(Decimal('.01'),rounding=ROUND_HALF_UP)
+            if expected!=0:return False
+        signed=quantity if data['direction']=='increase' else -quantity
+        if number(movement['quantity'],3,True)!=signed:return False
+        if data['direction']=='increase':
+            unit_cost=number(data.get('unit_cost'))
+            if unit_cost<=0 or quantity*unit_cost>=Decimal('0.005'):return False
+        elif data.get('unit_cost') is not None:return False
+        if source['id'] in verified_zero_adjustments:return False
+        verified_zero_adjustments.add(source['id']);return True
     movements=set()
     for row in groups['stock_movements']:
         source=indexes['records'].get(row.get('source_record_id'))
+        zero_adjustment=verified_zero_adjustment(source,row)
+        if source and source['id'] in zero_adjustments and not zero_adjustment:raise ValueError('Invalid zero-value stock adjustment')
         zero_inventory_only=source and source['kind']=='stock_return' and number(source['amount'])==0 and row.get('cost_value') is not None and number(row['cost_value'],signed=True)==0
-        if row.get('item_id') not in indexes['records'] or indexes['records'][row['item_id']]['kind']!='item' or not source or (source['id'] not in posted and not zero_inventory_only and not verified_zero_source_stock(source,row)):raise ValueError('Orphan stock movement')
+        if row.get('item_id') not in indexes['records'] or indexes['records'][row['item_id']]['kind']!='item' or not source or (source['id'] not in posted and not zero_inventory_only and not zero_adjustment and not verified_zero_source_stock(source,row)):raise ValueError('Orphan stock movement')
         if row.get('date')!=source['date']:raise ValueError('Stock movement date mismatch')
         number(row['quantity'],3,True)
         if row.get('cost_value') is not None:number(row['cost_value'],signed=True)
         key=(row['source_record_id'],row['line_index'])
         if key in movements:raise ValueError('Duplicate stock movement')
         movements.add(key)
+    if verified_zero_adjustments!=zero_adjustments:raise ValueError('Zero-value stock adjustment requires its matching movement')
+    # A snapshot proves the row's arithmetic, not historical authenticity. Check
+    # against dated movements where order is unambiguous; never sort same-day
+    # UUIDs as if they were posting order. Apply end-of-day sanity only on dates
+    # containing these new physical decreases, leaving unrelated legacy days alone.
+    by_item=defaultdict(lambda:defaultdict(list))
+    affected_items={indexes['records'][rid]['data']['item_id'] for rid in zero_adjustments}
+    for movement in groups['stock_movements']:
+        if movement['item_id'] in affected_items:by_item[movement['item_id']][movement['date']].append(movement)
+    for item_days in by_item.values():
+        held_qty=Decimal(0);held_value=Decimal(0);unvalued=False
+        for day,day_movements in sorted(item_days.items()):
+            marked=[m for m in day_movements if m['source_record_id'] in zero_adjustments]
+            if marked:
+                if unvalued:raise ValueError('Zero-value adjustment has unvalued historical stock')
+                if len(day_movements)==1:
+                    data=indexes['records'][marked[0]['source_record_id']]['data']
+                    if number(data['valuation_quantity_before'],3)!=held_qty or number(data['valuation_value_before'])!=held_value:
+                        raise ValueError('Zero-value adjustment valuation snapshot does not match dated stock')
+            for movement in day_movements:
+                held_qty+=number(movement['quantity'],3,True)
+                if movement.get('cost_value') is None:unvalued=True
+                else:held_value+=number(movement['cost_value'],signed=True)
+            decreases=[m for m in marked if indexes['records'][m['source_record_id']]['data']['direction']=='decrease']
+            if decreases and (unvalued or held_qty<0 or held_value<0 or held_qty==0 and held_value!=0):
+                raise ValueError('Zero-value adjustment leaves inconsistent dated stock')
     return groups,indexes
 
 def pack(payload):
