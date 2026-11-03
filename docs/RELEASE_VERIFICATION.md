@@ -78,10 +78,16 @@ Establish a verified full-database recovery point/PITR and isolated restore rehe
 - Archived receipts retain evidence and quota. Legacy exports refuse to omit receipts and direct the user to a complete backup.
 - Web buffered transfers have conservative limits and an explicit native alternative; no partial omission or encryption downgrade. Host memory measurements do not prove mobile-browser safety.
 - Financial retry holders protect a live session/navigation and tested native activity recreation, not full process death. There is no durable offline posting queue or crash-proof exactly-once claim.
-- Existing owner/editor/viewer roles remain. Finer cashier/accountant permissions and inline create-and-use masters are not claimed as implemented.
+- Existing owner/editor/viewer roles remain. Finer cashier/accountant permissions are not implemented. Inline create-and-use customer/item flows for new invoices are covered in the separate follow-up evidence below; this does not expand those roles.
 - Dependency advisory scans are point-in-time known-finding checks, not security certification; rerun after dependency changes. An independent broader security review did not complete. Existing negative tenant/role, validation, import/restore and session tests remain evidence, not a comprehensive penetration assessment.
 - Android 1.5.0 Release APK/AAB and Windows portable artifacts are unsigned verification outputs. Signing, distribution, clean install/update, signing-key continuity and store acceptance have not occurred. Historical checked-in installers are not the new tested release.
 
 ## Before live promotion
 
 Close the newest-source UI/CI gates, verify source identity across API/web/native artifacts, perform isolated migration and recovery drills, verify explicit JWT secret and HTTPS OCR transport, and preserve source-book identities. Merging a draft branch does not complete these operational gates. Do not describe this candidate as fully deployed, fully secure, zero-defect or universally feature-complete.
+
+## PR5 follow-up: inline master creation runtime proof
+
+The separate PR5 native inline customer/service flow passed actual Windows UI and Android emulator acceptance. Android run [41609295979](https://github.com/alpesh15gb/ApexBooks/actions/runs/41609295979) pinned source `2c7f56aed2bebb8944dd35be8aad98171dbc9078`: four tests, zero failures/errors/skips. It preserved the existing invoice's quantity, rate and fixed discount, selected exactly-once created masters, reviewed total 315, and discarded without an additional invoice or financial posting. Existing receipt and full encrypted-backup restore assertions also passed. Original temporary-runner permissions were restored and compared successfully. See [the exact scope and evidence](NATIVE_INLINE_MASTERS.md#final-isolated-android-inline-acceptance).
+
+This is isolated synthetic follow-up verification, not a main merge or production rollout. Default-false manual device gating is retained; ordinary skipped device jobs are not counted as additional passes. Later stacked branches require their own applicable checks.
