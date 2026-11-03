@@ -113,6 +113,9 @@ class LocalUiAcceptanceTest {
         assertTrue(device.wait(Until.hasObject(By.text("New Purchase Order")),15000))
         chooseSavedParty(device)
         device.findObject(By.text("Next: add items")).click()
+        // Seeded lines open collapsed; expand the real visible card before inspecting its fields.
+        assertTrue("Reorder draft shows the selected item card",device.wait(Until.hasObject(By.text("UI Reorder Item")),15000))
+        device.findObject(By.text("UI Reorder Item")).click()
         assertTrue("Reorder draft preserves the selected item",device.wait(Until.hasObject(By.desc("Item / service · UI Reorder Item")),15000))
         scrollTo(device,"Check this party’s item prices");device.findObject(By.text("Check this party’s item prices")).click()
         scrollTo(device,"Last posted price for this exact party and item.");assertTrue(device.hasObject(By.text("Last posted price for this exact party and item.")))
