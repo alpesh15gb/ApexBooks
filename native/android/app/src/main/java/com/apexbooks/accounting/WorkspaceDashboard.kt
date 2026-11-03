@@ -127,14 +127,8 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
     }
 }
 
-private data class MonthMovement(val label:String,val sales:BigDecimal,val purchases:BigDecimal)
 @Composable private fun MonthlyPerformance(records:List<JSONObject>,start:LocalDate,end:LocalDate){
-    val movements=remember(records,start,end){
-        generateSequence(start.withDayOfMonth(1)){it.plusMonths(1)}.takeWhile{!it.isAfter(end)}.take(13).map{month->
-            val rows=records.filter{it.optBoolean("posted")&&it.s("date")>=start.toString()&&it.s("date")<=end.toString()&&it.s("date").startsWith(month.toString().take(7))}
-            MonthMovement(month.format(DateTimeFormatter.ofPattern("MMM")),rows.fold(BigDecimal.ZERO){sum,r->sum+when(r.s("kind")){"sales_invoice","pos"->r.decimal("amount");"credit_note"->-r.decimal("amount");else->BigDecimal.ZERO}},rows.fold(BigDecimal.ZERO){sum,r->sum+when(r.s("kind")){"purchase_bill"->r.decimal("amount");"debit_note"->-r.decimal("amount");else->BigDecimal.ZERO}})
-        }.toList()
-    }
+    val movements=remember(records,start,end){monthlyMovements(records,start,end)}
     Row(horizontalArrangement=Arrangement.spacedBy(16.dp)){Text("● Net sales",style=MaterialTheme.typography.labelSmall,color=ApexGreen);Text("● Net purchases",style=MaterialTheme.typography.labelSmall,color=Color(0xFF658CA2))}
     val values=movements.flatMap{listOf(it.sales.toFloat(),it.purchases.toFloat())};val max=maxOf(0f,values.maxOrNull()?:0f);val min=minOf(0f,values.minOrNull()?:0f);val span=max-min
     if(span==0f){Box(Modifier.fillMaxWidth().height(140.dp),contentAlignment=Alignment.Center){Text("No net movement in this period",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)};return}

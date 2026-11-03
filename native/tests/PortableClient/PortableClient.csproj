@@ -9,4 +9,6 @@
   </ItemGroup>
   <ItemGroup><Compile Include="../WindowsUi/WindowOwnership.cs" Link="WindowOwnership.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../../windows/Services/InlineMasterSubmission.cs" Link="InlineMasterSubmission.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../windows/Services/MonthChartAggregation.cs" Link="MonthChartAggregation.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../WindowsClient/MonthChartAggregationTests.cs" Link="MonthChartAggregationTests.cs" /></ItemGroup>
 </Project>
