@@ -35,7 +35,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_RIGHT
 from reportlab.platypus import SimpleDocTemplate, Table, LongTable, TableStyle, Paragraph, Spacer
 from reportlab.pdfgen import canvas
-from sqlalchemy import JSON, CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, Numeric, String, UniqueConstraint, create_engine, event, select, update, func, or_, case, cast, Text
+from sqlalchemy import JSON, Index, literal_column, CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, Numeric, String, UniqueConstraint, create_engine, event, select, update, func, or_, case, cast, Text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
@@ -100,6 +100,14 @@ class Record(Base):
     date: Mapped[DateType] = mapped_column(Date, default=business_today)
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=0)
     data: Mapped[dict] = mapped_column(JSON, default=dict)
+
+def sqlite_record_created_at():
+    # Trusted fixed literals must match the SQLite expression index exactly.
+    # Bound JSON paths/defaults prevent SQLite from using that ordering index.
+    return func.coalesce(func.json_extract(Record.data, literal_column("'$.\"created_at\"'")), literal_column("''"))
+
+Index('ix_records_company_order', Record.company_id, Record.date.desc(),
+      sqlite_record_created_at().desc(), Record.id.desc()).ddl_if(dialect='sqlite')
 
 class LedgerAccount(Base):
     __tablename__ = 'ledger_accounts'
@@ -1163,7 +1171,7 @@ def records(company_id: str, kind: str = '', compact:bool=False, offset:int=Quer
         compact_record_data(session.bind.dialect.name).label('data')) if projected else select(Record)
     q = q.where(Record.company_id == company_id, Record.kind.not_in(['vyapar_backup_archive','document_branding','restore_marker','recurring_template']))
     if kind:q=q.where(Record.kind==kind)
-    created_at = func.coalesce(Record.data['created_at'].as_string(), '')
+    created_at = sqlite_record_created_at() if session.bind.dialect.name == 'sqlite' else func.coalesce(Record.data['created_at'].as_string(), '')
     q=q.order_by(Record.date.desc(),created_at.desc(),Record.id.desc()).offset(offset)
     if limit:q=q.limit(limit)
     if projected:
