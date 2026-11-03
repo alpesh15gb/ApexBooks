@@ -64,3 +64,10 @@ blindly. Reload, sign in to the appropriate account, and review the original
 company's transaction history, source document, amount and date before starting
 another transaction. Recovery after sign-out, reload or process termination is
 not guaranteed by this change.
+
+## Subsequent in-flight hardening
+
+See [In-flight financial response session boundary](INFLIGHT_POSTING_SESSION_BOUNDARY.md)
+for response/error-time checks added after this pre-invocation change. These
+checks suppress late results under a replacement session without cancelling the
+original request or claiming persistent exactly-once behavior.
