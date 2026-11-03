@@ -1015,3 +1015,9 @@ body:has(.overlay) {
 
 @media(max-width:700px){.sidebar .nav-item,.sidebar .subnav button,.sidebar .sidebar-footer button{min-height:44px}.sidebar .subnav button{padding-top:12px;padding-bottom:12px}}
 .workspace-sync-line{display:flex;align-items:center;gap:7px;margin:-9px 0 15px;font-size:11px;color:#829287;min-height:24px}.workspace-sync-line>span:first-child{height:6px;width:6px;border-radius:50%;background:#679981}.workspace-sync-line>span.sync-active{background:#b19a57;animation:sync-pulse 1.2s ease-in-out infinite}.workspace-sync-line>.link{margin-left:auto;font-size:11px;min-height:28px}.workspace-sync-line>.link:disabled{opacity:.45}@keyframes sync-pulse{50%{opacity:.3}}@media(prefers-reduced-motion:reduce){.workspace-sync-line>span.sync-active{animation:none}}@media(max-width:700px){.workspace-sync-line{margin:-5px 0 12px}.workspace-sync-line>.link{min-height:44px}}
+
+.workspace-sync-line{flex-wrap:wrap}
+.workspace-history-time{white-space:nowrap}
+.workspace-history-notice{flex-basis:100%;font-size:12px;line-height:1.45;color:#78602d}
+
+.dashboard-history-caption{font-size:12px;color:#66766d;line-height:1.5;margin:8px 0 14px}

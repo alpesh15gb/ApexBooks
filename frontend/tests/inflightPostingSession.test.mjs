@@ -56,6 +56,8 @@ for (const flow of ['pos', 'payment', 'refresh401', 'pos-body', 'payment-body', 
     const outfile = resolve(temporary, 'app.mjs');
     await build({ entryPoints: ['src/main.jsx'], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'react-dom/client', 'lucide-react'], loader: { '.css': 'empty' } });
     await act(async () => { await import(pathToFileURL(outfile)); });
+    // Begin this read before posting; pending financial commands now defer new refreshes.
+    if (refresh401) { deferRefresh = true; await click('Refresh'); assert.equal(typeof finishRefresh, 'function'); }
     if (payment) {
       await click('Sales invoices'); await click('Collect payment');
       assert.equal(document.querySelector('input[name="amount"]').value, '40');
@@ -79,8 +81,6 @@ for (const flow of ['pos', 'payment', 'refresh401', 'pos-body', 'payment-body', 
     await act(async () => { companyPicker.value = 'c2'; companyPicker.dispatchEvent(new window.Event('change', { bubbles: true })); });
     assert.equal(companyPicker.value, 'c1', 'normal company navigation is already blocked');
     if (refresh401) {
-      deferRefresh = true;
-      await click('Refresh');
       assert.equal(typeof finishRefresh, 'function');
     }
     localStorage.token = 'replacement-synthetic-session';

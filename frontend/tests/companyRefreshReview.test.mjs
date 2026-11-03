@@ -127,6 +127,7 @@ test('review: focus refresh wins over older in-flight manual refresh in same com
  state.records=()=>({ok:true,json:async()=>[{...invoice,id:'new',name:'Latest overlap'}]});
  Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'});
  await act(async()=>window.dispatchEvent(new window.Event('focus')));
+ await act(async()=>new Promise(resolve=>setTimeout(resolve,1600)));
  assert.match(document.querySelector('.register').textContent,/Latest overlap/);
  await act(async()=>finish());
  assert.match(document.querySelector('.register').textContent,/Latest overlap/);

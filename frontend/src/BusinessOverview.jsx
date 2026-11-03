@@ -232,6 +232,8 @@ export default function BusinessOverview({
   onCreate,
   refreshKey = 0,
   recordsReady = true,
+  historyNotice = "",
+  historyLoadedAt = null,
 }) {
   const [period, setPeriod] = useState("year"),
     [result, setResult] = useState(null),
@@ -360,9 +362,11 @@ export default function BusinessOverview({
           Reports & GST <ArrowUpRight size={14} />
         </button>
         <span className="books-status">
-          <CircleCheck size={14} /> {data && recordsReady ? "Books loaded" : error ? "Unable to load books" : !recordsReady ? "Company history not confirmed" : "Loading books"}
+          <CircleCheck size={14} /> {historyNotice ? "Company history needs refresh" : data && recordsReady ? "Books loaded" : error ? "Unable to load books" : !recordsReady ? "Company history not confirmed" : "Loading books"}
         </span>
       </nav>
+      <p className="dashboard-history-caption">Summary reports refresh independently. Charts, invoice collections, attention counts and activity use the company-history snapshot{historyLoadedAt ? ` loaded ${new Date(historyLoadedAt).toLocaleString()}` : " (not confirmed for this session)"}. Use Refresh to check for newer records.</p>
+      {historyNotice && <p className="info-box" role="status">{historyNotice}</p>}
       {error && (
         <div className="error banner">
           {error}
