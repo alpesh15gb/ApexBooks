@@ -1,3 +1,4 @@
+import { useCompanyRefresh } from "./useCompanyRefresh.js";
 import DocumentLayoutPreference from "./DocumentLayoutPreference.jsx";
 import { currentPostingSession, assertPostingSession } from "./postingSession.js";
 import { journalPostingBlockReason, captureJournalRequest, sendJournalRequest, isDefiniteJournalConflict, journalReconciliationWarning } from "./journalPosting.js";
@@ -450,6 +451,7 @@ function App() {
     [rawRecords, setRecords] = useState([]),
     [recordsCompanyId, setRecordsCompanyId] = useState(""),
     [recordsLoadError, setRecordsLoadError] = useState(""),
+    [recordsUpdatedAt, setRecordsUpdatedAt] = useState(null),
     [page, setPage] = useState(() => labels[window.location.hash.slice(2)] ? window.location.hash.slice(2) : "dashboard"),
     [expanded, setExpanded] = useState("Sales"),
     [modal, setModal] = useState(""),
@@ -530,6 +532,7 @@ function App() {
     const controller = new AbortController();
     recordsAbort.current = controller;
     const isCurrent = workspaceScope.current.latest();
+    const requestSession = currentPostingSession();
     setRecordsLoadError("");
     setRecordsLoading(true);
     setRecordsProgress(0);
@@ -539,9 +542,10 @@ function App() {
         isCurrent, signal: controller.signal,
         onProgress: count => { if (isCurrent()) setRecordsProgress(count); },
       });
-      if (rows && isCurrent()) {
+      if (rows && isCurrent() && currentPostingSession() === requestSession) {
         setRecords(rows);
         setRecordsCompanyId(id);
+        setRecordsUpdatedAt({ companyId: id, session: requestSession, at: Date.now() });
         setError(current => current === recordsLoadError ? "" : current);
         return rows;
       }
@@ -568,6 +572,7 @@ function App() {
     setRecords([]);
     setRecordsCompanyId("");
     setRecordsLoadError("");
+    setRecordsUpdatedAt(null);
     setConversionSource(null);
     setRelatedSource(null);
     setDraftSeed(null);
@@ -595,17 +600,16 @@ function App() {
     }
     return () => recordsAbort.current?.abort();
   }, [companyId]);
-  useEffect(() => {
-    let lastRefresh = 0;
-    const refresh = () => {
-      if (!signed || !companyId || document.visibilityState === "hidden" || document.querySelector(".overlay .modal") || Date.now() - lastRefresh < 1500) return;
-      lastRefresh = Date.now();
-      loadRecords(companyId);
-    };
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
-    return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
-  }, [signed, companyId]);
+  const { deferred: refreshDeferred, sessionChanged: refreshSessionChanged, requestRefresh } = useCompanyRefresh({ signed, companyId, refresh: () => loadRecords(companyId) });
+  const historyNotice = refreshSessionChanged
+    ? "The signed-in session changed. Reload the workspace before relying on these books."
+    : recordsLoadError
+      ? "Company history may be out of date because its refresh failed. Summary reports and history refresh separately. Use Refresh to retry."
+      : refreshDeferred
+        ? "Company history may be out of date. A refresh is pending; close the dialog or finish the pending save, then use Refresh if needed."
+        : recordsLoading && recordsReady
+          ? "Showing previously confirmed company history while refreshing. Summary reports and history refresh separately."
+          : "";
   const activeRegisterFilter =
     ["party", "item"].includes(page) && !supported("master_lifecycle") ? "all" : registerFilter.page === page ? registerFilter.value : "all";
   const transactionRegister = !["party", "item"].includes(page);
@@ -1053,7 +1057,7 @@ function App() {
           onMenu={() => setMenu(true)}
         />
         <div className="content">
-          {companyId && <div className="workspace-sync-line" role="status">{company?.book_label?.trim() && <strong className="workspace-book-label" title={`Book label: ${company.book_label}`}>{company.book_label}</strong>}<span className={recordsLoading ? "sync-active" : "sync-idle"} /><span>{recordsLoading ? recordsReady ? "Refreshing company data…" : `Loading company data${recordsProgress ? ` · ${recordsProgress.toLocaleString()} records` : "…"}` : recordsLoadError ? "Refresh needed" : recordsReady ? "Company data loaded" : "Connecting to your company…"}</span><button className="link" disabled={recordsLoading} onClick={() => loadRecords()}>Refresh</button></div>}
+          {companyId && <div className="workspace-sync-line" role="status">{company?.book_label?.trim() && <strong className="workspace-book-label" title={`Book label: ${company.book_label}`}>{company.book_label}</strong>}<span className={recordsLoading ? "sync-active" : "sync-idle"} /><span>{recordsLoading ? recordsReady ? "Refreshing company data…" : `Loading company data${recordsProgress ? ` · ${recordsProgress.toLocaleString()} records` : "…"}` : refreshSessionChanged ? "Session changed · reload workspace" : recordsLoadError ? "Refresh needed" : refreshDeferred ? "Refresh pending" : recordsReady ? "Company data loaded" : "Connecting to your company…"}</span><button className="link" disabled={recordsLoading} onClick={requestRefresh}>Refresh</button>{recordsUpdatedAt?.companyId === companyId && recordsUpdatedAt.session === currentPostingSession() && <small className="workspace-history-time">Last loaded {new Date(recordsUpdatedAt.at).toLocaleString()}</small>}{historyNotice && <small className="workspace-history-notice">{historyNotice}</small>}</div>}
           {capabilities && CORE_ENHANCEMENTS.some(feature => !supported(feature)) && <details className="info-box"><summary>Some newer tools are unavailable on the connected API</summary><p>{capabilities.reason || "Update the API to enable all supported workflows."} Existing core workspaces remain available. Unsupported settings are not submitted.</p><button className="button secondary" onClick={() => setCapabilityRevision(value => value + 1)}>Check API support again</button></details>}
           {error && (
             <div className="error banner" onClick={() => setError("")}>
@@ -1100,6 +1104,8 @@ function App() {
               records={records}
               refreshKey={booksRevision}
               recordsReady={recordsReady}
+              historyNotice={historyNotice}
+              historyLoadedAt={recordsUpdatedAt?.companyId === companyId && recordsUpdatedAt.session === currentPostingSession() ? recordsUpdatedAt.at : null}
               api={api}
               onNavigate={navigateWorkspace}
               onCreate={createWorkspace}
