@@ -158,3 +158,16 @@ This workflow is proof-only. Passing expected negative controls does not make th
 generation mechanism deployable, eliminate the listed omissions, or establish a
 real-time client guarantee. Actual PostgreSQL results are pending until this
 exact checkpoint executes on the hosted disposable service.
+
+### First hosted attempt and diagnostic correction
+
+PR41 source `283cfbafec90c1bde9641f37dc7be07bbbaa6805`, run
+`41709757823`, job `126174426983` reached PostgreSQL 17.11 and completed
+existing migrations plus proof function/trigger creation. Startup readiness then
+failed because raw `exec_driver_sql` LIKE patterns contained unescaped percent
+characters interpreted by psycopg. No concurrency tests ran and that attempt
+produced no result artifact. The corrected proof binds both LIKE patterns through
+SQLAlchemy `text`; a local psycopg-query-parser regression checks the actual
+readiness statements without a database. Bounded incomplete JSON is now written
+before startup and updated at each phase, without exception strings, URLs, or
+credentials. Actual PostgreSQL proof results remain pending a corrected CI run.

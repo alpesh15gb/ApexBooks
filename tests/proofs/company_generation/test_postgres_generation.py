@@ -263,10 +263,21 @@ with psycopg.connect(os.environ['APEX_TEST_DATABASE_URL'].replace('postgresql+ps
         EVIDENCE['readiness']='definitions/enabled status and seed checked; not production schema_ready'
 
 
+def write_artifact(path, payload):
+    encoded=json.dumps(payload,indent=2)
+    if len(encoded.encode())>=200000:raise ValueError('Proof artifact exceeds fixed byte limit')
+    path.parent.mkdir(parents=True,exist_ok=True)
+    path.write_text(encoded+'\n')
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--output',type=Path,required=True);args=parser.parse_args()
+    def checkpoint(phase):
+        write_artifact(args.output,{'completed':False,'phase':phase,'tests_run':0,'evidence':{},'note':'Proof incomplete; no completed concurrency result established'})
+    checkpoint('target_validation')
     try:url=guard(os.environ.get('APEX_TEST_DATABASE_URL',''),os.environ)
     except ValueError as exc:raise SystemExit(str(exc)) from None
+    checkpoint('application_import')
     os.environ['DATABASE_URL']=url;os.environ['JWT_SECRET']='synthetic-postgres-generation-proof-secret-only'
     from cryptography.fernet import Fernet
     os.environ['COMMERCE_ENCRYPTION_KEY']=Fernet.generate_key().decode();os.environ['COMMERCE_ALLOW_LOCALHOST']='1'
@@ -274,11 +285,13 @@ def main():
     global m
     import main as app_module
     m=app_module
+    checkpoint('fresh_database_validation')
     with m.engine.connect() as cn:
         identity=cn.exec_driver_sql('SELECT current_database(),current_schema(),current_schemas(false)').one()
         if tuple(identity)!=('apex_concurrency_test','public',['public']):raise SystemExit('Unexpected disposable database identity/schema')
         if cn.exec_driver_sql("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname !~ '^pg_' AND n.nspname<>'information_schema'").scalar_one():raise SystemExit('Fresh empty user schemas required; never reset existing data')
     from migrate import run_migrations
+    checkpoint('existing_schema_migrations')
     run_migrations()
     # Bound every app/worker DB statement without altering deployed settings.
     # Transaction-local SET is issued directly by the DBAPI cursor, not recursively
@@ -296,14 +309,15 @@ def main():
         event.listen(m.engine,boundary,clear_transaction_state)
     event.listen(m.engine,'before_cursor_execute',timeout)
     event.listen(m.engine,'checkin',clear_timeout_state)
+    checkpoint('prototype_install_and_readiness')
     with m.engine.begin() as cn:p.install(cn,m.Base.metadata)
     with m.engine.connect() as cn:version=cn.exec_driver_sql('SHOW server_version').scalar_one()
+    checkpoint('tests_started')
     result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(GenerationPostgresTest))
-    output={'completed':result.wasSuccessful(),'scope':'Test-only isolated PostgreSQL; deployment blocked by explicit unsupported cases',
+    output={'completed':result.wasSuccessful(),'phase':'tests_finished','scope':'Test-only isolated PostgreSQL; deployment blocked by explicit unsupported cases',
             'postgres_version':version,'tests_run':result.testsRun,'failures':len(result.failures),'errors':len(result.errors),'evidence':EVIDENCE,
             'limits':['No production install/endpoint/client','Multicompany transaction cycle remains unsupported','TRUNCATE/disabled triggers/direct counter edits unsupported','Clock/auth/directory scopes not covered','Manifest coverage is not every-table dynamic certification']}
-    encoded=json.dumps(output,indent=2);assert len(encoded.encode())<200000
-    args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(encoded+'\n')
+    write_artifact(args.output,output)
     if not result.wasSuccessful():raise SystemExit(1)
 
 

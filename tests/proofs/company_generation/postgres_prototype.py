@@ -62,13 +62,13 @@ def readiness(connection, metadata):
     schema_check(connection, metadata)
     if connection.exec_driver_sql('SHOW session_replication_role').scalar_one() != 'origin':
         raise ValueError('Proof row triggers require origin replication role')
-    functions = connection.exec_driver_sql("SELECT p.proname,p.prosrc,p.prosecdef,l.lanname,p.pronargs FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang WHERE n.nspname='public' AND (p.proname LIKE 'poc_generation_%' OR p.proname='poc_bump_generation')").all()
+    functions = connection.execute(text("SELECT p.proname,p.prosrc,p.prosecdef,l.lanname,p.pronargs FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang WHERE n.nspname='public' AND (p.proname LIKE :pattern OR p.proname='poc_bump_generation')"), {'pattern': 'poc_generation_%'}).all()
     expected = function_bodies(metadata)
     if len(functions) != len(expected): raise ValueError('Missing or overloaded proof functions')
     for name, body, definer, language, nargs in functions:
         if name not in expected or body.strip()!=expected[name].strip() or definer or language!='plpgsql' or nargs!=(1 if name==BUMP else 0):
             raise ValueError('Changed proof function definition')
-    rows=connection.exec_driver_sql("SELECT t.tgname,c.relname,t.tgtype,t.tgenabled,p.proname,pn.nspname,t.tgqual,t.tgnargs,t.tgconstraint FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace pn ON pn.oid=p.pronamespace WHERE n.nspname='public' AND t.tgname LIKE 'poc_change_%'").all()
+    rows=connection.execute(text("SELECT t.tgname,c.relname,t.tgtype,t.tgenabled,p.proname,pn.nspname,t.tgqual,t.tgnargs,t.tgconstraint FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace pn ON pn.oid=p.pronamespace WHERE n.nspname='public' AND t.tgname LIKE :pattern"), {'pattern': 'poc_change_%'}).all()
     wanted={(f'poc_change_{table}_{event}',table,kind,'O','poc_generation_'+table,'public',None,0,0) for table in COVERED for event,kind in [('insert',5),('update',17),('delete',9)]}
     if set(rows)!=wanted: raise ValueError('Missing or changed proof trigger definition')
     if inspect(connection).get_foreign_keys(TABLE): raise ValueError('Counter must not add a Company FK lock')
