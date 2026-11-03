@@ -1,8 +1,8 @@
 # Disposable PostgreSQL page-projection comparison
 
 This is a test-only comparison harness, **not a production query/index change**.
-The first candidate completed hosted PostgreSQL comparison; its mixed result is
-recorded below. No subsequent candidate is measured or implied by those results.
+Both test-only candidates completed hosted PostgreSQL comparisons; their separate
+results are recorded below. Neither establishes a clear first-page gain.
 PostgreSQL execution requires the dedicated disposable CI service. Local syntax
 and guard tests do not establish PostgreSQL correctness or timings.
 
@@ -175,7 +175,7 @@ later pages and complete scans while materially delaying the first page; it is
 index or deployment has shipped from this experiment. Raw artifacts are retained
 with the hosted run, not copied into the repository.
 
-## Second test-only variant: original sort-expression reuse (unmeasured)
+## Second test-only variant: original sort-expression reuse (completed)
 
 The next candidate is explicitly labelled
 `shared_original_created_order_expression_v2` in every partial/final artifact.
@@ -186,8 +186,26 @@ BY, instead of two equal-valued pairs. Original predicates, ordering, LIMIT/OFFS
 and outer captured-key ordering remain unchanged. A compile/identity regression
 asserts this reuse; all byte-parity and actual-plan gates remain in force.
 
-This is a bounded explanation to test for the first candidate’s duplicated
-created-key output and scan penalty, **not a measured second-variant speedup**.
-The completed figures above belong only to the first candidate. PostgreSQL plan,
-buffer and first/deep/full timing evidence for this second variant remains pending
-hosted execution. No application SQL, index or deployed behavior is changed.
+The completed figures above belong only to the first candidate. The second
+variant’s separately measured results follow; no application SQL, index or
+deployed behavior is changed.
+
+
+Source `551adf9d`, hosted run `41697721013`, artifacts `13261128271` /
+`13261387458` completed both V2 cases with `completed: true`. Exact response-byte
+parity and all 11 edge checks passed. The captured narrow LIMIT emitted exactly
+three outputs for 500 rows, and compact-projection bounds passed. Warm TestClient
+wall-time medians within each V2 run (baseline → candidate):
+
+| Synthetic records | First page | Deep page | Complete scan |
+| --- | --- | --- | --- |
+| 3000 | 94.731 → 97.653 ms (**3.08% slower**) | 188.252 → 99.544 ms (47.12% faster) | 1079.168 → 680.801 ms (36.91% faster) |
+| 5000 | 212.236 → 211.605 ms (0.30% faster) | 492.632 → 213.328 ms (56.70% faster) | 4052.973 → 2404.462 ms (40.67% faster) |
+
+V2 improves deep/full scans in these workloads but shows **no clear first-page
+gain**. Warm hosted-machine variation means V1 and V2 absolute timings must not
+be compared directly; each percentage uses its own alternating same-fixture
+baseline. These remain synthetic PostgreSQL 17 measurements, not cold-process,
+WAN or native-device guarantees. The agreed first-page objective was not met, so
+this investigation stops with the documented tradeoff. No further candidate or
+application optimization is proposed or shipped from this experiment.
