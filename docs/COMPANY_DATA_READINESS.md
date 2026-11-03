@@ -1,0 +1,11 @@
+# Company data readiness
+
+Synthetic full-app review reproduced two display defects: an initial history-read failure with successful aggregate reports presented zero unpaid bills, zero estimates, a zero collection percentage, and first-invoice guidance; a company switch with unavailable preferences retained the previous company's editable PDF layout.
+
+The dashboard now distinguishes unconfirmed history from confirmed empty history. History-derived counts, chart, collections and activity show unavailable placeholders until a complete records scan succeeds. Confirmed empty history still shows legitimate zero values and first-invoice guidance. Existing refresh behavior retains last-good history after transient or invalid-page failures and shows the global refresh warning; this does not claim those retained values are current.
+
+The PDF layout control loads on opening document settings. Its value/readiness/error is scoped to the company, exact in-memory request session and latest request. Loading, failed and changed-session states cannot submit a layout. A separate explicit read retry permits recovery. GET results and default/error states never trigger PUT. Initial rendering describes loading rather than claiming a session change. A failed PUT is treated as unconfirmed: its old value is hidden and editing stays disabled until an explicit GET reconciles the stored setting, with no automatic write retry. Saving disables the control; old GET/PUT completions cannot update another company/session. The dispatch check also rejects a changed token before a storage event has arrived. The existing backend remains responsible for authorization.
+
+This is not a global cross-tab authentication reset or a persistent cache. A preference PUT already sent may complete on the server even if its response becomes obsolete; reopen/reload that company's settings to verify it. No production or browser actions were used for verification.
+
+Tests: frontend/tests/companyRefreshReview.test.mjs covers deferred reads, second-page failure, same-company focus/manual overlap, late old-company responses, malformed refresh retention, confirmed versus unavailable empty history, explicit preference recovery, and stale account/company preference operations. frontend/tests/companyRecords.test.mjs separately covers strict page identity/bounds and pagination overlap contracts.
