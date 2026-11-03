@@ -108,7 +108,7 @@ public static class NativeUi
         for (var i = 0; i < elements.Length; i++) { grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); Grid.SetColumn((FrameworkElement)elements[i], i); grid.Children.Add(elements[i]); }
         return grid;
     }
-    public static async Task<bool> Dialog(string title, UIElement content, Func<Task> save, string action = "Save", Func<bool>? canSave = null, Func<bool>? hasChanges = null, Func<Task>? saveAndNew = null, UIElement? stickyFooter = null, Func<bool>? unresolved = null)
+    public static async Task<bool> Dialog(string title, UIElement content, Func<Task> save, string action = "Save", Func<bool>? canSave = null, Func<bool>? hasChanges = null, Func<Task>? saveAndNew = null, UIElement? stickyFooter = null, Func<bool>? unresolved = null, Func<string?>? reviewBeforeClose = null)
     {
         var heading = Stack(); heading.Children.Add(Text(title,20,true));
         var error = new InfoBar { Severity = InfoBarSeverity.Error, IsClosable = true }; heading.Children.Add(error);
@@ -127,11 +127,13 @@ public static class NativeUi
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(dialog,title);
         var done = false;var context=new DialogContext(dialog,error,canSave);context.Update();
         var discard = Stack(8); discard.Visibility = Visibility.Collapsed;
-        discard.Children.Add(Text("Discard unsaved changes?", 16, true));
-        discard.Children.Add(Text("Your draft has not been saved. Keep editing or discard this draft.", 13));
+        var discardTitle=Text("Discard unsaved changes?",16,true);
+        var discardMessage=Text("Your draft has not been saved. Keep editing or discard this draft.",13);
+        discard.Children.Add(discardTitle);discard.Children.Add(discardMessage);
         var discardActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        discardActions.Children.Add(Button("Keep editing", () => discard.Visibility = Visibility.Collapsed, true));
-        discardActions.Children.Add(Button("Discard draft", () => { context.ForcedClose = true; dialog.Hide(); }));
+        var keepEditing=Button("Keep editing",()=>discard.Visibility=Visibility.Collapsed,true);
+        var discardDraft=Button("Discard draft",()=>{context.ForcedClose=true;dialog.Hide();});
+        discardActions.Children.Add(keepEditing);discardActions.Children.Add(discardDraft);
         discard.Children.Add(discardActions); heading.Children.Add(discard);
         void ResizeBody(){if(workbench)bodyScroll.MaxHeight=Math.Max(140,Math.Min(760,rootHeight-210-error.ActualHeight-discard.ActualHeight));}
         error.SizeChanged+=(_,_)=>ResizeBody();discard.SizeChanged+=(_,_)=>ResizeBody();
@@ -139,7 +141,16 @@ public static class NativeUi
             if(context.ForcedClose)return;
             if(context.Saving||context.Operations>0){args.Cancel=true;return;}
             if(!done && unresolved?.Invoke()==true){args.Cancel=true;discard.Visibility=Visibility.Collapsed;error.Message="The previous save may already have posted. Retry the original save to recover its outcome before closing; do not create a replacement entry.";error.IsOpen=true;return;}
-            if(!done && hasChanges?.Invoke()==true){args.Cancel=true;discard.Visibility=Visibility.Visible;}
+            // Optional master-review wording must never bypass an unresolved financial guard above.
+            var review=!done?reviewBeforeClose?.Invoke():null;
+            if(!string.IsNullOrWhiteSpace(review)){
+                args.Cancel=true;discardTitle.Text="Close and review this master?";discardMessage.Text=review;
+                keepEditing.Content="Keep open";discardDraft.Content="Close and review";discard.Visibility=Visibility.Visible;return;
+            }
+            if(!done && hasChanges?.Invoke()==true){
+                args.Cancel=true;discardTitle.Text="Discard unsaved changes?";discardMessage.Text="Your draft has not been saved. Keep editing or discard this draft.";
+                keepEditing.Content="Keep editing";discardDraft.Content="Discard draft";discard.Visibility=Visibility.Visible;
+            }
         };
         async Task<bool> Commit(bool again,bool close=false)
         {
