@@ -1,4 +1,4 @@
-import importlib.util, json, subprocess, tempfile, unittest
+import hashlib, importlib.util, json, os, shutil, subprocess, tempfile, unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -9,10 +9,20 @@ spec.loader.exec_module(m)
 
 RELEASE={'target':'apexbooks-vps','version':'1.5.0','source_sha':'a'*40,'api_image':'sha256:'+'b'*64,'web_image':'sha256:'+'c'*64}
 
+def test_bash():
+    explicit = os.environ.get('APEX_TEST_BASH')
+    if explicit: return explicit
+    if os.name != 'nt': return 'bash'
+    git = shutil.which('git')
+    candidates = [Path(git).resolve().parents[1] / 'bin/bash.exe'] if git else []
+    for candidate in candidates:
+        if candidate.is_file(): return str(candidate)
+    raise unittest.SkipTest('These isolated shell recipe tests require Git Bash; set APEX_TEST_BASH')
+
 class CutoverTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
-        root = Path(self.folder.name)
+        root = Path(self.folder.name).resolve()
         self.stack = [patch.object(m,'release_config',return_value=RELEASE)]
         for name, value in {'BASE': root / 'app', 'STATE': root / 'app/shared', 'NGINX_ROOT': root / 'nginx',
                             'API': root / 'nginx/sites-enabled/apexbooks-api', 'WEB': root / 'nginx/sites-available/apexbooks-vps-web.conf',
@@ -171,6 +181,7 @@ class ReleaseIdentityTests(unittest.TestCase):
             m.compose('ps','-q','api')
         env=run.call_args.kwargs['env']
         self.assertEqual(env['APEX_API_IMAGE'],RELEASE['api_image']);self.assertEqual(env['APEX_WEB_IMAGE'],RELEASE['web_image'])
+        self.assertEqual(env['APEXBOOKS_ENV_FILE'],str(m.ENV))
         compose=Path(__file__).with_name('compose.yml').read_text()
         self.assertIn('${APEX_API_IMAGE:?',compose);self.assertIn('${APEX_WEB_IMAGE:?',compose)
         self.assertNotIn('1.3.0',compose)
@@ -205,7 +216,7 @@ class ReleaseIdentityTests(unittest.TestCase):
         bootstrap=bootstrap[bootstrap.index('identity_text='):bootstrap.index('release="${identity[0]}')]
         # Only a failing mock function executes; no deployment commands are present.
         for body in (snippet,bootstrap):
-            result=subprocess.run(['bash','-c','set -euo pipefail; python3() { return 17; };\n'+body+'\necho UNEXPECTED_CONTINUE'],capture_output=True,text=True)
+            result=subprocess.run([test_bash(),'-c','set -euo pipefail; python3() { return 17; };\n'+body+'\necho UNEXPECTED_CONTINUE'],capture_output=True,text=True)
             self.assertEqual(result.returncode,17,result.stderr);self.assertNotIn('UNEXPECTED_CONTINUE',result.stdout)
 
     def test_readiness_requires_exact_served_source_revision(self):
@@ -232,8 +243,120 @@ class PackagingRecipeTests(unittest.TestCase):
             prefix=("export APEX_SOURCE_SHA="+'a'*40+" APEX_RELEASE_VERSION=1.5.0\n"
                     "git() { if [[ $1 == rev-parse ]]; then printf '%s' "+sha+"; else printf 'dirty'; fi; }\n"
                     "docker() { printf 'UNEXPECTED_BUILD'; return 99; }\n")
-            result=subprocess.run(['bash','-c',prefix+recipe],capture_output=True,text=True)
+            result=subprocess.run([test_bash(),'-c',prefix+recipe],capture_output=True,text=True)
             self.assertNotEqual(result.returncode,0)
             self.assertNotIn('UNEXPECTED_BUILD',result.stdout+result.stderr)
+
+class OcrPreflightTests(unittest.TestCase):
+    def test_policy_matches_api_default_and_explicit_operator_override(self):
+        values = {'OCR_BASE_URL': 'http://192.0.2.1:8088/v1', 'OMNIROUTE_API_KEY': 'synthetic-only'}
+        with self.assertRaisesRegex(RuntimeError, 'HTTPS outside loopback'): m.verify_ocr_configuration(values)
+        m.verify_ocr_configuration({**values, 'OCR_ALLOW_INSECURE_HTTP': '1'})
+        for flag in ('true', 'yes', '0'):
+            with self.assertRaises(RuntimeError): m.verify_ocr_configuration({**values, 'OCR_ALLOW_INSECURE_HTTP': flag})
+        m.verify_ocr_configuration({'OPENAI_API_KEY':'synthetic-only'})
+        with self.assertRaisesRegex(RuntimeError, 'provider key'): m.verify_ocr_configuration({})
+        with self.assertRaisesRegex(RuntimeError, 'invalid'): m.verify_ocr_configuration({**values, 'OCR_BASE_URL':'https://private@example.invalid/v1', 'OCR_ALLOW_INSECURE_HTTP':'1'})
+
+    def test_compose_template_documents_the_actual_provenance_variables(self):
+        root = Path(__file__).resolve().parents[2]
+        example = (root / '.env.example').read_text()
+        for name in ('APEX_SOURCE_SHA', 'APEX_RELEASE_VERSION', 'APEX_BUILD_SHA', 'VITE_BUILD_SHA'):
+            self.assertIn('\n' + name + '=', example)
+
+
+class UpgradeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp.name).resolve()
+        self.state = self.base / 'shared'; self.state.mkdir()
+        (self.state / 'server.env').write_text('SYNTHETIC_TEST_CONFIGURATION=unchanged\n')
+        self.proxy = self.base / 'backups/nginx-old'; self.proxy.mkdir(parents=True)
+        (self.proxy / 'files.json').write_text('[]'); (self.proxy / 'meta.json').write_text('{}')
+        self.old = {'release':'1.3.0','backup':str(self.proxy)}
+        self.marker = json.dumps(self.old).encode()
+        (self.state / 'activated.json').write_bytes(self.marker)
+        self.plan = {'target_release_identity': RELEASE, 'previous_activation_sha256':hashlib.sha256(self.marker).hexdigest(),
+                     'previous_images':{'api':'sha256:'+'d'*64,'web':'sha256:'+'e'*64},
+                     'database_backup_reference':'synthetic-provider-snapshot-123', 'isolated_restore_verified':True,
+                     'writers_paused':True, 'schema_compatibility_reviewed':True,'recovery_plan_reviewed':True}
+        self.save_plan()
+        self.patches = [patch.object(m,'BASE',self.base),patch.object(m,'STATE',self.state),patch.object(m,'ENV',self.state/'server.env'),patch.object(m,'release_config',return_value=RELEASE)]
+        for item in self.patches: item.start()
+        self.addCleanup(self.temp.cleanup)
+        for item in self.patches: self.addCleanup(item.stop)
+
+    def save_plan(self): (self.state / 'upgrade-plan.json').write_text(json.dumps(self.plan))
+    def prepare(self):
+        def compose(*args): return SimpleNamespace(stdout=args[-1] if args[:2]==('ps','-q') else '')
+        def run(args,**kwargs): return SimpleNamespace(stdout=self.plan['previous_images'][args[-1]] if args[:2]==['docker','inspect'] else '')
+        with patch.object(m,'compose',side_effect=compose),patch.object(m,'run',side_effect=run),patch.object(m,'preflight'),patch.object(m,'verify_image_identity'):
+            m.prepare_upgrade()
+
+    def test_legacy_marker_needs_complete_review_and_matching_target(self):
+        self.assertEqual(m.upgrade_plan()[1], self.old)
+        for key in ('isolated_restore_verified','writers_paused','schema_compatibility_reviewed','recovery_plan_reviewed'):
+            self.plan[key]=False; self.save_plan()
+            with self.subTest(key=key), self.assertRaises(RuntimeError): m.upgrade_plan()
+            self.plan[key]=True
+        self.plan['target_release_identity']={**RELEASE,'source_sha':'f'*40};self.save_plan()
+        with self.assertRaisesRegex(RuntimeError,'another release'):m.upgrade_plan()
+
+    def test_changed_activation_and_missing_recovery_snapshot_refuse(self):
+        (self.state/'activated.json').write_bytes(self.marker+b' ')
+        with self.assertRaisesRegex(RuntimeError,'changed since'):m.upgrade_plan()
+        (self.state/'activated.json').write_bytes(self.marker)
+        (self.proxy/'files.json').unlink()
+        with self.assertRaisesRegex(RuntimeError,'recovery snapshot'):m.upgrade_plan()
+
+    def test_prepare_verifies_old_container_ids_and_does_not_replace_marker(self):
+        with patch.object(m,'compose',return_value=SimpleNamespace(stdout='wrong')),patch.object(m,'run',return_value=SimpleNamespace(stdout='sha256:'+'f'*64)),patch.object(m,'preflight') as preflight:
+            with self.assertRaisesRegex(RuntimeError,'previous image'):m.prepare_upgrade()
+            preflight.assert_not_called()
+        self.prepare()
+        self.assertEqual((self.state/'activated.json').read_bytes(),self.marker)
+        self.assertTrue((self.state/'upgrade-prepared.json').is_file())
+
+    def test_finish_requires_prepared_unchanged_plan_and_healthy_candidate(self):
+        with patch.object(m,'verify_local') as local:
+            with self.assertRaisesRegex(RuntimeError,'prepare-upgrade'):m.finish_upgrade()
+            local.assert_not_called()
+        self.prepare()
+        self.plan['database_backup_reference']='changed-snapshot-reference';self.save_plan()
+        with self.assertRaisesRegex(RuntimeError,'changed since'):m.finish_upgrade()
+        self.prepare()
+        with patch.object(m,'verify_local',side_effect=RuntimeError('schema not ready')),patch.object(m,'verify_public') as public:
+            with self.assertRaisesRegex(RuntimeError,'schema not ready'):m.finish_upgrade()
+            public.assert_not_called()
+        self.assertEqual((self.state/'activated.json').read_bytes(),self.marker)
+
+    def test_success_retains_old_marker_and_never_changes_proxy_or_database(self):
+        self.prepare()
+        with patch.object(m,'verify_local') as local,patch.object(m,'verify_public') as public,patch.object(m,'run') as run:
+            m.finish_upgrade()
+            local.assert_called_once();public.assert_called_once();run.assert_not_called()
+        active=json.loads((self.state/'activated.json').read_text())
+        self.assertEqual(active['release_identity'],RELEASE)
+        self.assertEqual((Path(active['upgrade_snapshot'])/'previous-activated.json').read_bytes(),self.marker)
+        self.assertEqual(active['backup'],self.old['backup'])
+        self.assertEqual((self.proxy/'files.json').read_text(),'[]')
+        with patch.object(m,'ROOT',self.base/'releases/candidate'),patch.object(m.os,'geteuid',return_value=0,create=True),patch('sys.argv',['manage.py','rollback']),patch.object(m,'run') as run:
+            with self.assertRaisesRegex(RuntimeError,'recovery plan'):m.main()
+            run.assert_not_called()
+
+    def test_failed_https_keeps_old_marker_and_plan_for_recovery(self):
+        self.prepare()
+        with patch.object(m,'verify_local'),patch.object(m,'verify_public',side_effect=RuntimeError('certificate mismatch')):
+            with self.assertRaisesRegex(RuntimeError,'certificate mismatch'):m.finish_upgrade()
+        self.assertEqual((self.state/'activated.json').read_bytes(),self.marker)
+
+    def test_private_database_configuration_change_invalidates_preparation(self):
+        self.prepare()
+        (self.state/'server.env').write_text('SYNTHETIC_TEST_CONFIGURATION=changed\n')
+        with patch.object(m,'verify_local') as local:
+            with self.assertRaisesRegex(RuntimeError,'private settings changed'):m.finish_upgrade()
+            local.assert_not_called()
+        self.assertEqual((self.state/'activated.json').read_bytes(),self.marker)
+
 
 if __name__ == '__main__': unittest.main()

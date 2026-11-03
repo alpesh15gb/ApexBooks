@@ -24,7 +24,7 @@ assert 'vm.task{' in open_action and 'onClick={act{' not in open_action, "Restor
 s=(root/'native/android/app/src/main/java/com/apexbooks/accounting/AppModel.kt').read_text()
 choose=next(x.strip() for x in s.splitlines() if x.strip().startswith('suspend fun chooseCompany('))
 task=next(x.strip() for x in s.splitlines() if x.strip().startswith('fun task('))
-temporary=tempfile.TemporaryDirectory(prefix='apex-navigation-proof-');p=Path(temporary.name)
+temporary=tempfile.TemporaryDirectory(prefix='apex navigation proof ');p=Path(temporary.name)
 fixture='''import kotlinx.coroutines.*
 class JSONObject(val id:String="")
 fun JSONObject.s(key:String)=id
@@ -54,7 +54,19 @@ fun main()=runBlocking {
 }
 '''
 (p/'Proof.kt').write_text(fixture)
-lib=gradle/'lib';cp=':'.join(str(x) for x in lib.glob('*.jar'))
-subprocess.run(['java','-cp',cp,'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler','-no-stdlib','-no-reflect','-classpath',cp,'-d',str(p/'proof.jar'),str(p/'Proof.kt')],check=True)
-subprocess.run(['java','-cp',str(p/'proof.jar')+':'+cp,'ProofKt'],check=True)
-temporary.cleanup()
+lib=gradle/'lib';cp=os.pathsep.join(str(x) for x in sorted(lib.glob('*.jar')))
+def run_java(name, arguments):
+    # The compiler classpath occurs twice and exceeds Windows' command limit.
+    # Quote for Java's argument-file parser, not a shell. Doubling backslashes
+    # keeps Windows path components from being interpreted as escapes.
+    def quote(value):
+        return '"'+str(value).replace('\\','\\\\').replace('"','\\"').replace('\n','\\n').replace('\r','\\r')+'"'
+    argument_file=p/(name+'.args')
+    argument_file.write_text('\n'.join(quote(value) for value in arguments)+'\n',encoding='utf-8')
+    subprocess.run(['java','@'+str(argument_file)],check=True)
+
+try:
+    run_java('compile',['-cp',cp,'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler','-no-stdlib','-no-reflect','-classpath',cp,'-d',p/'proof.jar',p/'Proof.kt'])
+    run_java('run',['-cp',str(p/'proof.jar')+os.pathsep+cp,'ProofKt'])
+finally:
+    temporary.cleanup()

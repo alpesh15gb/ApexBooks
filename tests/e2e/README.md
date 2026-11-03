@@ -1,6 +1,36 @@
 # Isolated end-to-end checks
 
 Install `backend/requirements-dev.txt` and run `npm ci` in `frontend` first.
+On Windows, Linux or macOS, the Python runner starts its own API and Vite on
+available loopback ports, migrates a disposable SQLite database, runs both HTTP
+suites and stops only its own processes:
+
+```sh
+python tests/e2e/run_local.py
+```
+
+For desktop/mobile browser acceptance, use the same Playwright version as CI
+and its matching Chromium runtime:
+
+```sh
+python -m pip install playwright==1.64.1
+python -m playwright install chromium
+python tests/e2e/run_local.py --browser --artifacts /path/to/test-artifacts
+```
+
+On Linux, use `python -m playwright install --with-deps chromium` to install its
+system dependencies too. For a focused rerun, `--browser-only` skips the two HTTP
+suites but still creates fresh servers and books. Browser runs compile a fresh
+production bundle into the disposable workspace and serve it through Vite preview
+with the real API proxy. This tests the shipping assets without waiting on cold
+development-module transforms; `frontend/dist` and running dev servers are not
+changed. HTTP-only runs use Vite's development server. The default bundled Chromium
+is recommended. `--browser-channel chrome` or `msedge` instead launches that
+installed browser with a new isolated headless profile, never the user's current
+browser session. The runner refuses external API overrides and excludes inherited
+OCR/commerce/database secrets. Browser channel selection is explicit, so a stale
+`APEX_BROWSER_CHANNEL` environment value cannot silently change this runner.
+
 From the repository root:
 
 ```sh
@@ -55,16 +85,34 @@ repeat these checks with synthetic data:
 
 ## Automated browser gate
 
-`browser_workflow.py` mirrors the observed desktop flow and adds a 390px mobile
-layout/dismissal check. Install Python `playwright` and `python -m playwright
-install --with-deps chromium`, then run:
+`browser_workflow.py` drives desktop registration/company creation, invoice
+entry, empty cancellation/reopening, unsaved-edit navigation, partial payment,
+register/ageing balances, PDF/XLSX downloads, estimate/recurring-template creation
+and logout. It asserts that the first input survives on both document and
+recurring-template forms. A separate 390px mobile context checks layout, empty
+dismissal, first-input retention and dirty-draft confirmation.
+
+Verified locally on Windows on 2026-11-03: the production-bundle runner passed
+both HTTP suites and the complete desktop/mobile browser gate with Playwright's
+bundled Chromium. Earlier development-server runs could stall on pending source
+module transforms; those failed attempts are not counted as browser passes.
+This browser-emulation result does not claim native Android/Windows GUI coverage.
+
+The Python runner above is the cross-platform entry point. The existing shell
+runner also supports the browser gate:
 
 ```sh
 APEX_BROWSER=1 APEX_PYTHON=/path/to/venv/bin/python tests/e2e/run-local.sh
 ```
 
-Set `APEX_E2E_ARTIFACTS` to retain screenshots and synthetic PDF/XLSX downloads.
-The script was syntax-checked in this executor; it has not yet run as a complete
-Playwright job. Do not equate the manual CUA pass with this CI gate passing.
+Use `--artifacts` with the Python runner, or `APEX_E2E_ARTIFACTS` with the shell
+runner, to choose the evidence directory. The Python browser runner otherwise
+retains a dedicated system-temp evidence directory and prints its path; the
+temporary database is always removed. Evidence includes screenshots, synthetic
+PDF/XLSX downloads and Playwright traces. Failures add the page HTML, URL,
+outstanding requests, console/page errors and invalid form controls. API/Vite
+logs are retained too. These files contain only the synthetic local accounts and
+books created for this run. Both success and failure traces can be opened with
+`python -m playwright show-trace /path/to/desktop-trace.zip`.
 
 Optional local latency sample: `APEX_PERF=1 APEX_PYTHON=/path/to/python bash tests/e2e/run-local.sh` seeds 100 invoices and prints 20 sequential samples per endpoint. This is not a hosted load test.

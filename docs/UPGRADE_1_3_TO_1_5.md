@@ -11,7 +11,7 @@ Before any migration or cutover, record privately:
 - Intended frontend/API origins, provider/project/environment, exact deployed source where recoverable, and current Alembic revision/schema.
 - Every API, background worker, preview and installed client that can write to the target database. Stop or isolate incompatible writers during the coordinated upgrade; changing one web origin alone is insufficient.
 - Approved immutable 1.5 source revision, built image IDs/artifact hashes and matching API/web/native build metadata. Missing metadata must stay `unknown`, not be guessed.
-- Explicit strong JWT configuration, correct existing accounting/commerce encryption identity, HTTPS OCR endpoint and required nonsecret feature configuration. Do not print environment files, use credentials in command arguments or regenerate encryption keys as an incidental upgrade step.
+- Explicit strong JWT configuration, correct existing accounting/commerce encryption identity, reviewed OCR transport and required nonsecret feature configuration. HTTPS is the default; retaining an approved HTTP provider requires the explicit server-only `OCR_ALLOW_INSECURE_HTTP=1` opt-in and accepts unencrypted provider credentials/document bytes. Do not print environment files, use credentials in command arguments or regenerate encryption keys as an incidental upgrade step.
 
 The 1.5 native Release API origin is `https://api.apexbooks.in`. A Vercel-preview-only rollout does not exercise that native destination. Capability negotiation fails closed for optional new features when connected to an older API; it is not a server upgrade mechanism.
 
@@ -62,6 +62,8 @@ Before live execution, verify on the actual-target clone:
 - HTTPS, body/chunk limits, protected preview access, backup quotas/expiry, background-worker configuration and database concurrency behave on the intended hosting platform. Local SQLite and loopback HTTP checks do not prove provider behavior.
 
 Then, and only with the required operational authority, coordinate writer shutdown, backup verification, standard migrations, immutable deployment and HTTPS/build-revision checks. Re-enable writers after post-cutover reconciliation. No commands in this checklist have been executed against production.
+
+The VPS controller now provides `prepare-upgrade` / `finish-upgrade` for an existing activation, including a legacy 1.3 marker. Follow the [explicit VPS procedure](../deploy/vps/README.md#upgrade-an-existing-apex-books-activation-including-13): it requires exact previous-marker and image identities plus a reviewed recovery/write-freeze record, retains the old activation, and updates it only after candidate schema/image/HTTPS checks pass. It does not bypass ordinary install guards or automatically run migrations or database rollback.
 
 ## Native distribution and source-book identity
 

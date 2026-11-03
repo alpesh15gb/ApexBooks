@@ -6,8 +6,30 @@ Unmapped signs and unverified costs remain blocking errors.
 """
 from collections import defaultdict
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, ROUND_FLOOR
 from vyapar_audit import transaction_audit, decimal as D, rounded as M
+
+def allocate_paise(total, amounts):
+    """Allocate an aggregate's paise without negative last-line corrections.
+
+    Source amounts remain separate evidence. Largest fractional remainders get
+    the remaining paise, with source order as a stable tie-breaker. Scaling to
+    the rounded aggregate also handles tax components whose separate rounding
+    would otherwise create or lose a paise.
+    """
+    if total<0 or total!=M(total) or any(amount<0 for amount in amounts):
+        raise ValueError('Negative or invalid source amount')
+    weight=sum(amounts,Decimal(0));paise=int(total*100)
+    if not weight:
+        if paise:raise ValueError('Positive total without source amounts')
+        return [Decimal('0.00') for _ in amounts]
+    quotas=[amount*paise/weight for amount in amounts]
+    floors=[int(value.to_integral_value(rounding=ROUND_FLOOR)) for value in quotas]
+    remaining=paise-sum(floors)
+    if not 0<=remaining<=len(amounts):raise ValueError('Source precision cannot be allocated')
+    order=sorted(range(len(amounts)),key=lambda index:(-(quotas[index]-floors[index]),index))
+    for index in order[:remaining]:floors[index]+=1
+    return [Decimal(value).scaleb(-2) for value in floors]
 
 def posting_plan(tables):
     audit=transaction_audit(tables); errors=list(audit['global_issues']); warnings=[]
@@ -77,12 +99,23 @@ def posting_plan(tables):
                 'discount_percent':'0','discount':'0','taxable':str(base),'tax':str(tax),
                 'source_tax':str(line.get('lineitem_tax_amount') or 0),'source_taxable':str(D(line.get('total_amount'))-D(line.get('lineitem_tax_amount'))),
                 'gst_rate':str(rate_total),'tax_treatment':'taxable' if rate_total else 'nil_rated',
-                'itc_treatment':'pending_review','inventory_cost':str(inventory_cost),'mrp':line.get('lineitem_mrp')})
-        tax_totals={key:M(value) for key,value in tax_totals.items()}
+                'itc_treatment':'pending_review' if tax_mode=='regular' and code==2 else 'ineligible','inventory_cost':str(inventory_cost),'mrp':line.get('lineitem_mrp')})
+        try:
+            tax_totals=dict(zip(tax_totals,allocate_paise(M(sum(tax_totals.values(),Decimal(0))),list(tax_totals.values()))))
+        except ValueError as error:
+            errors.append(f'Source {sid}: tax allocation requires review: {error}')
+            tax_totals={key:M(value) for key,value in tax_totals.items()}
         taxable=M(sum((D(line['source_taxable']) for line in clean),Decimal(0)));tax=sum(tax_totals.values(),Decimal(0))
+        if tax_mode!='regular' and code==1 and tax:
+            errors.append(f'Source {sid}: an unregistered company charged outward GST; review the source registration and tax classification')
         if clean:
-            clean[-1]['taxable']=str(D(clean[-1]['taxable'])+taxable-sum((D(line['taxable']) for line in clean),Decimal(0)))
-            clean[-1]['tax']=str(D(clean[-1]['tax'])+tax-sum((D(line['tax']) for line in clean),Decimal(0)))
+            try:
+                bases=allocate_paise(taxable,[D(line['source_taxable']) for line in clean])
+                taxes=allocate_paise(tax,[D(line['source_tax']) for line in clean])
+                for line,base_value,tax_value in zip(clean,bases,taxes):
+                    line['taxable']=str(base_value);line['tax']=str(tax_value)
+            except ValueError as error:
+                errors.append(f'Source {sid}: line allocation requires review: {error}')
         fees=M(row['additional_charges'])
         if fees and code in (1,2):errors.append(f'Source {sid}: financial-document additional charges need tax classification')
         rounding=amount+discount-taxable-tax-fees if code not in (3,4) else Decimal(0)
@@ -131,27 +164,39 @@ def posting_plan(tables):
     for pid,party in parties.items():
         if party.get('name_type')!=1:continue
         if abs(M(party.get('amount'))-M(party_net[pid]))>Decimal('.01'):errors.append(f'Party {pid}: closing balance implies an unsupported opening/adjustment')
+    if tax_mode!='regular':
+        nonrecoverable_tax=sum((sum(map(D,doc['taxes'].values())) for doc in documents if doc['source_type']==2),Decimal(0))
+        if nonrecoverable_tax:
+            warnings.append(f'Unregistered company: supplier GST {nonrecoverable_tax} is included in purchase cost and FIFO inventory/COGS, with no pending input-tax asset; original source tax is retained')
     # FIFO is independently reconciled to source closing values; never plug a difference.
     quantity_net=defaultdict(Decimal); value_net=defaultdict(Decimal); lots=defaultdict(list)
+    source_value_net=defaultdict(Decimal)
     for doc in sorted(documents,key=lambda d:(d['date'],d['source_id'])):
         if doc['source_type'] not in (1,2):continue
         for line in sorted(doc['lines'],key=lambda l:l['source_line_id']):
             iid=line['source_item_id'];qty=D(line['quantity']);cost=Decimal(0)
             if doc['source_type']==2:
-                base=D(line['taxable']);remaining=max(Decimal(0),qty+min(quantity_net[iid],Decimal(0)))
+                source_base=D(line['taxable'])
+                base=source_base+(D(line['tax']) if tax_mode!='regular' else Decimal(0))
+                remaining=max(Decimal(0),qty+min(quantity_net[iid],Decimal(0)))
                 cost=M(base*remaining/qty) if qty else Decimal(0)
-                lots[iid].append([remaining,cost]);quantity_net[iid]+=qty
+                source_cost=M(source_base*remaining/qty) if qty else Decimal(0)
+                lots[iid].append([remaining,cost,source_cost]);quantity_net[iid]+=qty
                 line['legacy_shortage_cost']=str(base-cost)
                 value_net[iid]+=cost
+                source_value_net[iid]+=source_cost
             else:
-                remaining=qty
+                remaining=qty;source_cost=Decimal(0)
                 for lot in lots[iid]:
                     if not remaining:break
                     take=min(lot[0],remaining)
                     used=lot[1] if take==lot[0] else M(lot[1]*take/lot[0]) if lot[0] else Decimal(0)
-                    lot[0]-=take;lot[1]-=used;remaining-=take;cost+=used
+                    source_used=lot[2] if take==lot[0] else M(lot[2]*take/lot[0]) if lot[0] else Decimal(0)
+                    lot[0]-=take;lot[1]-=used;lot[2]-=source_used;remaining-=take;cost+=used;source_cost+=source_used
                 quantity_net[iid]-=qty;value_net[iid]-=cost
+                source_value_net[iid]-=source_cost
             line['inventory_cost']=str(cost)
+            line['source_tax_exclusive_inventory_cost']=str(source_cost)
     adjustments=[]
     for adjustment in tables.get('kb_item_adjustments',[]):
         iid=adjustment.get('item_adj_item_id');item=masters.get(iid,{});qty=D(adjustment.get('item_adj_quantity'))
@@ -171,9 +216,22 @@ def posting_plan(tables):
             errors.append(f'Item {iid}: purchased service cost requires explicit expense mapping; cannot capitalize untracked service inventory')
         if item.get('item_type') not in (None,1,3):errors.append(f'Item {iid}: unverified item type')
         if abs(D(item.get('item_stock_quantity'))-quantity_net[iid])>Decimal('.000001'):errors.append(f'Item {iid}: opening/adjustment or unit mapping does not reconcile')
-        if abs(M(item.get('item_stock_value'))-M(value_net[iid]))>Decimal('.01'):errors.append(f'Item {iid}: source stock value needs cost reconstruction')
+        source_value=M(item.get('item_stock_value'));accounting_value=M(value_net[iid]);exclusive_value=M(source_value_net[iid])
+        # Preserve and independently prove the source's valuation. Nonrecoverable
+        # supplier GST belongs in this company's inventory/COGS, not input assets.
+        # Sources may value inventory with or without that GST; accept only these
+        # exact reconstructed bases, and disclose the bridge rather than plugging it.
+        allowed_values=(exclusive_value,accounting_value) if tax_mode!='regular' else (accounting_value,)
+        if all(abs(source_value-value)>Decimal('.01') for value in allowed_values):errors.append(f'Item {iid}: source stock value needs cost reconstruction')
         if item.get('item_type')==3:continue # Source service activity is preserved in master metadata, not stock.
-        stock.append({'source_item_id':iid,'quantity':str(quantity_net[iid]),'value':str(M(value_net[iid]))})
+        source_basis=min(allowed_values,key=lambda value:abs(source_value-value))
+        bridge=accounting_value-source_basis
+        source_rounding=source_basis-source_value
+        if tax_mode!='regular' and bridge and abs(source_value-exclusive_value)<=Decimal('.01'):
+            warnings.append(f'Item {iid}: source stock value {source_value} plus nonrecoverable supplier GST {bridge} and source rounding {source_rounding} maps to inventory {accounting_value}; original source values are retained')
+        stock.append({'source_item_id':iid,'quantity':str(quantity_net[iid]),'value':str(accounting_value),
+            'source_value':str(source_value),'source_tax_exclusive_value':str(exclusive_value),
+            'source_rounding_adjustment':str(source_rounding),'nonrecoverable_tax_adjustment':str(bridge)})
     from vyapar_financial import financial_events
     events,financial_errors=financial_events(tables,channels);errors.extend(financial_errors)
     for event in events:

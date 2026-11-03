@@ -803,7 +803,7 @@ def ready(session: Session = Depends(db)):
     return {'status': 'ready', 'version': app.version, 'build_revision': BUILD_REVISION}
 
 def ocr_configuration():
-    try: base_url = validate_ocr_base_url(os.getenv('OCR_BASE_URL', 'https://api.openai.com/v1'))
+    try: base_url = validate_ocr_base_url(os.getenv('OCR_BASE_URL', 'https://api.openai.com/v1'), allow_insecure_http=os.getenv('OCR_ALLOW_INSECURE_HTTP') == '1')
     except ValueError as exc: raise HTTPException(503, str(exc)) from None
     external_provider = base_url != 'https://api.openai.com/v1'
     key = (os.getenv('OMNIROUTE_API_KEY') or os.getenv('OMNIROUTE', '')) if external_provider else os.getenv('OPENAI_API_KEY', '')

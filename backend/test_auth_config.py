@@ -1,11 +1,33 @@
 import unittest
 import subprocess
 import sys
+import os
 from pathlib import Path
 from auth_config import require_jwt_secret
 
 
+def isolated_startup_environment(directory, runtime_environment):
+    # Keep real application credentials/configuration out of the child. Windows
+    # needs SystemRoot to initialize networking DLLs before the API is imported.
+    environment = {'DATABASE_URL': 'sqlite://', 'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONPATH': str(directory)}
+    system_root = runtime_environment.get('SystemRoot') or runtime_environment.get('SYSTEMROOT')
+    if system_root:
+        environment['SystemRoot'] = system_root
+    return environment
+
+
 class SigningConfigurationTest(unittest.TestCase):
+    def test_startup_environment_preserves_runtime_root_but_excludes_app_secrets(self):
+        directory = Path(__file__).parent
+        for root_key in ('SystemRoot', 'SYSTEMROOT'):
+            supplied = {root_key: r'C:\Windows', 'DATABASE_URL': 'postgresql://private.invalid/books',
+                        'JWT_SECRET': 'private-parent-secret', 'OPENAI_API_KEY': 'private-parent-key',
+                        'PYTHONPATH': 'untrusted-parent-modules', 'PATH': 'untrusted-parent-path'}
+            actual = isolated_startup_environment(directory, supplied)
+            self.assertEqual(actual, {'SystemRoot': r'C:\Windows', 'DATABASE_URL': 'sqlite://',
+                                      'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONPATH': str(directory)})
+        self.assertNotIn('SystemRoot', isolated_startup_environment(directory, {}))
+
     def test_missing_short_and_documented_placeholders_fail_for_every_database(self):
         for database in ('sqlite://', 'sqlite:///./example.db', 'postgresql+psycopg://synthetic.invalid/test'):
             for secret in (None, '', ' ', 'x' * 31, 'development-only-change-me', 'replace-with-a-long-random-secret'):
@@ -33,7 +55,7 @@ class SigningConfigurationTest(unittest.TestCase):
     def test_actual_api_startup_refuses_unsafe_sqlite_configuration(self):
         directory = Path(__file__).parent
         for value in (None, 'short', 'replace-with-a-long-random-secret', 'synthetic-startup-only-signing-key-not-production'):
-            env = {'DATABASE_URL': 'sqlite://', 'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONPATH': str(directory)}
+            env = isolated_startup_environment(directory, os.environ)
             if value is not None:
                 env['JWT_SECRET'] = value
             result = subprocess.run([sys.executable, '-c', 'import main; print("STARTUP_OK")'],

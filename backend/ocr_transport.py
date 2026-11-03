@@ -3,7 +3,7 @@ from ipaddress import ip_address
 from urllib.parse import urlparse
 
 
-def validate_ocr_base_url(value: str) -> str:
+def validate_ocr_base_url(value: str, *, allow_insecure_http: bool = False) -> str:
     invalid = 'OCR endpoint configuration is invalid; use an HTTPS URL ending in /v1'
     if not isinstance(value, str) or value != value.strip():
         raise ValueError(invalid)
@@ -25,6 +25,6 @@ def validate_ocr_base_url(value: str) -> str:
             loopback = ip_address(host).is_loopback
         except ValueError:
             loopback = False
-    if target.scheme == 'http' and not loopback:
-        raise ValueError('OCR endpoint must use HTTPS outside loopback; public HTTP overrides are not supported. Configure HTTPS or use manual purchase entry.')
+    if target.scheme == 'http' and not loopback and allow_insecure_http is not True:
+        raise ValueError('OCR endpoint must use HTTPS outside loopback unless the server operator explicitly sets OCR_ALLOW_INSECURE_HTTP=1 for the configured provider.')
     return base_url

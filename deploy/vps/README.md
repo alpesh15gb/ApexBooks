@@ -6,6 +6,8 @@ Only the `apexbooks-vps` Compose project is started. Web/API publish on 127.0.0.
 
 Private `server.env` is transferred separately and kept at `/opt/apexbooks-vps/shared/server.env` with mode 600. It contains a new VPS JWT session key, so users sign in on the new domains. Existing accounts/data are shared; Vercel stays available with its own sessions. Add the existing OmniRoute key privately before deployment; preflight refuses a missing OCR key. Do not regenerate the commerce encryption key or replace the database URL with an empty database.
 
+OCR preflight now checks the same endpoint rules as the API. HTTPS is the default outside literal loopback. An existing operator-approved HTTP OmniRoute service can be used by explicitly setting `OCR_ALLOW_INSECURE_HTTP=1` together with its `OCR_BASE_URL`, `OCR_MODEL` and private key in `server.env`. Only the exact value `1` enables this compatibility option. It sends credentials and invoice bytes without transport encryption; prefer HTTPS or a deliberate server-local route. This option never downgrades an HTTPS URL, changes certificate checks, follows a fallback endpoint, or sends keys to a browser. A loopback URL inside Docker refers to the API container itself, not the VPS host.
+
 ## Explicit release packaging (no deployment implied)
 
 The candidate application version is **1.5.0**, but its version alone is not sufficient deployment identity. An operator-approved package must include nonsecret `release.json` at the source root and beside the incoming archive:
@@ -47,13 +49,55 @@ Root development Compose passes `APEX_SOURCE_SHA`/`APEX_RELEASE_VERSION` as expl
 
 Artifacts are named `Apex-Books-VPS-<version>-<source_sha>.tar.gz` and `Apex-Books-VPS-<version>-<source_sha>-images.tar.gz`. Transfer those artifacts, the three manifests, release.json and the bootstrap script through the normal operator-authenticated SSH process to `/root/apexbooks-vps-incoming/`. Transfer private server.env separately, never as command arguments or in source archives. This source-only change does not authorize credential access, transfer, migration, or deployment.
 
-After separate operational approval, bootstrap prepares `/opt/apexbooks-vps/releases/<version>-<source_sha>/`, verifies the packaged and incoming identities match, and refuses malformed/unknown targets. Then the operator edits private settings and runs `bash deploy/vps/install.sh` from that release directory.
+After separate operational approval, bootstrap prepares `/opt/apexbooks-vps/releases/<version>-<source_sha>/`, verifies the packaged and incoming identities match, and refuses malformed/unknown targets. For a first installation the operator edits private settings and runs `bash deploy/vps/install.sh` from that release directory. An existing activation instead uses the explicit upgrade procedure below.
 
 The installer checks explicit release identity, private settings, free ports, source/image checksums and current Nginx validity before loading images. It verifies immutable image IDs and OCI revision/version labels before starting only the separate Apex project. Local/public checks require the configured API version, exact served `build_revision` source SHA **and running container image identity**. Certificates remain verified; no insecure or force bypass is added. No migrations run automatically. An incompatible schema must be resolved through a separately approved, backup-verified migration procedure before readiness can pass.
 
-The cutover backs up/replaces only the Apex API domain site and web site/snippet. Failed Nginx/HTTPS validation restores those files. Activation state records the complete release identity. Missing/legacy or different activation identity refuses automatic resume/upgrade/retirement/rollback and requires operator review; never delete or rewrite an old marker merely to bypass this gate. Only after verified public readiness may the existing narrowly scoped Atria retirement step run. Unrelated services are not restarted and database volumes are retained.
+The first cutover backs up/replaces only the Apex API domain site and web site/snippet. Failed Nginx/HTTPS validation restores those files. Activation state records the complete release identity. Missing/legacy or different activation identity still refuses ordinary install/resume/retirement/rollback; use the explicit existing-installation procedure below, never delete an old marker to bypass this gate. Only after verified public readiness may the first-install narrowly scoped Atria retirement step run. Unrelated services are not restarted and database volumes are retained.
 
 The API address is `https://api.apexbooks.in` and routes retain `/api/...`; the web app uses same-origin `/api/` proxying. Test Windows/Android with that API origin after public readiness passes. The 1.5.0 native Release builds target this API origin; historical installed clients may still use a preview origin. Verify the actual installed client and connected API build revisions before rollout.
+
+## Upgrade an existing Apex Books activation, including 1.3
+
+This path reuses the existing Apex proxy configuration and database. It does not retire Atria, replace Nginx files, or automatically migrate/restore data. Complete the actual-database clone rehearsal and verified full-database recovery procedure in [the upgrade checklist](../../docs/UPGRADE_1_3_TO_1_5.md). Identify and pause **every writer**, including any Vercel deployment, native client, worker or other API sharing the database; stopping this Compose project alone does not freeze those writers.
+
+Stage the checksummed candidate, load its checksummed immutable images, and retain the previous images. Record the actual old activation digest (`sha256sum /opt/apexbooks-vps/shared/activated.json`) and only the old containers' `.Image` IDs, without dumping their environment. Save a private `/opt/apexbooks-vps/shared/upgrade-plan.json` with the following exact fields, replacing all placeholders after performing the stated checks:
+
+```json
+{
+  "target_release_identity": {"target":"apexbooks-vps","version":"1.5.0","source_sha":"<approved full SHA>","api_image":"sha256:<candidate ID>","web_image":"sha256:<candidate ID>"},
+  "previous_activation_sha256":"<SHA256 of the unchanged old activated.json bytes>",
+  "previous_images":{"api":"sha256:<reviewed current API image ID>","web":"sha256:<reviewed current web image ID>"},
+  "database_backup_reference":"<real nonsecret provider recovery point reference>",
+  "isolated_restore_verified":true,
+  "writers_paused":true,
+  "schema_compatibility_reviewed":true,
+  "recovery_plan_reviewed":true
+}
+```
+
+`target_release_identity` must equal the packaged `release.json` exactly. The flags are operator attestations of completed work, not substitutes for a backup or proof generated by this helper. Keep credentials out of this record. The old activation's scoped proxy snapshot must still exist under the Apex backups directory.
+
+Run from the staged candidate release directory during the reviewed maintenance window:
+
+```bash
+set -euo pipefail
+export APEXBOOKS_ENV_FILE=/opt/apexbooks-vps/shared/server.env
+release_exports="$(python3 deploy/vps/manage.py release-env)"
+eval "$release_exports"
+python3 deploy/vps/manage.py prepare-upgrade
+# Only after all external writers are paused and recovery is verified:
+docker compose -p apexbooks-vps -f deploy/vps/compose.yml stop api web
+# This is the explicit, separately reviewed forward schema migration step:
+docker compose -p apexbooks-vps -f deploy/vps/compose.yml run --rm --no-deps api python migrate.py
+docker compose -p apexbooks-vps -f deploy/vps/compose.yml up -d --no-build --pull never api web
+python3 deploy/vps/manage.py finish-upgrade
+python3 deploy/vps/manage.py verify-other-apps
+```
+
+Preparation verifies the old running image IDs, exact review record, source checksum, candidate image IDs/labels, original private settings, ports and Nginx validity. It saves a private receipt, including a hash of the unchanged private settings, without replacing the old activation. Completion requires that unchanged receipt, settings and review record, exact candidate local/public readiness (including schema readiness), image IDs, version, source SHA and valid HTTPS. Only then does it archive the previous activation and plan and atomically write the new marker. It makes no Nginx or database changes.
+
+On a migration or readiness failure, keep writers paused and the old activation/recovery evidence intact. Use the reviewed database recovery/forward-fix plan; do not restart old code blindly against a changed schema. The generic `rollback` command deliberately refuses an upgraded activation because the original Atria proxy rollback is not a 1.5 database rollback. Reconcile reports and test sign-in/native clients before re-enabling writers. This procedure and its mocked tests do not assert that a production recovery point, freeze or migration has occurred.
 
 ## Checks and rollback
 

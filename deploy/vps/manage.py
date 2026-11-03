@@ -18,7 +18,7 @@ def run(args, **kwargs):
 
 def compose(*args):
     release=release_config()
-    env={**os.environ,'APEX_API_IMAGE':release['api_image'],'APEX_WEB_IMAGE':release['web_image'],'APEX_SOURCE_SHA':release['source_sha']}
+    env={**os.environ,'APEX_API_IMAGE':release['api_image'],'APEX_WEB_IMAGE':release['web_image'],'APEX_SOURCE_SHA':release['source_sha'],'APEXBOOKS_ENV_FILE':str(ENV)}
     return run(['docker', 'compose', '-p', PROJECT, '-f', ROOT / 'deploy/vps/compose.yml', *args], capture_output=True,env=env)
 
 def settings():
@@ -89,9 +89,27 @@ def other_containers():
         if len(parts) == 5 and parts[1] != PROJECT: data[cid] = parts
     return data
 
-def preflight():
+def verify_ocr_configuration(values):
+    # Share the API's exact transport policy; never probe a provider or print keys.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('apex_ocr_policy', ROOT / 'backend/ocr_transport.py')
+    policy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(policy)
+    try:
+        endpoint = policy.validate_ocr_base_url(values.get('OCR_BASE_URL', 'https://api.openai.com/v1'),
+                                               allow_insecure_http=values.get('OCR_ALLOW_INSECURE_HTTP') == '1')
+    except ValueError as error:
+        raise RuntimeError(str(error)) from None
+    external = endpoint != 'https://api.openai.com/v1'
+    key = (values.get('OMNIROUTE_API_KEY') or values.get('OMNIROUTE')) if external else values.get('OPENAI_API_KEY')
+    if not key:
+        raise RuntimeError('Add the configured OCR provider key privately to server.env before deployment')
+
+
+def preflight(*, upgrading=False):
     release_config()
-    if (STATE/'activated.json').exists():activation_state()
+    if upgrading: upgrade_plan()
+    elif (STATE/'activated.json').exists():activation_state()
     if not ENV.is_file(): raise RuntimeError('Missing private server.env')
     if ENV.stat().st_mode & 0o077: raise RuntimeError('Run chmod 600 on private server.env')
     values = settings()
@@ -100,10 +118,7 @@ def preflight():
     if len(values.get('JWT_SECRET', '')) < 32: raise RuntimeError('Valid VPS JWT_SECRET required')
     try: assert len(base64.urlsafe_b64decode(values['COMMERCE_ENCRYPTION_KEY'])) == 32
     except Exception: raise RuntimeError('Original commerce encryption key required') from None
-    external_ocr = values.get('OCR_BASE_URL', 'https://api.openai.com/v1').rstrip('/') != 'https://api.openai.com/v1'
-    ocr_key = (values.get('OMNIROUTE_API_KEY') or values.get('OMNIROUTE')) if external_ocr else values.get('OPENAI_API_KEY')
-    if not ocr_key:
-        raise RuntimeError('Add your existing OmniRoute API key privately to server.env before deployment')
+    verify_ocr_configuration(values)
     if shutil.disk_usage(BASE).free < 5 * 1024**3: raise RuntimeError('At least 5 GB free disk is required')
     for port in (18090, 18091):
         with socket.socket() as listener:
@@ -122,6 +137,86 @@ def preflight():
     baseline = STATE / 'other-containers-before.json'
     if not baseline.exists(): baseline.write_text(json.dumps(other_containers(), indent=2))
     print('Preflight passed: original database configuration, private keys, ports and Nginx checked')
+
+
+def upgrade_plan():
+    """An explicit operator record, not a claim that this code made a backup."""
+    try:
+        value = json.loads((STATE / 'upgrade-plan.json').read_text())
+        marker = (STATE / 'activated.json').read_bytes()
+        previous = json.loads(marker)
+    except (OSError, ValueError):
+        raise RuntimeError('A valid existing activation and private shared/upgrade-plan.json are required') from None
+    required = {'target_release_identity', 'previous_activation_sha256', 'previous_images',
+                'database_backup_reference', 'isolated_restore_verified', 'writers_paused',
+                'schema_compatibility_reviewed', 'recovery_plan_reviewed'}
+    if not isinstance(value, dict) or set(value) != required or not isinstance(previous, dict):
+        raise RuntimeError('Invalid explicit upgrade plan fields')
+    if value['target_release_identity'] != release_config():
+        raise RuntimeError('Upgrade plan targets another release')
+    if value['previous_activation_sha256'] != hashlib.sha256(marker).hexdigest():
+        raise RuntimeError('Existing activation changed since upgrade review')
+    if previous.get('release_identity') == release_config():
+        raise RuntimeError('Candidate is already active; use verify-public')
+    if any(value[key] is not True for key in ('isolated_restore_verified', 'writers_paused',
+                                             'schema_compatibility_reviewed', 'recovery_plan_reviewed')):
+        raise RuntimeError('Record verified database recovery, paused writers and schema compatibility before upgrading')
+    reference = value['database_backup_reference']
+    if not isinstance(reference, str) or not 8 <= len(reference.strip()) <= 500 or '<' in reference or reference.upper().startswith('REPLACE'):
+        raise RuntimeError('A real nonsecret full-database recovery reference is required')
+    images = value['previous_images']
+    if not isinstance(images, dict) or set(images) != {'api', 'web'} or any(not re.fullmatch(r'sha256:[0-9a-f]{64}', str(v)) for v in images.values()):
+        raise RuntimeError('Record immutable previous API/web image IDs in the upgrade plan')
+    # Existing valid scoped proxy recovery remains available after the upgrade.
+    snapshot = Path(str(previous.get('backup', ''))).resolve()
+    if not snapshot.is_relative_to((BASE / 'backups').resolve()) or not (snapshot / 'files.json').is_file() or not (snapshot / 'meta.json').is_file():
+        raise RuntimeError('Previous activation has no valid scoped proxy recovery snapshot')
+    return value, previous, marker
+
+
+def prepare_upgrade():
+    plan, _, marker = upgrade_plan()
+    # Refuse accidental cutover against different running services or review data.
+    for service, image in plan['previous_images'].items():
+        cid = compose('ps', '-q', service).stdout.strip()
+        if not cid or run(['docker', 'inspect', '--format', '{{.Image}}', cid], capture_output=True).stdout.strip() != image:
+            raise RuntimeError('Current container differs from reviewed previous image: ' + service)
+    preflight(upgrading=True)
+    run(['sha256sum', '--check', ROOT / 'VPS_FILES.sha256'], cwd=ROOT, capture_output=True)
+    verify_image_identity()
+    compose('config', '--quiet')
+    receipt = {'target_release_identity': release_config(),
+               'plan_sha256': hashlib.sha256((STATE / 'upgrade-plan.json').read_bytes()).hexdigest(),
+               'private_settings_sha256': hashlib.sha256(ENV.read_bytes()).hexdigest(),
+               'previous_activation_sha256': hashlib.sha256(marker).hexdigest()}
+    atomic(STATE / 'upgrade-prepared.json', json.dumps(receipt, indent=2).encode(), 0o600)
+    print('Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.')
+
+
+def finish_upgrade():
+    plan, previous, marker = upgrade_plan()
+    expected = {'target_release_identity': release_config(),
+                'plan_sha256': hashlib.sha256((STATE / 'upgrade-plan.json').read_bytes()).hexdigest(),
+                'private_settings_sha256': hashlib.sha256(ENV.read_bytes()).hexdigest(),
+                'previous_activation_sha256': hashlib.sha256(marker).hexdigest()}
+    try: prepared = json.loads((STATE / 'upgrade-prepared.json').read_text())
+    except (OSError, ValueError): raise RuntimeError('Run prepare-upgrade before changing the candidate containers') from None
+    if prepared != expected: raise RuntimeError('Upgrade plan or private settings changed since successful preflight')
+    verify_local()  # Requires migrated schema, exact source/version and immutable image IDs.
+    verify_public()  # Requires real HTTPS certificates and the same candidate identity.
+    # Recheck files after network waits, preserving the old marker on every failure.
+    if (marker != (STATE / 'activated.json').read_bytes()
+            or expected['plan_sha256'] != hashlib.sha256((STATE / 'upgrade-plan.json').read_bytes()).hexdigest()
+            or expected['private_settings_sha256'] != hashlib.sha256(ENV.read_bytes()).hexdigest()):
+        raise RuntimeError('Upgrade review files changed during verification')
+    snapshot = BASE / 'backups' / ('upgrade-' + datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
+    snapshot.mkdir(parents=True, mode=0o700)
+    atomic(snapshot / 'previous-activated.json', marker, 0o600)
+    atomic(snapshot / 'upgrade-plan.json', (STATE / 'upgrade-plan.json').read_bytes(), 0o600)
+    value = {'release_identity': release_config(), 'backup': previous['backup'],
+             'upgrade_snapshot': str(snapshot), 'verified_at': datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    atomic(STATE / 'activated.json', json.dumps(value, indent=2).encode(), 0o600)
+    print('Verified upgrade activated. Previous marker and recovery plan retained at ' + str(snapshot) + '; schema rollback remains a separate reviewed recovery operation.')
 
 def verify_local():
     verify_image_identity(running=True)
@@ -271,7 +366,7 @@ def verify_other_apps():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['preflight', 'verify-local', 'activate', 'verify-public', 'retire-atria', 'verify-other-apps', 'rollback', 'resume', 'release-env', 'verify-images'])
+    parser.add_argument('action', choices=['preflight', 'verify-local', 'activate', 'verify-public', 'retire-atria', 'verify-other-apps', 'rollback', 'resume', 'release-env', 'verify-images', 'prepare-upgrade', 'finish-upgrade'])
     args = parser.parse_args()
     if args.action=='release-env':
         release=release_config()
@@ -287,6 +382,8 @@ def main():
         verify_other_apps()
     elif args.action == 'rollback':
         state = activation_state()
+        if state.get('upgrade_snapshot'):
+            raise RuntimeError('This activation upgraded an existing database. Use the retained upgrade recovery plan; automatic legacy proxy rollback is refused.')
         # Restart the retired legacy services before restoring their proxy.
         found = run(['docker', 'ps', '-aq', '--filter', 'label=com.docker.compose.project=atria-server'], capture_output=True).stdout.split()
         policies = json.loads((STATE / 'atria-restart-policies.json').read_text()) if (STATE / 'atria-restart-policies.json').exists() else {}
@@ -299,7 +396,7 @@ def main():
         if found: run(['docker', 'start', *found])
         restore(Path(state['backup']))
         (STATE / 'activated.json').unlink()
-    else: {'verify-images':verify_image_identity, 'preflight': preflight, 'verify-local': verify_local, 'activate': activate, 'verify-public': verify_public, 'retire-atria': retire_atria, 'verify-other-apps': verify_other_apps}[args.action]()
+    else: {'prepare-upgrade':prepare_upgrade, 'finish-upgrade':finish_upgrade, 'verify-images':verify_image_identity, 'preflight': preflight, 'verify-local': verify_local, 'activate': activate, 'verify-public': verify_public, 'retire-atria': retire_atria, 'verify-other-apps': verify_other_apps}[args.action]()
 
 if __name__ == '__main__':
     try: main()

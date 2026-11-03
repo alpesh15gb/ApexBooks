@@ -22,7 +22,7 @@ Additive migrations include company labels, retained evidence and bounded transf
 
 Clients negotiate optional features with the API. An older API does not gain a capability just because a new client displays it. Old JSON/gzip backup imports remain supported within their documented limits; complete evidence backups use the v8 ZIP API. Older clients receive an explicit complete-backup requirement when receipts exist.
 
-Operational requirements include an explicit strong JWT secret and HTTPS for non-loopback OCR transport. Existing insecure public-HTTP OCR overrides are not a supported way to transmit credentials or document images.
+Operational requirements include an explicit strong JWT secret. OCR requires HTTPS outside loopback by default; an operator may explicitly configure `OCR_ALLOW_INSECURE_HTTP=1` for an approved existing HTTP provider, accepting that provider credentials and document bytes then lack transport encryption. There is no automatic downgrade or client-side key. VPS preflight validates the same configuration rules before cutover.
 
 ## Build identity
 

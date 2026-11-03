@@ -51,8 +51,12 @@ def main():
             from decimal import Decimal
             from vyapar_import import inspect_backup
             source=inspect_backup(payload['backup_base64'])['tables']
-            dates=[str(t['txn_date'])[:10] for t in source['kb_transactions']]
-            ranges={'from_date':min(dates),'to_date':max(dates)}
+            from vyapar_posting import posting_plan
+            plan=posting_plan(source)
+            dates=[row['date'] for key in ('documents','payments','openings','stock_adjustments','financial_events') for row in plan[key]]
+            # Master-only sources have no financial cutoff; the report window is
+            # merely a harmless synthetic probe, not invented source metadata.
+            ranges={'from_date':min(dates,default='2000-01-01'),'to_date':max(dates,default='2000-12-31')}
             reports={}
             for report in ('financial','gst','stock','items','ageing'):
                 response=client.get(base+'/reports/'+report,headers=h,params={'as_of':ranges['to_date']} if report=='ageing' else ranges)
@@ -93,7 +97,10 @@ def main():
                 if item.get('item_type')==3:continue
                 row=stock[master['id']]
                 check('Source stock '+str(item['item_id'])+' quantity',Decimal(str(item.get('item_stock_quantity') or 0)),Decimal(row['closing_quantity']))
-                check('Source stock '+str(item['item_id'])+' value',Decimal(str(item.get('item_stock_value') or 0)).quantize(Decimal('.01')),Decimal(row['closing_value']))
+                valuation=next(value for value in plan['stock'] if value['source_item_id']==item['item_id'])
+                source_value=Decimal(str(item.get('item_stock_value') or 0)).quantize(Decimal('.01'))
+                check('Source stock '+str(item['item_id'])+' preserved value',source_value,Decimal(valuation['source_value']))
+                check('Source stock '+str(item['item_id'])+' value plus disclosed tax and rounding',source_value+Decimal(valuation['nonrecoverable_tax_adjustment'])+Decimal(valuation['source_rounding_adjustment']),Decimal(row['closing_value']))
             result['independent_source_checks']=checks
             assert all(c['passed'] for c in checks),[c for c in checks if not c['passed']]
             exported=client.get(base+'/data-export.json',headers=h);assert exported.status_code==200,exported.text
@@ -114,10 +121,15 @@ def main():
                 assert canonical(response.json())==canonical(reports[name]),'Restored '+name+' report differs'
             result['portable_restore_report_values_verified']=True
             result['portable_restore_verified']=True
-            invoice=next(r for r in records if r['kind']=='sales_invoice')
-            pdf=client.get(base+'/documents/'+invoice['id']+'.pdf',headers=h)
-            assert pdf.status_code==200,pdf.text
-            result.update({'record_count':len(records),'reports':reports,'idempotency_verified':True,'sample_invoice_pdf_bytes':len(pdf.content)})
+            document=next((r for kind in ('sales_invoice','purchase_bill','estimate','proforma','purchase_order','sales_order') for r in records if r['kind']==kind),None)
+            pdf_size=None
+            if document:
+                pdf=client.get(base+'/documents/'+document['id']+'.pdf',headers=h)
+                assert pdf.status_code==200,pdf.text
+                pdf_size=len(pdf.content)
+            result.update({'record_count':len(records),'reports':reports,'idempotency_verified':True,
+                'sample_document_kind':document['kind'] if document else None,'sample_document_pdf_bytes':pdf_size,
+                'sample_invoice_pdf_bytes':pdf_size if document and document['kind']=='sales_invoice' else None})
             if all((args.native_transactions,args.native_stock,args.native_gst)):
                 from reconcile_vyapar_native import reconcile
                 result['native_checks']=reconcile(records,reports['stock'],args.native_transactions,args.native_stock,args.native_gst)

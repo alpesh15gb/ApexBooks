@@ -223,6 +223,7 @@ class LocalUiAcceptanceTest {
         assertEquals("Discarded terms review creates no new invoice",1,afterReview.count{it.s("kind")=="sales_invoice"})
         // Create a real second invoice entirely through the native document editor.
         clickReadyAction(device,"New invoice")
+        assertTrue("Blank document asks for item details instead of claiming an active calculation",device.wait(Until.hasObject(By.text("Add item details")),10000))
         assertTrue(device.wait(Until.hasObject(By.text("New Sales Invoice")),15000))
         chooseSavedParty(device)
         device.findObject(By.text("Next: add items")).click()

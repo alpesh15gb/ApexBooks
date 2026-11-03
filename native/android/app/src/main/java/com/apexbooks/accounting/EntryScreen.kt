@@ -34,10 +34,16 @@ import org.json.JSONObject
     val scroll = rememberScrollState()
     val idle = !editor.saving && !editor.scanning && !editor.sourceLoading
     val serialized = if (editor.document) editor.body().toString() else ""
+    val previewReady = editor.lines.isNotEmpty() && editor.lines.none { it.get("description").isBlank() || it.get("quantity").isBlank() || it.get("rate").isBlank() }
+    val previewStatus = when {
+        !previewReady -> "Add item details"
+        editor.previewError.isNotBlank() -> "Total unavailable"
+        else -> "Calculating…"
+    }
     LaunchedEffect(serialized) {
         if (!editor.document) return@LaunchedEffect
         editor.preview = null; editor.previewError = ""
-        if (editor.lines.isEmpty() || editor.lines.any { it.get("description").isBlank() || it.get("quantity").isBlank() || it.get("rate").isBlank() }) return@LaunchedEffect
+        if (!previewReady) return@LaunchedEffect
         delay(350)
         try { editor.preview = vm.api.request(vm.api.company(editor.companyId, "/documents/preview"), "POST", JSONObject(serialized)) as JSONObject }
         catch (e: Exception) { currentCoroutineContext().ensureActive(); editor.previewError = e.message ?: "Preview is unavailable."; if (e is ApiFailure && e.status == 401) vm.failure(e) }
@@ -73,7 +79,7 @@ import org.json.JSONObject
                     if (editor.document) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Total", style = MaterialTheme.typography.labelLarge)
-                            Text(editor.preview?.let { money(it.s("amount")) } ?: "Calculating…", style = MaterialTheme.typography.titleLarge, color = ApexGreen, fontWeight = FontWeight.Bold)
+                            Text(editor.preview?.takeIf { previewReady }?.let { money(it.s("amount")) } ?: previewStatus, style = MaterialTheme.typography.titleLarge, color = ApexGreen, fontWeight = FontWeight.Bold)
                         }
                         if (editor.previewError.isNotBlank()) Text(editor.previewError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
@@ -140,14 +146,14 @@ import org.json.JSONObject
                             if (editor.get("due_date").isNotBlank()) DetailValue("Due date", editor.get("due_date"))
                             editor.lines.forEachIndexed { index, line ->
                                 val calculated = editor.preview?.o("data")?.a("lines")?.optJSONObject(index)
-                                DetailValue(line.get("description") + " × " + line.get("quantity"), calculated?.let { money(it.decimal("taxable") + it.decimal("tax")) } ?: "Calculating…")
+                                DetailValue(line.get("description") + " × " + line.get("quantity"), calculated?.let { money(it.decimal("taxable") + it.decimal("tax")) } ?: previewStatus)
                             }
                             HorizontalDivider()
                             val totals = editor.preview?.o("data")
                             if (totals != null) {
                                 for ((key, label) in listOf("taxable" to "Taxable amount", "cgst" to "CGST", "sgst" to "SGST", "igst" to "IGST", "supplier_tax" to "Supplier GST", "round_off" to "Round off")) if (totals.has(key) && (key == "taxable" || totals.decimal(key).signum() != 0)) DetailValue(label, money(totals.s(key)))
                             }
-                            DetailValue("Total", editor.preview?.let { money(it.s("amount")) } ?: "Calculating…")
+                            DetailValue("Total", editor.preview?.takeIf { previewReady }?.let { money(it.s("amount")) } ?: previewStatus)
                         }
                         if(editor.previous==null&&editor.kind in setOf("sales_invoice","estimate","proforma","sales_order")){
                             if(editor.get("party_id").isBlank())Text("Select a saved customer to check their credit limit.",style=MaterialTheme.typography.bodySmall)

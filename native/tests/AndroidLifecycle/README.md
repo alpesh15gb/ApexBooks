@@ -8,7 +8,9 @@ python3 native/tests/AndroidLifecycle/check.py
 
 Or select an existing distribution with `--gradle-home /path/to/gradle-8.14.3`.
 The script downloads nothing and uses the Kotlin compiler/coroutines shipped with
-that distribution. It compiles the actual `AppModel.chooseCompany` and `task`
+that distribution. It works on Windows and Unix using Java argument files and
+the platform classpath separator, including long cache paths and paths with
+spaces. It compiles the actual `AppModel.chooseCompany` and `task`
 method bodies in a controlled model seam, not an Android Application or Compose
 runtime. The fake transport suspends until the caller's dialog scope is cancelled.
 

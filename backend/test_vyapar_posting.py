@@ -26,12 +26,16 @@ def fixture():
 def encode(tables):
     conn=sqlite3.connect(':memory:')
     for name,rows in tables.items():
-        if not rows:continue
-        keys=list(dict.fromkeys(key for row in rows for key in row))
+        # Empty tables are valid source databases (for example bank openings
+        # without invoices); retain their known synthetic schema in the archive.
+        schema_rows=rows or fixture().get(name,[])
+        if not schema_rows:continue
+        keys=list(dict.fromkeys(key for row in schema_rows for key in row))
         conn.execute('CREATE TABLE "'+name+'" ('+','.join('"'+k+'"' for k in keys)+')')
         conn.executemany('INSERT INTO "'+name+'" VALUES ('+','.join('?' for _ in keys)+')',[tuple(r.get(k) for k in keys) for r in rows])
     conn.commit();out=io.BytesIO()
-    with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as archive:archive.writestr('synthetic.vyp',conn.serialize())
+    entry=zipfile.ZipInfo('synthetic.vyp',(2026,1,1,0,0,0));entry.compress_type=zipfile.ZIP_DEFLATED
+    with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as archive:archive.writestr(entry,conn.serialize())
     conn.close();return base64.b64encode(out.getvalue()).decode()
 
 class VyaparPostingTest(unittest.TestCase):

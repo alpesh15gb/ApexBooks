@@ -1,6 +1,7 @@
 import os
 import base64
 import io
+import json
 import tempfile
 import unittest
 from decimal import Decimal
@@ -1014,11 +1015,18 @@ class ApiTest(unittest.TestCase):
                 self.assertEqual(post.call_args.kwargs['headers']['Authorization'], 'Bearer test-only-key')
             with patch.dict(os.environ, {'OCR_BASE_URL': 'http://192.0.2.1:8088/v1', 'OMNIROUTE': 'test-only-key', 'OCR_MODEL': 'APEXV1', 'OCR_ALLOW_INSECURE_HTTP': '1'}, clear=True), patch('main.httpx.post', return_value=fake) as post:
                 status = client.get('/api/ocr/status', headers=editor).json()
-                self.assertFalse(status['ready'])
-                self.assertIn('HTTPS', status['message'])
+                self.assertTrue(status['ready'])
+                self.assertNotIn('test-only-key', json.dumps(status))
                 extraction = client.post(base + '/ocr/purchase-draft', headers=editor, json={'image_data_url': valid_image})
-                self.assertEqual(extraction.status_code, 503, extraction.text)
-                post.assert_not_called()
+                self.assertEqual(extraction.status_code, 200, extraction.text)
+                self.assertEqual(post.call_args.args[0], 'http://192.0.2.1:8088/v1/responses')
+                self.assertEqual(post.call_args.kwargs['headers']['Authorization'], 'Bearer test-only-key')
+                self.assertEqual(post.call_args.kwargs['json']['model'], 'APEXV1')
+            for flag in ('0', 'true', 'yes'):
+                with patch.dict(os.environ, {'OCR_BASE_URL': 'http://192.0.2.1:8088/v1', 'OMNIROUTE': 'test-only-key', 'OCR_ALLOW_INSECURE_HTTP': flag}, clear=True), patch('main.httpx.post') as post:
+                    self.assertFalse(client.get('/api/ocr/status', headers=editor).json()['ready'])
+                    self.assertEqual(client.post(base + '/ocr/purchase-draft', headers=editor, json={'image_data_url': valid_image}).status_code, 503)
+                    post.assert_not_called()
             with patch.dict(os.environ, {'OCR_BASE_URL': 'http://127.0.0.1:8008/v1', 'OMNIROUTE': 'test-only-key', 'OCR_MODEL': 'APEXV1'}, clear=True), patch('main.httpx.post', return_value=fake) as post:
                 self.assertTrue(client.get('/api/ocr/status', headers=editor).json()['ready'])
                 extraction = client.post(base + '/ocr/purchase-draft', headers=editor, json={'image_data_url': valid_image})

@@ -502,10 +502,12 @@ export default function RecordEditor({
         variant={doc ? "document" : undefined}
         close={requestClose}
       >
+        {/* Mark dirty after controlled inputs have queued their value updates.
+            Capture-phase renders can restore the old value before onChange. */}
         <form
           onSubmit={submit}
-          onChangeCapture={() => setDirty(true)}
-          onInputCapture={() => setDirty(true)}
+          onChange={() => setDirty(true)}
+          onInput={() => setDirty(true)}
           className={`form-grid ${doc ? "document-form" : ""}`}
           onKeyDown={(e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {

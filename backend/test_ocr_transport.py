@@ -26,3 +26,18 @@ class OcrTransportConfigurationTest(unittest.TestCase):
                     self.assertNotIn('private', str(error))
                 else:
                     self.fail('Invalid OCR configuration accepted')
+
+    def test_external_http_requires_exact_explicit_boolean_opt_in(self):
+        url = 'http://192.0.2.1:8088/v1'
+        self.assertEqual(validate_ocr_base_url(url, allow_insecure_http=True), url)
+        for flag in (False, None, '1', 'true', 1):
+            with self.subTest(flag=flag), self.assertRaises(ValueError):
+                validate_ocr_base_url(url, allow_insecure_http=flag)
+
+    def test_opt_in_does_not_bypass_endpoint_validation_or_downgrade_https(self):
+        self.assertEqual(validate_ocr_base_url('https://synthetic.invalid/v1', allow_insecure_http=True),
+                         'https://synthetic.invalid/v1')
+        for url in ('ftp://localhost/v1', 'http://secret@example.invalid/v1',
+                    'http://example.invalid/v1?key=secret', 'http://example.invalid:99999/v1'):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                validate_ocr_base_url(url, allow_insecure_http=True)

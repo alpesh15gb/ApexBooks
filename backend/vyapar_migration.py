@@ -24,7 +24,9 @@ def summary(plan):
         'payment_count':len(plan['payments']),'supplier_advance_count':sum(p['is_advance'] and p['kind']=='payment_out' for p in plan['payments']),'stock_items':len(plan['stock']),
         'negative_stock_items':sum(Decimal(s['quantity'])<0 for s in plan['stock']),
         'bank_movement':plan['bank_movement'],'converted_unresolved':plan['converted_unresolved'],
-        'source_transaction_count':len(plan['source_audit']['rows']),'tax_rounding_by_party':differences}
+        'source_transaction_count':len(plan['source_audit']['rows']),'tax_rounding_by_party':differences,
+        'stock_valuation_reconciliation':plan['stock'],
+        'nonrecoverable_supplier_tax':str(sum((sum(map(Decimal,d['taxes'].values())) for d in plan['documents'] if d['apex_kind']=='purchase_bill'),Decimal(0)) if plan['tax_mode']!='regular' else Decimal(0))}
 
 def migrate(company, user, session, backup, action, expected_digest):
     import main as m
@@ -108,7 +110,9 @@ def migrate(company, user, session, backup, action, expected_digest):
         party=masters[('party',row['party_source_id'])]
         data={'lines':lines,'party_id':party.id,'party_gstin':party.data.get('gstin',''),'party_phone':party.data.get('phone',''),
             'party_address':str(original.get('txn_billing_address') or party.data.get('address','')),'shipping_address':str(original.get('txn_shipping_address') or ''),
-            'tax_mode':plan['tax_mode'],'taxable':row['taxable'],**tax,'pending_input_cgst':tax['cgst'],'pending_input_sgst':tax['sgst'],'pending_input_igst':tax['igst'],
+            'tax_mode':plan['tax_mode'],'taxable':row['taxable'],**tax,
+            **{'pending_input_'+key:value if plan['tax_mode']=='regular' and kind=='purchase_bill' else '0' for key,value in tax.items()},
+            'input_tax_ineligible':str(sum(map(Decimal,tax.values())) if plan['tax_mode']!='regular' and kind=='purchase_bill' else Decimal(0)),
             'tax':str(sum(map(Decimal,tax.values()))),'place_of_supply':row['place_of_supply'],'vyapar_source_place_of_supply':str(original.get('txn_place_of_supply') or ''),
             'source_document_discount':row['discount'],'source_zero_document':Decimal(row['amount'])==0,'source_cancelled':kind=='cancelled_sales_invoice','additional_charges':row['fees'],'round_off':row['rounding'],'vyapar_source_id':row['source_id'],'vyapar_digest':digest,
             'vyapar_source_party_name':row['party'],'vyapar_cost_method':'source_verified_fifo','vyapar_converted':row['converted'],'vyapar_source':original,'company_snapshot':m.company_obj(company,session),
@@ -127,8 +131,11 @@ def migrate(company, user, session, backup, action, expected_digest):
             add('sales' if sale else 'inventory',Decimal(row['taxable']) if sale else stock_cost,not sale)
             if sale:
                 add('cogs',stock_cost);add('inventory',stock_cost,False)
-            else:add('cogs',Decimal(row['taxable'])-stock_cost)
-            for key,value in tax.items():add(('output_' if sale else 'input_')+key,Decimal(value),not sale)
+            else:
+                purchase_cost=Decimal(row['taxable'])+(sum(map(Decimal,tax.values())) if plan['tax_mode']!='regular' else Decimal(0))
+                add('cogs',purchase_cost-stock_cost)
+            if sale or plan['tax_mode']=='regular':
+                for key,value in tax.items():add(('output_' if sale else 'input_')+key,Decimal(value),not sale)
             residual=Decimal(row['rounding'])*(1 if sale else -1)
             if residual:entries.append((rounding.id,max(-residual,Decimal(0)),max(residual,Decimal(0))))
             discount=Decimal(row['discount'])
@@ -172,6 +179,7 @@ def migrate(company, user, session, backup, action, expected_digest):
         iid=masters[('item',stock['source_item_id'])].id
         qty,value=session.execute(select(func.coalesce(func.sum(m.StockMovement.quantity),0),func.coalesce(func.sum(m.StockMovement.cost_value),0)).where(m.StockMovement.company_id==cid,m.StockMovement.item_id==iid)).one()
         check('Item '+str(stock['source_item_id'])+' quantity',Decimal(stock['quantity']),qty);check('Item '+str(stock['source_item_id'])+' value',Decimal(stock['value']),value)
+        check('Item '+str(stock['source_item_id'])+' source value plus disclosed tax and rounding',Decimal(stock['source_value'])+Decimal(stock['nonrecoverable_tax_adjustment'])+Decimal(stock['source_rounding_adjustment']),value)
     for channel in plan['banks']:
         key=channel['paymentType_id']
         if channel['paymentType_type'] not in ('CASH','BANK'):continue
@@ -184,7 +192,7 @@ def migrate(company, user, session, backup, action, expected_digest):
         check('Loan '+str(event['loan_id'])+' paired opening once',Decimal(event['amount']),actual)
     for side,kind in (('output','sales_invoice'),('input','purchase_bill')):
         for tax in ('cgst','sgst','igst'):
-            expected=sum((Decimal(d['taxes'][tax]) for d in plan['documents'] if d['apex_kind']==kind),Decimal(0))
+            expected=sum((Decimal(d['taxes'][tax]) for d in plan['documents'] if d['apex_kind']==kind),Decimal(0)) if side=='output' or plan['tax_mode']=='regular' else Decimal(0)
             aid=m.system_account(cid,side+'_'+tax,session)
             actual=session.scalar(select(func.coalesce(func.sum(m.JournalLine.debit-m.JournalLine.credit),0)).where(m.JournalLine.company_id==cid,m.JournalLine.account_id==aid))
             check(side.title()+' '+tax.upper(),expected,actual*(-1 if side=='output' else 1))
@@ -199,8 +207,12 @@ def migrate(company, user, session, backup, action, expected_digest):
     stock_value=session.scalar(select(func.coalesce(func.sum(m.StockMovement.cost_value),0)).where(m.StockMovement.company_id==cid))
     check('Inventory control equals stock subledger',inventory_balance,stock_value)
     if any(not c['passed'] for c in checks):raise HTTPException(422,{'message':'Migration reconciliation failed; nothing posted','checks':[c for c in checks if not c['passed']]})
+    # A source may contain only account openings, stock additions or loan/bank
+    # events. A master-only archive has no source accounting date: keep it null
+    # rather than inventing today's cutoff or calling max() on an empty sequence.
+    activity=plan['documents']+plan['payments']+plan['openings']+plan['stock_adjustments']+plan['financial_events']
     result.update({'imported':True,'journals_posted':posted,'allocations_created':allocations,'documents_imported':len(document_map),'reconciliation':checks,
-        'reconciled_at':datetime.now(timezone.utc).isoformat(),'source_as_of':max(r['date'] for r in plan['documents']+plan['payments'])})
+        'reconciled_at':datetime.now(timezone.utc).isoformat(),'source_as_of':max((r['date'] for r in activity),default=None)})
     payload={'digest':digest,'archive_version':3,'scope':'full_posting','tables':tables,'posting_summary':result}
     if archived:archived.data=payload
     else:

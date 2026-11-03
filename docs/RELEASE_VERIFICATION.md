@@ -82,4 +82,4 @@ Establish a verified full-database recovery point/PITR and isolated restore rehe
 
 ## Before live promotion
 
-Close the newest-source UI/CI gates, verify source identity across API/web/native artifacts, perform isolated migration and recovery drills, verify explicit JWT secret and HTTPS OCR transport, and preserve source-book identities. Merging a draft branch does not complete these operational gates. Do not describe this candidate as fully deployed, fully secure, zero-defect or universally feature-complete.
+Close the newest-source UI/CI gates, verify source identity across API/web/native artifacts, perform isolated migration and recovery drills, verify an explicit JWT secret and the operator-reviewed OCR transport (HTTPS by default; an existing HTTP provider requires explicit server-only opt-in), and preserve source-book identities. Merging a draft branch does not complete these operational gates. Do not describe this candidate as fully deployed, fully secure, zero-defect or universally feature-complete.

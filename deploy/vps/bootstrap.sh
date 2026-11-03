@@ -32,4 +32,8 @@ if [ ! -f /opt/apexbooks-vps/shared/server.env ]; then
     install -m 0600 server.env /opt/apexbooks-vps/shared/server.env
 fi
 chmod 0600 /opt/apexbooks-vps/shared/server.env
-echo 'Prepared. Add OMNIROUTE_API_KEY privately in /opt/apexbooks-vps/shared/server.env, then run install.sh.'
+if [ -f /opt/apexbooks-vps/shared/activated.json ]; then
+    echo 'Prepared existing installation. Retain its activation marker and follow the README prepare-upgrade / finish-upgrade procedure; ordinary install.sh deliberately refuses a different release.'
+else
+    echo 'Prepared first installation. Configure the OCR endpoint/key privately in shared/server.env, then run install.sh.'
+fi

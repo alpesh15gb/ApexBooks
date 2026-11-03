@@ -45,7 +45,7 @@ backend/main.py rejects the bundled development JWT fallback and short secrets f
 
 ## OCR transport remediation
 
-The source no longer honors a public HTTP OCR transport override. Non-loopback endpoints require HTTPS; explicit loopback HTTP remains available for local development only. URL user-info, query strings, fragments and malformed endpoints are rejected with a safe configuration error. OCR status reports unavailable and purchase extraction returns 503 before sending a document or provider credential; ordinary manual purchase entry remains available. Mock-only API regressions prove the old override cannot trigger an outbound call, and HTTPS/loopback cases remain supported. No live OCR configuration was read or changed, and no invoice image or key was sent during verification.
+Non-loopback OCR endpoints require HTTPS by default. For the explicitly requested existing HTTP provider, the server operator may set `OCR_ALLOW_INSECURE_HTTP=1`; all other values keep the secure default. This opt-in accepts that provider credentials and invoice bytes travel without transport encryption. It does not downgrade HTTPS, weaken certificate checks, automatically choose a fallback URL, or expose keys to clients. URL user-info, query strings, fragments and malformed endpoints remain rejected. Mock-only API regressions cover rejection before outbound calls without opt-in and the exact configured endpoint with explicit opt-in. VPS preflight applies the same validator. No live OCR configuration was read or changed and no invoice or key was sent during verification.
 
 ## Final local verification
 
