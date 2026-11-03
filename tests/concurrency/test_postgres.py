@@ -559,5 +559,56 @@ class ConcurrentPostingTest(unittest.TestCase):
         self.assertEqual(Decimal(next(row['closing_balance'] for row in financial['accounts'] if row['code']=='SYS-INVENTORY')),0)
 
 
+    def test_note_date_amendment_and_refund_share_chronology_lock(self):
+        from decimal import Decimal
+        for source_kind,note_kind,payment_kind,refund_kind in (
+                ('sales_invoice','credit_note','payment_in','customer_refund'),
+                ('purchase_bill','debit_note','payment_out','supplier_refund')):
+            with self.subTest(kind=note_kind):
+                line={'description':'Chronology service','quantity':1,'rate':100,'gst_rate':0}
+                source=self.create({'kind':source_kind,'name':'Chronology party','date':'2026-04-02','data':{'lines':[line]}})
+                self.create({'kind':payment_kind,'name':source['name'],'date':'2026-04-02','amount':100,'data':{'applied_to':source['id']}})
+                note=self.create({'kind':note_kind,'name':source['name'],'date':'2026-04-03','data':{'lines':[line],'applied_to':source['id']}})
+                edit_path=self.base+'/documents/'+note['id']
+                refund_path=self.base+'/credits/'+note['id']+'/settle'
+                edit={'kind':note_kind,'name':note['name'],'number':note['number'],'date':'2026-04-05','amount':note['amount'],'data':{**note['data'],'version':0}}
+                refund={'kind':'credit','date':'2026-04-04','amount':20,'data':{'action':'refund','payment_account':'cash'}}
+                gate=Barrier(2)
+                def send(method,path,body):
+                    with TestClient(app,client=('pg-note-date-'+uuid4().hex,50000)) as client:
+                        gate.wait(timeout=15)
+                        return client.request(method,path,headers={**self.headers,'Idempotency-Key':uuid4().hex},json=body)
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    pending_edit=pool.submit(send,'PUT',edit_path,edit)
+                    pending_refund=pool.submit(send,'POST',refund_path,refund)
+                    amended,refunded=pending_edit.result(timeout=30),pending_refund.result(timeout=30)
+                self.assertIn((amended.status_code,refunded.status_code),[(200,422),(422,201)],(amended.text,refunded.text))
+                if amended.status_code==200:
+                    # Populate a settlement regardless of which serialized operation won.
+                    refunded=self.client.post(refund_path,headers={**self.headers,'Idempotency-Key':uuid4().hex},json={**refund,'date':'2026-04-05'})
+                    self.assertEqual(refunded.status_code,201,refunded.text)
+                current=self.client.get(self.base+'/records/'+note['id'],headers=self.headers).json()
+                self.assertLessEqual(current['date'],refunded.json()['date'])
+                same_day={**edit,'date':refunded.json()['date'],'data':{**current['data'],'version':current['data'].get('version',0)}}
+                key={**self.headers,'Idempotency-Key':uuid4().hex}
+                saved=self.client.put(edit_path,headers=key,json=same_day)
+                self.assertEqual(saved.status_code,200,saved.text)
+                journals=self.client.get(self.base+'/journals',headers=self.headers).json()
+                replay=self.client.put(edit_path,headers=key,json=same_day)
+                self.assertEqual(replay.status_code,200,replay.text);self.assertEqual(replay.json(),saved.json())
+                rejected=self.client.put(edit_path,headers={**self.headers,'Idempotency-Key':uuid4().hex},json={**same_day,'date':'2026-04-06','data':{**saved.json()['data'],'version':saved.json()['data']['version']}})
+                self.assertEqual(rejected.status_code,422,rejected.text)
+                self.assertIn('Revised note date cannot follow',rejected.json()['detail'])
+                self.assertEqual(self.client.get(self.base+'/journals',headers=self.headers).json(),journals)
+                rows=self.client.get(self.base+'/records',headers=self.headers).json()
+                refunds=[r for r in rows if r['kind']==refund_kind and r['data'].get('credit_note_id')==note['id']]
+                self.assertEqual(len(refunds),1)
+                current=next(r for r in rows if r['id']==note['id'])
+                self.assertLessEqual(current['date'],refunds[0]['date'])
+                self.assertEqual(Decimal(current['credit_remaining']),80)
+                report=self.client.get(self.base+'/reports/financial',headers=self.headers,params={'from_date':'2026-04-01','to_date':'2026-04-30'}).json()
+                self.assertEqual(Decimal(report['balance_difference']),0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
