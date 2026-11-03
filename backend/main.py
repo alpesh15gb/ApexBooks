@@ -1523,6 +1523,10 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             existing = session.get(Record, previous.record_id)
             return {**obj(existing), 'posted': bool(session.scalar(select(RecordPosting.id).where(RecordPosting.company_id == company_id, RecordPosting.record_id == existing.id)))}
     data, amount = {k:v for k,v in body.data.items() if k not in {'recurring_template_id','recurring_occurrence_date'}}, money(body.amount)
+    if body.kind in {'sales_invoice', 'purchase_bill', 'pos'}:
+        # Only credit/debit notes can choose a financial-only return. Normal
+        # documents always post their tracked physical movement with valuation.
+        data.pop('return_stock', None)
     if body.kind in {'payment_in', 'payment_out'}:
         # Unallocated credit is derived for return notes, never payment input.
         data.pop('unallocated_credit', None)
@@ -1701,7 +1705,7 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             for key, debit, credit in posting_lines(body.kind, amount, data, tax_mode):
                 session.add(JournalLine(company_id=company_id, journal_id=journal.id, account_id=posting_account(company_id, key, session), debit=debit, credit=credit))
             session.add(RecordPosting(company_id=company_id, record_id=r.id, journal_id=journal.id))
-            if body.kind in {'purchase_bill', 'debit_note', 'sales_invoice', 'pos', 'credit_note'} and data.get('return_stock') is not False:
+            if body.kind in {'purchase_bill', 'debit_note', 'sales_invoice', 'pos', 'credit_note'} and not (body.kind in {'credit_note', 'debit_note'} and data.get('return_stock') is False):
                 for index, line in enumerate(data.get('lines', [])):
                     item_id = line.get('item_id')
                     if not item_id: continue
@@ -2421,7 +2425,7 @@ def item_report(company_id: str, from_date: DateType, to_date: DateType, user: U
                 values[key] = {'name': name, 'hsn': key[1], 'opening_quantity': Decimal('0'), 'purchased_quantity': Decimal('0'),
                                'sold_quantity': Decimal('0'), 'closing_quantity': Decimal('0'), 'purchase_value': Decimal('0'), 'sales_value': Decimal('0')}
             item = values[key]
-            qty = Decimal(str(line.get('quantity', 0))) if record.data.get('return_stock') is not False else Decimal('0')
+            qty = Decimal('0') if record.kind in {'credit_note', 'debit_note'} and record.data.get('return_stock') is False else Decimal(str(line.get('quantity', 0)))
             taxable = Decimal(str(line.get('taxable', 0)))
             movement = qty if record.kind in {'purchase_bill', 'credit_note'} else -qty
             if record.date < from_date:
