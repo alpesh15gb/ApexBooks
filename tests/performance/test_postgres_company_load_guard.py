@@ -156,5 +156,33 @@ class NarrowPagePlanTest(unittest.TestCase):
         self.assertEqual(profile.narrow_page_limits(self.plan(safe, rows=501)), [])
         self.assertEqual(profile.narrow_page_limits(self.plan(safe, loops=2)), [])
 
+
+class WorkloadMatrixTest(unittest.TestCase):
+    def test_bounded_arguments_and_depths(self):
+        from contextlib import redirect_stderr
+        from io import StringIO
+        for size, payload in ((25, 'lean'), (250, 'medium'), (3000, 'lean'), (3000, 'medium'), (3000, 'heavy'), (5000, 'heavy')):
+            args = profile.arguments(['--size', str(size), '--payload', payload])
+            self.assertEqual((args.size, args.payload), (size, payload))
+            for mode in ('first', 'middle', 'deep'):
+                offset = profile.page_offset(mode, size)
+                self.assertGreaterEqual(offset, 0)
+                self.assertLess(offset, size)
+                self.assertGreater(min(500, size-offset), 0)
+        self.assertEqual(profile.page_offset('deep', 25), 0)
+        self.assertEqual(profile.page_offset('middle', 3000), 1500)
+        self.assertEqual(profile.page_offset('deep', 5000), 4500)
+        for argv in (['--size', '5001'], ['--size', '-1'], ['--size', '25', '--payload', 'huge'],
+                     ['--size', '25', '--initial-variant', 'other']):
+            with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+                profile.arguments(argv)
+
+    def test_tiny_page_plan_uses_actual_expected_rows(self):
+        key = "(COALESCE(((records_1.data ->> 'created_at'::text))::character varying, ''::character varying))"
+        plan = [{'Plan': {'Node Type': 'Limit', 'Actual Rows': 25, 'Actual Loops': 1,
+                          'Output': ['records_1.id', 'records_1.date', key]}}]
+        self.assertEqual(len(profile.narrow_page_limits(plan, expected_rows=25)), 1)
+        self.assertEqual(profile.narrow_page_limits(plan, expected_rows=500), [])
+
 if __name__ == '__main__':
     unittest.main()
