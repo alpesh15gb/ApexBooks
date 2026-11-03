@@ -1,3 +1,4 @@
+import InlineItemForm from "./InlineItemForm.jsx";
 import InlinePartyForm from "./InlinePartyForm.jsx";
 import { changeLineDiscount, serializeLineDiscount, lineDiscountMode } from "./lineDiscount.js";
 import { supportsFeature } from "./capabilities.js";
@@ -28,6 +29,7 @@ export default function RecordEditor({
   close,
   save,
   createParty,
+  createItem,
   api,
   Modal,
   labels,
@@ -62,16 +64,29 @@ export default function RecordEditor({
     setInlineParty(false);
     setTimeout(() => partyButton.current?.focus(), 0);
   };
+  const [inlineItem, setInlineItem] = useState(false);
+  const [itemLocked, setItemLocked] = useState(false);
+  const [createdItems, setCreatedItems] = useState([]);
+  const [itemAdded, setItemAdded] = useState("");
+  const itemButton = useRef(null);
+  const itemLockRef = useRef(false);
+  const updateItemLock = useCallback(value => { itemLockRef.current = value; setItemLocked(value); }, []);
+  const dismissItem = () => {
+    if (itemLockRef.current) return;
+    setInlineItem(false);
+    setTimeout(() => itemButton.current?.focus(), 0);
+  };
   const retainedParties = edit || relatedSource ? [initial?.data?.party_id].filter(Boolean) : [];
   const retainedItems = edit || relatedSource ? (initial?.data?.lines || []).map(line => line.item_id).filter(Boolean) : [];
   const partyChoices = availableMasters([...records, ...createdParties.filter(row => !records.some(record => record.id === row.id))], "party", ["payment_in", "payment_out"].includes(kind) ? records.filter(record => record.kind === "party").map(record => record.id) : retainedParties);
-  const itemChoices = availableMasters(records, "item", retainedItems);
+  const itemChoices = availableMasters([...records, ...createdItems.filter(row => !records.some(record => record.id === row.id))], "item", retainedItems);
   const canWrite = ["owner", "editor"].includes(company.role);
   const isPayment = ["payment_in", "payment_out"].includes(kind);
   const [dirty, setDirty] = useState(false),
     [confirmClose, setConfirmClose] = useState(false);
   const requestClose = () => {
     if (inlineParty) { dismissParty(); return; }
+    if (inlineItem) { dismissItem(); return; }
     if (saving || scanning || pending) return;
     if (dirty) setConfirmClose(true);
     else close();
@@ -234,13 +249,13 @@ export default function RecordEditor({
   const { busy: saving, pending } = posting;
   useEffect(() => {
     const unload = event => {
-      if (dirty || saving || pending || partyLocked) { event.preventDefault(); event.returnValue = ""; }
+      if (dirty || saving || pending || partyLocked || itemLocked) { event.preventDefault(); event.returnValue = ""; }
     };
     const back = () => requestClose();
     window.addEventListener("beforeunload", unload);
     window.addEventListener("apex-close-editor", back);
     return () => { window.removeEventListener("beforeunload", unload); window.removeEventListener("apex-close-editor", back); };
-  }, [dirty, saving, pending, scanning, inlineParty, partyLocked]);
+  }, [dirty, saving, pending, scanning, inlineParty, partyLocked, inlineItem, itemLocked]);
 
   async function scan(e) {
     const file = e.target.files?.[0];
@@ -417,7 +432,7 @@ export default function RecordEditor({
   }
   async function submit(e) {
     e.preventDefault();
-    if (!canWrite || saving || scanning || loadingSource || inlineParty) return;
+    if (!canWrite || saving || scanning || loadingSource || inlineParty || inlineItem) return;
     setError("");
     try {
       if (requiresDiscountReview && reviewedReturnDiscounts !== returnDiscountReviewKey) throw Error("Review the fixed discounts for the returned quantities before saving.");
@@ -531,7 +546,27 @@ export default function RecordEditor({
             setDirty(true); updatePartyLock(false); setInlineParty(false);
             setTimeout(() => partyButton.current?.focus(), 0);
           }} />}
-        <div hidden={inlineParty}>
+        {inlineItem && <InlineItemForm today={today} features={features} createItem={createItem}
+          onLockChange={updateItemLock} close={dismissItem} onCreated={created => {
+            if (!created) return;
+            setCreatedItems(current => [...current.filter(row => row.id !== created.id), created]);
+            // Reuse only the single pristine placeholder, never an edited draft line.
+            setLines(current => {
+              const blank = emptyLine();
+              const pristine = current.length === 1 && Reflect.ownKeys(current[0]).length === Reflect.ownKeys(blank).length &&
+                Reflect.ownKeys(blank).every(key => current[0][key] === blank[key]);
+              const added = { ...linkCatalogueItem({ ...blank, description: created.name }, created, false, company.tax_mode),
+                rate: String(created.data?.sale_rate ?? "") };
+              return pristine ? [added] : [...current, added];
+            });
+            setItemAdded(`${created.name} added as a new line. Review quantity, rate, discount and tax before saving.`);
+            setDirty(true); updateItemLock(false); setInlineItem(false);
+            setTimeout(() => {
+              const quantities = itemButton.current?.form?.querySelectorAll('.document-item-row [name="quantity"]');
+              quantities?.[quantities.length - 1]?.focus();
+            }, 0);
+          }} />}
+        <div hidden={inlineParty || inlineItem}>
         <form
           onSubmit={submit}
           onChangeCapture={() => setDirty(true)}
@@ -812,6 +847,11 @@ export default function RecordEditor({
               </datalist>
               {!edit && (source || relatedSource || form.applied_to) && lines.some(line => lineDiscountMode(line) === "amount") && <p className="info-box full">Fixed rupee discounts were copied unchanged from the source. They are not automatically prorated when you change quantities. Review each discount against the quantities being converted or returned before saving.</p>}
               {requiresDiscountReview && <label className="checkbox full"><input type="checkbox" required checked={reviewedReturnDiscounts === returnDiscountReviewKey} onChange={event => setReviewedReturnDiscounts(event.target.checked ? returnDiscountReviewKey : "")} />I reviewed the copied fixed discounts for these returned quantities.</label>}
+              {kind === "sales_invoice" && !edit && !source && !relatedSource && createItem && <div className="full">
+                <button ref={itemButton} type="button" className="button secondary" disabled={lines.length >= 100} onClick={() => { if (lines.length < 100) setInlineItem(true); }}>Create item/service and add line</button>
+                <small>{lines.length >= 100 ? "Maximum 100 lines. Remove a line before creating another item." : "Creates a new catalogue entry and adds a new line. Existing lines stay unchanged."}</small>
+              </div>}
+              {itemAdded && <p className="info-box full" role="status">{itemAdded}</p>}
               <DocumentItems
                 lines={lines}
                 setLines={(next) => {
