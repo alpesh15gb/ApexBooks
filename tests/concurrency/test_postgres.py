@@ -529,5 +529,35 @@ class ConcurrentPostingTest(unittest.TestCase):
         self.assertEqual(original.status_code,200,original.text);self.assertNotIn(original.json()['company_id'],ids)
 
 
+    def test_concurrent_multiline_final_return_uses_one_residual_and_stock_budget(self):
+        from decimal import Decimal
+        lines=[]
+        for index,(rate,discount,itc) in enumerate([(100,'10','pending_review'),(50,'4','ineligible')]):
+            lines.append({'description':'Residual stock '+str(index),'quantity':2,'rate':rate,'gst_rate':0,'discount_amount':discount,'price_includes_tax':True,'itc_treatment':itc})
+        # This fixture is unregistered; provision a separate regular synthetic
+        # company to exercise the pending/ineligible GST paise boundary.
+        company=self.client.post('/api/companies',headers=self.headers,json={'name':'Regular residual QA','tax_mode':'regular','state_code':'36','gstin':'36AAAAA0000A1Z5'}).json()
+        self.base='/api/companies/'+company['id']
+        for line in lines:
+            item=self.create({'kind':'item','name':line['description'],'data':{'track_stock':True}});line['item_id']=item['id'];line['gst_rate']=18
+        source=self.create({'kind':'purchase_bill','name':'Supplier','date':'2026-04-02','data':{'place_of_supply':'36','supplier_state':'36','lines':lines}})
+        partial=[{**line,'quantity':1,'discount_amount':str(Decimal(line['discount_amount'])/2)} for line in lines]
+        note={'kind':'debit_note','name':'Supplier','date':'2026-04-03','data':{'applied_to':source['id'],'place_of_supply':'36','supplier_state':'36','lines':partial}}
+        self.create(note)
+        key=uuid4().hex
+        responses=self.race([('/records',note,key)]*4)
+        self.assertEqual([r.status_code for r in responses],[200]*4,[r.text for r in responses])
+        self.assertEqual(len({r.json()['id'] for r in responses}),1)
+        self.assertEqual(responses[0].json()['data']['return_rounding']['method'],'source_remaining_unique_lines')
+        extra=self.client.post(self.base+'/records',headers={**self.headers,'Idempotency-Key':uuid4().hex},json=note)
+        self.assertEqual(extra.status_code,422,extra.text)
+        query={'from_date':'2026-04-01','to_date':'2026-04-30'}
+        stock=self.client.get(self.base+'/reports/stock',headers=self.headers,params=query).json()['rows']
+        self.assertTrue(all(Decimal(row['closing_quantity'])==0 and Decimal(row['closing_value'])==0 for row in stock))
+        financial=self.client.get(self.base+'/reports/financial',headers=self.headers,params=query).json()
+        self.assertEqual(Decimal(financial['balance_difference']),0)
+        self.assertEqual(Decimal(next(row['closing_balance'] for row in financial['accounts'] if row['code']=='SYS-INVENTORY')),0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
