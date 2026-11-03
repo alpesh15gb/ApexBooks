@@ -3,7 +3,7 @@ from collections import Counter
 from datetime import date
 from datetime import datetime,timezone
 from decimal import Decimal
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update, cast, Text
 from fastapi import HTTPException
 from vyapar_import import master_candidates, canonical_master_names
 from vyapar_posting import posting_plan
@@ -37,6 +37,16 @@ def migrate(company, user, session, backup, action, expected_digest):
         raise HTTPException(409,'Use a new company, or a company containing only masters from this exact backup')
     if session.scalar(select(m.Journal.id).where(m.Journal.company_id==cid)) or session.scalar(select(m.StockMovement.id).where(m.StockMovement.company_id==cid)) or session.scalar(select(m.BankAccount.id).where(m.BankAccount.company_id==cid)):
         raise HTTPException(409,'Migration requires empty ledgers, bank accounts and stock movements')
+    # A masters-only import can be upgraded after a client has opened or edited
+    # a master. Keep its revision monotonic when replacing source-derived data.
+    # Validate every existing master before changing any company or ledger data.
+    revisions={}
+    for record in existing:
+        if record.kind not in ('party','item'):continue
+        revision=record.data.get('version',0)
+        if type(revision) is not int or revision<0:
+            raise HTTPException(409,'This master has an invalid stored revision; repair or restore it before migration')
+        revisions[record.id]=revision
     plan=posting_plan(tables);result={**summary(plan),'digest':digest}
     for row in plan['documents']+plan['payments']+plan['openings']+plan['stock_adjustments']+plan['financial_events']:m.require_open_period(cid,date.fromisoformat(row['date']),session)
     if action=='preview':return result
@@ -63,7 +73,17 @@ def migrate(company, user, session, backup, action, expected_digest):
         if kind=='item':payload.update({'track_stock':original.get('item_type')!=3,'vyapar_stock_migrated':True,'vyapar_source_activity_quantity':str(original.get('item_stock_quantity') or 0),'vyapar_serial_tracking':[r for r in tables.get('kb_item_stock_tracking',[]) if r.get('ist_item_id')==source_id]})
         if not record:
             record=m.Record(company_id=cid,kind=kind,name=clean.name,date=date.today(),amount=0,data=payload);session.add(record);session.flush();masters[(kind,source_id)]=record
-        else:record.data=payload;record.name=clean.name
+        else:
+            revision=revisions[record.id]
+            changed=session.execute(update(m.Record).where(
+                m.Record.id==record.id,m.Record.company_id==cid,
+                func.coalesce(cast(m.Record.data['version'].as_string(),Text),'0')==str(revision)
+            ).values(data={**payload,'version':revision+1},name=clean.name)
+                .execution_options(synchronize_session=False))
+            if changed.rowcount!=1:
+                session.rollback()
+                raise HTTPException(409,'A master changed during migration; preview again before posting')
+            session.refresh(record)
     banks={}
     for source in plan['banks']:
         if source.get('paymentType_type')!='BANK':continue

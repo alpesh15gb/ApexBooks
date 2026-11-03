@@ -33,8 +33,8 @@ These are additive forward migrations, not permission to skip a database backup 
 
 - Readiness **503 before migration → 200 after migration**, baseline `e674ab031c58` → current `h907ef475a92` through the standard Alembic runner.
 - Exact preservation of all original columns/rows across **33 tables**, including 14 records, 11 journals/28 lines, five stock movements and one single/three split payment allocations. Fixture data includes openings, a purchase bill, invoices, partial customer/supplier payments, a linked credit note and expense.
-- Six canonical reports unchanged: financial, stock, parties, ageing, buyer statement and supplier statement. Only the new explicitly-null statement `converted_to` metadata is normalized; financial values are compared exactly.
-- A second migration run leaves the schema/old rows unchanged. An existing session token and old-client payload omitting new fields still support the exercised core read/draft-write paths.
+- Six canonical reports unchanged: financial, stock, parties, ageing, buyer statement and supplier statement. Only new explicitly-null statement `converted_to` metadata and a strictly-integer zero `party.data.version` are normalized; nonzero/malformed revisions are rejected and financial values are compared exactly.
+- A second migration run leaves the schema/old rows unchanged. An existing session token and old-client payload omitting new fields still support the exercised core read/draft-write paths. Unversioned master edits now explicitly return 409 without changing any original row; this breaking edit compatibility requires the coordinated API/client rollout in [master revision guidance](MASTER_EDIT_REVISIONS.md).
 - A receipt created **after** upgrade survives complete ZIP restore with exact bytes, financial-report equality and same-company commit replay. This is not pre-upgrade attachment preservation.
 - A pre-upgrade SQLite physical backup reopens under the original application with identical old rows/reports, without running a destructive downgrade.
 

@@ -1,3 +1,4 @@
+from master_test_helpers import fresh_master_edit
 import os
 import base64
 import io
@@ -303,17 +304,17 @@ class ApiTest(unittest.TestCase):
                 existing.data = {**existing.data, 'legacy_note': 'preserve'}
                 session.commit()
             update = {'name': 'Contact A', 'party_type': 'customer', 'phone': '+91 12345', 'email': 'new@example.com', 'address': 'Pune'}
-            self.assertEqual(client.put(base + '/masters/' + master_id, headers=viewer, json=update).status_code, 403)
-            self.assertEqual(client.put('/api/companies/' + other['id'] + '/masters/' + master_id, headers=owner, json=update).status_code, 404)
-            self.assertEqual(client.put(base + '/masters/' + master_id, headers=owner, json={**update, 'name': 'Renamed'}).status_code, 422)
-            self.assertEqual(client.put(base + '/masters/' + master_id, headers=owner, json={**update, 'email': 'invalid'}).status_code, 422)
-            saved = client.put(base + '/masters/' + master_id, headers=owner, json=update)
+            self.assertEqual(client.put(base + '/masters/' + master_id, headers=viewer, json={**(update), 'version': 0}).status_code, 403)
+            self.assertEqual(client.put('/api/companies/' + other['id'] + '/masters/' + master_id, headers=owner, json={**(update), 'version': 0}).status_code, 404)
+            self.assertEqual(client.put(base + '/masters/' + master_id, headers=owner, json=fresh_master_edit(client, base + '/masters/' + master_id, owner, {**update, 'name': 'Renamed'})).status_code, 422)
+            self.assertEqual(client.put(base + '/masters/' + master_id, headers=owner, json=fresh_master_edit(client, base + '/masters/' + master_id, owner, {**update, 'email': 'invalid'})).status_code, 422)
+            saved = client.put(base + '/masters/' + master_id, headers=owner, json=fresh_master_edit(client, base + '/masters/' + master_id, owner, update))
             self.assertEqual(saved.status_code, 200, saved.text)
             self.assertEqual(saved.json()['data']['email'], 'new@example.com')
             self.assertEqual(saved.json()['data']['legacy_note'], 'preserve')
             self.assertEqual(next(r for r in client.get(base + '/records', headers=owner).json() if r['id'] == master_id)['data']['phone'], '+91 12345')
             item = client.post(base + '/records', headers=owner, json={'kind': 'item', 'name': 'Fixed stock', 'data': {'track_stock': False}}).json()
-            self.assertEqual(client.put(base + '/masters/' + item['id'], headers=owner, json={'name': 'Fixed stock', 'track_stock': True}).status_code, 422)
+            self.assertEqual(client.put(base + '/masters/' + item['id'], headers=owner, json=fresh_master_edit(client, base + '/masters/' + item['id'], owner, {'name': 'Fixed stock', 'track_stock': True})).status_code, 422)
             imported = client.post(base + '/masters/import', headers=owner, json={'kind': 'party', 'dry_run': False, 'rows': [{'name': 'Imported contact', 'phone': '55555', 'email': 'import@example.com'}]})
             self.assertEqual(imported.status_code, 200, imported.text)
             self.assertEqual(next(r for r in client.get(base + '/records', headers=owner).json() if r['name'] == 'Imported contact')['data']['email'], 'import@example.com')

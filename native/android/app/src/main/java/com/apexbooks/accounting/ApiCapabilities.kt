@@ -23,3 +23,5 @@ fun companyDisplayName(company:JSONObject):String {val name=company.optString("n
 fun companySearchText(company:JSONObject)=companyDisplayName(company)
 
 @androidx.compose.runtime.Composable fun FeatureUpgradeHint(vm:AppModel){androidx.compose.material3.Text(vm.capabilityHint,style=androidx.compose.material3.MaterialTheme.typography.bodySmall);if(vm.capabilityRetryable)androidx.compose.material3.TextButton(enabled=!vm.capabilityChecking,onClick={vm.retryCapabilities()}){androidx.compose.material3.Text("Retry feature check")}}
+
+fun protectedMasterEditAllowed(existingMaster:Boolean,supported:Set<String>) = !existingMaster || "master_edit_revisions" in supported

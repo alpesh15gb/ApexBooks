@@ -41,4 +41,23 @@ class RetrySubmissionTest {
         submission.succeeded()
         assertFalse(submission.unresolved)
     }
+    @Test fun definitiveMasterRevisionConflictAllowsReconciliationWithoutRebasingDraft() {
+        val draft=JSONObject().put("name","My entered name").put("version",0)
+        val submission=RetrySubmission();submission.body(draft)
+        submission.failed(ApiFailure(0,"interrupted response"))
+        assertTrue(submission.unresolved)
+        submission.failed(ApiFailure(409,"stale master revision"),definitiveConflict=true)
+        assertFalse(submission.unresolved)
+        assertEquals("My entered name",draft.getString("name"))
+        assertEquals(0,draft.getInt("version"))
+        assertEquals(0,submission.body(draft).getInt("version"))
+    }
+    @Test fun masterServerFailureStillPreservesOriginalVersionAndPayload() {
+        val submission=RetrySubmission();submission.body(JSONObject().put("name","Original draft").put("version",4))
+        submission.failed(ApiFailure(503,"unknown"),definitiveConflict=true)
+        assertTrue(submission.unresolved)
+        val retry=submission.body(JSONObject().put("name","Changed draft").put("version",5))
+        assertEquals(4,retry.getInt("version"));assertEquals("Original draft",retry.getString("name"))
+    }
+
 }

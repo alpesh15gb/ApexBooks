@@ -1,5 +1,5 @@
 import { businessDate, businessFinancialYear } from "./businessDate.js";
-import { CORE_ENHANCEMENTS, capabilityFeatures, supportsFeature, routeFeature, companyDisplayName } from "./capabilities.js";
+import { CORE_ENHANCEMENTS, capabilityFeatures, supportsFeature, routeFeature, companyDisplayName, masterEditBlockReason } from "./capabilities.js";
 import { hasPendingPostings, postingNavigationMessage } from "./postingRegistry.js";
 import { apiErrorMessage } from "./apiErrors.js";
 import { fetchCompanyRecords } from "./companyRecords.js";
@@ -469,9 +469,9 @@ function App() {
   useEffect(() => {
     let active = true; const token = localStorage.token; setCapabilities(null);
     if (signed) api("/capabilities").then(result => {
-      if (active && localStorage.token === token) setCapabilities({ features: capabilityFeatures(result), version: result.api_version, revision: result.build_revision });
+      if (active && localStorage.token === token) setCapabilities({ features: capabilityFeatures(result), version: result.api_version, revision: result.build_revision, status: "verified" });
     }).catch(reason => {
-      if (active && localStorage.token === token) setCapabilities({ features: [], reason: reason.status === 404 ? "The connected API does not yet advertise these features." : "API feature support could not be verified." });
+      if (active && localStorage.token === token) setCapabilities({ features: [], status: reason.status === 404 ? "unsupported" : "unverified", reason: reason.status === 404 ? "The connected API does not yet advertise these features." : "API feature support could not be verified." });
     });
     return () => { active = false; };
   }, [signed, capabilityRevision]);
@@ -683,9 +683,11 @@ function App() {
   async function saveMaster(body) {
     const isCurrent = workspaceScope.current.capture();
     if (editingMaster) {
+      const blocked = masterEditBlockReason(capabilities);
+      if (blocked) throw new Error(blocked);
       await api(`/companies/${companyId}/masters/${editingMaster.id}`, {
         method: "PUT",
-        body: JSON.stringify({ name: body.name, ...body.data }),
+        body: JSON.stringify({ name: body.name, ...body.data, version: editingMaster.data?.version ?? 0 }),
       });
       if (!isCurrent()) return;
       const refreshed = await loadRecords();
@@ -1692,6 +1694,8 @@ function App() {
             features={features}
             kind={page}
             record={editingMaster}
+            editBlockReason={editingMaster ? masterEditBlockReason(capabilities) : ""}
+            checkEditSupport={() => setCapabilityRevision(value => value + 1)}
             close={() => {
               setEditingMaster(null);
               closeRecord();

@@ -141,11 +141,50 @@ var backupTransport=new BackupTransport();using(var client=new ApexApi("https://
 
 }
 
+var openedMaster=JsonNode.Parse("{\"version\":3,\"phone\":\"old\"}")!.AsObject();var editedMaster=JsonNode.Parse("{\"version\":99,\"phone\":\"draft\"}")!.AsObject();
+Check(WorkflowMasterValues.MasterUpdate(openedMaster,editedMaster," Party ").Number("version")==3,"master update uses original opened revision, never edited token");
+Check(WorkflowMasterValues.MasterUpdate(new(),editedMaster,"Party").Number("version")==0,"legacy master explicitly submits revision zero");
+foreach(var invalid in new[]{"null","-1","1.5","true","\"3\""}){var rejected=false;try{WorkflowMasterValues.MasterUpdate(JsonNode.Parse("{\"version\":"+invalid+"}")!.AsObject(),editedMaster,"Party");}catch(InvalidOperationException){rejected=true;}Check(rejected,"invalid opened master revision rejected: "+invalid);}
+foreach(var capabilities in new[]{ClientCapabilities.Unavailable,ClientCapabilities.Checking,ClientCapabilities.TransientFailure,ClientCapabilities.Parse(new JsonObject{["capabilities_version"]=1,["supported_features"]=new JsonArray()})}){var blocked=false;try{capabilities.RequireMasterRevisionSupport();}catch(InvalidOperationException e){blocked=e.Message.Contains("not submitted");}Check(blocked,"unverified or old API cannot accept existing-master edit");}
+var conflictTransport=new MasterConflictTransport();using(var masterApi=new ApexApi("https://synthetic-master.invalid",conflictTransport)){
+ var gated=false;try{await masterApi.SaveMaster("company","party-id",openedMaster,editedMaster,"Party");}catch(InvalidOperationException){gated=true;}Check(gated&&conflictTransport.Methods.Count==0,"master capability guard prevents network write before verified support");
+ await masterApi.EnsureCapabilities();
+ for(var attempt=0;attempt<2;attempt++){var conflict=false;try{await masterApi.SaveMaster("company","party-id",openedMaster,editedMaster,"Party");}catch(ApiFailure error)when(error.Status==409){conflict=error.Message.Contains("Master version conflict")&&error.Message.Contains("Your edits remain")&&error.Message.Contains("refresh the company");}Check(conflict,"master conflict preserves form and gives recovery guidance");}
+ Check(conflictTransport.Methods.SequenceEqual(new[]{HttpMethod.Put,HttpMethod.Put})&&conflictTransport.Versions.All(v=>v==3),"master retries retain opened version with no just-before-save GET");
+ Check(editedMaster.Text("phone")=="draft"&&editedMaster.Number("version")==99&&openedMaster.Number("version")==3,"master conflict never mutates draft or opened snapshot");
+}
+
 var paging=new PagingTransport();using var pagingApi=new ApexApi("https://synthetic-paging.invalid",paging);
 var timer=System.Diagnostics.Stopwatch.StartNew();for(var offset=0;offset<1250;offset+=100)await pagingApi.Send(pagingApi.CompanyPath("test",$"/records?compact=true&limit=100&offset={offset}"));var baselineMs=timer.ElapsedMilliseconds;
 Check(paging.Calls==13,"baseline 1250 records uses 13 small-page requests");paging.Calls=0;timer.Restart();var allRows=await pagingApi.Records("test");var improvedMs=timer.ElapsedMilliseconds;
 Check(paging.Calls==3&&allRows.Count==1250&&allRows.Select(r=>r.Text("id")).Distinct().Count()==1250,"company load returns all1250 unique records in3 compact requests");
 Console.WriteLine($"COMPANY_LOAD_SYNTHETIC rows=1250 latency=20ms old_requests=13 new_requests=3 old_ms={baselineMs} new_ms={improvedMs}");
+
+foreach(var withinPage in new[]{false,true}){
+ var overlap=new OverlapPagingTransport(withinPage,false);using var client=new ApexApi("https://synthetic-overlap.invalid",overlap);var loaded=await client.Records("test");
+ Check(loaded.Count==501&&loaded.All(r=>r.Text("name")=="fresh")&&loaded.Select(r=>r.Text("id")).Distinct().Count()==501,"overlap "+(withinPage?"within":"across")+" pages discards entire scan and returns only restarted snapshot");
+ Check(overlap.Offsets.SequenceEqual(withinPage?new[]{0,0,500}:new[]{0,500,0,500}),"overlap restarts from zero exactly once");
+ var repeated=new OverlapPagingTransport(withinPage,true);using var failing=new ApexApi("https://synthetic-overlap.invalid",repeated);var rejected=false;
+ try{await failing.Records("test");}catch(InvalidOperationException e){rejected=e.Message.Contains("Refresh the company")&&e.Message.Contains("No partial balances");}
+ Check(rejected&&repeated.Scans==2,"repeated "+(withinPage?"within":"across")+" page overlap fails closed with actionable refresh error");
+}
+
+sealed class OverlapPagingTransport(bool withinPage,bool alwaysOverlap):HttpMessageHandler
+{
+ public List<int> Offsets=[];public int Scans;
+ protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation){
+  var offset=int.Parse(request.RequestUri!.Query.Split('&').Single(p=>p.StartsWith("offset=")).Split('=')[1]);Offsets.Add(offset);if(offset==0)Scans++;
+  var bad=alwaysOverlap||Scans==1;var rows=new JsonArray();var count=offset==0?500:1;
+  for(var i=0;i<count;i++){var id=offset+i;if(bad&&((withinPage&&offset==0&&i==499)||(!withinPage&&offset==500)))id=0;rows.Add(new JsonObject{["id"]="row-"+id,["name"]=Scans==1?"stale":"fresh"});}
+  return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK){Content=new StringContent(rows.ToJsonString(),Encoding.UTF8,"application/json")});
+ }
+}
+
+sealed class MasterConflictTransport:HttpMessageHandler
+{
+ public List<HttpMethod> Methods=[];public List<decimal> Versions=[];
+ protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation){if(request.RequestUri!.AbsolutePath=="/api/capabilities")return new(HttpStatusCode.OK){Content=new StringContent("{\"capabilities_version\":1,\"supported_features\":[\"master_edit_revisions\"]}")};Methods.Add(request.Method);Versions.Add(JsonNode.Parse(await request.Content!.ReadAsStringAsync(cancellation)).Number("version"));return new(HttpStatusCode.Conflict){Content=new StringContent("{\"detail\":\"Master version conflict\"}")};}
+}
 
 sealed class PagingTransport:HttpMessageHandler
 {

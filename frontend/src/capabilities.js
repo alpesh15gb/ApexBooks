@@ -1,4 +1,4 @@
-export const CORE_ENHANCEMENTS = ['low_stock_reorder','party_price_history','party_payment_terms','master_lifecycle','party_shipping_address','party_credit_limits','recurring_drafts','company_book_labels'];
+export const CORE_ENHANCEMENTS = ['low_stock_reorder','party_price_history','party_payment_terms','master_lifecycle','party_shipping_address','party_credit_limits','recurring_drafts','company_book_labels','master_edit_revisions'];
 export const supportsFeature = (features, name) => Array.isArray(features) && features.includes(name);
 export const routeFeature = { reorder: 'low_stock_reorder', recurring: 'recurring_drafts' };
 export function capabilityFeatures(response) {
@@ -25,4 +25,11 @@ export function companyDisplayName(company, companies = []) {
 export function companyUpdatePayload(form, features) {
   const { book_label, ...legal } = form;
   return supportsFeature(features, 'company_book_labels') ? { ...legal, book_label: String(book_label || '').trim() } : legal;
+}
+
+export function masterEditBlockReason(capabilities) {
+  if (supportsFeature(capabilities?.features, 'master_edit_revisions')) return '';
+  if (!capabilities) return 'Checking API support for protected party and item edits. Wait or check again before saving.';
+  if (capabilities.status === 'unverified') return 'Protected edit support could not be verified. Check API support again; your changes stay in this form.';
+  return 'The connected API needs an update for protected party and item edits. Update the API and check support again before saving.';
 }

@@ -3,7 +3,7 @@ import {imageInput} from "./imageInput.js";
 import React, { useState } from "react";
 import { X } from "lucide-react";
 
-export default function MasterForm({ kind, close, save, record, features = [] }) {
+export default function MasterForm({ kind, close, save, record, features = [], editBlockReason = "", checkEditSupport }) {
   const supported = feature => supportsFeature(features, feature);
   const isParty = kind === "party";
   const [form, setForm] = useState({
@@ -33,6 +33,7 @@ export default function MasterForm({ kind, close, save, record, features = [] })
   const update=event=>{const key=event.target.name,value=event.target.value;setForm(current=>({...current,[key]:value,...(key==='gst_rate'?{tax_treatment:Number(value)>0?'taxable':current.tax_treatment==='taxable'?'nil_rated':current.tax_treatment}:key==='tax_treatment'&&value!=='taxable'?{gst_rate:'0'}:{})}))};
   async function submit(event) {
     event.preventDefault();
+    if (record && editBlockReason) { setError(editBlockReason); return; }
     setBusy(true);
     setError("");
     try {
@@ -265,12 +266,13 @@ export default function MasterForm({ kind, close, save, record, features = [] })
 
             </>
           )}
+          {record && editBlockReason && <div className="info-box full" role="status"><p>{editBlockReason}</p>{checkEditSupport && <button type="button" className="button secondary" onClick={() => { setError(""); checkEditSupport(); }}>Check API support again</button>}</div>}
           {error && <div className="error full">{error}</div>}
           <div className="modal-actions full">
             <button type="button" className="button secondary" onClick={close}>
               Cancel
             </button>
-            <button className="button primary" disabled={busy}>
+            <button className="button primary" disabled={busy || (!!record && !!editBlockReason)}>
               {busy ? "Saving…" : `Save ${isParty ? "party" : "item"}`}
             </button>
           </div>
