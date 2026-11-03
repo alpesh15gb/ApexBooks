@@ -6,7 +6,7 @@ from decimal import Decimal,InvalidOperation,ROUND_HALF_UP
 from uuid import uuid4
 from fastapi import Depends,HTTPException
 from pydantic import BaseModel,Field
-from sqlalchemy import select
+from sqlalchemy import select,update
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from bounded_json import loads as bounded_json_loads
@@ -142,6 +142,9 @@ def validate(payload):
     for row in groups['bank_statement_lines']:
         if row.get('bank_account_id','default') not in bank_ids|{'default'} or row.get('matched_record_id') and row['matched_record_id'] not in posted:raise ValueError('Invalid statement reference')
         number(row['amount'],signed=True);date.fromisoformat(row['date'])
+    for row in groups['bank_reconciliation_reviews']:
+        if row.get('bank_account_id','default') not in bank_ids|{'default'}:
+            raise ValueError('Invalid bank reconciliation review reference')
     statement_totals=defaultdict(Decimal);record_totals=defaultdict(Decimal)
     for row in groups['bank_match_allocations']:
         if row.get('statement_line_id') not in indexes['bank_statement_lines'] or row.get('record_id') not in posted:raise ValueError('Invalid bank matching link')
@@ -282,9 +285,31 @@ def restore_payload(m,user,session,payload,digest,company_name,*,action='commit'
         # Serialize restores per user. A digest marker makes retries safe even after
         # the HTTP response is lost; a new target name intentionally makes a copy.
         session.execute(select(m.User.id).where(m.User.id==user.id).with_for_update()).scalar_one()
+        if session.bind.dialect.name=='sqlite':
+            # SELECT FOR UPDATE is ignored by SQLite. Reserve its writer before
+            # checking identity so concurrent legacy restores cannot both copy.
+            session.execute(update(m.User).where(m.User.id==user.id).values(password_hash=m.User.password_hash).execution_options(synchronize_session=False))
         for company in session.scalars(select(m.Company).where(m.Company.owner_id==user.id,m.Company.name==company_name.strip())):
-            marker=session.scalar(select(m.Record).where(m.Record.company_id==company.id,m.Record.kind=='restore_marker'))
-            if marker and marker.data.get('digest')==digest:return {**report,'restored':True,'already_restored':True,'company_id':company.id}
+            events=list(session.scalars(select(m.AuditEvent).where(m.AuditEvent.company_id==company.id,
+                m.AuditEvent.action=='backup.restored',m.AuditEvent.entity_type=='company',m.AuditEvent.entity_id==company.id)))
+            if events:
+                # Imported audit rows become backup.source_event. Only the local
+                # creation event identifies this copy, not an ancestral marker.
+                identities={event.details.get('digest') for event in events}
+                if len(identities)!=1 or not all(isinstance(value,str) and value for value in identities):
+                    raise HTTPException(409,'Existing restore identity is ambiguous; review the company before restoring again')
+                identity=next(iter(identities))
+            else:
+                markers=list(session.scalars(select(m.Record).where(m.Record.company_id==company.id,m.Record.kind=='restore_marker')))
+                if len(markers)>1:
+                    raise HTTPException(409,'Existing restore identity is ambiguous; review the company before restoring again')
+                identity=markers[0].data.get('digest') if markers else None
+                if markers and (not isinstance(identity,str) or not identity.strip()):
+                    raise HTTPException(409,'Existing restore identity is ambiguous; review the company before restoring again')
+            if identity==digest:
+                if session.scalar(select(m.Company.owner_id).where(m.Company.id==company.id))!=user.id:
+                    raise HTTPException(403,'Only the current owner can recover this restored company')
+                return {**report,'restored':True,'already_restored':True,'company_id':company.id}
         company=m.Company(owner_id=user.id,name=company_name.strip(),book_label=source.get('book_label','').strip(),gstin=gstin,state_code=state,address=str(source.get('address',''))[:1000]);session.add(company);session.flush();cid=company.id
         session.add(m.CompanyTaxProfile(company_id=cid,mode=mode))
         mapping={source['id']:cid}
