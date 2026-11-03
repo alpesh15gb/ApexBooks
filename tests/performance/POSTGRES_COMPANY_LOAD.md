@@ -3,8 +3,8 @@
 This is a test-only comparison harness, **not a production query/index change**.
 Both test-only candidates completed the original heavy-workload PostgreSQL
 comparisons below. Neither established a clear first-page gain. An additionally
-authorized workload matrix now tests the unchanged V2 query; those expanded
-results remain pending.
+authorized workload matrix also completed for the unchanged V2 query. Its
+initial-request regressions and warm-read tradeoff are recorded below.
 PostgreSQL execution requires the dedicated disposable CI service. Local syntax
 and guard tests do not establish PostgreSQL correctness or timings.
 
@@ -217,7 +217,7 @@ this investigation stops with the documented tradeoff. No further candidate or
 application optimization is proposed or shipped from this experiment.
 
 
-## Expanded workload assessment (pending; unchanged V2 query)
+## Expanded workload assessment (completed; unchanged V2 query)
 
 A new, separately authorized test-only assessment uses six fresh disposable jobs:
 25 lean, 250 medium, 3000 lean, 3000 medium, 3000 heavy and 5000 heavy. The
@@ -257,3 +257,52 @@ and 5-second lock timeouts on its direct reader/writer transactions. Concurrent
 HTTP futures have 120-second waits, but Python cannot cancel a running HTTP worker
 and executor shutdown may still wait; the workflow’s 15-minute job timeout is the
 outer bound, not a claimed fully bounded 120-second batch.
+
+
+### Completed six-workload results and stopping decision
+
+Source `5ea40e46`, hosted run `41700907574`, completed all six artifacts named
+`postgres-company-load-{size}-{payload}.json`. Every artifact has `completed: true`.
+All 11 edge checks, exact HTTP-byte/order parity and expected-page projection
+bounds passed. Four concurrent readers per variant matched serial bytes in each
+case. The four captured first/deep queries also passed the independent complete
+old/new-row expectations around the open writer transaction. This remains the
+limited query-visibility proof described above, not whole-response atomicity.
+
+Warm wall-time medians, baseline → unchanged V2 candidate (milliseconds):
+
+| Records / payload | First page | Change | Complete scan | Change |
+| --- | --- | --- | --- | --- |
+| 25 / lean | 11.857 → 11.725 | −1.11% | 10.535 → 10.550 | +0.14% |
+| 250 / medium | 40.666 → 40.918 | +0.62% | 40.056 → 40.244 | +0.47% |
+| 3000 / lean | 53.906 → 54.958 | +1.95% | 469.323 → 355.065 | −24.35% |
+| 3000 / medium | 91.666 → 91.449 | −0.24% | 917.639 → 614.724 | −33.01% |
+| 3000 / heavy | 136.285 → 136.501 | +0.16% | 1545.651 → 962.814 | −37.71% |
+| 5000 / heavy | 176.966 → 174.797 | −1.23% | 3380.416 → 1915.942 | −43.32% |
+
+Initial first-page observations after seeding/ANALYZE, one sample per variant,
+excluded from those warm medians (milliseconds):
+
+| Records / payload | Variant run first | HTTP baseline → candidate | Change | Cursor baseline → candidate |
+| --- | --- | --- | --- | --- |
+| 25 / lean | Baseline | 18.697 → 14.452 | −22.70% | 3.920 → 3.042 |
+| 250 / medium | Candidate | 42.348 → 51.434 | +21.46% | 17.633 → 19.240 |
+| 3000 / lean | Baseline | 62.069 → 117.454 | +89.23% | 18.167 → 18.395 |
+| 3000 / medium | Candidate | 94.131 → 155.135 | +64.81% | 56.052 → 58.082 |
+| 3000 / heavy | Baseline | 146.550 → 221.752 | +51.31% | 109.237 → 109.359 |
+| 5000 / heavy | Candidate | 233.621 → 190.007 | −18.67% | 164.370 → 157.247 |
+
+Four of six initial candidate observations materially regressed, with most of
+the extra elapsed time outside the recorded SQL cursor duration. **The cause is
+unproven**: these single observations do not isolate Python compilation,
+serialization, scheduling, cache effects or any other explanation. Alternating
+which variant runs first is useful context, not a cold-cache control. Fixture
+writes/ANALYZE already warm caches; there is no cold-OS/disk, WAN or native-device
+measurement. Hosted-machine variation also prevents direct absolute-time
+comparisons with earlier runs.
+
+Warm multi-page completion gains therefore do not justify a warm-only product
+recommendation under the agreed first-load stopping criterion. The assessment
+stops with this documented tradeoff; the V2 query remains test-only. No application
+query, index, migration or deployed setting changed, and no further candidate is
+part of this assessment. Raw artifacts remain attached to the hosted run.
