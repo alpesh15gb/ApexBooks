@@ -2029,31 +2029,44 @@ def set_period_lock(company_id: str, body: LockInput, user: User = Depends(curre
     session.commit()
     return {'locked_through': body.locked_through.isoformat()}
 
+def ledger_snapshot(company_id, from_date, to_date, session, *, closing_from=None):
+    # One statement snapshots account identities and journal values together.
+    # Keep Decimal accumulation in Python: SQLite SUM over Numeric uses floats.
+    movements = (select(JournalLine.account_id, Journal.date.label('date'), JournalLine.debit, JournalLine.credit)
+        .join(Journal, (Journal.id == JournalLine.journal_id) & (Journal.company_id == JournalLine.company_id))
+        .where(Journal.company_id == company_id, Journal.date <= to_date)).subquery()
+    rows = session.execute(select(LedgerAccount.id, LedgerAccount.code, LedgerAccount.name, LedgerAccount.category,
+        movements.c.date, movements.c.debit, movements.c.credit)
+        .outerjoin(movements, movements.c.account_id == LedgerAccount.id)
+        .where(LedgerAccount.company_id == company_id).order_by(LedgerAccount.code))
+    accounts, period, cumulative = [], {}, {}
+    from types import SimpleNamespace
+    for account_id, code, name, category, day, debit, credit in rows:
+        if account_id not in cumulative:
+            accounts.append(SimpleNamespace(id=account_id, code=code, name=name, category=category))
+            period[account_id] = Decimal('0'); cumulative[account_id] = Decimal('0')
+        if day is None: continue
+        value = debit - credit
+        if from_date is None or day >= from_date: period[account_id] += value
+        if closing_from is None or day >= closing_from: cumulative[account_id] += value
+    return accounts, period, cumulative
+
 @app.get('/api/companies/{company_id}/trial-balance')
 def trial_balance(company_id: str, through: DateType, user: User = Depends(current_user), session: Session = Depends(db)):
     company_for(company_id, user, session)
-    accounts = list(session.scalars(select(LedgerAccount).where(LedgerAccount.company_id == company_id).order_by(LedgerAccount.code)))
-    totals = {a.id: Decimal('0') for a in accounts}
-    rows = session.execute(select(JournalLine.account_id, JournalLine.debit, JournalLine.credit).join(Journal, (Journal.id == JournalLine.journal_id) & (Journal.company_id == JournalLine.company_id)).where(Journal.company_id == company_id, Journal.date <= through))
-    for account_id, debit, credit in rows: totals[account_id] += debit - credit
+    accounts, _, totals = ledger_snapshot(company_id, None, through, session)
     result = [{'id': a.id, 'code': a.code, 'name': a.name, 'category': a.category, 'debit': str(max(totals[a.id], Decimal('0'))), 'credit': str(max(-totals[a.id], Decimal('0')))} for a in accounts]
     return {'through': through.isoformat(), 'accounts': result, 'total_debit': str(sum((max(value, Decimal('0')) for value in totals.values()), Decimal('0'))), 'total_credit': str(sum((max(-value, Decimal('0')) for value in totals.values()), Decimal('0')))}
 
 def account_movements(company_id, from_date, to_date, session):
-    accounts = list(session.scalars(select(LedgerAccount).where(LedgerAccount.company_id == company_id).order_by(LedgerAccount.code)))
-    totals = {a.id: Decimal('0') for a in accounts}
-    rows = session.execute(select(JournalLine.account_id, JournalLine.debit, JournalLine.credit)
-        .join(Journal, (Journal.id == JournalLine.journal_id) & (Journal.company_id == JournalLine.company_id))
-        .where(Journal.company_id == company_id, Journal.date >= from_date, Journal.date <= to_date))
-    for account_id, debit, credit in rows: totals[account_id] += debit - credit
-    return accounts, totals
+    accounts, period, _ = ledger_snapshot(company_id, from_date, to_date, session)
+    return accounts, period
 
 @app.get('/api/companies/{company_id}/reports/financial')
 def financial_report(company_id: str, from_date: DateType, to_date: DateType, user: User = Depends(current_user), session: Session = Depends(db)):
     company_for(company_id, user, session)
     if from_date > to_date: raise HTTPException(422, 'Start date must be before end date')
-    accounts, period = account_movements(company_id, from_date, to_date, session)
-    _, cumulative = account_movements(company_id, DateType(1900, 1, 1), to_date, session)
+    accounts, period, cumulative = ledger_snapshot(company_id, from_date, to_date, session, closing_from=DateType(1900, 1, 1))
     rows = [{'code': a.code, 'name': a.name, 'category': a.category,
              'period_balance': str(period[a.id] if a.category in {'asset', 'expense'} else -period[a.id]),
              'closing_balance': str(cumulative[a.id] if a.category in {'asset', 'expense'} else -cumulative[a.id])}
