@@ -14,12 +14,20 @@ def install(app,m):
     @app.put('/api/companies/{company_id}/documents/{record_id}')
     def amend(company_id:str,record_id:str,body:m.RecordInput,request:Request,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
         company=m.lock_company(company_id,user,session)
-        key,digest,old=retry(m,company_id,body,request,session,'amend:'+record_id)
+        # Presence matters for expenses: omitted amount preserves the saved value,
+        # whereas explicit zero is invalid. Do not alias their retry identities.
+        hash_body=body.model_dump(mode='json') if body.kind=='expense' and 'amount' not in body.model_fields_set else None
+        if hash_body is not None:hash_body.pop('amount')
+        key,digest,old=retry(m,company_id,body,request,session,'amend:'+record_id,hash_body=hash_body)
         if old:return old
         record=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==record_id))
         allowed=m.POSTED_KINDS
         if not record or record.kind not in allowed:raise HTTPException(404,'Editable posted document not found')
         if body.kind!=record.kind:raise HTTPException(422,'Document type cannot change')
+        # Older header editors omit amount. Preserve it only when absent; an
+        # explicit zero remains a real financial input and fails posting rules.
+        if record.kind == 'expense' and 'amount' not in body.model_fields_set:
+            body=body.model_copy(update={'amount':record.amount})
         posting=session.scalar(select(m.RecordPosting).where(m.RecordPosting.company_id==company_id,m.RecordPosting.record_id==record.id))
         if not posting:raise HTTPException(409,'This legacy entry needs posting before financial amendment')
         if body.data.get('version',0)!=record.data.get('version',0):raise HTTPException(409,'Document changed; reload before editing')
@@ -59,7 +67,10 @@ def install(app,m):
                     raise HTTPException(422, 'Enter a positive allocation with at most two decimal places')
                 proposed.append((target_id, value))
             intent=intent or sorted(existing)!=sorted(proposed)
-        intent=intent or (record.kind not in m.DOCUMENTS and m.money(body.amount)!=record.amount)
+        # Amount-only expenses use the entered amount just like payments; line-based
+        # expenses remain calculated documents and ignore a client's total.
+        entered_amount = record.kind not in m.DOCUMENTS or (record.kind == 'expense' and not data.get('lines'))
+        intent=intent or (entered_amount and m.money(body.amount)!=record.amount)
         if record.data.get('commerce_connection_id') and (intent or any(data.get(k) != record.data.get(k) for k in metadata-{'notes','terms','due_date'})):
             raise HTTPException(409,'This document is linked to an ecommerce source. Use its source correction / credit workflow to keep both systems reconciled.')
         if intent and record.kind in m.DOCUMENTS and (record.kind!='expense' or data.get('lines')):data,amount=m.calculate(data,company,profile.mode if profile else 'regular',record.kind,session)
