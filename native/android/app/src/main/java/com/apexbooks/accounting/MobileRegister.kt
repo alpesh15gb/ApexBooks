@@ -56,7 +56,7 @@ import java.math.BigDecimal
         } }
         if(period=="custom"&&start>end)item{Message("The start date must be on or before the end date.",true)}
         if (!master) item {
-            val total = rows.fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("amount") }
+            val total = rows.filterNot { it.optBoolean("cancelled") }.fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("amount") }
             Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(20.dp)) { Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column { Text("${rows.size} ${if (rows.size == 1) "transaction" else "transactions"}", style = MaterialTheme.typography.labelMedium); Text(money(total), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = ApexGreen) }
                 if (vm.page in setOf("sales_invoice", "purchase_bill")) Column(horizontalAlignment = Alignment.End) { Text("Outstanding", style = MaterialTheme.typography.labelMedium); Text(money(rows.fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("outstanding") }), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }

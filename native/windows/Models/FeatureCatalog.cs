@@ -38,6 +38,7 @@ public sealed class RecordRow(JsonObject source)
     public string Status {
         get {
             if(Kind is "party" or "item")return WorkflowMasterValues.IsActive(Source)?"Active":"Archived";
+            if(Source.Flag("cancelled"))return "Cancelled";
             if(Source.Text("converted_to").Length>0)return "Converted";
             if(!Source.Flag("posted"))return FeatureCatalog.Drafts.Contains(Kind)?"Draft":"";
             if(Source["data"].Flag("is_advance"))return Source.Number("advance_remaining")>0?"Advance available":"Advance settled";

@@ -30,7 +30,15 @@ EVENTS = {'product.upsert', 'customer.upsert', 'order.upsert', 'order.cancelled'
 OPERATIONS = {'catalogue.publish', 'catalogue.scan', 'history.scan', 'order.invoice', 'order.ship', 'order.cancel',
               'order.refund', 'stock.project', 'reconcile.snapshot', 'payment.capture', 'payment.refund', 'settlement.record', 'return.receive'}
 
-def now(): return datetime.now(timezone.utc).isoformat()
+_last_stamp = [datetime.min.replace(tzinfo=timezone.utc)]
+_stamp_lock = __import__('threading').Lock()
+def now():
+    """Strictly increasing UTC stamp: coarse clocks (Windows ~15 ms) must not tie queued events into random UUID order."""
+    with _stamp_lock:
+        current = datetime.now(timezone.utc)
+        if current <= _last_stamp[0]: current = _last_stamp[0] + timedelta(microseconds=1)
+        _last_stamp[0] = current
+        return current.isoformat(timespec='microseconds')
 def later(seconds): return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
 def encode(value): return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
 def digest(value): return hashlib.sha256(encode(value)).hexdigest()

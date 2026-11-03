@@ -43,6 +43,8 @@ Set `DATABASE_URL` and a unique `JWT_SECRET` of at least 32 characters for Previ
 - Owner-only activity log records company settings, master imports, posted documents, journals, period locks and bank matching in the same database transaction as each change. It is an operational audit view, not a tamper-resistant external log.
 - Whole-database backup and restore scripts for the root local-Compose PostgreSQL deployment: `deploy/backup.sh` and `deploy/restore.sh`. They require explicit `APEX_BACKUP_SCOPE=compose-local` and reject external/ambiguous targets; they are not a hosted PostgreSQL or Vercel database recovery procedure. These contain all tenants. The local backup is published only after a successful dump; `bash deploy/test-backup-safety.sh` checks failure handling with a simulated database. An optional encrypted offsite workflow using age and rclone, including a systemd timer and restore drill instructions, is described in `deploy/SECURE_BACKUP.md`. It must be configured and tested against the actual VPS and storage provider. The older local backup timer writes unencrypted files. Restore requires `RESTORE_CONFIRM=REPLACE_APEX_DATABASE`.
 
+- Posted documents can be cancelled with a reason (ledger reversed, stock and balances released, number kept); invoices and bills can record their first receipt or payout in the same step; formatted Profit & Loss and Balance Sheet statements are available alongside the account-balances report. See [the 1.5 candidate notes](docs/RELEASE_CANDIDATE_1_5.md).
+
 ## Known gaps before live use
 
 - Older prototype records remain visibly marked as unposted and are excluded from ledger reports. No automatic backfill is performed.

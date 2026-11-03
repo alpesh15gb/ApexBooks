@@ -11,6 +11,7 @@ fun selectableMaster(row:JSONObject,retainedId:String="")=row.o("data").optBoole
 
 fun registerStatus(row:JSONObject):String {
     if(row.s("kind") in setOf("party","item"))return if(row.o("data").optBoolean("is_active",true))"Active"else"Inactive"
+    if(row.optBoolean("cancelled"))return "Cancelled"
     if(row.s("converted_to").isNotBlank())return "Converted"
     if(row.optBoolean("posted")){
         if(row.o("data").optBoolean("is_advance"))return if(row.decimal("advance_remaining").signum()>0)"Advance available"else"Advance settled"

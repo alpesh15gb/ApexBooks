@@ -140,11 +140,18 @@
       "description": "Track operating expenses by supplier and category."
     },
     {
+      "key": "statements",
+      "title": "Profit & loss and balance sheet",
+      "path": "/reports/statements",
+      "group": "Business overview",
+      "description": "Formatted statements with gross profit and a classified balance sheet."
+    },
+    {
       "key": "financial",
-      "title": "Profit and balance sheet",
+      "title": "Account balances",
       "path": "/reports/financial",
       "group": "Business overview",
-      "description": "Profit, account balances and a balanced trial balance."
+      "description": "Every ledger account for the period with a balanced trial balance."
     },
     {
       "key": "gst",

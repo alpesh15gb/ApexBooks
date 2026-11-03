@@ -32,7 +32,9 @@ public sealed partial class MainPage
         if(kind is "purchase_bill" or "expense"){if(Supports("document_attachments"))Action("Retained receipts","receipts");else panel.Children.Add(CapabilityNotice());}
         var printable=FeatureCatalog.Documents.Contains(kind)||kind is "payment_in" or "payment_out" or "customer_refund" or "supplier_refund" or "advance_refund";
         if(printable)Action("PDF / print / share","pdf");
-        if(CanWrite&&row.Text("converted_to").Length==0&&(FeatureCatalog.Documents.Contains(kind)||kind is "payment_in" or "payment_out" or "bank_transfer"))Action("Edit","edit");
+        var cancelled=row.Flag("cancelled");
+        if(cancelled)panel.Children.Add(Card(Text("Cancelled"+(data["cancelled"].Text("reason") is {Length:>0} why?" · "+why:"")+". The number stays in your records; its ledger, stock and balance effects were reversed.",13)));
+        if(CanWrite&&!cancelled&&row.Text("converted_to").Length==0&&(FeatureCatalog.Documents.Contains(kind)||kind is "payment_in" or "payment_out" or "bank_transfer"))Action("Edit","edit");
         panel.Children.Add(actions);
         var next=Stack(8);
         void Next(string label,string key)=>next.Children.Add(Button(label,()=>{action=key;CloseDialog();},true));
@@ -42,6 +44,7 @@ public sealed partial class MainPage
         if(CanWrite&&FeatureCatalog.Drafts.Contains(kind)&&row.Text("converted_to").Length==0)Next(kind=="purchase_order"?"Convert to purchase bill":"Convert to invoice","convert");
         if(CanWrite&&row.Flag("posted")&&kind is "sales_invoice" or "pos" or "purchase_bill")Next(kind=="purchase_bill"?"Create purchase return / debit note":"Create sales return / credit note","return");
         if(CanWrite&&(row.Number("advance_remaining")>0||row.Number("credit_remaining")>0))Next("Apply / refund available balance","settle");
+        if(Supports("document_cancellation")&&CanWrite&&!cancelled&&row.Flag("posted")&&kind is "sales_invoice" or "pos" or "purchase_bill" or "payment_in" or "payment_out" or "expense" or "credit_note" or "debit_note" or "bank_transfer")next.Children.Add(Button("Cancel this document",()=>{action="cancel";CloseDialog();}));
         if(next.Children.Count>0){panel.Children.Add(Text("Next steps",18,true));panel.Children.Add(next);}
         if(!CanWrite)panel.Children.Add(Text("Read-only access · ask an owner for editor access to record payments, returns or changes.",12));
         foreach(var (label,id) in new[]{("Posted document",row.Text("converted_to")),("Source document",data.Text("source_document_id")),("Original invoice / bill",data.Text("applied_to"))}.Where(x=>x.Item2.Length>0&&x.Item2!="source-converted")){
@@ -64,6 +67,7 @@ public sealed partial class MainPage
             case "convert":await EditDocument(kind=="purchase_order"?"purchase_bill":"sales_invoice",conversion:row);break;
             case "return":await EditDocument(kind=="purchase_bill"?"debit_note":"credit_note",returnSource:row);break;
             case "settle":await SettleBalance(row.Number("credit_remaining")>0,row.Text("id"));break;
+            case "cancel":await CancelDocument(row);break;
             case "linked":if(linkedId.Length>0)await TransactionDetails(new JsonObject{["id"]=linkedId});break;
         }
     }

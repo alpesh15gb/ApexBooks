@@ -27,7 +27,7 @@ import org.json.JSONObject
     var search by remember(vm.companyId){mutableStateOf("")};var group by remember(vm.companyId){mutableStateOf("all")}
     val feature=selected
     if(feature==null){
-        val reports=vm.reports.filter{(group=="all"||it.group==group)&&(it.title+" "+it.description+" "+it.group).contains(search.trim(),true)}
+        val reports=vm.reports.filter{(it.key!="statements"||vm.supports("financial_statements"))&&(group=="all"||it.group==group)&&(it.title+" "+it.description+" "+it.group).contains(search.trim(),true)}
         LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
             item{Heading("Know your numbers","Financial statements, GST and business insights.")}
             item{SearchBarField("Search reports",search){search=it}}
@@ -72,7 +72,7 @@ import org.json.JSONObject
         }}
         if(loading)item{Box(Modifier.fillMaxWidth().padding(30.dp),contentAlignment=Alignment.Center){CircularProgressIndicator()}}
         if(failure.isNotBlank())item{Section{Text(failure,color=MaterialTheme.colorScheme.error)}}
-        value?.let{data->item{Column(verticalArrangement=Arrangement.spacedBy(15.dp)){if(gst&&data is JSONObject)GstReportContent(data)else ReportContent(data)}}}
+        value?.let{data->item{Column(verticalArrangement=Arrangement.spacedBy(15.dp)){if(gst&&data is JSONObject)GstReportContent(data)else if(feature.key=="statements"&&data is JSONObject&&data.has("profit_loss"))StatementsContent(data)else ReportContent(data)}}}
     }
 }
 

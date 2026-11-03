@@ -20,7 +20,7 @@ def install(app,m):
         if not record or record.kind not in allowed:raise HTTPException(404,'Editable posted document not found')
         if body.kind!=record.kind:raise HTTPException(422,'Document type cannot change')
         posting=session.scalar(select(m.RecordPosting).where(m.RecordPosting.company_id==company_id,m.RecordPosting.record_id==record.id))
-        if not posting:raise HTTPException(409,'This legacy entry needs posting before financial amendment')
+        if not posting:raise HTTPException(409,'This document was cancelled and cannot be edited' if record.data.get('cancelled') else 'This legacy entry needs posting before financial amendment')
         if body.data.get('version',0)!=record.data.get('version',0):raise HTTPException(409,'Document changed; reload before editing')
         m.require_open_period(company_id,record.date,session);m.require_open_period(company_id,body.date,session)
         if not body.name.strip() or len(body.name)>120:raise HTTPException(422,'Enter a party or description up to 120 characters')

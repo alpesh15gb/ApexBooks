@@ -48,7 +48,8 @@ export default function RegisterOverview({ page, records, filter, onFilter }) {
             false,
           ],
           ["Posted transactions", posted.length, CheckCheck, true],
-          ["Unposted records", rows.length - posted.length, Clock3, true],
+          ["Unposted records", rows.filter((r) => !r.posted && !r.cancelled).length, Clock3, true],
+          ["Cancelled", rows.filter((r) => r.cancelled).length, CheckCheck, true],
         ]
       : [
           ["Active drafts", active.length, FileText, true],
@@ -73,7 +74,8 @@ export default function RegisterOverview({ page, records, filter, onFilter }) {
       ? [
           ["all", "All", rows.length],
           ["posted", "Posted", posted.length],
-          ["unposted", "Unposted", rows.length - posted.length],
+          ["unposted", "Unposted", rows.filter((r) => !r.posted && !r.cancelled).length],
+          ["cancelled", "Cancelled", rows.filter((r) => r.cancelled).length],
         ]
       : [
           ["all", "All", rows.length],

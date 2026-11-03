@@ -2,6 +2,7 @@ import { businessDate, businessFinancialYear } from "./businessDate.js";
 import ReportLibrary, { reportInfo, reportGroups } from "./ReportLibrary.jsx";
 import DateRangeFilter from "./DateRangeFilter.jsx";
 import GstReturnView from "./GstReturnView.jsx";
+import StatementsView from "./StatementsView.jsx";
 import React, { useEffect, useMemo, useState } from "react";
 import { Download, ArrowLeft } from "lucide-react";
 import { downloadBlob } from "./downloadBlob.js";
@@ -385,6 +386,7 @@ export default function Reports({ companyId, records }) {
           </div>
         </>
       )}
+      {data && view === "statements" && data.profit_loss && <StatementsView data={data} />}
       {data && view === "financial" && Array.isArray(data.accounts) && (
         <>
           <div className="summary-grid">
@@ -433,7 +435,7 @@ export default function Reports({ companyId, records }) {
                   {data.accounts.map((row) => (
                     <tr key={row.code}>
                       <td>
-                        {row.code} · {row.name}
+                        {String(row.code).startsWith("BANK-") ? row.name : `${row.code} · ${row.name}`}
                       </td>
                       <td>{row.category}</td>
                       <td className="right">{rupees(row.period_balance)}</td>

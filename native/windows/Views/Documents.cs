@@ -45,6 +45,9 @@ public sealed partial class MainPage
         Button? termsSuggestion=null;TextBlock? termsHint=null;
         var fixedReview=new FixedDiscountReview();CheckBox? fixedReviewBox=null;
         var partyId = data.Text("party_id"); var appliedTo = returnSource?.Text("id")??data.Text("applied_to");
+        var canPayNow = previous is null && conversion is null && (kind is "sales_invoice" or "purchase_bill") && Supports("payment_at_entry"); decimal lastTotal = 0;
+        var payNow = new CheckBox { Content = kind == "sales_invoice" ? "Received now · record the receipt together with this invoice" : "Paid now · record the payment together with this bill" };
+        var payAmount = Input("Amount (₹)", ""); var payMethod = Select("Account", [("cash", "Cash"), ("bank", "Bank / UPI / card")], "cash"); var payBank = BankChoice();
         var retryKey = Guid.NewGuid().ToString();var submission=new RetrySubmission(); CancellationTokenSource? previewRequest = null;var sourceLoading=false;
 
         JsonObject DocumentData()
@@ -76,6 +79,7 @@ public sealed partial class MainPage
                 await Task.Delay(350, request.Token);
                 var body = BodyValue(); body["name"] = "Preview"; var result = await Api.Send(Api.CompanyPath(cid, "/documents/preview"), HttpMethod.Post, body, cancellation: request.Token);
                 if (!request.IsCancellationRequested) {
+                    lastTotal=result.Number("amount");
                     var calculated=result["data"];preview.Text = "Subtotal " + J.Money(calculated.Number("taxable")) + "   ·   GST " + J.Money(calculated.Number("cgst") + calculated.Number("sgst") + calculated.Number("igst") + calculated.Number("supplier_tax")) + "   ·   Total " + J.Money(result.Number("amount"));
                     var values=calculated?["lines"].Array()??new();for(var i=0;i<Math.Min(lines.Count,values.Count);i++)lines[i].Amount.Text=J.Money(values[i].Number("taxable")+values[i].Number("tax"));
                     if(checkCredit&&partyId.Length>0){
@@ -174,11 +178,30 @@ public sealed partial class MainPage
             method.SelectionChanged+=(_,_)=>ShowPayment();ShowPayment();
             panel.Children.Add(Columns(method,bank));if(kind=="expense")panel.Children.Add(category);else panel.Children.Add(tender);
         }
+        if (canPayNow)
+        {
+            var payFull = Button("Full amount", () => payAmount.Text = lastTotal.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
+            var payFields = Stack(8);
+            payFields.Children.Add(Columns(payAmount, payMethod)); payFields.Children.Add(payBank); payFields.Children.Add(payFull);
+            void ShowPay() { payFields.Visibility = payNow.IsChecked == true ? Visibility.Visible : Visibility.Collapsed; payBank.Visibility = Value(payMethod) == "bank" ? Visibility.Visible : Visibility.Collapsed; }
+            payNow.Checked += (_, _) => ShowPay(); payNow.Unchecked += (_, _) => ShowPay(); payMethod.SelectionChanged += (_, _) => ShowPay(); ShowPay();
+            panel.Children.Add(SectionHeading("04", kind == "sales_invoice" ? "Received now" : "Paid now", "Optional. The payment is saved with the document, or neither is saved."));
+            panel.Children.Add(payNow); panel.Children.Add(payFields);
+        }
+        JsonObject? PaymentBody()
+        {
+            if (!canPayNow || payNow.IsChecked != true) return null;
+            if (!decimal.TryParse(payAmount.Text.Trim(), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var paid) || paid <= 0)
+                throw new Exception(kind == "sales_invoice" ? "Enter the amount received, or untick Received now." : "Enter the amount paid, or untick Paid now.");
+            if (lastTotal > 0 && paid > lastTotal) throw new Exception("The amount cannot be more than the document total.");
+            var method = Value(payMethod);
+            return new JsonObject { ["amount"] = paid.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture), ["payment_account"] = method, ["bank_account_id"] = method == "bank" ? Value(payBank) : "default" };
+        }
         panel.Children.Add(new Expander{Header="Notes & terms",Content=Columns(notes,terms),HorizontalContentAlignment=HorizontalAlignment.Stretch,HorizontalAlignment=HorizontalAlignment.Stretch});
         date.Picker.DateChanged+=(_,_)=>_=Calculate();
         var totals=Stack(6);totals.Children.Add(preview);if(checkCredit)totals.Children.Add(creditInfo);var shortcut=Text("Ctrl + Enter to save · totals calculated by Apex Books",12);shortcut.Foreground=Muted;totals.Children.Add(shortcut);
         discount.TextChanged += (_, _) => _ = Calculate(); supply.TextChanged += (_, _) => _ = Calculate(); supplierState.TextChanged += (_, _) => _ = Calculate(); gstin.TextChanged += (_, _) => {if(purchase&&gstin.Text.Length>=2&&gstin.Text.Take(2).All(char.IsDigit))supplierState.Text=gstin.Text[..2];_=Calculate();}; round.Checked += (_, _) => _ = Calculate(); round.Unchecked += (_, _) => _ = Calculate();
-        var baseline=BodyValue().ToJsonString();var keepNew=false;
+        var baseline=BodyValue().ToJsonString();var keepNew=false;JsonObject? lastPayment=null;
         async Task Save()
         {
             if(sourceLoading)throw new Exception("Wait for the source document to finish loading.");
@@ -190,12 +213,13 @@ public sealed partial class MainPage
                 if(lines.Any(line=>Records.FirstOrDefault(r=>r.Text("id")==line.Data().Text("item_id")) is { } item&&!WorkflowMasterValues.IsActive(item)))throw new Exception("A linked item is archived. Choose active items or reactivate them before creating a new document.");
             }
             if (kind is "credit_note" or "debit_note" && appliedTo.Length == 0) throw new Exception("Choose the original posted document.");
-            try{await Api.SaveRecord(cid, submission.Body(BodyValue()), retryKey, previous);submission.Succeeded();}
+            var pay = submission.Unresolved ? null : PaymentBody(); var paymentFrozen = pay ?? lastPayment;
+            try{if(paymentFrozen is null)await Api.SaveRecord(cid, submission.Body(BodyValue()), retryKey, previous);else{lastPayment=paymentFrozen;await Api.SaveRecordWithPayment(cid, submission.Body(BodyValue()), paymentFrozen, retryKey);}submission.Succeeded();}
             catch(Exception e){submission.Failed(e);NativeUi.SetFormEnabled(panel,!submission.Unresolved);if(submission.Unresolved)throw new Exception("The save outcome is unknown. The original values are locked; press Save again to safely recover the same document.",e);throw;}
         }
         var saved = await Dialog((previous is not null ? "Edit " : "New ") + FeatureCatalog.Singular(kind), panel, Save,
             previous is null ? "Save " + (kind=="purchase_bill"?"bill":kind=="sales_invoice"?"invoice":"document") : "Save changes",
-            canSave:()=>!sourceLoading,unresolved:()=>submission.Unresolved,hasChanges:()=>BodyValue().ToJsonString()!=baseline,
+            canSave:()=>!sourceLoading,unresolved:()=>submission.Unresolved,hasChanges:()=>BodyValue().ToJsonString()!=baseline||payNow.IsChecked==true,
             saveAndNew:previous is null&&conversion is null?async()=>{await Save();keepNew=true;}:null,stickyFooter:Card(totals));
         previewRequest?.Cancel(); if (saved && cid == CompanyId) await Refresh();
         if(saved&&keepNew&&cid==CompanyId)await EditDocument(kind);

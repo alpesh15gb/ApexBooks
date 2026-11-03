@@ -14,9 +14,19 @@ This is a draft-branch candidate, not a published or deployed release. See [veri
 - Existing encrypted portable-v1 backups remain compatible. Encryption and decryption remain client-local; passphrases do not go to the API. Large native transfers use file-backed processing, while web tools enforce conservative memory limits rather than omit data or drop encryption.
 - Explicit percentage/fixed-rupee line discounts preserve existing amounts during editing and conversion. Linked returns require review of fixed discounts; they are never silently prorated. PDF layouts display the actual discount input.
 
+## Added after the first candidate: cancellation, payment at entry, statements
+
+- **Cancel a posted document** (`POST /records/{id}/cancel`, reason required): sales invoice, POS sale, purchase bill, payment in/out, expense, credit/debit note or bank transfer. The ledger entry is reversed with a linked reversal journal, tracked stock is released, payment/note allocations are freed, the document number is kept and the action is audited. Cancellation is refused with an explanation while payments, notes, settlements, bank matches or later stock sales depend on the document. Locked periods apply. It cannot be undone.
+- **Received now / Paid now** (`POST /records/with-payment`): an invoice or bill and its first receipt/payout post in one transaction under one retry key; an invalid payment saves neither. Web, Windows and Android show it on the new-document form.
+- **Profit & loss and balance sheet** (`GET /reports/statements`, `.pdf`, `.xlsx`): revenue, cost of sales, gross profit and margin, other income, operating expenses and net profit; classified assets, liabilities and equity including retained profit brought forward, with an explicit balance check. The previous list is kept as "Account balances".
+- Reports and registers exclude cancelled documents; the cash book shows a cancelled document by number; the items report no longer gives services or untracked goods a stock quantity; a linked item's HSN/SAC is filled by the server when a line leaves it blank.
+- New capability flags `document_cancellation`, `payment_at_entry` and `financial_statements` are advertised by `/api/capabilities`. Web, Windows and Android hide the new controls and report when the API does not advertise them.
+
 ## Compatibility and rollout
 
 API and web package versions target 1.5.0. Android targets version 1.5.0 (code 10); Windows targets 1.5.0 (package 1.5.0.0). Version changes do not imply signing, distribution or production promotion.
+
+No schema migration is required for cancellation, payment at entry or statements. **Rollback caution:** a cancelled document keeps its original and reversal journals but loses its posting link, so an older API build shows it as an unposted legacy record; restore from a verified backup rather than downgrading after cancelling documents.
 
 Additive migrations include company labels, retained evidence and bounded transfer staging. Test and back up the intended deployment before applying migrations; these development changes do not apply them to live books. Existing company IDs and legal identities must be preserved deliberately.
 

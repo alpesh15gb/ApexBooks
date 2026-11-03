@@ -635,6 +635,10 @@ def calculate(data, company, tax_mode, kind, session):
             if not isinstance(line, dict): raise ValueError()
             description = str(line.get('description', '')).strip()
             hsn = str(line.get('hsn', '')).strip()
+            if not hsn and isinstance(line.get('item_id'), str):
+                # A linked item's HSN/SAC is authoritative when the client left it blank (statutory invoice field).
+                linked = session.scalar(select(Record).where(Record.company_id == company.id, Record.id == line['item_id'], Record.kind == 'item'))
+                hsn = str(linked.data.get('hsn', '')).strip() if linked else ''
             if not description or len(description) > 200 or len(hsn) > 16: raise ValueError()
             qty, rate, gst = Decimal(str(line['quantity'])), Decimal(str(line['rate'])), Decimal(str(line.get('gst_rate', 0)))
             discount_percent = Decimal(str(line.get('discount_percent', 0)))
@@ -1149,7 +1153,7 @@ def records(company_id: str, kind: str = '', compact:bool=False, offset:int=Quer
 
 def record_status(row, posted, *, applied=Decimal('0'), consumed=Decimal('0'), credit_used=Decimal('0'), converted_to=None):
     """Identical fresh lifecycle fields for compact lists and full detail clients."""
-    return {'posted': posted,
+    return {'posted': posted, 'cancelled': bool(row.data.get('cancelled')),
         'advance_remaining': str(row.amount-consumed) if row.data.get('is_advance') and posted else None,
         'credit_remaining': str(Decimal(str(row.data.get('unallocated_credit',0)))-credit_used) if row.kind in {'credit_note','debit_note'} and posted else None,
         'converted_to': converted_to or ('source-converted' if row.data.get('vyapar_converted') else None),
@@ -1629,6 +1633,12 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
         else: session.flush()
     except IntegrityError:
         session.rollback()
+        if idempotency_key:
+            # A concurrent request with the same key won the race: return its result.
+            winner = session.scalar(select(IdempotencyKey).where(IdempotencyKey.company_id == company_id, IdempotencyKey.key == idempotency_key))
+            if winner and winner.request_hash == request_hash:
+                existing = session.get(Record, winner.record_id)
+                return {**obj(existing), 'posted': bool(session.scalar(select(RecordPosting.id).where(RecordPosting.company_id == company_id, RecordPosting.record_id == existing.id)))}
         raise HTTPException(409, 'Transaction conflicts with an existing record')
     session.refresh(r)
     return {**obj(r), 'posted': body.kind in POSTED_KINDS}
@@ -2122,7 +2132,18 @@ def cash_book(company_id: str, from_date: DateType, to_date: DateType, bank_acco
             .outerjoin(Record, (Record.id == RecordPosting.record_id) & (Record.company_id == Journal.company_id))
             .where(Journal.company_id == company_id, Journal.date <= to_date, JournalLine.account_id.in_(ids))
             .order_by(Journal.date, Journal.id, JournalLine.id))
+        origin_cache = {}
         for journal, line, record in session.execute(query):
+            cancelled_from = None
+            if record is None and journal.reference.startswith(('AUTO:', 'CANCEL:')):
+                # A cancelled document keeps its journals but no longer has a posting; show its number, not a raw id.
+                origin_id = journal.reference.split(':', 1)[1]
+                if origin_id not in origin_cache: origin_cache[origin_id] = session.scalar(select(Record).where(Record.company_id == company_id, Record.id == origin_id))
+                cancelled_from = origin_cache[origin_id]
+            if journal.id not in grouped and cancelled_from is not None:
+                label = 'Cancelled · ' if journal.reference.startswith('CANCEL:') else 'Cancelled document · '
+                grouped[journal.id] = {'id': journal.id, 'date': journal.date, 'reference': cancelled_from.number or journal.reference,
+                    'description': label + cancelled_from.name, 'kind': cancelled_from.kind, 'cash': Decimal('0'), 'bank': Decimal('0')}
             if journal.id not in grouped:
                 grouped[journal.id] = {'id': journal.id, 'date': journal.date,
                     'reference': record.number if record and record.number else journal.reference,
@@ -2253,8 +2274,11 @@ def item_report(company_id: str, from_date: DateType, to_date: DateType, user: U
     if from_date > to_date: raise HTTPException(422, 'Start date must be before end date')
     postings = select(RecordPosting.record_id).where(RecordPosting.company_id == company_id)
     kinds = {'sales_invoice', 'pos', 'credit_note', 'purchase_bill', 'debit_note'}
-    records = session.scalars(select(Record).where(Record.company_id == company_id, Record.id.in_(postings), Record.kind.in_(kinds), Record.date <= to_date))
+    records = list(session.scalars(select(Record).where(Record.company_id == company_id, Record.id.in_(postings), Record.kind.in_(kinds), Record.date <= to_date)))
     values = {}
+    # Decide tracking in Python from the few linked items: JSON boolean SQL differs between SQLite and PostgreSQL.
+    linked_ids = {line.get('item_id') for record in records for line in record.data.get('lines', []) if isinstance(line.get('item_id'), str)}
+    tracked_items = {item.id for item in session.scalars(select(Record).where(Record.company_id == company_id, Record.kind == 'item', Record.id.in_(linked_ids))) if item.data.get('track_stock')} if linked_ids else set()
     for record in records:
         for line in record.data.get('lines', []):
             name = str(line.get('description', '')).strip()
@@ -2267,8 +2291,10 @@ def item_report(company_id: str, from_date: DateType, to_date: DateType, user: U
             qty = Decimal(str(line.get('quantity', 0))) if record.data.get('return_stock') is not False else Decimal('0')
             taxable = Decimal(str(line.get('taxable', 0)))
             movement = qty if record.kind in {'purchase_bill', 'credit_note'} else -qty
+            # Services and untracked goods have no stock position; only tracked items carry opening/closing quantity.
+            carries_stock = line.get('item_id') in tracked_items
             if record.date < from_date:
-                item['opening_quantity'] += movement
+                if carries_stock: item['opening_quantity'] += movement
             else:
                 if record.kind == 'purchase_bill':
                     item['purchased_quantity'] += qty; item['purchase_value'] += taxable
@@ -2278,7 +2304,7 @@ def item_report(company_id: str, from_date: DateType, to_date: DateType, user: U
                     item['sold_quantity'] += qty; item['sales_value'] += taxable
                 else:
                     item['sold_quantity'] -= qty; item['sales_value'] -= taxable
-            item['closing_quantity'] += movement
+            if carries_stock: item['closing_quantity'] += movement
     return {'from_date': from_date.isoformat(), 'to_date': to_date.isoformat(),
             'rows': [{**item, **{field: str(item[field]) for field in ('opening_quantity', 'purchased_quantity', 'sold_quantity', 'closing_quantity', 'purchase_value', 'sales_value')}}
                      for item in sorted(values.values(), key=lambda row: (row['name'].casefold(), row['hsn']))]}
@@ -2840,6 +2866,15 @@ install_auth_workflows(app, sys.modules[__name__])
 
 from document_edits import install as install_document_edits
 install_document_edits(app, sys.modules[__name__])
+
+from cancellation import install as install_cancellation
+install_cancellation(app, sys.modules[__name__])
+
+from pay_at_invoice import install as install_pay_at_invoice
+install_pay_at_invoice(app, sys.modules[__name__])
+
+from statements import install as install_statements
+install_statements(app, sys.modules[__name__])
 
 from gst_returns import install as install_gst_returns
 install_gst_returns(app, sys.modules[__name__])

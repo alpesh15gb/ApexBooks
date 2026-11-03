@@ -379,7 +379,7 @@ export default function BusinessOverview({
         <Metric
           label="Net sales"
           value={data?.summary.sales}
-          note="Posted sales, after credit notes"
+          note={company?.tax_mode === "regular" ? "Invoice totals incl. GST, after credit notes" : "Posted sales, after credit notes"}
           icon={TrendingUp}
         />
         <Metric
@@ -702,9 +702,9 @@ export default function BusinessOverview({
                     <td>{dateText(r.date)}</td>
                     <td>
                       <span
-                        className={`status-badge ${r.converted_to ? "converted" : r.posted ? "posted" : "draft"}`}
+                        className={`status-badge ${r.cancelled ? "cancelled" : r.converted_to ? "converted" : r.posted ? "posted" : "draft"}`}
                       >
-                        {r.converted_to
+                        {r.cancelled ? "Cancelled" : r.converted_to
                           ? "Converted"
                           : r.posted
                             ? "Posted"

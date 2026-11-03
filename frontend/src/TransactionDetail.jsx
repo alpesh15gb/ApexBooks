@@ -6,15 +6,27 @@ import { relatedRecordActions, settlementLabel } from './recordLifecycle.js';
 const drafts = new Set(['estimate', 'proforma', 'sales_order', 'purchase_order']);
 const amount = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(Number(value || 0));
 
-export default function TransactionDetail({ record, records, company, labels, loading, error, onClose, onRetry, onEdit, onRelated, onConvert, onPdf, onOpen, api, features = [] }) {
+export default function TransactionDetail({ record, records, company, labels, loading, error, onClose, onRetry, onEdit, onRelated, onConvert, onPdf, onOpen, onCancelDocument, api, features = [] }) {
   const [attachmentLocked, setAttachmentLocked] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState('');
+  async function confirmCancel() {
+    setCancelBusy(true); setCancelError('');
+    try { await onCancelDocument(record, cancelReason.trim()); setCancelOpen(false); setCancelReason(''); }
+    catch (reason) { setCancelError(reason.message || 'Could not cancel this document'); }
+    finally { setCancelBusy(false); }
+  }
   const guarded = callback => (...args) => { if (!hasPendingPostings()) callback?.(...args); };
   onClose = guarded(onClose); onEdit = guarded(onEdit); onRelated = guarded(onRelated); onConvert = guarded(onConvert); onOpen = guarded(onOpen);
   const writable = ['owner', 'editor'].includes(company?.role);
   const draft = drafts.has(record.kind);
-  const status = record.converted_to ? 'Converted' : draft ? 'Open draft' : record.posted ? 'Posted' : 'Unposted';
+  const cancelled = !!record.cancelled;
+  const status = cancelled ? 'Cancelled' : record.converted_to ? 'Converted' : draft ? 'Open draft' : record.posted ? 'Posted' : 'Unposted';
   const actions = relatedRecordActions(record, writable);
-  const editable = ['sales_invoice','purchase_bill','pos','expense','credit_note','debit_note','payment_in','payment_out','bank_transfer'].includes(record.kind) || draft;
+  const cancellable = ['sales_invoice','purchase_bill','pos','expense','credit_note','debit_note','payment_in','payment_out','bank_transfer'].includes(record.kind) && record.posted && !cancelled && !!onCancelDocument && features.includes('document_cancellation');
+  const editable = !cancelled && ['sales_invoice','purchase_bill','pos','expense','credit_note','debit_note','payment_in','payment_out','bank_transfer'].includes(record.kind) || draft;
   const pdf = ['sales_invoice','purchase_bill','pos','expense','credit_note','debit_note','payment_in','payment_out','customer_refund','supplier_refund','advance_refund'].includes(record.kind) || draft;
   const lines = record.data?.lines || [];
   const links = [
@@ -35,7 +47,7 @@ export default function TransactionDetail({ record, records, company, labels, lo
         <button className="icon-button" aria-label="Close" disabled={attachmentLocked} onClick={onClose}><X size={21} /></button>
       </header>
       <div className="detail-body" aria-busy={loading}>
-        <div className="detail-status-line"><span className={`status-badge ${record.posted || record.converted_to ? 'posted' : 'draft'}`}>{record.posted ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}{status}</span>{settlementLabel(record) && <span className="detail-settlement">{settlementLabel(record)}</span>}<span>{record.date}</span></div>
+        <div className="detail-status-line"><span className={`status-badge ${cancelled ? 'cancelled' : record.posted || record.converted_to ? 'posted' : 'draft'}`}>{record.posted ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}{status}</span>{settlementLabel(record) && <span className="detail-settlement">{settlementLabel(record)}</span>}<span>{record.date}</span></div>
         <section className="detail-money"><div><span>Document total</span><strong>{amount(record.amount)}</strong><small>{record.name || 'No party'}</small></div><div><span>{hasBalance ? 'Still outstanding' : available !== undefined ? 'Available balance' : 'Accounting effect'}</span><strong className={hasBalance && Number(record.outstanding) > 0 ? 'due' : ''}>{hasBalance ? amount(record.outstanding) : available !== undefined ? amount(available) : draft ? 'Not posted' : record.posted ? 'Posted' : 'None'}</strong><small>{hasBalance ? record.data?.due_date ? `Due ${record.data.due_date}` : 'No due date set' : draft ? 'No stock, cash or revenue posted' : 'Server-confirmed status'}</small></div></section>
         {loading && <p className="info-box" role="status">Refreshing transaction details…</p>}
         {error && <div className="error banner" role="alert">{error}<button className="link" onClick={onRetry}>Try again</button></div>}
@@ -43,9 +55,18 @@ export default function TransactionDetail({ record, records, company, labels, lo
           {actions.map((action, index) => <button key={action.kind} className={`button ${index === 0 && action.kind.startsWith('payment') ? 'primary' : 'secondary'}`} disabled={loading || !!error || attachmentLocked} onClick={() => onRelated(record, action.kind)}>{action.label}<ArrowRight size={15} /></button>)}
           {['estimate', 'proforma'].includes(record.kind) && !record.converted_to && writable && <button className="button secondary" disabled={loading || !!error || attachmentLocked} onClick={() => onConvert(record, 'sales_order')}>Create sales order<ArrowRight size={15} /></button>}
           {draft && !record.converted_to && writable && <button className="button primary" disabled={loading || !!error || attachmentLocked} onClick={() => onConvert(record)}>Convert to {record.kind === 'purchase_order' ? 'bill' : 'invoice'}<ArrowRight size={15} /></button>}
+          {writable && cancellable && <button className="button danger-outline" disabled={loading || !!error || attachmentLocked} onClick={() => { setCancelError(''); setCancelOpen(true); }}><X size={15} />Cancel document</button>}
           {pdf && <button className="button secondary" disabled={loading || attachmentLocked} onClick={() => onPdf(record)}><Download size={16} />Download PDF</button>}
           {writable && editable && !record.converted_to && <button className="button secondary" disabled={loading || !!error || attachmentLocked} onClick={() => onEdit(record)}><Pencil size={15} />Edit details</button>}
         </div>
+        {cancelled && <div className="info-box cancelled-note" role="status"><strong>Cancelled.</strong> {record.data?.cancelled?.reason || 'No reason recorded'}. The number {record.number} stays in your records; its ledger, stock and balance effects were reversed.</div>}
+        {cancelOpen && <section className="cancel-panel" role="alertdialog" aria-labelledby="cancel-title">
+          <h3 id="cancel-title">Cancel {record.number}?</h3>
+          <p>This reverses its ledger entry{['sales_invoice','purchase_bill','pos','credit_note','debit_note'].includes(record.kind) ? ', returns its stock' : ''} and frees any balance it used. The number is kept and the action is recorded in the activity log. It cannot be undone; create a new document if you need to redo it.</p>
+          <label>Reason (required)<input value={cancelReason} maxLength={200} onChange={event => setCancelReason(event.target.value)} placeholder="e.g. Entered twice" autoFocus /></label>
+          {cancelError && <div className="error banner" role="alert">{cancelError}</div>}
+          <div className="cancel-actions"><button className="button secondary" disabled={cancelBusy} onClick={() => setCancelOpen(false)}>Keep document</button><button className="button danger" disabled={cancelBusy || cancelReason.trim().length < 3} onClick={confirmCancel}>{cancelBusy ? 'Cancelling…' : 'Cancel document'}</button></div>
+        </section>}
         {!writable && <p className="detail-caption">You have read-only access. You can inspect this transaction and download its document.</p>}
         {lines.length > 0 && <section className="detail-section"><div className="detail-section-heading"><h3>Items & services</h3><span>{lines.length} line{lines.length !== 1 ? 's' : ''}</span></div><div className="detail-lines">{lines.map((line, index) => <div className="detail-line" key={index}><span className="detail-line-number">{index + 1}</span><div><strong>{line.description}</strong><small>{line.quantity} {line.unit || 'units'} × {amount(line.rate)}{Number(line.gst_rate) > 0 ? ` · GST ${line.gst_rate}%` : ''}</small>{Object.hasOwn(line, 'discount_amount') ? <small>Line discount: {amount(line.discount_amount)}</small> : Number(line.discount_percent) > 0 ? <small>Line discount: {line.discount_percent}%</small> : null}{Number(line.document_discount) > 0 && <small>Document discount allocation: {amount(line.document_discount)}</small>}{line.hsn && <small>HSN/SAC {line.hsn}</small>}</div><strong>{amount(Number(line.taxable ?? Number(line.quantity) * Number(line.rate)) + Number(line.tax || 0))}</strong></div>)}</div></section>}
         <section className="detail-section"><h3>Payment & document trail</h3>{links.map(([title, id]) => { const target = records.find(row => row.id === id); return <button className="detail-trail-row" key={title + id} onClick={() => onOpen(target || { id })}><FileText size={18} /><span><small>{title}</small><strong>{target?.number || 'View linked document'}</strong></span><ArrowRight size={17} /></button>; })}{allocations.map((allocation, index) => { const target = records.find(row => row.id === allocation.document_id); return <button className="detail-trail-row" key={index} onClick={() => onOpen(target || { id: allocation.document_id })}><CheckCircle2 size={18} /><span><small>Allocated to</small><strong>{target?.number || 'View invoice or bill'}</strong></span><strong>{amount(allocation.amount)}</strong></button>; })}{paidAgainst.map(row => <button className="detail-trail-row" key={row.id} onClick={() => onOpen(row)}><CheckCircle2 size={18} /><span><small>{row.date} · {labels[row.kind] || row.kind}</small><strong>{row.number || 'View payment'}</strong></span><strong>{amount((row.allocations || row.data?.allocations || []).filter(a => a.document_id === record.id).reduce((sum, a) => sum + Number(a.amount), 0))}</strong></button>)}{!links.length && !allocations.length && !paidAgainst.length && <p className="detail-caption">{draft ? 'Convert this draft after review. The source and destination will remain linked here.' : 'No linked payment or conversion appears in this record.'}</p>}<p className="detail-footnote">Recording a payment, settling an invoice and matching a bank statement are separate steps. Downloading or printing never posts another transaction.</p></section>

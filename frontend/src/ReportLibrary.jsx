@@ -15,9 +15,14 @@ export const reportGroups = [
       ["purchases", "Purchase register", "Supplier bills and debit notes"],
       ["expenses", "Expense register", "Business spending and supplier tax"],
       [
+        "statements",
+        "Profit & loss and balance sheet",
+        "Formatted statements with gross profit and classified balances",
+      ],
+      [
         "financial",
-        "Profit & balance sheet",
-        "Income, expenses, assets and liabilities",
+        "Account balances",
+        "Every ledger account for the period and closing balance",
       ],
     ],
   },

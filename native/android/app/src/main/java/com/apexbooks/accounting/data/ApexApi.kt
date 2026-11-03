@@ -103,6 +103,11 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
         }
         rows
     }
+    suspend fun cancelRecord(companyId: String, id: String, reason: String): JSONObject =
+        request(company(companyId, "/records/${encode(id)}/cancel"), "POST", JSONObject().put("reason", reason)) as JSONObject
+    /** Posts an invoice or bill and its first receipt/payout atomically; the retry key covers both. */
+    suspend fun saveRecordWithPayment(companyId: String, document: JSONObject, payment: JSONObject, retryKey: String): JSONObject =
+        request(company(companyId, "/records/with-payment"), "POST", JSONObject().put("document", document).put("payment", payment), retryKey) as JSONObject
     suspend fun record(companyId: String, id: String): JSONObject = request(company(companyId, "/records/${encode(id)}")) as JSONObject
     suspend fun saveRecord(companyId: String, body: JSONObject, retryKey: String, previous: JSONObject? = null): JSONObject {
         val suffix = if (previous == null) "/records" else if (body.s("kind") in setOf("estimate", "proforma", "sales_order", "purchase_order")) "/drafts/${previous.s("id")}" else "/documents/${previous.s("id")}"

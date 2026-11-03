@@ -401,6 +401,8 @@ export default function RecordEditor({
       if (request === sourceRequest.current) setLoadingSource(false);
     }
   }
+  const [payNow, setPayNow] = useState({ on: false, amount: "", account: "cash", bank: "default" });
+  const canPayNow = !edit && ["sales_invoice", "purchase_bill"].includes(kind) && supported("payment_at_entry");
   async function submit(e) {
     e.preventDefault();
     if (!canWrite || saving || scanning || loadingSource) return;
@@ -462,6 +464,13 @@ export default function RecordEditor({
                     : undefined,
               },
         };
+      if (canPayNow && payNow.on) {
+        const total = preview && !preview.error ? Number(preview.amount) : NaN;
+        const paid = Number(payNow.amount);
+        if (!(paid > 0)) throw Error(kind === "sales_invoice" ? "Enter the amount received, or untick “Received now”" : "Enter the amount paid, or untick “Paid now”");
+        if (Number.isFinite(total) && paid > total + 0.001) throw Error("The amount cannot be more than the document total");
+        payload.pay_now = { amount: paid.toFixed(2), payment_account: payNow.account, bank_account_id: payNow.account === "bank" ? payNow.bank : "default" };
+      }
       const options = { keepOpen: saveAction.current === "new" };
       await posting.run(() => save(payload, submissionKey, options));
     } catch (err) {
@@ -944,6 +953,36 @@ export default function RecordEditor({
               </div>
               <DocumentTotals preview={preview} money={money} />
               {supported("party_credit_limits") && !edit && ["sales_invoice", "estimate", "proforma", "sales_order"].includes(kind) && form.party_id && preview && !preview.error && <CreditStatus api={api} companyId={companyId} partyId={form.party_id} asOf={form.date} proposedAmount={preview.amount} compact />}
+            </section>
+          )}
+          {canPayNow && (
+            <section className="pay-now full" aria-label="Payment at entry">
+              <label className="pay-now-toggle">
+                <input type="checkbox" checked={payNow.on} onChange={(e) => setPayNow({ ...payNow, on: e.target.checked, amount: e.target.checked ? payNow.amount : "" })} />
+                <span>{kind === "sales_invoice" ? "Received now" : "Paid now"}<small>Records the {kind === "sales_invoice" ? "receipt" : "payment"} together with this {saveLabel}, in one step.</small></span>
+              </label>
+              {payNow.on && (
+                <div className="pay-now-fields">
+                  <label>Amount
+                    <input type="number" min="0" step="0.01" inputMode="decimal" value={payNow.amount} onChange={(e) => setPayNow({ ...payNow, amount: e.target.value })} />
+                  </label>
+                  <button type="button" className="button secondary" disabled={!preview || !!preview.error} onClick={() => setPayNow({ ...payNow, amount: String(preview.amount) })}>Full amount</button>
+                  <label>{kind === "sales_invoice" ? "Received in" : "Paid from"}
+                    <select className="form-select" value={payNow.account} onChange={(e) => setPayNow({ ...payNow, account: e.target.value })}>
+                      <option value="cash">Cash</option>
+                      <option value="bank">Bank</option>
+                    </select>
+                  </label>
+                  {payNow.account === "bank" && (
+                    <label>Bank account
+                      <select className="form-select" value={payNow.bank} onChange={(e) => setPayNow({ ...payNow, bank: e.target.value })}>
+                        {bankAccounts.map((bank) => <option key={bank.id} value={bank.id}>{bank.name}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  {preview && !preview.error && Number(payNow.amount) > 0 && <p className="pay-now-balance">Balance after this: <strong>{money(Math.max(0, Number(preview.amount) - Number(payNow.amount)))}</strong></p>}
+                </div>
+              )}
             </section>
           )}
           {kind === "pos" && form.payment_account === "cash" && (

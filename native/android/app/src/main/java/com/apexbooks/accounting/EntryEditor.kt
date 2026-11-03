@@ -53,7 +53,16 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     val submission=RetrySubmission()
     var retryPending by mutableStateOf(false);private set
     val canSaveAndNew get()=document&&previous==null&&conversion==null
-    fun changed()=if(master)fields.toMap()!=initialMasterFields else body().toString()!=initialSignature
+    val canPayNow get()=previous==null&&conversion==null&&kind in setOf("sales_invoice","purchase_bill")&&vm.supports("payment_at_entry")
+    fun paymentBody():JSONObject?{
+        if(!canPayNow||!flag("pay_now"))return null
+        val paid=get("pay_amount").toBigDecimalOrNull()
+        if(paid==null||paid.signum()<=0)throw Exception(if(kind=="sales_invoice")"Enter the amount received, or switch off Received now." else "Enter the amount paid, or switch off Paid now.")
+        val total=preview?.s("amount")?.toBigDecimalOrNull()
+        if(total!=null&&paid>total)throw Exception("The amount cannot be more than the document total.")
+        return JSONObject().put("amount",paid.setScale(2,java.math.RoundingMode.HALF_UP).toPlainString()).put("payment_account",get("pay_account").ifBlank{"cash"}).put("bank_account_id",if(get("pay_account")=="bank")get("pay_bank").ifBlank{"default"}else"default")
+    }
+    fun changed()=if(master)fields.toMap()!=initialMasterFields else body().toString()!=initialSignature||flag("pay_now")
     fun renewRetryKey(){retryKey=vm.key();submission.succeeded();retryPending=false}
     init {
         val source=previous?:conversion?:JSONObject();val data=source.o("data")
@@ -119,8 +128,10 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
                 if(payment&&!flag("is_advance")&&(allocations.isEmpty()||allocations.any{it.documentId.isBlank()}))throw Exception("Allocate the payment or record an advance.")
             }
             val body=submission.body(body())
+            val pay=paymentBody()
             try {
                 if(master&&previous!=null){val flat=copy(body.o("data")).put("name",body.s("name"));vm.api.request(vm.api.company(companyId,"/masters/${previous.s("id")}"),"PUT",flat)}
+                else if(pay!=null)vm.api.saveRecordWithPayment(companyId,body,pay,retryKey)
                 else vm.api.saveRecord(companyId,body,retryKey,previous)
                 submission.succeeded();retryPending=false
             }catch(e:Exception){submission.failed(e);retryPending=submission.unresolved;throw e}

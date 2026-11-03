@@ -635,7 +635,8 @@ function App() {
           (activeRegisterFilter === "draft" && !r.converted_to) ||
           (activeRegisterFilter === "converted" && !!r.converted_to) ||
           (activeRegisterFilter === "posted" && r.posted) ||
-          (activeRegisterFilter === "unposted" && r.posted === false)),
+          (activeRegisterFilter === "unposted" && r.posted === false && !r.cancelled) ||
+          (activeRegisterFilter === "cancelled" && !!r.cancelled)),
     )
     .sort((a, b) => compareRegisterRecords(a, b, query.sort));
   useEffect(
@@ -659,7 +660,14 @@ function App() {
   }
   async function saveRecord(body, key, { keepOpen = false } = {}) {
     const isCurrent = workspaceScope.current.capture();
-    await api(
+    if (body.pay_now && !editingDraft) {
+      const { pay_now, ...document } = body;
+      await api(`/companies/${companyId}/records/with-payment`, {
+        method: "POST",
+        headers: { "Idempotency-Key": key },
+        body: JSON.stringify({ document, payment: pay_now }),
+      });
+    } else await api(
       editingDraft
         ? ["estimate", "proforma", "sales_order", "purchase_order"].includes(editingDraft.kind)
           ? `/companies/${companyId}/drafts/${editingDraft.id}`
@@ -762,6 +770,11 @@ function App() {
     } finally {
       if (isCurrent()) setDetailLoading(false);
     }
+  }
+  async function cancelDocument(record, reason) {
+    await api(`/companies/${companyId}/records/${record.id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) });
+    await loadRecords();
+    await beginDetail(record);
   }
   function closeDetail() { if (postingNavigationBlocked()) return; editorRequests.current.latest(); setDetail(null); }
   async function beginEdit(record) {
@@ -1658,7 +1671,7 @@ function App() {
       </main>
       {detail && <TransactionDetail api={api} features={features} record={detail} records={records} company={company} labels={labels}
         loading={detailLoading} error={detailError} onClose={closeDetail} onRetry={() => beginDetail(detail)}
-        onEdit={beginEdit} onRelated={beginRelated} onConvert={beginConversion} onPdf={downloadDocument} onOpen={beginDetail} />}
+        onEdit={beginEdit} onRelated={beginRelated} onConvert={beginConversion} onPdf={downloadDocument} onOpen={beginDetail} onCancelDocument={cancelDocument} />}
       {activeParty && (
         <PartyStatement
           features={features}
@@ -2484,7 +2497,7 @@ function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, records, on
   if (!["party", "item"].includes(r.kind)) {
     const invoice = ["sales_invoice", "purchase_bill", "pos"].includes(r.kind);
     const balance = Number(r.outstanding || 0);
-    const status = r.converted_to
+    const status = r.cancelled ? "Cancelled" : r.converted_to
       ? "Converted"
       : ["estimate", "proforma", "sales_order", "purchase_order"].includes(r.kind)
         ? "Open draft"
@@ -2642,7 +2655,8 @@ function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, records, on
             )}
           </div>
         )}
-        {r.posted === false &&
+        {r.cancelled && <span className="pill cancelled-pill">Cancelled</span>}
+        {r.posted === false && !r.cancelled &&
           [
             "sales_invoice",
             "pos",

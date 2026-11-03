@@ -83,3 +83,18 @@ Establish a verified full-database recovery point/PITR and isolated restore rehe
 ## Before live promotion
 
 Close the newest-source UI/CI gates, verify source identity across API/web/native artifacts, perform isolated migration and recovery drills, verify an explicit JWT secret and the operator-reviewed OCR transport (HTTPS by default; an existing HTTP provider requires explicit server-only opt-in), and preserve source-book identities. Merging a draft branch does not complete these operational gates. Do not describe this candidate as fully deployed, fully secure, zero-defect or universally feature-complete.
+
+
+## Cancellation, payment at entry and statements: local evidence
+
+Measured on the working tree (uncommitted, no source SHA yet), SQLite only. Not a hosted, PostgreSQL or signed-build result.
+
+- **208 backend tests pass**, including cancellation (blocked by payments, notes, bank matches and later stock use; released balances; restore round trip), atomic invoice+payment with retry replay and overpayment rollback, statements (hand-computed GST company, prior-period profit brought forward, cancelled sale, exports), report regressions and capability advertisement. Commerce tests had been failing intermittently (about one run in six) on Windows: that host's clock repeats the same timestamp for ~15 ms, so queued commerce events tied on `created_at` and were processed in random-UUID order. `commerce.now()` is now strictly increasing; ten consecutive `test_commerce` runs and later full runs were clean. Linux production clocks were unlikely to tie, but the ordering was fragile there too.
+- **111 web tests**, lint and production build pass. **6 live HTTP journeys** pass, including the complete-backup journey. Deploy/VPS tests pass (30, 2 skipped).
+- **236 native API route literals, 0 unmatched.** `native/shared/openapi.json` was out of date (26 routes) and has been regenerated from the current API.
+- A hand-computed journey (purchase, stock, intra/inter-state sales, receipts, credit note, expense, transfer, POS sale, cancel) matched every figure: P&L, balance sheet (difference 0.00), trial balance, summary, ageing, party report, GST analysis and GSTR-3B working paper, stock, credits, cash book; 16 PDF/XLSX exports generated. About 30 control checks (oversell, overpayment, wrong party, dates, locked period, roles, cross-company ids) were rejected correctly.
+- **Web**: pay-now, refused and successful cancel, cancelled filters/badges and the statements screen were exercised in a browser (desktop and phone width).
+- **Windows**: real unpackaged Debug app driven by UI Automation: 10 checks for pay-now and cancel (`native/tests/WindowsCancel`) and 8 for statements (`native/tests/WindowsStatements`).
+- **Android**: Debug APK driven manually by adb on the `ApexBooks_QA` emulator: refused and successful cancel, pay-now with partial amount, statements with matching figures. There is no automated Android test for these flows.
+
+Open gates before production: run the new tests and `tests/concurrency/test_postgres.py` on PostgreSQL (the items report, cash book and cancellation were verified on SQLite only); signed Android/Windows builds and clean installs; an accountant's review of statement classification; real printer/share checks; a tested backup and rollback plan given the rollback caution in the candidate notes.

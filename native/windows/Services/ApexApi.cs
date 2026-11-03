@@ -198,5 +198,12 @@ public sealed class ApexApi : IDisposable
         return Send(CompanyPath(companyId, suffix), previous is null ? HttpMethod.Post : HttpMethod.Put, body, retryKey);
     }
 
+    public Task<JsonNode> CancelRecord(string companyId, string recordId, string reason) =>
+        Send(CompanyPath(companyId, $"/records/{Uri.EscapeDataString(recordId)}/cancel"), HttpMethod.Post, new JsonObject { ["reason"] = reason });
+
+    /// <summary>Posts an invoice or bill and its first receipt/payout atomically under one retry key.</summary>
+    public Task<JsonNode> SaveRecordWithPayment(string companyId, JsonObject document, JsonObject payment, string retryKey) =>
+        Send(CompanyPath(companyId, "/records/with-payment"), HttpMethod.Post, new JsonObject { ["document"] = document, ["payment"] = payment }, retryKey);
+
     public void Dispose() => http.Dispose();
 }

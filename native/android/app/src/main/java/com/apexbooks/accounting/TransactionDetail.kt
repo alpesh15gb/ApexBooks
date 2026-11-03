@@ -24,6 +24,10 @@ import org.json.JSONObject
     var record by remember(initial.s("id")) { mutableStateOf<JSONObject?>(null) }
     var failure by remember { mutableStateOf("") }
     var reload by remember { mutableIntStateOf(0) }
+    var confirmCancel by remember { mutableStateOf(false) }
+    var cancelReason by remember { mutableStateOf("") }
+    var cancelBusy by remember { mutableStateOf(false) }
+    var cancelError by remember { mutableStateOf("") }
     LaunchedEffect(cid, initial.s("id"), vm.revision, reload) {
         record = null; failure = ""
         try { record = vm.api.record(cid, initial.s("id")) }
@@ -31,8 +35,26 @@ import org.json.JSONObject
     }
     val row = record ?: initial
     val data = row.o("data")
-    val editable = vm.canWrite && record != null && row.s("converted_to").isBlank() && row.s("kind") in (vm.documentKinds + setOf("payment_in", "payment_out", "item", "party"))
+    val editable = vm.canWrite && record != null && !row.optBoolean("cancelled") && row.s("converted_to").isBlank() && row.s("kind") in (vm.documentKinds + setOf("payment_in", "payment_out", "item", "party"))
+    val cancelled = row.optBoolean("cancelled")
+    val cancellable = vm.supports("document_cancellation") && vm.canWrite && record != null && !cancelled && row.optBoolean("posted") && row.s("kind") in setOf("sales_invoice", "pos", "purchase_bill", "payment_in", "payment_out", "expense", "credit_note", "debit_note", "bank_transfer")
     val printable = record != null && row.s("kind") in (vm.documentKinds + setOf("payment_in", "payment_out", "customer_refund", "supplier_refund", "advance_refund"))
+    if (confirmCancel) AlertDialog(
+        onDismissRequest = { if (!cancelBusy) confirmCancel = false },
+        title = { Text("Cancel ${row.s("number").ifBlank { friendly(row.s("kind")) }}?") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("This reverses its ledger entry, returns any stock and frees balances it used. The number is kept and the action is logged. It cannot be undone.")
+            Field("Reason (required)", cancelReason, { cancelReason = it }, maximum = 200)
+            if (cancelError.isNotBlank()) Message(cancelError, true)
+        } },
+        confirmButton = { Button(enabled = !cancelBusy && cancelReason.trim().length >= 3, onClick = {
+            cancelBusy = true; cancelError = ""
+            vm.task { try { vm.api.cancelRecord(cid, row.s("id"), cancelReason.trim()); confirmCancel = false; vm.notice = "Document cancelled."; vm.refresh(); reload++ }
+                catch (e: Exception) { currentCoroutineContext().ensureActive(); cancelError = e.message ?: "Could not cancel this document."; if (e is ApiFailure && e.status == 401) vm.failure(e) }
+                finally { cancelBusy = false } }
+        }) { Text(if (cancelBusy) "Cancelling…" else "Cancel document") } },
+        dismissButton = { TextButton(enabled = !cancelBusy, onClick = { confirmCancel = false }) { Text("Keep document") } },
+    )
     Dialog(onDismissRequest = { vm.detail = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize().safeDrawingPadding(), color = MaterialTheme.colorScheme.background) {
             Scaffold(topBar = { TopAppBar(title = { Text(friendly(row.s("kind"))) }, navigationIcon = { IconButton(onClick = { vm.detail = null }) { Icon(Icons.Outlined.Close, "Close transaction") } }) }, bottomBar = {
@@ -69,6 +91,8 @@ import org.json.JSONObject
                         vm.editor?.let { entry -> entry.chooseAllocation(entry.allocations.first(), 0, row.s("id")) }
                     }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Payments, null); Spacer(Modifier.width(8.dp)); Text(if (row.s("kind") == "sales_invoice") "Record payment received" else "Record supplier payment") }
                 }
+                if (cancelled) item { Message("Cancelled" + data.o("cancelled").s("reason").takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty() + ". The number stays in your records; its ledger, stock and balance effects were reversed.", true) }
+                if (cancellable) item { OutlinedButton(onClick = { cancelError = ""; cancelReason = ""; confirmCancel = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Close, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Cancel this document") } }
                 if(record!=null) item {
                     val links=listOf("Posted document" to row.s("converted_to"),"Source document" to data.s("source_document_id"),"Original invoice / bill" to data.s("applied_to")).filter{it.second.isNotBlank()&&it.second!="source-converted"}
                     if(links.isNotEmpty())Section("Related documents") { links.forEach{(label,id)->

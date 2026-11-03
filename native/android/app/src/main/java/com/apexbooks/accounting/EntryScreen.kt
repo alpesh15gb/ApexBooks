@@ -169,6 +169,19 @@ import org.json.JSONObject
                             Field("Terms and conditions", editor.get("terms"), { change("terms", it) }, multiline = true, maximum = 8000)
                         }
                     }
+                    if (editor.document && step == 2 && editor.canPayNow) Section(if (editor.kind == "sales_invoice") "Received now" else "Paid now") {
+                        Toggle(if (editor.kind == "sales_invoice") "Record the payment received with this invoice" else "Record the payment made with this bill", editor.flag("pay_now"), { change("pay_now", it.toString()) })
+                        if (editor.flag("pay_now")) {
+                            Field("Amount (₹)", editor.get("pay_amount"), { change("pay_amount", it) }, number = true)
+                            editor.preview?.takeIf { previewReady }?.s("amount")?.takeIf { it.isNotBlank() }?.let { total ->
+                                TextButton(onClick = { change("pay_amount", total) }) { Text("Full amount · ${money(total)}") }
+                                val paid = editor.get("pay_amount").toBigDecimalOrNull()
+                                if (paid != null && paid.signum() > 0) Text("Balance after this: ${money((total.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO).subtract(paid).max(java.math.BigDecimal.ZERO))}", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Choice(if (editor.kind == "sales_invoice") "Received in" else "Paid from", editor.get("pay_account").ifBlank { "cash" }, listOf("cash" to "Cash", "bank" to "Bank / UPI / card"), { change("pay_account", it) })
+                            if (editor.get("pay_account") == "bank") Choice("Bank", editor.get("pay_bank").ifBlank { "default" }, vm.banks.map { it.s("id") to it.s("name") }, { change("pay_bank", it) })
+                        }
+                    }
                     if (editor.document && step == 2 && editor.canSaveAndNew) TextButton(enabled = idle && vm.busy == 0 && editor.preview != null, onClick = { editor.save(true) }, modifier = Modifier.fillMaxWidth()) { Text("Save & create another") }
                     if (editor.payment) PaymentFields(editor)
                     if ((!editor.document || step == 2) && editor.kind in setOf("payment_in", "payment_out", "expense", "pos")) Section("Payment account") {
