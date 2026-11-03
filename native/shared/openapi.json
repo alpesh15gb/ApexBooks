@@ -3565,6 +3565,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/UnmatchInput"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -8514,6 +8531,28 @@
           "is_active"
         ],
         "title": "TemplateUpdate"
+      },
+      "UnmatchInput": {
+        "properties": {
+          "expected_record_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Expected Record Id"
+          },
+          "expected_match_revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Match Revision",
+            "description": "Captured statement match_revision; never replace it with a newly fetched token while retrying."
+          }
+        },
+        "type": "object",
+        "required": [
+          "expected_record_id",
+          "expected_match_revision"
+        ],
+        "title": "UnmatchInput"
       },
       "UploadInput": {
         "properties": {

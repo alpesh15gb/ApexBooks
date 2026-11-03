@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, StrictInt
 from pwdlib import PasswordHash
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -385,6 +385,9 @@ class StatementImport(BaseModel):
     lines: list[StatementInputLine] = Field(min_length=1, max_length=5000)
 class MatchInput(BaseModel):
     record_id: str
+class UnmatchInput(BaseModel):
+    expected_record_id: str = Field(min_length=1, max_length=100)
+    expected_match_revision: StrictInt = Field(ge=0, description='Captured statement match_revision; never replace it with a newly fetched token while retrying.')
 class BankMatchAllocationInput(BaseModel):
     record_id: str
     amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2, allow_inf_nan=False)
@@ -2484,15 +2487,33 @@ def import_bank_statement(company_id: str, body: StatementImport, user: User = D
         raise HTTPException(409, 'Concurrent import conflict; retry')
     return {'added': added, 'duplicates': duplicates}
 
+def bank_match_revision_query(company_id):
+    return select(AuditEvent.entity_id.label('line_id'), func.count(AuditEvent.id).label('revision')).where(
+        AuditEvent.company_id == company_id, AuditEvent.entity_type == 'bank_statement_line',
+        AuditEvent.action.in_(('bank_statement.matched', 'bank_statement.unmatched'))
+    ).group_by(AuditEvent.entity_id)
+
+def bank_match_revisions(company_id, line_ids, session):
+    # Audit rows are immutable. Restoring creates new company/line identities and
+    # archives source events under backup.source_event, so their live count is 0.
+    if not line_ids: return {}
+    return dict(session.execute(bank_match_revision_query(company_id).where(AuditEvent.entity_id.in_(line_ids))).all())
+
 @app.get('/api/companies/{company_id}/bank-statement')
 def bank_statement(company_id: str, bank_account_id: str = 'default', as_of: DateType | None = None, user: User = Depends(current_user), session: Session = Depends(db)):
     company_for(company_id, user, session)
     bank_account = bank_account_for(company_id, bank_account_id, session)
     bank_id = bank_account.id if bank_account else None
     scope = BankStatementLine.bank_account_id == bank_id if bank_id else BankStatementLine.bank_account_id.is_(None)
-    statement_query = select(BankStatementLine).where(BankStatementLine.company_id == company_id, scope)
+    # Read exact-match identity and its generation in one database snapshot. Two
+    # independent SELECTs could pair an old identity with a newer ABA revision.
+    revision_counts = bank_match_revision_query(company_id).subquery()
+    statement_query = select(BankStatementLine, func.coalesce(revision_counts.c.revision, 0)).outerjoin(
+        revision_counts, revision_counts.c.line_id == BankStatementLine.id).where(BankStatementLine.company_id == company_id, scope)
     if as_of: statement_query = statement_query.where(BankStatementLine.date <= as_of)
-    rows = list(session.scalars(statement_query.order_by(BankStatementLine.date.desc(), BankStatementLine.id)))
+    snapshots = list(session.execute(statement_query.order_by(BankStatementLine.date.desc(), BankStatementLine.id)))
+    rows = [row for row, revision in snapshots]
+    revisions = {row.id: revision for row, revision in snapshots}
     allocations_by_line = {r.id: [] for r in rows}
     if rows:
         for allocation in session.scalars(select(BankMatchAllocation).where(
@@ -2508,6 +2529,7 @@ def bank_statement(company_id: str, bank_account_id: str = 'default', as_of: Dat
         result.append({'id': line.id, 'bank_account_id': line.bank_account_id or 'default',
             'date': line.date.isoformat(), 'description': line.description, 'reference': line.reference,
             'amount': str(line.amount), 'matched_record_id': line.matched_record_id,
+            'match_revision': revisions.get(line.id, 0),
             'matched_amount': str(matched_amount), 'remaining_amount': str(abs(line.amount) - matched_amount),
             'allocations': allocations})
     return result
@@ -2597,18 +2619,20 @@ def remove_bank_match_allocation(company_id: str, allocation_id: str, user: User
     return {'removed': allocation_id}
 
 @app.delete('/api/companies/{company_id}/bank-statement/{line_id}/match')
-def unmatch_bank_statement(company_id: str, line_id: str, user: User = Depends(current_user), session: Session = Depends(db)):
+def unmatch_bank_statement(company_id: str, line_id: str, body: UnmatchInput | None = None, user: User = Depends(current_user), session: Session = Depends(db)):
     lock_company(company_id, user, session)
     line = session.scalar(select(BankStatementLine).where(BankStatementLine.company_id == company_id, BankStatementLine.id == line_id))
     if not line: raise HTTPException(404, 'Statement line not found')
-    if not line.matched_record_id and session.scalar(select(BankMatchAllocation.id).where(
-        BankMatchAllocation.company_id == company_id, BankMatchAllocation.statement_line_id == line.id)):
-        raise HTTPException(409, 'Remove this line’s allocations individually')
+    if body is None:
+        raise HTTPException(409, 'Bank match revision required; update the app and reload the statement before unmatching')
+    revision = bank_match_revisions(company_id, [line.id], session).get(line.id, 0)
+    if not line.matched_record_id or line.matched_record_id != body.expected_record_id or revision != body.expected_match_revision:
+        raise HTTPException(409, 'Bank match changed; reload the statement and review its current match')
     old_record_id = line.matched_record_id
     line.matched_record_id = None
     if old_record_id: audit(session, company_id, user, 'bank_statement.unmatched', 'bank_statement_line', line.id, {'record_id': old_record_id})
     session.commit()
-    return {'matched_record_id': None}
+    return {'matched_record_id': None, 'match_revision': revision + 1}
 
 @app.get('/api/companies/{company_id}/bank-reconciliation')
 def bank_reconciliation(company_id: str, bank_account_id: str = 'default', as_of: DateType | None = None, opening_balance: Decimal = Query(Decimal('0')), user: User = Depends(current_user), session: Session = Depends(db)):

@@ -183,6 +183,45 @@ class ConcurrentPostingTest(unittest.TestCase):
         self.assertEqual(extra.status_code, 422, extra.text)
         self.assertEqual(len(self.client.get(self.base + '/journals', headers=self.headers).json()), 4)
 
+    def test_bank_unmatch_generation_survives_concurrent_rematch_and_aba(self):
+        records=[self.create({'kind':'bank_transfer','name':name,'date':'2026-04-02',
+            'amount':100,'data':{'direction':'cash_to_bank'}}) for name in ('Deposit A','Deposit B')]
+        self.client.post(self.base+'/bank-statement/import',headers=self.headers,json={
+            'lines':[{'date':'2026-04-02','description':'Deposit','amount':100}]}).raise_for_status()
+        def row():return self.client.get(self.base+'/bank-statement',headers=self.headers).json()[0]
+        line=row();path=self.base+'/bank-statement/'+line['id']+'/match'
+        self.client.post(path,headers=self.headers,json={'record_id':records[0]['id']}).raise_for_status()
+        from sqlalchemy import event
+        from main import engine
+        queries=[]
+        def capture(conn,cursor,statement,parameters,context,executemany):
+            if statement.lstrip().upper().startswith('SELECT') and 'bank_statement_lines' in statement:queries.append(statement)
+        event.listen(engine,'before_cursor_execute',capture)
+        try:snapshot=row()
+        finally:event.remove(engine,'before_cursor_execute',capture)
+        self.assertEqual(len(queries),1,queries);self.assertIn('audit_events',queries[0]);self.assertIn('JOIN',queries[0])
+        token={'expected_record_id':snapshot['matched_record_id'],
+                             'expected_match_revision':snapshot['match_revision']}
+        results=self.concurrent_http('DELETE',path,headers=self.headers,json=token)
+        self.assertEqual(sorted(r.status_code for r in results),[200,409,409,409],[r.text for r in results])
+        self.assertEqual(row()['match_revision'],2)
+        # A lost-response retry competes with a fresh match while the line is empty.
+        gate=Barrier(2)
+        def send(rematch):
+            with TestClient(app) as client:
+                gate.wait(timeout=15)
+                if rematch:return client.post(path,headers=self.headers,json={'record_id':records[1]['id']})
+                return client.request('DELETE',path,headers=self.headers,json=token)
+        with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(send,(True,False)))
+        self.assertEqual([r.status_code for r in results],[200,409],[r.text for r in results])
+        current=row();self.assertEqual(current['matched_record_id'],records[1]['id']);self.assertEqual(current['match_revision'],3)
+        self.client.request('DELETE',path,headers=self.headers,json={
+            'expected_record_id':current['matched_record_id'],'expected_match_revision':current['match_revision']}).raise_for_status()
+        self.client.post(path,headers=self.headers,json={'record_id':records[0]['id']}).raise_for_status()
+        self.assertEqual(self.client.request('DELETE',path,headers=self.headers,json=token).status_code,409)
+        self.assertEqual(row()['matched_record_id'],records[0]['id']);self.assertEqual(row()['match_revision'],5)
+        self.assertEqual(len(self.client.get(self.base+'/journals',headers=self.headers).json()),2)
+
     def test_attachment_concurrent_dedupe_and_key_binding(self):
         import hashlib
         bill = self.create({'kind': 'expense', 'name': 'Concurrent receipt',

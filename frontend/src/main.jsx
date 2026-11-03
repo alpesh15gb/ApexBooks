@@ -1074,6 +1074,8 @@ function App() {
             <Ledger key={companyId} companyId={companyId} role={company?.role} />
           ) : page === "bank_account" ? (
             <BankWorkspace
+              capabilities={capabilities}
+              onRetryCapabilities={() => setCapabilityRevision(value => value + 1)}
               key={companyId}
               companyId={companyId}
               records={records}
