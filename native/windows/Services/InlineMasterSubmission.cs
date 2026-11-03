@@ -10,6 +10,8 @@ public sealed class InlineMasterSubmission(ApexApi api,string companyId)
     readonly string key=Guid.NewGuid().ToString();
     readonly RetrySubmission retry=new();
     public bool Unresolved=>retry.Unresolved;
+    public static bool CanEditInputs(bool saving,bool unresolved)=>!saving&&!unresolved;
+    public static bool CanTrackStock(string itemType,bool inputsEditable)=>itemType=="goods"&&inputsEditable;
     public async Task<JsonObject> Save(JsonObject candidate,Func<bool> workspaceCurrent)
     {
         if(session!=api.SessionGeneration||!workspaceCurrent())throw new OperationCanceledException("The original company or session changed. Reopen its invoice before creating a master.");

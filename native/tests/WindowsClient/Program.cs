@@ -187,6 +187,12 @@ foreach(var replaceSession in new[]{false,true}){
 var latestMaster=JsonNode.Parse("{\"id\":\"master\",\"kind\":\"party\",\"data\":{\"is_active\":false}}")!.AsObject();var returnedMaster=JsonNode.Parse("{\"id\":\"master\",\"kind\":\"party\",\"data\":{\"is_active\":true}}")!.AsObject();
 Check(!WorkflowMasterValues.IsActive(InlineMasterSubmission.CurrentRow(new JsonArray(latestMaster),returnedMaster)),"inline selection respects newer archived catalog row instead of stale create response");
 Check(InlineMasterSubmission.PartySupplyState(returnedMaster,"27")=="27"&&InlineMasterSubmission.PartySupplyState(JsonNode.Parse("{\"data\":{\"gstin\":\"29ABCDE1234F1Z5\"}}")!.AsObject(),"27")=="29","inline party resets supply state to company when GSTIN is absent");
+var validationTransport=new InlineMasterTransport{Hold=true,RejectAfterHold=true};using(var validationApi=new ApexApi("https://synthetic-inline.invalid",validationTransport)){
+ var command=new InlineMasterSubmission(validationApi,"company-a");var pending=command.Save(JsonNode.Parse("{\"kind\":\"item\",\"name\":\"Service\",\"data\":{\"item_type\":\"services\"}}")!.AsObject(),()=>true);await validationTransport.Entered.Task;
+ Check(!InlineMasterSubmission.CanEditInputs(true,command.Unresolved),"inline inputs stay locked while controlled POST is in flight");validationTransport.Release.SetResult(true);try{await pending;}catch(ApiFailure error)when(error.Status==422){}
+ var editable=InlineMasterSubmission.CanEditInputs(false,command.Unresolved);Check(editable&&!InlineMasterSubmission.CanTrackStock("services",editable)&&InlineMasterSubmission.CanTrackStock("goods",editable),"definitive422 unlocks edits but service stock remains disabled");
+ Check(!InlineMasterSubmission.CanEditInputs(false,true)&&!InlineMasterSubmission.CanTrackStock("goods",false),"unknown outcome keeps all inputs and stock toggle locked");
+}
 Check(InlineMasterSubmission.CanAppend(99)&&!InlineMasterSubmission.CanAppend(100)&&InlineMasterSubmission.CanAppend(1),"inline item respects100 line cap and pristine placeholder reuse");
 Check(InlineMasterSubmission.CanReusePlaceholder(1,true,"original","original")&&!InlineMasterSubmission.CanReusePlaceholder(1,false,"original","original")&&!InlineMasterSubmission.CanReusePlaceholder(2,true,"original","original"),"inline item reuses only the original sole placeholder instance");
 Check(!InlineMasterSubmission.CanReusePlaceholder(1,true,"quantity=2;discount_amount=10","quantity=1;discount_percent=0"),"edited quantity or fixed discount cannot be overwritten by inline item");
@@ -225,11 +231,12 @@ sealed class MasterConflictTransport:HttpMessageHandler
 
 sealed class InlineMasterTransport:HttpMessageHandler
 {
- public List<string> Bodies=[],Keys=[];public bool Duplicate,Hold;public string Malformed="";public TaskCompletionSource<bool> Entered=new(TaskCreationOptions.RunContinuationsAsynchronously),Release=new(TaskCreationOptions.RunContinuationsAsynchronously);
+ public List<string> Bodies=[],Keys=[];public bool Duplicate,Hold,RejectAfterHold;public string Malformed="";public TaskCompletionSource<bool> Entered=new(TaskCreationOptions.RunContinuationsAsynchronously),Release=new(TaskCreationOptions.RunContinuationsAsynchronously);
  protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation){
   var body=await request.Content!.ReadAsStringAsync(cancellation);Bodies.Add(body);Keys.Add(request.Headers.GetValues("Idempotency-Key").Single());
   if(Duplicate)return new(HttpStatusCode.Conflict){Content=new StringContent("{\"detail\":\"A party or item with this name already exists\"}")};
   if(Hold){Entered.SetResult(true);await Release.Task.WaitAsync(cancellation);}else if(Bodies.Count==1)throw new HttpRequestException("synthetic committed response lost");
+  if(RejectAfterHold)return new(HttpStatusCode.UnprocessableEntity){Content=new StringContent("{\"detail\":\"Invalid item details\"}")};
   var result=JsonNode.Parse(body)!.AsObject();result["id"]="created-master";
   if(Malformed=="id")result["id"]="";if(Malformed=="kind")result["kind"]="expense";if(Malformed=="name")result["name"]="Unexpected";if(Malformed=="inactive")result["data"]!["is_active"]=false;if(Malformed=="invalid-active")result["data"]!["is_active"]="false";if(Malformed=="company")result["company_id"]="another-company";
   return new(HttpStatusCode.OK){Content=new StringContent(result.ToJsonString())};
