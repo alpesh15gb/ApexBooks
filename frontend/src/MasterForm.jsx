@@ -1,3 +1,4 @@
+import { currentPostingSession, assertPostingSession } from "./postingSession.js";
 import { supportsFeature, supportedMasterData } from "./capabilities.js";
 import {imageInput} from "./imageInput.js";
 import React, { useState, useRef, useEffect } from "react";
@@ -31,6 +32,7 @@ export default function MasterForm({ kind, close, save, record, features = [], e
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
+  const originatingSession = useRef(currentPostingSession()).current;
   const nameInput = useRef(null);
   useEffect(() => { if (embedded) nameInput.current?.focus(); }, [embedded]);
   const dismiss = () => { if (!submitting.current && !busy && !locked) close(); };
@@ -43,6 +45,9 @@ export default function MasterForm({ kind, close, save, record, features = [], e
     setBusy(true);
     setError("");
     try {
+      // Editing includes archive/reactivate. Keep this mounted intent bound to
+      // its original session without changing master compare-and-swap semantics.
+      if (record) assertPostingSession(originatingSession);
       const data = isParty
         ? {
             party_type: form.party_type,
