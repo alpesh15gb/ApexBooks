@@ -7,8 +7,11 @@ namespace ApexBooks_Windows.Services;
 /// <summary>Optional master defaults are validated before any request; the API remains authoritative.</summary>
 public static class WorkflowMasterValues
 {
-    public static bool DocumentWriteFailed(RetrySubmission submission,Exception error,bool conversion)
+    public static bool DocumentWriteFailed(RetrySubmission submission,Exception error,bool conversion,bool amendment=false,bool wasUnknown=false)
     {
+        // Access/validation errors on a replay do not resolve an earlier interrupted edit.
+        // Keep its frozen body and key until the server can confirm that same command.
+        if(amendment&&wasUnknown)return false;
         if(conversion&&error is ApiFailure{Status:409} failure&&(failure.Message is "Conversion source revision required; update the app and reopen the source document before converting" or "Conversion source changed; reopen it and review the conversion again")){
             submission.Succeeded();return true;
         }

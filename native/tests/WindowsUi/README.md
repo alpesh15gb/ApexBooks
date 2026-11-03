@@ -161,3 +161,9 @@ controls. No extra picker activation, upload or action retry is performed.
 
 This diagnostic addition passed local diff/source checks; compilation and runtime
 capture require the Windows CI runner because the local .NET SDK is unavailable.
+
+### PR32 owned reveal follow-up
+
+Run 41673718317 (artifact 13250416085) reached the inline-item action after customer creation and exact/rapid item typing. The failure screenshot and accessibility tree show `+ Create item here` present below the visible form area; no item-create action or POST was issued. The earlier helper scrolled once, then waited passively. The exact cause of the later visibility state is not established by those older diagnostics.
+
+The test now reevaluates only the identified app control and its owned scroll container during a bounded readiness wait, retaining visible/enabled/positive-size requirements before the existing single action. Failure output includes bounded geometry and scroll diagnostics. All accounting and backup assertions remain unchanged. Local .NET is unavailable; compilation and real hosted UI execution are pending for this test-only correction.

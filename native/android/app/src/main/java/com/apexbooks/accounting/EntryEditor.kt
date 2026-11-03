@@ -168,6 +168,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
                 if(master)masterPlanningIssue(kind,get("payment_terms_days"),get("low_stock_threshold"),get("credit_limit"))?.let{throw Exception(it)}
                 if(payment&&!flag("is_advance")&&(allocations.isEmpty()||allocations.any{it.documentId.isBlank()}))throw Exception("Allocate the payment or record an advance.")
             }
+            val wasUnknown=submission.unresolved
             val body=submission.body(body())
             try {
                 if(master&&previous!=null){val flat=copy(body.o("data")).put("name",body.s("name"));vm.api.request(vm.api.company(companyId,"/masters/${previous.s("id")}"),"PUT",flat)}
@@ -178,7 +179,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
                 // unlike a financial request that may still be in progress.
                 val masterConflict=master&&previous!=null&&e is ApiFailure&&e.status==409
                 val conversionConflict=definitiveConversionConflict(conversionRevision!=null,e)
-                submission.failed(e,definitiveConflict=masterConflict||conversionConflict);ownRetryPending=submission.unresolved
+                recordEditWriteFailed(submission,e,previous!=null&&!master,wasUnknown,masterConflict||conversionConflict);ownRetryPending=submission.unresolved
                 if(conversionConflict)throw ApiFailure(409,"${e.message} Your entered values remain here. Copy any needed changes, then close, refresh and reopen the source to compare before converting again. An earlier interrupted attempt may already have saved.")
                 if(masterConflict)throw ApiFailure(409,"${e.message ?: "The server rejected this master revision."} Your entered values remain here. Close the editor, refresh company data, and reopen to compare before saving again. An earlier interrupted attempt may already have saved.")
                 throw e
