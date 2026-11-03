@@ -80,9 +80,16 @@ def worker(stage,folder):
         req('GET','/api/ready')
         current=reports(req,h,b,fixture['buyer_id'],fixture['supplier_id'])
         assert current==fixture['reports'],'Canonical reports differ across the upgrade: '+json.dumps({key:{'before':fixture['reports'][key],'after':current[key]} for key in current if current[key]!=fixture['reports'][key]})
-        # Old clients omit additive metadata. Their reads and ordinary writes still work.
+        # Old clients retain reads and draft creation, but unsafe unversioned master edits must fail.
         records=req('GET',b+'/records',headers=h).json()
         assert {r['id'] for r in records}=={row[0] for row in fixture['snapshot']['rows']['records']}
+        for row in records:
+            if row['kind'] in ('party','item'):
+                assert type(row['data']['version']) is int and row['data']['version']==0
+        buyer=next(row for row in records if row['id']==fixture['buyer_id'])
+        req('PUT',b+'/masters/'+buyer['id'],409,headers=h,json={'name':buyer['name'],'phone':'must-not-save'})
+        assert snapshot(database,fixture['snapshot']['columns'])==first,'Rejected legacy edit changed data'
+
         company=next(row for row in req('GET','/api/companies',headers=h).json() if b.endswith(row['id']))
         assert company['book_label']==''
         legacy_write=req('POST',b+'/records',headers=h,json={'kind':'estimate','name':'Old client draft','date':'2026-04-05','data':{'lines':[{'description':'Service','quantity':1,'rate':10,'gst_rate':0}]}}).json()
@@ -110,7 +117,7 @@ def worker(stage,folder):
         financial=req('GET',rb+'/reports/financial',headers=h,params=PERIOD).json()
         assert financial==fixture['reports']['financial'],'Recovered financial report differs'
         counts={table:len(rows) for table,rows in first['rows'].items()}
-        result={'baseline_revision':fixture['snapshot']['revision'],'current_revision':first['revision'],'readiness_before':503,'readiness_after':200,'original_tables_compared':len(counts),'original_row_counts':counts,'canonical_reports_equal':list(current),'balance_difference':current['financial']['balance_difference'],'closing_stock_quantity':current['stock']['rows'][0]['closing_quantity'],'second_migration_unchanged':True,'legacy_client_read_and_draft_write':True,'baseline_capabilities_absent':True,'new_receipt_roundtrip':True,'complete_backup_restored_financials':True,'restore_replay_same_company':True}
+        result={'baseline_revision':fixture['snapshot']['revision'],'current_revision':first['revision'],'readiness_before':503,'readiness_after':200,'original_tables_compared':len(counts),'original_row_counts':counts,'canonical_reports_equal':list(current),'balance_difference':current['financial']['balance_difference'],'closing_stock_quantity':current['stock']['rows'][0]['closing_quantity'],'second_migration_unchanged':True,'legacy_client_read_and_draft_write':True,'unversioned_master_edit_rejected_without_mutation':True,'baseline_capabilities_absent':True,'new_receipt_roundtrip':True,'complete_backup_restored_financials':True,'restore_replay_same_company':True}
         (folder/'result.json').write_text(json.dumps(result,indent=2))
     c.close()
 
@@ -118,12 +125,21 @@ PERIOD={'from_date':'2026-04-01','to_date':'2026-04-30','as_of':'2026-04-30'}
 def reports(req,h,b,buyer,supplier):
     result={name:req('GET',b+'/reports/'+name,headers=h,params=PERIOD).json() for name in ('financial','stock','parties','ageing')}
     for name,pid in [('buyer_statement',buyer),('supplier_statement',supplier)]:result[name]=req('GET',b+'/parties/'+pid+'/statement',headers=h,params=PERIOD).json()
-    # 1.5 adds a nullable conversion marker to statement rows; financial fields remain exact.
     for key in ('buyer_statement','supplier_statement'):
-        for row in result[key]['transactions']:
-            if 'converted_to' in row:
-                assert row.pop('converted_to') is None
+        normalize_legacy_statement_metadata(result[key])
     return result
+
+
+def normalize_legacy_statement_metadata(statement):
+    # Only explicitly verified additive metadata may differ. Never drop balances,
+    # transaction fields, existing nonzero versions, or arbitrary unknown fields.
+    data=statement['party']['data']
+    if 'version' in data:
+        assert type(data['version']) is int and data['version']==0,'Legacy master revision is not zero'
+        del data['version']
+    for row in statement['transactions']:
+        if 'converted_to' in row:
+            assert row.pop('converted_to') is None
 
 
 def run():

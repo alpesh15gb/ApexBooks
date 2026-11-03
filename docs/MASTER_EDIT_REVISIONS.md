@@ -53,17 +53,20 @@ Isolated HTTP regressions cover stale sale prices, stale archive/reactivation,
 missing and malformed request revisions, malformed stored revisions, legacy-zero
 reads, ignored forged create revisions, tenant isolation and viewer restrictions.
 A PostgreSQL two-writer test requires exactly one success, one conflict, one audit
-and the winning revision. That new race test is **not yet run locally** because
-PostgreSQL/Docker is unavailable; it must pass in the dedicated CI service.
+and the winning revision. That race test passed in the dedicated PostgreSQL job
+`125743102978` in [run 41583376193](https://github.com/alpesh15gb/ApexBooks/actions/runs/41583376193)
+on exact source `03c8c83dde60aea299ec76207844e6d1e09d5930`. Local PostgreSQL/Docker
+remains unavailable; the evidence is from the isolated CI service.
 
 Rendered web tests cover original-revision submission, retained typed inputs after
 409, old/404/unverified APIs refusing edits, continued new-master availability, and
 explicit transient-feature retry without replacing the original form revision.
 
-Android/Windows sources and focused transport/retry/capability tests are prepared,
-but their new compilation and tests remain **pending CI** because local native
-SDK/toolchains are unavailable. Earlier green native results apply to main's prior
-source, not this follow-up. The checked-in OpenAPI snapshot was regenerated from
+Android/Windows compilation and the focused transport/retry/capability tests passed
+in jobs `125743103028` and `125743103078` of the same exact-source CI run. Actual
+Windows UI also passed run `41583376205`. Android device acceptance was intentionally
+skipped, not rerun or counted as a new runtime pass. These results do not authorize
+main promotion or deployment. The checked-in OpenAPI snapshot was regenerated from
 the isolated current application, including previously shipped additive routes.
 
 Final isolated aggregate check passed: 189 backend tests, 118 web tests, web lint/build,
@@ -71,4 +74,8 @@ Final isolated aggregate check passed: 189 backend tests, 118 web tests, web lin
 matches, 9 backup-target mocks, 21 deployment-preflight mocks and simulated backup
 transaction safety. The real `age` infrastructure-backup test was not run locally
 because `age`/`age-keygen` were unavailable. Mock readiness output does not describe
-or contact production. PostgreSQL and native compilation remain the gates above.
+or contact production. PostgreSQL and native compilation were subsequently verified
+in the isolated CI jobs above. The first hosted upgrade comparison failed because
+party-statement metadata now includes the explicit revision zero. A separate test
+correction permits only that strict zero and retains all financial and physical-row
+equality checks; it also verifies unversioned edits return 409 without changing data.

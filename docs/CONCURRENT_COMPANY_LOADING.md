@@ -26,10 +26,12 @@ All 114 web tests passed for the paging-only change, plus lint and production bu
 Android and Windows use the same discard/restart-once rule. Their loopback transport
 regressions cover an insertion across pages, repeated overlap, duplicates within a
 short page, and the unchanged 1,250-row / three-request path. These new native tests
-are authored but not yet executed: the local Android SDK/Gradle and .NET toolchains
-were no longer available. Compilation and native test execution remain required
-before publishing or deploying this follow-up. Earlier native green CI applies to
-the previous source, not this change.
+were initially unexecuted locally because the Android SDK/Gradle and .NET toolchains
+were unavailable. They subsequently passed in the dedicated Android and Windows
+jobs of [run 41583376193](https://github.com/alpesh15gb/ApexBooks/actions/runs/41583376193)
+on exact follow-up source `03c8c83dde60aea299ec76207844e6d1e09d5930`.
+The synthetic upgrade comparison in that run needed a separate metadata-only test
+correction; this native result is not a claim that all checks passed in that run.
 
 ## Limits
 
