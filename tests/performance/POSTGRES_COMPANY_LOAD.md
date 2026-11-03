@@ -121,3 +121,32 @@ artifact is evidence for diagnosis, never a passing benchmark. Stdout-only mode
 prints only a successful final object; CI must use `--output` and upload that
 path even on failure. The 1 MB cap applies before any checkpoint replaces a
 previous artifact. No credentials, response bodies or exception dumps are added.
+
+### Observed first-page cost and structural-check correction
+
+The diagnostic rerun captured a 500-row inner LIMIT with the three intended
+outputs, but PostgreSQL repeated the **identical** created-key expression twice
+in its VERBOSE Output array. The earlier literal array-length check therefore
+rejected a narrow page incorrectly. The checker now deduplicates only exact
+Output strings and requires precisely the same-alias ID, date and exact observed
+COALESCE-created-key expression. Raw data, arbitrary fourth fields, a different
+expression, missing LIMIT or incorrect row count still fail. SQL is unchanged,
+and compact projection must still process at most 500 rows.
+
+The observed first-page candidate was **slower**, not faster: baseline/candidate
+medians were 161.681/220.067 ms at 3000 rows and 229.223/327.356 ms at 5000. The
+extra join and outer sort are visible, but do not explain the main measured
+penalty by themselves: the inner scan took approximately 127 versus 71 ms at
+3000 rows and 239 versus 145 ms at 5000, with 46070 versus 23068 buffer hits in
+the 3000-row case. The extra outer scan was only about 1 ms. Repeated created-key
+extraction causing extra TOAST/JSON work is a possible explanation, not an
+established causal result. These incomplete runs do not
+establish deep/full-scan benefit or passing edge checks. The next complete run
+must expose that tradeoff rather than treating successful structure as a speedup.
+
+Raw Output arrays and buffer/timing data remain unchanged in artifacts: exact
+string deduplication is a structural validation step, **not evidence that duplicate
+expression evaluation is free**. The candidate inner scan showed roughly twice
+the buffer hits in these first-page plans, alongside higher scan time; duplicate
+created-key extraction is a possible contributor requiring further evidence.
+The accepted narrow LIMIT must execute once, not repeat a 500-row page in loops.

@@ -120,5 +120,34 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 profile.write_artifact(path, {'completed': False, 'plan': 'X' * 1_000_001})
             self.assertEqual(path.read_bytes(), previous)
 
+
+class NarrowPagePlanTest(unittest.TestCase):
+    def plan(self, outputs, node_type='Limit', rows=500, loops=1):
+        return [{'Plan': {'Node Type': 'Sort', 'Plans': [
+            {'Node Type': node_type, 'Actual Rows': rows, 'Actual Loops': loops, 'Output': outputs}]}}]
+
+    def test_captured_exact_duplicate_created_key_is_safe(self):
+        # Actual PR38 PostgreSQL 17.11 plan; planner repeats the same sort key.
+        key = "(COALESCE(((records_1.data ->> 'created_at'::text))::character varying, ''::character varying))"
+        outputs = ['records_1.id', 'records_1.date', key, key]
+        self.assertEqual(len(profile.narrow_page_limits(self.plan(outputs))), 1)
+        self.assertEqual(len(profile.narrow_page_limits(self.plan(outputs[:3]))), 1)
+        # Ordering of the Output array is immaterial; exact expression identity is not.
+        self.assertEqual(len(profile.narrow_page_limits(self.plan(list(reversed(outputs))))), 1)
+
+    def test_extra_or_changed_projection_and_missing_boundary_rejected(self):
+        key = "(COALESCE(((records_1.data ->> 'created_at'::text))::character varying, ''::character varying))"
+        safe = ['records_1.id', 'records_1.date', key]
+        for outputs in (safe + ['records_1.data'], safe + ['records_1.name'],
+                        safe + ['jsonb_set(records_1.data)'],
+                        safe + [key.replace('created_at', 'other_key')],
+                        ['records_1.id', 'records_1.date', key.replace('created_at', 'other_key')],
+                        ['records_1.id', 'records_2.date', key]):
+            with self.subTest(outputs=outputs):
+                self.assertEqual(profile.narrow_page_limits(self.plan(outputs)), [])
+        self.assertEqual(profile.narrow_page_limits(self.plan(safe, node_type='Result')), [])
+        self.assertEqual(profile.narrow_page_limits(self.plan(safe, rows=501)), [])
+        self.assertEqual(profile.narrow_page_limits(self.plan(safe, loops=2)), [])
+
 if __name__ == '__main__':
     unittest.main()

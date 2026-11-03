@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import statistics
 import sys
 import time
@@ -159,6 +160,26 @@ def explain(m, captured):
             cn.exec_driver_sql('SET TRANSACTION READ ONLY')
             cn.exec_driver_sql("SET LOCAL statement_timeout = '120s'")
             return cn.exec_driver_sql('EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON) ' + sql, params).scalar_one()
+
+
+def narrow_page_limits(plan):
+    """Recognize only the observed PG narrow keys, allowing exact duplicates."""
+    result = []
+    def walk(node):
+        values = node.get('Output', [])
+        if node['Node Type'] == 'Limit' and node.get('Actual Rows') == 500 and node.get('Actual Loops') == 1:
+            distinct = set(values)
+            aliases = [match.group(1) for value in distinct
+                       if (match := re.fullmatch(r'(records(?:_[0-9]+)?)\.id', value))]
+            if len(aliases) == 1:
+                alias = aliases[0]
+                expected = {alias + '.id', alias + '.date',
+                    f"(COALESCE((({alias}.data ->> 'created_at'::text))::character varying, ''::character varying))"}
+                if distinct == expected:
+                    result.append(node)
+        for child in node.get('Plans', []): walk(child)
+    walk(plan[0]['Plan'])
+    return result
 
 
 def projection_nodes(plan):
@@ -341,12 +362,8 @@ def main():
                 projections[mode] = {variant: projection_nodes(plan) for variant, plan in plans[mode].items()}
                 output['phase'] = mode + ':plan_validation_pending'
                 write_artifact(args.output, output)
-                def page_limits(node):
-                    if node['Node Type'] == 'Limit' and node['Actual Rows'] == 500 and len(node.get('Output', [])) == 3:
-                        yield node
-                    for child in node.get('Plans', []): yield from page_limits(child)
-                boundaries = list(page_limits(plans[mode]['candidate'][0]['Plan']))
-                assert boundaries and all(not any('jsonb_set' in value or value == 'records.data' for value in node['Output']) for node in boundaries), 'Missing narrow page boundary below projection'
+                boundaries = narrow_page_limits(plans[mode]['candidate'])
+                assert boundaries, 'Missing narrow page boundary below projection'
                 assert projections[mode]['candidate'], 'VERBOSE plan did not identify compact projection'
                 assert all(node['rows'] * node['loops'] <= 500 for node in projections[mode]['candidate']), 'Candidate projected skipped rows'
         output['phase'] = 'snapshot_validation_pending'
