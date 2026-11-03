@@ -76,7 +76,7 @@ def worker(stage,folder):
         assert first['rows']==fixture['snapshot']['rows'],'Migration changed original row values or IDs'
         run_migrations()
         assert snapshot(database,fixture['snapshot']['columns'])==first,'Second migration was not idempotent'
-        assert first['revision']=='h907ef475a92'
+        assert first['revision']=='i018fa586ba3'
         req('GET','/api/ready')
         current=reports(req,h,b,fixture['buyer_id'],fixture['supplier_id'])
         assert current==fixture['reports'],'Canonical reports differ across the upgrade: '+json.dumps({key:{'before':fixture['reports'][key],'after':current[key]} for key in current if current[key]!=fixture['reports'][key]})

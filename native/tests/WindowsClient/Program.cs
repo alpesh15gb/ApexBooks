@@ -206,6 +206,7 @@ foreach(var noteKind in new[]{"credit_note","debit_note"}){
 }
 Check(!WorkflowMasterValues.DocumentPreview(new JsonObject{["kind"]="sales_invoice",["data"]=new JsonObject()},"invoice-id")["data"].Object().ContainsKey("preview_record_id"),"non-return amendment never receives return preview exclusion");
 
+await JournalSubmissionTests.Run(Check);
 await ExactBankUnmatchTests.Run(Check);
 await ConversionRevisionTests.Run(Check);
 MonthChartAggregationTests.Run(Check);

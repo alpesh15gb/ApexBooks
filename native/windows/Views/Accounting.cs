@@ -102,10 +102,35 @@ public sealed partial class MainPage
     }
     private async Task JournalForm(JsonArray accounts)
     {
-        var cid=CompanyId;var panel=Stack();panel.MinWidth=700;var date=new DateInput("Date",J.Today);var reference=Input("Unique reference");var memo=Input("Memo");panel.Children.Add(Columns(date.View,reference));panel.Children.Add(memo);var rows=new List<(ComboBox Account,TextBox Debit,TextBox Credit)>();var holder=Stack();
+        var cid=CompanyId;var stamp=generation;var session=Api.SessionGeneration;var verifiedAtOpen=Supports("journal_idempotency");var submission=new JournalSubmission(Api,cid);
+        bool Current()=>cid==CompanyId&&stamp==generation&&session==Api.SessionGeneration&&CanWrite;
+        var panel=Stack();panel.MinWidth=700;var date=new DateInput("Date",J.Today);var reference=Input("Unique reference");var memo=Input("Memo");panel.Children.Add(Columns(date.View,reference));panel.Children.Add(memo);var rows=new List<(ComboBox Account,TextBox Debit,TextBox Credit)>();var holder=Stack();
         void Add(){var account=Select("Account",accounts.Select(a=>(a.Text("id"),a.Text("code")+" · "+a.Text("name"))));var debit=Input("Debit (₹)","0");var credit=Input("Credit (₹)","0");var row=Columns(account,debit,credit);rows.Add((account,debit,credit));holder.Children.Add(row);var remove=Button("Remove line",()=>{rows.Remove((account,debit,credit));holder.Children.Remove(row);});row.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});Grid.SetColumn(remove,3);row.Children.Add(remove);}
-        Add();Add();panel.Children.Add(holder);panel.Children.Add(Button("Add line",Add));if(await Dialog("Balanced journal entry",panel,async()=>{await Api.Send(Api.CompanyPath(cid,"/journals"),HttpMethod.Post,new JsonObject{["date"]=date.Value,["reference"]=reference.Text,["memo"]=memo.Text,["lines"]=new JsonArray(rows.Select(r=>(JsonNode)new JsonObject{["account_id"]=Value(r.Account),["debit"]=r.Debit.Text,["credit"]=r.Credit.Text}).ToArray())});},"Post journal"))await Refresh();
+        Add();Add();panel.Children.Add(holder);panel.Children.Add(Button("Add line",Add));
+        if(!verifiedAtOpen){panel.Children.Add(Text("Posting is disabled until journal retry protection is confirmed. Check features, then close and reopen this form.",12));panel.Children.Add(CapabilityNotice());}
+        JsonObject Body()=>new(){["date"]=date.Value,["reference"]=reference.Text,["memo"]=memo.Text,["lines"]=new JsonArray(rows.Select(r=>(JsonNode)new JsonObject{["account_id"]=Value(r.Account),["debit"]=r.Debit.Text,["credit"]=r.Credit.Text}).ToArray())};
+        var baseline=Body().ToJsonString();
+        var saved=await Dialog("Balanced journal entry",panel,async()=>{
+            var body=Body();SetFormEnabled(panel,false);panel.IsHitTestVisible=false;
+            try{await submission.Save(body,Current);}
+            catch(Exception error){if(submission.ReviewRequired)throw new Exception(error.Message+" "+JournalSubmission.ReviewGuidance,error);if(submission.Unresolved)throw new Exception("The journal outcome is unknown. Original date, reference and lines are locked. Retry Post journal to recover this same command; do not create a replacement.",error);throw;}
+            finally{SetFormEnabled(panel,submission.InputsEditable);panel.IsHitTestVisible=submission.InputsEditable;}
+        },"Post journal",canSave:()=>!submission.ReviewRequired&&verifiedAtOpen&&Supports("journal_idempotency")&&Current(),hasChanges:()=>Body().ToJsonString()!=baseline,unresolved:()=>submission.Unresolved);
+        if(saved&&Current())await Refresh();
     }
     private async Task ReverseJournal(JsonObject journal)
-    {var cid=CompanyId;var panel=Stack();var date=new DateInput("Reversal date",J.Today);var reference=Input("Reversal reference");var reason=Input("Reason","",true);panel.Children.Add(Text("The original journal stays in the audit history. This posts an equal opposite journal."));foreach(var field in new UIElement[]{date.View,reference,reason})panel.Children.Add(field);if(await Dialog("Reverse "+journal.Text("reference"),panel,async()=>{await Api.Send(Api.CompanyPath(cid,$"/journals/{journal.Text("id")}/reverse"),HttpMethod.Post,new JsonObject{["date"]=date.Value,["reference"]=reference.Text,["reason"]=reason.Text});},"Post reversal"))await Refresh();}
+    {
+        var cid=CompanyId;var stamp=generation;var session=Api.SessionGeneration;var originalId=journal.Text("id");var originalReference=journal.Text("reference");var verifiedAtOpen=Supports("journal_idempotency");var submission=new JournalSubmission(Api,cid,originalId);
+        bool Current()=>cid==CompanyId&&stamp==generation&&session==Api.SessionGeneration&&CanWrite;
+        var panel=Stack();var date=new DateInput("Reversal date",J.Today);var reference=Input("Reversal reference");var reason=Input("Reason","",true);panel.Children.Add(Text("The original journal stays in the audit history. This posts an equal opposite journal."));foreach(var field in new UIElement[]{date.View,reference,reason})panel.Children.Add(field);
+        if(!verifiedAtOpen){panel.Children.Add(Text("Reversal posting is disabled until journal retry protection is confirmed. Check features, then close and reopen this form.",12));panel.Children.Add(CapabilityNotice());}
+        JsonObject Body()=>new(){["date"]=date.Value,["reference"]=reference.Text,["reason"]=reason.Text};var baseline=Body().ToJsonString();
+        var saved=await Dialog("Reverse "+originalReference,panel,async()=>{
+            var body=Body();SetFormEnabled(panel,false);panel.IsHitTestVisible=false;
+            try{await submission.Save(body,Current);}
+            catch(Exception error){if(submission.ReviewRequired)throw new Exception(error.Message+" "+JournalSubmission.ReviewGuidance,error);if(submission.Unresolved)throw new Exception("The reversal outcome is unknown. Original journal, date, reference and reason are locked. Retry Post reversal to recover this same command; do not create a replacement.",error);throw;}
+            finally{SetFormEnabled(panel,submission.InputsEditable);panel.IsHitTestVisible=submission.InputsEditable;}
+        },"Post reversal",canSave:()=>!submission.ReviewRequired&&verifiedAtOpen&&Supports("journal_idempotency")&&Current(),hasChanges:()=>Body().ToJsonString()!=baseline,unresolved:()=>submission.Unresolved);
+        if(saved&&Current())await Refresh();
+    }
 }

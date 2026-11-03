@@ -1,3 +1,5 @@
+import { journalPostingBlockReason, captureJournalRequest, sendJournalRequest, isDefiniteJournalConflict, journalReconciliationWarning } from "./journalPosting.js";
+import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import { inlineItemCreator } from "./inlineItem.js";
 import { inlinePartyCreator } from "./inlineParty.js";
 import { businessDate, businessFinancialYear } from "./businessDate.js";
@@ -1071,7 +1073,7 @@ function App() {
           ) : page === "reorder" ? (
             <ReorderWorkspace key={companyId} companyId={companyId} role={company.role} api={api} onReview={startReorder} onBack={() => navigateWorkspace("item")} />
           ) : page === "ledger" ? (
-            <Ledger key={companyId} companyId={companyId} role={company?.role} />
+            <Ledger key={companyId} companyId={companyId} role={company?.role} capabilities={capabilities} onRetryCapabilities={() => setCapabilityRevision(value => value + 1)} />
           ) : page === "bank_account" ? (
             <BankWorkspace
               capabilities={capabilities}
@@ -1946,7 +1948,16 @@ function Members({ companyId, role }) {
   );
 }
 
-function Ledger({ companyId, role }) {
+function Ledger({ companyId, role, capabilities, onRetryCapabilities }) {
+  const journalPosting = usePostingRequest({isDefinitiveRetryError:isDefiniteJournalConflict}), reversalPosting = usePostingRequest({isDefinitiveRetryError:isDefiniteJournalConflict});
+  const [reconcileRequired, setReconcileRequired] = useState(false);
+  const journalLocked = journalPosting.pending || reversalPosting.pending;
+  const journalBlockReason = journalPostingBlockReason(capabilities);
+  useEffect(() => {
+    const protect = event => { if (journalPosting.isLocked() || reversalPosting.isLocked()) { event.preventDefault(); event.returnValue = ""; } };
+    window.addEventListener("beforeunload", protect);
+    return () => window.removeEventListener("beforeunload", protect);
+  }, [journalPosting, reversalPosting]);
   const canWrite = ["owner", "editor"].includes(role);
   const submitting = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -2023,61 +2034,38 @@ function Ledger({ companyId, role }) {
   }
   async function postJournal(e) {
     e.preventDefault();
-    if (!canWrite || submitting.current) return;
-    submitting.current = true;
-    setBusy(true);
+    if (!canWrite || submitting.current || reversalPosting.isLocked()) return;
     setError("");
+    if (journalBlockReason || reconcileRequired) { setError(journalBlockReason || journalReconciliationWarning); return; }
+    let request;
+    try { if (!journalPosting.pending) request = captureJournalRequest(companyId,entry,localStorage.token); }
+    catch (failure) { setError(failure.message); return; }
+    submitting.current = true; setBusy(true);
+    const company = companyId, isCurrent = workspaceScope.current.capture(), wasPending = journalPosting.pending;
     try {
-      if (entry.debit_account === entry.credit_account)
-        throw new Error("Choose different accounts for debit and credit");
-      await api(`/companies/${companyId}/journals`, {
-        method: "POST",
-        body: JSON.stringify({
-          date: entry.date,
-          reference: entry.reference,
-          memo: entry.memo,
-          lines: [
-            { account_id: entry.debit_account, debit: entry.amount },
-            { account_id: entry.credit_account, credit: entry.amount },
-          ],
-        }),
-      });
-      setEntry({
-        date: today(),
-        reference: "",
-        memo: "",
-        debit_account: "",
-        credit_account: "",
-        amount: "",
-      });
+      await journalPosting.run(() => sendJournalRequest(api,request,localStorage.token,activeCompany.current));
+      if (activeCompany.current !== company || !isCurrent()) return;
+      setEntry({ date:today(), reference:"", memo:"", debit_account:"", credit_account:"", amount:"" });
       await load();
-    } catch (err) {
-      setError(err.message + (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
-    } finally {
-      submitting.current = false;
-      setBusy(false);
-    }
+    } catch (err) { if (activeCompany.current === company && isCurrent()) { setError(err.message); if (wasPending && isDefiniteJournalConflict(err)) setReconcileRequired(true); } }
+    finally { submitting.current=false; if (activeCompany.current === company && isCurrent()) setBusy(false); }
   }
   async function reverseEntry(e) {
     e.preventDefault();
-    if (!canWrite || submitting.current) return;
-    submitting.current = true;
-    setBusy(true);
+    if (!canWrite || submitting.current || journalPosting.isLocked()) return;
     setError("");
+    if (journalBlockReason || reconcileRequired) { setError(journalBlockReason || journalReconciliationWarning); return; }
+    let request;
+    try { if (!reversalPosting.pending) request = captureJournalRequest(companyId,reversal,localStorage.token,reversing.id); }
+    catch (failure) { setError(failure.message); return; }
+    submitting.current = true; setBusy(true);
+    const company=companyId, isCurrent=workspaceScope.current.capture(), wasPending=reversalPosting.pending;
     try {
-      await api(`/companies/${companyId}/journals/${reversing.id}/reverse`, {
-        method: "POST",
-        body: JSON.stringify(reversal),
-      });
-      setReversing(null);
-      setReversal({ date: today(), reference: "", reason: "" });
-      await load();
-    } catch (err) {
-      setError(err.message + (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
-    } finally {
-      submitting.current = false;
-      setBusy(false);
-    }
+      await reversalPosting.run(() => sendJournalRequest(api,request,localStorage.token,activeCompany.current));
+      if (activeCompany.current !== company || !isCurrent()) return;
+      setReversing(null); setReversal({date:today(),reference:"",reason:""}); await load();
+    } catch (err) { if (activeCompany.current === company && isCurrent()) { setError(err.message); if (wasPending && isDefiniteJournalConflict(err)) setReconcileRequired(true); } }
+    finally { submitting.current=false; if (activeCompany.current === company && isCurrent()) setBusy(false); }
   }
   const accountName = (id) =>
     accounts.find((a) => a.id === id)?.name || "Account";
@@ -2092,6 +2080,9 @@ function Ledger({ companyId, role }) {
         </div>
       </div>
       {error && <div className="error banner">{error}</div>}
+      {canWrite && journalBlockReason && <div className="info-box" role="status">{journalBlockReason}<button className="button secondary" type="button" onClick={onRetryCapabilities} disabled={busy}>Check API support again</button></div>}
+      {reconcileRequired && <div className="info-box" role="alert">{journalReconciliationWarning}<button type="button" className="button secondary" onClick={() => setReconcileRequired(false)}>I reviewed journal history; allow a new request</button></div>}
+      {journalLocked && <p className="info-box" role="status">{pendingPostingMessage} Keep this page open; retry recovery is held only for this session.</p>}
       <div className="info-box ledger-note">
         New invoices, bills, payments, notes, POS sales and expenses post to the
         ledger automatically. Older prototype records remain unposted.
@@ -2165,7 +2156,7 @@ function Ledger({ companyId, role }) {
           <h2>New journal entry</h2>
           <p>Each entry has an equal debit and credit.</p>
           <form className="form-grid ledger-form" onSubmit={postJournal}>
-            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy}>
+            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy || journalLocked}>
             <label>
               Date
               <input
@@ -2228,13 +2219,10 @@ function Ledger({ companyId, role }) {
                 onChange={(e) => setEntry({ ...entry, amount: e.target.value })}
               />
             </label>
-            <button
-              className="button primary full"
-              disabled={accounts.length < 2}
-            >
-              Post journal
-            </button>
           </fieldset>
+            <button className="button primary full" disabled={!canWrite || busy || accounts.length < 2 || reversalPosting.pending || !!journalBlockReason || reconcileRequired}>
+              {journalPosting.pending ? "Retry original journal" : "Post journal"}
+            </button>
           </form>
         </section>}
       </div>
@@ -2254,7 +2242,7 @@ function Ledger({ companyId, role }) {
                     : ""}
               </span>
               {canWrite && !j.reversed_by && !j.reversal_of && !j.source_record_id && (
-                <button className="link" onClick={() => setReversing(j)}>
+                <button className="link" disabled={busy || journalLocked || !!journalBlockReason} onClick={() => { if (!journalPosting.isLocked() && !reversalPosting.isLocked()) setReversing(j); }}>
                   Reverse entry
                 </button>
               )}
@@ -2331,10 +2319,12 @@ function Ledger({ companyId, role }) {
         <Modal
           title="Reverse journal"
           subtitle={`Create an opposite entry for ${reversing.reference}. The original stays in history.`}
-          close={() => { if (!busy) setReversing(null); }}
+          close={() => { if (!busy && !reversalPosting.isLocked()) setReversing(null); }}
         >
+          {journalBlockReason && <div className="info-box" role="status">{journalBlockReason}<button className="button secondary" type="button" onClick={onRetryCapabilities} disabled={busy}>Check API support again</button></div>}
+          {reconcileRequired && <div className="info-box" role="alert">{journalReconciliationWarning}<button type="button" className="button secondary" onClick={() => setReconcileRequired(false)}>I reviewed journal history; allow a new request</button></div>}
           <form className="form-grid" onSubmit={reverseEntry}>
-            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy}>
+            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy || reversalPosting.pending}>
             <label>
               Date
               <input
@@ -2368,18 +2358,20 @@ function Ledger({ companyId, role }) {
                 }
               />
             </label>
+          </fieldset>
             {error && <div className="error full">{error}</div>}
+            {reversalPosting.pending && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
             <div className="modal-actions full">
               <button
                 type="button"
                 className="button secondary"
-                onClick={() => setReversing(null)}
+                disabled={busy || reversalPosting.pending}
+                onClick={() => { if (!reversalPosting.isLocked()) setReversing(null); }}
               >
                 Cancel
               </button>
-              <button className="button primary">Create reversal</button>
+              <button className="button primary" disabled={!canWrite || busy || journalPosting.pending || !!journalBlockReason || reconcileRequired}>{reversalPosting.pending ? "Retry original reversal" : "Create reversal"}</button>
             </div>
-          </fieldset>
           </form>
         </Modal>
       )}

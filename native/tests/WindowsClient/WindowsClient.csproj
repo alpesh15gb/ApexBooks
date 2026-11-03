@@ -7,4 +7,5 @@
   <ItemGroup><Compile Include="../../windows/Services/InlineMasterSubmission.cs" Link="InlineMasterSubmission.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../../windows/Services/MonthChartAggregation.cs" Link="MonthChartAggregation.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../../windows/Services/ExactBankUnmatch.cs" Link="ExactBankUnmatch.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../windows/Services/JournalSubmission.cs" Link="JournalSubmission.cs" /></ItemGroup>
 </Project>
