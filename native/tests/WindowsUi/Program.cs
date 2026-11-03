@@ -35,7 +35,27 @@ decimal Number(JsonNode? node,string key)=>decimal.TryParse(node?[key]?.ToString
 AutomationElement Wait(Func<AutomationElement?> find,string description,int seconds=60){var timeout=Stopwatch.StartNew();while(timeout.Elapsed.TotalSeconds<seconds){try{var element=find();if(element is not null)return element;}catch(ElementNotAvailableException){}if(app?.HasExited==true)throw new Exception($"WinUI exited with {app.ExitCode} while waiting for {description}");Thread.Sleep(250);}throw new Exception("UI timeout: "+description);}
 AutomationElement? Find(string name,ControlType? type=null)=>window?.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>().FirstOrDefault(x=>x.Current.Name==name&&(type is null||x.Current.ControlType==type));
 AutomationElement? ReadyButton(string label){var button=Find(label,ControlType.Button);return button is not null&&button.Current.IsEnabled&&!button.Current.IsOffscreen?button:null;}
-AutomationElement FocusReadyButton(string label){var button=Wait(()=>Find(label,ControlType.Button),label+" control");button.SetFocus();return Wait(()=>ReadyButton(label),label+" visible and enabled after focus");}
+AutomationElement FocusReadyButton(string label)
+{
+    var button=Wait(()=>Find(label,ControlType.Button),label+" control");
+    if(button.Current.IsOffscreen&&button.TryGetCurrentPattern(ScrollItemPattern.Pattern,out var item))((ScrollItemPattern)item).ScrollIntoView();
+    if(button.Current.IsOffscreen){
+        // Focusing a WinUI button does not necessarily scroll it into view.
+        // Scroll only its own nearest scrollable ancestor, never the desktop.
+        var ancestor=TreeWalker.RawViewWalker.GetParent(button);ScrollPattern? scroll=null;
+        for(var depth=0;ancestor is not null&&depth<32;depth++,ancestor=TreeWalker.RawViewWalker.GetParent(ancestor)){
+            if(ancestor.Current.NativeWindowHandle==window!.Current.NativeWindowHandle)break;
+            if(ancestor.TryGetCurrentPattern(ScrollPattern.Pattern,out var pattern)&&((ScrollPattern)pattern).Current.VerticallyScrollable){scroll=(ScrollPattern)pattern;break;}
+        }
+        if(scroll is null)throw new Exception("No owned scroll container can reveal "+label);
+        for(var step=0;button.Current.IsOffscreen&&step<40;step++){
+            var target=button.Current.BoundingRectangle;var viewport=ancestor!.Current.BoundingRectangle;
+            var direction=target.Height>0&&target.Bottom<viewport.Top?ScrollAmount.SmallDecrement:ScrollAmount.SmallIncrement;
+            scroll.Scroll(ScrollAmount.NoAmount,direction);Thread.Sleep(100);
+        }
+    }
+    button=Wait(()=>ReadyButton(label),label+" visible and enabled after owned scrolling");button.SetFocus();return button;
+}
 AutomationElement? EditField(string label)
 {
     if(window is null)return null;
@@ -195,8 +215,7 @@ try{
     Check("visible item selector accepted genuine user text",Value(itemSelector)==itemDescription);
     Set(Wait(()=>EditField("Quantity"),"invoice line quantity"),"1");
     Set(Wait(()=>EditField("Rate (₹)"),"invoice line rate"),"250");
-    var inlineItemButton=Wait(()=>Find("+ Create item here",ControlType.Button),"inline item entry");inlineItemButton.SetFocus();
-    Invoke(Wait(()=>ReadyButton("+ Create item here"),"visible inline item entry"));
+    Invoke(FocusReadyButton("+ Create item here"));
     var inlineItemName="UI Inline Service "+reference;
     Set(Wait(()=>EditField("New item name"),"new inline item name"),inlineItemName);
     Set(Wait(()=>EditField("New item sale rate (₹)"),"inline service rate"),"0");

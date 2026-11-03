@@ -140,3 +140,11 @@ invoice must contain both returned master IDs and exactly two lines. The existin
 250 invoice,100 collection,150 balance, dirty-discard, receipt and encrypted-backup
 assertions remain unchanged. These new steps are authored but not yet compiled or
 executed in the current environment, which lacks .NET. No runtime pass is claimed.
+
+
+PR5 run `41592390939` passed inline customer creation/cancellation and preserved
+the invoice reference, then showed the item-create action below the dialog's
+viewport. Focus alone did not reveal it. The test now uses ScrollItem when
+available or the button's nearest vertical ScrollPattern ancestor (bounded40
+small steps), then still requires a visible enabled button before invocation.
+It never scrolls the desktop or invokes the hidden action. Runtime recheck pending.

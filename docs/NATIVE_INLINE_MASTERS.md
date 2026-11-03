@@ -24,3 +24,9 @@ Seven Android unit methods and 20 Windows portable assertions were authored for 
 **Native compilation and all new native tests/runtime journeys are pending hosted CI.** Local Android SDK/Gradle and .NET toolchains are unavailable. Only project XML parsing, source review and diff checks passed for the native changes locally. No new device permission or production action was taken. An authored test is not a passing test; CI compilation is not real Android device or Windows UI acceptance. Missing local SDKs/licenses must not be bypassed or fabricated.
 
 The retained retry state is in memory. Activity/navigation retention is distinct from process-death recovery. This flow does not introduce an offline posting queue or claim crash-proof exactly-once behavior.
+
+## First hosted verification and narrow corrections
+
+PR5 source `f04f777` passed API/web checks and PostgreSQL. The Windows application compiled and unsigned Release passed. Actual Windows UI confirmed inline customer cancellation/creation retained the invoice reference, then stopped before inline item creation because its button was below the viewport.
+
+The first hosted build found a Kotlin recursive inferred getter and a shadowed local variable in the Windows portable test program. The corrections explicitly type the getter as Boolean and rename the test variable. The Windows harness now reveals the actual item button through its own bounded scroll ancestor, then still requires a visible, enabled control before invoking it. No invoice, stock, receipt or backup assertion was removed. These corrections require a new hosted build/runtime run; local diff checks passed but native compilers remain unavailable.

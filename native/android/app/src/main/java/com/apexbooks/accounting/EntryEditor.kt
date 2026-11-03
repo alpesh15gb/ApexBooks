@@ -53,7 +53,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     private var initialMasterFields:Map<String,String> = emptyMap()
     val submission=RetrySubmission()
     private var ownRetryPending by mutableStateOf(false)
-    val retryPending get()=ownRetryPending||inlineMaster?.retryPending==true
+    val retryPending:Boolean get()=ownRetryPending||inlineMaster?.retryPending==true
     var inlineMaster by mutableStateOf<EntryEditor?>(null);private set
     private val inlineRecords=mutableStateListOf<JSONObject>()
     val canCreateInline get()=inlineMasterAllowed(kind,previous!=null,conversion!=null,vm.canWrite)&&vm.inWorkspace(companyId,workspaceStamp)
