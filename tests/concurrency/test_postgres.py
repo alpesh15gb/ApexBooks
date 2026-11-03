@@ -149,6 +149,40 @@ class ConcurrentPostingTest(unittest.TestCase):
         current = self.client.get(self.base + '/records/' + source['id'], headers=self.headers).json()
         self.assertIn(current['converted_to'], ids)
 
+    def test_concurrent_partial_returns_share_original_inventory_cost_budget(self):
+        from decimal import Decimal
+        item = self.create({'kind': 'item', 'name': 'Fractional return cost',
+                            'data': {'track_stock': True}})
+        line = {'item_id': item['id'], 'description': item['name'], 'quantity': 6,
+                'rate': '0.01', 'discount_percent': 50, 'gst_rate': 0}
+        self.create({'kind': 'purchase_bill', 'name': 'Supplier', 'date': '2026-04-02',
+                     'data': {'lines': [line]}})
+        sale_line = {**line, 'rate': 1, 'discount_percent': 0}
+        sale = self.create({'kind': 'sales_invoice', 'name': 'Buyer', 'date': '2026-04-02',
+                            'data': {'lines': [sale_line]}})
+        note = {'kind': 'credit_note', 'name': 'Buyer', 'date': '2026-04-02',
+                'data': {'applied_to': sale['id'], 'lines': [{**sale_line, 'quantity': 3}]}}
+        results = self.race([('/records', note, uuid4().hex) for _ in range(2)])
+        self.assertEqual([r.status_code for r in results], [200, 200], [r.text for r in results])
+        self.assertEqual(len({r.json()['id'] for r in results}), 2)
+        costs = [Decimal(r.json()['data']['lines'][0]['inventory_cost']) for r in results]
+        self.assertEqual(sorted(costs), [Decimal('0.01'), Decimal('0.02')])
+        self.assertEqual(sum(costs), Decimal(sale['data']['lines'][0]['inventory_cost']))
+        self.assertEqual(sum(Decimal(r.json()['data']['lines'][0]['quantity']) for r in results), 6)
+        query = {'from_date': '2026-04-01', 'to_date': '2026-04-30'}
+        stock = self.client.get(self.base + '/reports/stock', headers=self.headers, params=query).json()['rows'][0]
+        report = self.client.get(self.base + '/reports/financial', headers=self.headers, params=query).json()
+        inventory = next(a for a in report['accounts'] if a['code'] == 'SYS-INVENTORY')
+        cogs = next(a for a in report['accounts'] if a['code'] == 'SYS-COGS')
+        self.assertEqual(Decimal(stock['closing_quantity']), 6)
+        self.assertEqual(Decimal(stock['closing_value']), Decimal('0.03'))
+        self.assertEqual(Decimal(inventory['closing_balance']), Decimal(stock['closing_value']))
+        self.assertEqual(Decimal(cogs['closing_balance']), 0)
+        self.assertEqual(Decimal(report['balance_difference']), 0)
+        extra = self.client.post(self.base + '/records', headers=self.headers, json=note)
+        self.assertEqual(extra.status_code, 422, extra.text)
+        self.assertEqual(len(self.client.get(self.base + '/journals', headers=self.headers).json()), 4)
+
     def test_attachment_concurrent_dedupe_and_key_binding(self):
         import hashlib
         bill = self.create({'kind': 'expense', 'name': 'Concurrent receipt',

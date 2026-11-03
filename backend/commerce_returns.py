@@ -48,7 +48,7 @@ def receive(service, session, connection, payload, party, external_id, issued):
         prior_qty = sum((decimal(line['quantity']) for line in previous), Decimal(0))
         prior_cost = sum((decimal(line.get('inventory_cost', '0')) for line in previous), Decimal(0))
         if qty > sold_qty - prior_qty: raise HTTPException(422, 'Return exceeds the original sold quantity')
-        cost = sold_cost - prior_cost if qty == sold_qty - prior_qty else m.money(sold_cost * qty / sold_qty)
+        cost = m.allocated_return_cost(sold_qty, sold_cost, prior_qty, prior_cost, qty)
         lines.append({'item_id': item.id, 'quantity': str(qty), 'inventory_cost': str(cost), 'description': item.name}); total += cost
     if not lines: raise HTTPException(422, 'Choose the stock quantities received')
     record = m.Record(company_id=cid, kind='stock_return', name=party.name, date=date.fromisoformat(issued), amount=total,

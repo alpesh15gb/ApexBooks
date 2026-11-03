@@ -740,6 +740,25 @@ def calculate(data, company, tax_mode, kind, session):
     data={**data,'round_off':str(rounded-total)}
     return data, money(rounded)
 
+def allocated_return_cost(source_qty, source_cost, prior_qty, prior_cost, quantity):
+    """Allocate rounded cumulative original cost without restoring it twice.
+
+    Older partial returns may have rounded above today's cumulative target. Leave
+    those historical postings untouched and allocate zero until quantity catches
+    up, but never accept a history that already exceeded the original total cost.
+    """
+    values = (source_qty, source_cost, prior_qty, prior_cost, quantity)
+    if (any(not value.is_finite() for value in values) or source_qty <= 0 or
+            source_cost < 0 or prior_qty < 0 or prior_cost < 0 or quantity <= 0 or
+            prior_qty + quantity > source_qty or prior_cost > source_cost or
+            (prior_qty == 0 and prior_cost != 0)):
+        raise HTTPException(409, 'Source stock return valuation is inconsistent; review the original sale and prior returns')
+    remaining = source_cost - prior_cost
+    if prior_qty + quantity == source_qty:
+        return remaining
+    cumulative = money(source_cost * (prior_qty + quantity) / source_qty)
+    return min(remaining, max(Decimal('0'), cumulative - prior_cost))
+
 def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session):
     if kind not in {'purchase_bill', 'debit_note', 'sales_invoice', 'pos', 'credit_note'}: return data
     if kind in {'credit_note','debit_note'} and data.get('return_stock') is False:
@@ -748,7 +767,9 @@ def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session)
     previous_notes = {}
     if target and kind in {'credit_note', 'debit_note'}:
         posted_notes = select(RecordPosting.record_id).where(RecordPosting.company_id == company_id)
-        for note in session.scalars(select(Record).where(Record.company_id == company_id, Record.kind.in_([kind, 'stock_return'] if kind == 'credit_note' else [kind]), Record.id.in_(posted_notes))):
+        physical_returns = select(StockMovement.source_record_id).where(StockMovement.company_id == company_id)
+        for note in session.scalars(select(Record).where(Record.company_id == company_id, Record.kind.in_([kind, 'stock_return'] if kind == 'credit_note' else [kind]),
+                or_(Record.id.in_(posted_notes), (Record.kind == 'stock_return') & Record.id.in_(physical_returns)))):
             if note.data.get('applied_to') != target.id or note.data.get('return_stock') is False: continue
             for line in note.data.get('lines', []):
                 item_id = line.get('item_id')
@@ -801,8 +822,8 @@ def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session)
             held_qty += qty; held_value += cost
         elif kind == 'credit_note':
             source_cost = sum((Decimal(str(original.get('inventory_cost', '0'))) for original in source_lines), Decimal('0'))
-            remaining_qty = source_qty - prior_qty - (now_qty - qty)
-            cost = source_cost - prior_cost - sum((Decimal(str(other.get('inventory_cost', '0'))) for other in valued if other.get('item_id') == item_id), Decimal('0')) if qty == remaining_qty else money(source_cost * qty / source_qty)
+            current_cost = sum((Decimal(str(other.get('inventory_cost', '0'))) for other in valued if other.get('item_id') == item_id), Decimal('0'))
+            cost = allocated_return_cost(source_qty, source_cost, prior_qty + now_qty - qty, prior_cost + current_cost, qty)
             held_qty += qty; held_value += cost
         else:
             if qty > held_qty: raise HTTPException(422, f'Insufficient stock for {item.name}')
