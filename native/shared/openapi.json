@@ -1778,6 +1778,17 @@
               "type": "string",
               "title": "Company Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "description": "Optional legacy-compatible retry key. Exact successful requests replay before period-lock validation; new clients require journal_idempotency capability and preserve this key and body across uncertain outcomes."
           }
         ],
         "requestBody": {
@@ -1879,6 +1890,17 @@
               "type": "string",
               "title": "Journal Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "description": "Optional legacy-compatible retry key. Exact successful requests replay before period-lock validation; new clients require journal_idempotency capability and preserve this key and body across uncertain outcomes."
           }
         ],
         "requestBody": {

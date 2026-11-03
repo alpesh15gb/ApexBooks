@@ -129,6 +129,20 @@ class Journal(Base):
     memo: Mapped[str] = mapped_column(String(500), nullable=False, default='')
     created_by: Mapped[str] = mapped_column(ForeignKey('users.id'), nullable=False)
 
+class JournalCommand(Base):
+    __tablename__ = 'journal_commands'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'operation', 'key'),
+        ForeignKeyConstraint(['company_id', 'journal_id'], ['journals.company_id', 'journals.id']),
+    )
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    company_id: Mapped[str] = mapped_column(ForeignKey('companies.id'), nullable=False, index=True)
+    operation: Mapped[str] = mapped_column(String(128), nullable=False)
+    key: Mapped[str] = mapped_column(String(80), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    journal_id: Mapped[str] = mapped_column(String, nullable=False)
+    response: Mapped[dict] = mapped_column(JSON, nullable=False)
+
 class JournalLine(Base):
     __tablename__ = 'journal_lines'
     __table_args__ = (
@@ -1903,9 +1917,25 @@ def create_account(company_id: str, body: AccountInput, user: User = Depends(cur
         raise HTTPException(409, 'Account code already exists')
     return {'id': account.id, 'code': account.code, 'name': account.name, 'category': account.category}
 
-@app.post('/api/companies/{company_id}/journals', status_code=201)
-def create_journal(company_id: str, body: JournalInput, user: User = Depends(current_user), session: Session = Depends(db)):
+def journal_retry(company_id, operation, body, request, session):
+    raw = request.headers.get('Idempotency-Key')
+    if raw is None: return None, None, None
+    key = raw.strip()
+    if not key or len(key) > 80: raise HTTPException(422, 'Journal retry key must contain 1 to 80 characters')
+    digest = hashlib.sha256(json.dumps({'operation': operation, 'body': body.model_dump(mode='json')},
+        sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    previous = session.scalar(select(JournalCommand).where(JournalCommand.company_id == company_id,
+        JournalCommand.operation == operation, JournalCommand.key == key))
+    if previous:
+        if previous.request_hash != digest: raise HTTPException(409, 'Journal retry key was used for a different request')
+        return key, digest, dict(previous.response)
+    return key, digest, None
+
+@app.post('/api/companies/{company_id}/journals', status_code=201, openapi_extra={'parameters': [{'name': 'Idempotency-Key', 'in': 'header', 'required': False, 'schema': {'type': 'string', 'minLength': 1, 'maxLength': 80}, 'description': 'Optional legacy-compatible retry key. Exact successful requests replay before period-lock validation; new clients require journal_idempotency capability and preserve this key and body across uncertain outcomes.'}]})
+def create_journal(company_id: str, body: JournalInput, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):
     lock_company(company_id, user, session)
+    retry_key, request_hash, previous = journal_retry(company_id, 'create', body, request, session)
+    if previous is not None: return previous
     require_open_period(company_id, body.date, session)
     reference = body.reference.strip()
     if not reference: raise HTTPException(422, 'Reference is required')
@@ -1924,11 +1954,15 @@ def create_journal(company_id: str, body: JournalInput, user: User = Depends(cur
         for line in body.lines:
             session.add(JournalLine(company_id=company_id, journal_id=journal.id, account_id=line.account_id, debit=line.debit, credit=line.credit))
         audit(session, company_id, user, 'journal.created', 'journal', journal.id, {'reference': reference})
+        response = {'id': journal.id, 'date': journal.date.isoformat(), 'reference': journal.reference, 'memo': journal.memo}
+        if retry_key:
+            session.add(JournalCommand(company_id=company_id, operation='create', key=retry_key,
+                request_hash=request_hash, journal_id=journal.id, response=response))
         session.commit()
     except IntegrityError:
         session.rollback()
         raise HTTPException(409, 'Journal reference already exists')
-    return {'id': journal.id, 'date': journal.date.isoformat(), 'reference': journal.reference, 'memo': journal.memo}
+    return response
 
 @app.get('/api/companies/{company_id}/journals')
 def list_journals(company_id: str, user: User = Depends(current_user), session: Session = Depends(db)):
@@ -1940,9 +1974,12 @@ def list_journals(company_id: str, user: User = Depends(current_user), session: 
     source = {p.journal_id: p.record_id for p in session.scalars(select(RecordPosting).where(RecordPosting.company_id == company_id))}
     return [{'id': j.id, 'date': j.date.isoformat(), 'reference': j.reference, 'memo': j.memo, 'source_record_id': source.get(j.id), 'reversed_by': originals.get(j.id), 'reversal_of': reversals.get(j.id), 'lines': [{'account_id': l.account_id, 'debit': str(l.debit), 'credit': str(l.credit)} for l in session.scalars(select(JournalLine).where(JournalLine.company_id == company_id, JournalLine.journal_id == j.id))]} for j in entries]
 
-@app.post('/api/companies/{company_id}/journals/{journal_id}/reverse', status_code=201)
-def reverse_journal(company_id: str, journal_id: str, body: ReversalInput, user: User = Depends(current_user), session: Session = Depends(db)):
+@app.post('/api/companies/{company_id}/journals/{journal_id}/reverse', status_code=201, openapi_extra={'parameters': [{'name': 'Idempotency-Key', 'in': 'header', 'required': False, 'schema': {'type': 'string', 'minLength': 1, 'maxLength': 80}, 'description': 'Optional legacy-compatible retry key. Exact successful requests replay before period-lock validation; new clients require journal_idempotency capability and preserve this key and body across uncertain outcomes.'}]})
+def reverse_journal(company_id: str, journal_id: str, body: ReversalInput, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):
     lock_company(company_id, user, session)
+    operation = 'reverse:' + journal_id
+    retry_key, request_hash, previous = journal_retry(company_id, operation, body, request, session)
+    if previous is not None: return previous
     require_open_period(company_id, body.date, session)
     original = session.scalar(select(Journal).where(Journal.company_id == company_id, Journal.id == journal_id))
     if not original: raise HTTPException(404, 'Journal not found')
@@ -1961,11 +1998,15 @@ def reverse_journal(company_id: str, journal_id: str, body: ReversalInput, user:
         for line in lines:
             session.add(JournalLine(company_id=company_id, journal_id=reversal.id, account_id=line.account_id, debit=line.credit, credit=line.debit))
         audit(session, company_id, user, 'journal.reversed', 'journal', reversal.id, {'original_id': journal_id, 'reason': body.reason.strip()})
+        response = {'id': reversal.id, 'reference': reversal.reference, 'reversal_of': journal_id}
+        if retry_key:
+            session.add(JournalCommand(company_id=company_id, operation=operation, key=retry_key,
+                request_hash=request_hash, journal_id=reversal.id, response=response))
         session.commit()
     except IntegrityError:
         session.rollback()
         raise HTTPException(409, 'Reference already exists or journal was already reversed')
-    return {'id': reversal.id, 'reference': reversal.reference, 'reversal_of': journal_id}
+    return response
 
 @app.get('/api/companies/{company_id}/period-lock')
 def get_period_lock(company_id: str, user: User = Depends(current_user), session: Session = Depends(db)):

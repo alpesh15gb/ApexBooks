@@ -5,7 +5,7 @@ namespace ApexBooks_Windows.Services;
 
 public sealed class ClientCapabilities
 {
-    private static readonly HashSet<string> Known=["low_stock_reorder","party_price_history","party_payment_terms","master_lifecycle","party_shipping_address","party_credit_limits","recurring_drafts","company_book_labels","document_attachments","chunked_backups","master_edit_revisions","document_conversion_revisions","bank_match_revisions"];
+    private static readonly HashSet<string> Known=["low_stock_reorder","party_price_history","party_payment_terms","master_lifecycle","party_shipping_address","party_credit_limits","recurring_drafts","company_book_labels","document_attachments","chunked_backups","master_edit_revisions","document_conversion_revisions","bank_match_revisions","journal_idempotency"];
     private readonly HashSet<string> features;
     private JsonObject limits=new();
     public string ApiVersion {get;private set;}="unknown";
@@ -27,6 +27,10 @@ public sealed class ClientCapabilities
     {
         if(payload is not JsonObject obj||obj["capabilities_version"] is not JsonValue version||!version.TryGetValue<int>(out var value)||value!=1||obj["supported_features"] is not JsonArray list)return Unavailable;
         var features=new List<string>();foreach(var item in list){if(item is not JsonValue entry||!entry.TryGetValue<string>(out var name))return Unavailable;features.Add(name);}return new(true,features){ApiVersion=VersionLabel(obj.Text("api_version")),BuildRevision=BuildIdentity.Normalize(obj.Text("build_revision")),limits=obj["limits"] is JsonObject bounds?(JsonObject)bounds.DeepClone():new()};
+    }
+    public void RequireJournalIdempotency()
+    {
+        if(!Supports("journal_idempotency"))throw new InvalidOperationException(Hint+" Journal creation and reversal require verified retry protection. No journal was submitted.");
     }
     public void RequireBankMatchRevisionSupport()
     {

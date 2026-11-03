@@ -222,6 +222,38 @@ class ConcurrentPostingTest(unittest.TestCase):
         self.assertEqual(row()['matched_record_id'],records[0]['id']);self.assertEqual(row()['match_revision'],5)
         self.assertEqual(len(self.client.get(self.base+'/journals',headers=self.headers).json()),2)
 
+    def test_manual_journal_and_reversal_commands_replay_after_concurrency_and_lock(self):
+        accounts=[]
+        for code,category in [('QA-CASH','asset'),('QA-EQUITY','equity')]:
+            response=self.client.post(self.base+'/accounts',headers=self.headers,
+                json={'code':code,'name':code,'category':category})
+            self.assertEqual(response.status_code,201,response.text);accounts.append(response.json())
+        body={'date':'2026-04-02','reference':'OPEN','memo':'Synthetic manual journal',
+              'lines':[{'account_id':accounts[0]['id'],'debit':100},{'account_id':accounts[1]['id'],'credit':100}]}
+        key=uuid4().hex
+        results=self.race([('/journals',body,key)]*4)
+        self.assertEqual([r.status_code for r in results],[201]*4,[r.text for r in results])
+        original=results[0].json();self.assertTrue(all(r.json()==original for r in results))
+        path='/journals/'+original['id']+'/reverse'
+        reversal={'date':'2026-04-03','reference':'REV','reason':'Synthetic correction'}
+        results=self.race([(path,reversal,key)]*4)
+        self.assertEqual([r.status_code for r in results],[201]*4,[r.text for r in results])
+        reversed_entry=results[0].json();self.assertTrue(all(r.json()==reversed_entry for r in results))
+        self.client.put(self.base+'/period-lock',headers=self.headers,json={'locked_through':'2026-04-03'}).raise_for_status()
+        for route,payload,expected in [('/journals',body,original),(path,reversal,reversed_entry)]:
+            replay=self.client.post(self.base+route,headers={**self.headers,'Idempotency-Key':key},json=payload)
+            self.assertEqual(replay.status_code,201,replay.text);self.assertEqual(replay.json(),expected)
+        changed=self.client.post(self.base+'/journals',headers={**self.headers,'Idempotency-Key':key},json={**body,'memo':'Changed'})
+        self.assertEqual(changed.status_code,409,changed.text)
+        self.assertEqual(len(self.client.get(self.base+'/journals',headers=self.headers).json()),2)
+        trial=self.client.get(self.base+'/trial-balance',headers=self.headers,params={'through':'2026-04-03'}).json()
+        self.assertEqual(trial['total_debit'],'0.00');self.assertEqual(trial['total_credit'],'0.00')
+        from sqlalchemy import select,func
+        from sqlalchemy.orm import Session
+        from main import engine,JournalCommand
+        with Session(engine) as session:
+            self.assertEqual(session.scalar(select(func.count(JournalCommand.id)).where(JournalCommand.company_id==self.base.rsplit('/',1)[-1])),2)
+
     def test_attachment_concurrent_dedupe_and_key_binding(self):
         import hashlib
         bill = self.create({'kind': 'expense', 'name': 'Concurrent receipt',
