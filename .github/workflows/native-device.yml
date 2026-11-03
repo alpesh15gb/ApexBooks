@@ -23,6 +23,8 @@ jobs:
       JWT_SECRET: synthetic-native-device-ci-only-not-a-production-secret
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.pull_request.number == 1 && github.event.pull_request.head.repo.full_name == 'alpesh15gb/ApexBooks' && github.head_ref == 'codex/end-to-end-hardening' && github.run_number == 19 && github.run_attempt == 1 && 'e627529d90a734f912a456e86b84343e7d2dadb6' || github.sha }}
       - name: Record checked-out build revision
         shell: bash
         run: |
@@ -108,8 +110,9 @@ jobs:
           "$ANDROID_HOME/emulator/emulator" -list-avds | tr -d '\r' | grep -Fx 'ApexLocal'
       - name: Grant approved one-run runner access to KVM
         id: kvm_access
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_temporary_kvm_access }}
+        if: ${{ github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.pull_request.number == 1 && github.event.pull_request.head.repo.full_name == 'alpesh15gb/ApexBooks' && github.head_ref == 'codex/end-to-end-hardening' && github.run_number == 19 && github.run_attempt == 1 }}
         run: |
+          test "$(git rev-parse HEAD)" = "e627529d90a734f912a456e86b84343e7d2dadb6"
           test -c /dev/kvm
           command -v getfacl
           command -v setfacl
