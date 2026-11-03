@@ -52,7 +52,18 @@ class LocalUiAcceptanceTest {
         assertTrue("Real Android document picker opens",device.wait(Until.hasObject(By.pkg("com.google.android.documentsui")),15000)||device.hasObject(By.pkg("com.android.documentsui")))
         val pkg=if(device.hasObject(By.pkg("com.google.android.documentsui")))"com.google.android.documentsui"else"com.android.documentsui"
         val roots=device.findObject(By.desc("Show roots"))?:device.findObject(By.desc("Open navigation drawer"))
-        if(roots!=null){roots.click();assertTrue(device.wait(Until.hasObject(By.text("Downloads")),15000));device.findObject(By.text("Downloads")).click()}
+        if(roots!=null){
+            roots.click()
+            // Downloads is also the toolbar title when reopening the picker.
+            // Select the drawer row, never an identically named background label.
+            val rootsList=By.res(pkg,"roots_list")
+            assertTrue("Native picker roots drawer opens",device.wait(Until.hasObject(rootsList),15000))
+            val downloads=device.findObject(rootsList).findObject(By.text("Downloads"))
+            assertNotNull("Downloads root row exists inside the drawer",downloads)
+            downloads.click()
+            assertTrue("Native picker roots drawer closes before file selection",device.wait(Until.gone(rootsList),15000))
+        }
+        device.waitForIdle()
         return pkg
     }
     private fun awaitReadyAction(device:UiDevice,text:String){
@@ -237,10 +248,9 @@ class LocalUiAcceptanceTest {
             assertTrue("Purchase register arrived after menu navigation",device.wait(Until.hasObject(By.text("UI Smoke Buyer")),30000));clickReadyAction(device,"UI Smoke Buyer")
             clickReadyAction(device,"Retained receipts & attachments")
             assertTrue(device.wait(Until.hasObject(By.text("Choose receipt · PDF / JPEG / PNG").enabled(true)),30000));device.findObject(By.text("Choose receipt · PDF / JPEG / PNG")).click()
-            assertTrue("Real Android document picker opens",device.wait(Until.hasObject(By.pkg("com.google.android.documentsui")),15000)||device.hasObject(By.pkg("com.android.documentsui")))
-            val roots=device.findObject(By.desc("Show roots"))?:device.findObject(By.desc("Open navigation drawer"))
-            if(roots!=null){roots.click();assertTrue(device.wait(Until.hasObject(By.text("Downloads")),15000));device.findObject(By.text("Downloads")).click()}
+            val receiptPickerPackage=documentPickerDownloads(device)
             assertTrue("Synthetic PDF is selectable in the system picker",device.wait(Until.hasObject(By.text(receiptName)),15000));device.findObject(By.text(receiptName)).click()
+            assertTrue("Receipt picker returns to the app",device.wait(Until.gone(By.pkg(receiptPickerPackage)),15000))
             clickReadyAction(device,"Upload receipt")
             scrollTo(device,"Archive · retain evidence");assertTrue("Receipt is retained after actual UI upload",device.hasObject(By.text("Archive · retain evidence")));device.findObject(By.text("Archive · retain evidence")).click()
             clickReadyAction(device,"Show archived receipts")
@@ -287,8 +297,9 @@ class LocalUiAcceptanceTest {
                 val nameFields=device.findObjects(By.clazz("android.widget.EditText"));assertEquals("New company name field",1,nameFields.size)
                 nameFields.single().click();nameFields.single().text=restoredName;device.pressBack()
                 clickReadyAction(device,"Choose backup file")
-                documentPickerDownloads(device)
+                val restorePickerPackage=documentPickerDownloads(device)
                 assertTrue("Saved encrypted file is offered by the real picker",device.wait(Until.hasObject(By.text(backupName)),15000));device.findObject(By.text(backupName)).click()
+                assertTrue("Encrypted backup picker returns to the app",device.wait(Until.gone(By.pkg(restorePickerPackage)),15000))
                 scrollTo(device,"Encrypted backup detected. Authenticate locally before any upload.")
                 awaitReadyAction(device,"Authenticate, upload & validate")
                 scrollTo(device,"Backup password · local only");typeOnlyPassword(device,backupPassword)
