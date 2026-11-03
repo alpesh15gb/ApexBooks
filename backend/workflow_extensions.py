@@ -15,10 +15,10 @@ def available_credit(m,cid,note,session,as_of=None):
     used=sum((r.amount for r in session.scalars(q) if r.data.get('credit_note_id')==note.id),Decimal(0))
     return issued-used
 
-def retry(m,cid,body,request,session,operation):
+def retry(m,cid,body,request,session,operation,*,hash_body=None):
     key=request.headers.get('Idempotency-Key','').strip()
     if not key or len(key)>80:raise HTTPException(422,'A retry key is required')
-    digest=hashlib.sha256(json.dumps({'operation':operation,'body':body.model_dump(mode='json')},sort_keys=True).encode()).hexdigest()
+    digest=hashlib.sha256(json.dumps({'operation':operation,'body':body.model_dump(mode='json') if hash_body is None else hash_body},sort_keys=True).encode()).hexdigest()
     old=session.scalar(select(m.IdempotencyKey).where(m.IdempotencyKey.company_id==cid,m.IdempotencyKey.key==key))
     if old:
         if old.request_hash!=digest:raise HTTPException(409,'Retry key was used for a different request')

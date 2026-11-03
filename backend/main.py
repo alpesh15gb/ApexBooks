@@ -1523,6 +1523,9 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             existing = session.get(Record, previous.record_id)
             return {**obj(existing), 'posted': bool(session.scalar(select(RecordPosting.id).where(RecordPosting.company_id == company_id, RecordPosting.record_id == existing.id)))}
     data, amount = {k:v for k,v in body.data.items() if k not in {'recurring_template_id','recurring_occurrence_date'}}, money(body.amount)
+    if body.kind in {'payment_in', 'payment_out'}:
+        # Unallocated credit is derived for return notes, never payment input.
+        data.pop('unallocated_credit', None)
     if body.kind in DOCUMENTS|POSTED_KINDS:
         validate_active_references(company_id, body.kind, body.name, data, session, historical_record)
     if body.kind in {'payment_in','payment_out','bank_transfer'}:
@@ -2083,11 +2086,13 @@ def party_report(company_id: str, from_date: DateType, to_date: DateType, party:
     for r in records:
         if r.data.get('is_advance'): continue
         if r.kind in {'sales_invoice','opening_receivable'}: receivable += r.amount
-        elif r.kind in {'credit_note', 'payment_in'}: receivable -= r.amount - Decimal(str(r.data.get('unallocated_credit',0)))
+        elif r.kind == 'payment_in': receivable -= r.amount
+        elif r.kind == 'credit_note': receivable -= r.amount - Decimal(str(r.data.get('unallocated_credit',0)))
         elif r.kind in {'purchase_bill','opening_payable'}: payable += r.amount
         elif r.kind in {'advance_application','credit_application'} and r.data.get('payment_kind') == 'payment_in': receivable -= r.amount
         elif r.kind in {'advance_application','credit_application'}: payable -= r.amount
-        elif r.kind in {'debit_note','payment_out'}: payable -= r.amount - Decimal(str(r.data.get('unallocated_credit',0)))
+        elif r.kind == 'payment_out': payable -= r.amount
+        elif r.kind == 'debit_note': payable -= r.amount - Decimal(str(r.data.get('unallocated_credit',0)))
         if r.date < from_date:
             opening_receivable, opening_payable = receivable, payable
         else:
