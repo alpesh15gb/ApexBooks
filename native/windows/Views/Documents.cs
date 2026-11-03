@@ -37,7 +37,7 @@ public sealed partial class MainPage
         var shipping = Input("Shipping address", data.Text("shipping_address"), true);var lastShippingDefault="";
         var supplierState = Input("Supplier state code", data.Text("supplier_state") is { Length: > 0 } ss ? ss : data.Text("party_gstin").Length>=2 ? data.Text("party_gstin")[..2] : Company.Text("state_code"));
         var supply = Input("Place of supply · state code", data.Text("place_of_supply") is { Length: > 0 } ps ? ps : Company.Text("state_code"));
-        var discount = Input("Document discount (%)", data.Text("document_discount_percent") is { Length: > 0 } disc ? disc : "0");
+        var discount = Input("Document discount (%)", WorkflowMasterValues.SourceDocumentDiscount(data));
         var round = new CheckBox { Content = "Round total to nearest rupee", IsChecked = data.Flag("round_total") };
         var returnStock = new CheckBox { Content = "Return stock with this note", IsChecked = !data.ContainsKey("return_stock") || data.Flag("return_stock") };
         var method = Select("Paid through", [("cash", "Cash"), ("bank", "Bank / UPI / card")], data.Text("payment_account") is { Length: > 0 } pay ? pay : "cash");
@@ -171,7 +171,7 @@ public sealed partial class MainPage
             target.SelectionChanged += async (_, _) =>
             {
                 var id = Value(target); appliedTo = id; if (id.Length == 0) return; target.IsEnabled = false;sourceLoading=true;
-                try { var original = await Api.Record(cid, id); if (appliedTo != id) return; party.Text = original.Text("name"); var values = original["data"]; partyId = values.Text("party_id"); address.Text = values.Text("party_address"); gstin.Text = values.Text("party_gstin"); phone.Text = values.Text("party_phone"); supply.Text = values.Text("place_of_supply"); supplierState.Text = values.Text("supplier_state") is { Length: > 0 } state ? state : values.Text("party_gstin").Length >= 2 ? values.Text("party_gstin")[..2] : Company.Text("state_code"); ReplaceLines(values?["lines"].Array() ?? new()); }
+                try { var original = await Api.Record(cid, id); if (appliedTo != id) return; party.Text = original.Text("name"); var values = original["data"]; partyId = values.Text("party_id"); address.Text = values.Text("party_address"); gstin.Text = values.Text("party_gstin"); phone.Text = values.Text("party_phone"); supply.Text = values.Text("place_of_supply"); supplierState.Text = values.Text("supplier_state") is { Length: > 0 } state ? state : values.Text("party_gstin").Length >= 2 ? values.Text("party_gstin")[..2] : Company.Text("state_code"); discount.Text = WorkflowMasterValues.SourceDocumentDiscount(values); ReplaceLines(values?["lines"].Array() ?? new()); }
                 catch (Exception e) { LocalError(e); } finally { target.IsEnabled = true;sourceLoading=false; }
             };
             panel.Children.Add(target);
