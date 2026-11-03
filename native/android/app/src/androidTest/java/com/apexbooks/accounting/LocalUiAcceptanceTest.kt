@@ -34,12 +34,24 @@ class LocalUiAcceptanceTest {
         }
     }
 
+    private fun dismissVisibleKeyboard(device:UiDevice){
+        // A system picker can restore focus to the company-name field and reopen
+        // Gboard. Never swipe through a keyboard: that can gesture-type into data.
+        device.waitForIdle()
+        val keyboard=By.pkg(java.util.regex.Pattern.compile("com\\.(google\\.android|android)\\.inputmethod\\.latin"))
+        if(device.hasObject(keyboard)){
+            device.pressBack()
+            assertTrue("Visible keyboard dismissed before form scrolling",device.wait(Until.gone(keyboard),10000))
+            device.waitForIdle()
+        }
+    }
     private fun scrollTo(device:UiDevice,text:String)=scrollTo(device,By.text(text),text)
     private fun scrollTo(device:UiDevice,selector:BySelector,label:String) {
+        dismissVisibleKeyboard(device)
         if(device.wait(Until.hasObject(selector),2000))return
-        repeat(8){if(device.hasObject(selector))return;device.swipe(device.displayWidth/2,device.displayHeight*3/4,device.displayWidth/2,device.displayHeight/4,30);device.waitForIdle()}
+        repeat(8){dismissVisibleKeyboard(device);if(device.hasObject(selector))return;device.swipe(device.displayWidth/2,device.displayHeight*3/4,device.displayWidth/2,device.displayHeight/4,30);device.waitForIdle()}
         // A previous action can leave the same form scrolled below its next control.
-        repeat(16){if(device.hasObject(selector))return;device.swipe(device.displayWidth/2,device.displayHeight/4,device.displayWidth/2,device.displayHeight*3/4,30);device.waitForIdle()}
+        repeat(16){dismissVisibleKeyboard(device);if(device.hasObject(selector))return;device.swipe(device.displayWidth/2,device.displayHeight/4,device.displayWidth/2,device.displayHeight*3/4,30);device.waitForIdle()}
         assertTrue("Visible action: $label",device.hasObject(selector))
     }
     private fun canonical(value:Any?):String=when(value){
@@ -300,6 +312,8 @@ class LocalUiAcceptanceTest {
                 val restorePickerPackage=documentPickerDownloads(device)
                 assertTrue("Saved encrypted file is offered by the real picker",device.wait(Until.hasObject(By.text(backupName)),15000));device.findObject(By.text(backupName)).click()
                 assertTrue("Encrypted backup picker returns to the app",device.wait(Until.gone(By.pkg(restorePickerPackage)),15000))
+                dismissVisibleKeyboard(device)
+                assertTrue("Picker return preserves the exact new company name",device.hasObject(By.clazz("android.widget.EditText").text(restoredName)))
                 scrollTo(device,"Encrypted backup detected. Authenticate locally before any upload.")
                 awaitReadyAction(device,"Authenticate, upload & validate")
                 scrollTo(device,"Backup password · local only");typeOnlyPassword(device,backupPassword)
