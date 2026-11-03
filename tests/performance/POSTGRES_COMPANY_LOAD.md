@@ -103,3 +103,21 @@ company, archived item/party data, hidden kinds, outsider denial and viewer/owne
 parity. Extra edge records are confined to the second company, and are not part
 of the measured storage/fixture. No actual candidate performance improvement is
 claimed until the new hosted results are available.
+
+## Incomplete diagnostic artifacts
+
+The first PR38 comparison run (`41693817517`, source `94616bed`) reached equal
+first-page responses but failed the narrow page-boundary plan assertion for both
+fixture sizes. It did not establish a passing candidate or full-scan parity.
+The failed run initially lost its plans because output was written only at the
+end. No query or plan assertion has been relaxed to address that loss.
+
+With `--output`, the harness now checkpoints bounded pure JSON after fixture
+creation and measured modes, and **before** validating captured plans. A failed
+assertion therefore leaves `completed: false`, the exact diagnostic `phase`, and
+all plans/statistics captured so far. Only after every plan, snapshot and edge
+check passes does it write `completed: true` and `phase: complete`. An incomplete
+artifact is evidence for diagnosis, never a passing benchmark. Stdout-only mode
+prints only a successful final object; CI must use `--output` and upload that
+path even on failure. The 1 MB cap applies before any checkpoint replaces a
+previous artifact. No credentials, response bodies or exception dumps are added.

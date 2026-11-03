@@ -87,5 +87,38 @@ class CandidateQueryTest(unittest.TestCase):
         self.assertNotIn('profile_page', str(received[1].compile(dialect=dialect())))
 
 
+
+class DiagnosticArtifactTest(unittest.TestCase):
+    def test_incomplete_plan_is_pure_json_and_success_explicit(self):
+        import json
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / 'profile.json'
+            output = {'completed': False, 'phase': 'first:plan_validation_pending',
+                      'plans': {'first': {'candidate': [{'Plan': {'Node Type': 'Limit', 'Actual Rows': 500}}]}},
+                      'measurements': {'first': {'candidate': {'median_wall_ms': 123.5}}}}
+            profile.write_artifact(path, output)
+            saved = json.loads(path.read_text())
+            self.assertEqual(saved, output)
+            self.assertIs(saved['completed'], False)
+            self.assertEqual(saved['phase'], 'first:plan_validation_pending')
+            # Later assertion failure must not erase the captured plan.
+            with self.assertRaises(AssertionError):
+                assert False, 'synthetic plan gate failure'
+            self.assertEqual(json.loads(path.read_text()), saved)
+            output.update(completed=True, phase='complete')
+            profile.write_artifact(path, output)
+            self.assertIs(json.loads(path.read_text())['completed'], True)
+
+    def test_cap_is_checked_before_replacing_diagnostic(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / 'profile.json'
+            profile.write_artifact(path, {'completed': False, 'phase': 'fixture_ready'})
+            previous = path.read_bytes()
+            with self.assertRaisesRegex(AssertionError, 'large profiling output'):
+                profile.write_artifact(path, {'completed': False, 'plan': 'X' * 1_000_001})
+            self.assertEqual(path.read_bytes(), previous)
+
 if __name__ == '__main__':
     unittest.main()

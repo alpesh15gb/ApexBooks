@@ -256,6 +256,18 @@ def edge_checks(m, client, headers, base, size):
     return results
 
 
+def write_artifact(path, output):
+    """Preserve bounded pure JSON diagnostics before a later assertion can fail."""
+    encoded = json.dumps(output, indent=2, allow_nan=False) + '\n'
+    assert len(encoded.encode('utf-8')) <= 1_000_000, 'Unexpectedly large profiling output'
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(encoded, encoding='utf-8')
+    elif output.get('completed') is True:
+        print(encoded, end='')
+    return encoded
+
+
 def main():
     args = arguments()
     try:
@@ -292,6 +304,14 @@ def main():
             storage = dict(cn.execute(text("SELECT pg_relation_size('records') AS heap_bytes, pg_total_relation_size('records') AS total_bytes, sum(pg_column_size(data)) AS stored_data_bytes FROM records")).mappings().one())
             version = cn.exec_driver_sql('SHOW server_version').scalar_one()
         results = {}; snapshots = {}; plans = {}; projections = {}
+        output = {'completed': False, 'phase': 'fixture_ready',
+                  'scope': 'Synthetic loopback PostgreSQL; warm in-process TestClient, analyzed fixture; no network/native startup claim',
+                  'postgres_version': version, 'size': args.size, 'date_shape': args.date_shape, 'json_shape': args.json_shape,
+                  'fixture': {'records': args.size, 'journals': args.size, 'journal_lines': 2 * args.size,
+                              'allocations': args.size // 3, 'named_banks': 20, 'logical_json_bytes': logical_bytes,
+                              'setup_ms': round(setup_ms, 3), **storage},
+                  'measurements': results, 'plans': plans, 'projection_nodes': projections, 'edge_checks': []}
+        write_artifact(args.output, output)
         for mode in ('first', 'deep', 'full', 'banks'):
             print('Comparing ' + mode, file=sys.stderr, flush=True)
             samples = {'baseline': [], 'candidate': []}; reference = None; captured = {}
@@ -314,9 +334,13 @@ def main():
                 'median_cursor_ms': round(statistics.median(x['cursor_ms'] for x in data), 3),
                 'response_sha256': hashlib.sha256(b''.join(reference[1])).hexdigest()}
                 for variant, data in samples.items()}
+            output['phase'] = mode + ':measurements_complete'
+            write_artifact(args.output, output)
             if mode in ('first', 'deep'):
                 plans[mode] = {variant: explain(m, query) for variant, query in captured.items()}
                 projections[mode] = {variant: projection_nodes(plan) for variant, plan in plans[mode].items()}
+                output['phase'] = mode + ':plan_validation_pending'
+                write_artifact(args.output, output)
                 def page_limits(node):
                     if node['Node Type'] == 'Limit' and node['Actual Rows'] == 500 and len(node.get('Output', [])) == 3:
                         yield node
@@ -325,21 +349,17 @@ def main():
                 assert boundaries and all(not any('jsonb_set' in value or value == 'records.data' for value in node['Output']) for node in boundaries), 'Missing narrow page boundary below projection'
                 assert projections[mode]['candidate'], 'VERBOSE plan did not identify compact projection'
                 assert all(node['rows'] * node['loops'] <= 500 for node in projections[mode]['candidate']), 'Candidate projected skipped rows'
+        output['phase'] = 'snapshot_validation_pending'
+        write_artifact(args.output, output)
         assert snapshots['first'] == snapshots['full'][:500]
         assert snapshots['deep'] == snapshots['full'][-500:]
-        edges = edge_checks(m, client, headers, base, args.size)
-        output = {'scope': 'Synthetic loopback PostgreSQL; warm in-process TestClient, analyzed fixture; no network/native startup claim',
-                  'postgres_version': version, 'size': args.size, 'date_shape': args.date_shape, 'json_shape': args.json_shape,
-                  'fixture': {'records': args.size, 'journals': args.size, 'journal_lines': 2 * args.size,
-                              'allocations': args.size // 3, 'named_banks': 20, 'logical_json_bytes': logical_bytes,
-                              'setup_ms': round(setup_ms, 3), **storage}, 'measurements': results, 'plans': plans, 'projection_nodes': projections, 'edge_checks': edges}
-        encoded = json.dumps(output, indent=2)
-        assert len(encoded.encode()) <= 1_000_000, 'Unexpectedly large profiling output'
-        if args.output:
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(encoded + '\n', encoding='utf-8')
-        else:
-            print(encoded)
+        output['phase'] = 'edge_validation_pending'
+        write_artifact(args.output, output)
+        output['edge_checks'] = edge_checks(m, client, headers, base, args.size)
+        output['completed'] = True
+        output['phase'] = 'complete'
+        write_artifact(args.output, output)
+
 
 
 if __name__ == '__main__':
