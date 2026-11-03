@@ -167,3 +167,23 @@ capture require the Windows CI runner because the local .NET SDK is unavailable.
 Run 41673718317 (artifact 13250416085) reached the inline-item action after customer creation and exact/rapid item typing. The failure screenshot and accessibility tree show `+ Create item here` present below the visible form area; no item-create action or POST was issued. The earlier helper scrolled once, then waited passively. The exact cause of the later visibility state is not established by those older diagnostics.
 
 The test now reevaluates only the identified app control and its owned scroll container during a bounded readiness wait, retaining visible/enabled/positive-size requirements before the existing single action. Failure output includes bounded geometry and scroll diagnostics. All accounting and backup assertions remain unchanged. Local .NET is unavailable; compilation and real hosted UI execution are pending for this test-only correction.
+
+
+### Live picker anchor regression
+
+The synthetic PR41 failure artifact showed a visible shell Open dialog owned by
+its launched process's main HWND, while the cached WinUI content UIA HWND differed
+and desktop UIA children omitted the dialog. Picker discovery now refreshes the
+launched Process.MainWindowHandle and verifies its native PID and visibility.
+It retains UIA subtree/desktop discovery and adds bounded native enumeration
+(maximum 2048 windows), but only materializes a candidate with FromHandle after
+its visible/enabled native owner chain reaches that verified live anchor. The UIA
+handle, native PID, title, visibility, enabled state and positive bounds must match.
+A title or same process ID alone never qualifies a picker. The captured anchor
+and ownership are checked again before file input and the single final action;
+a changed anchor aborts rather than retrying or retargeting. Existing financial,
+file, hash and backup assertions are unchanged.
+
+Seven additional pure anchor-policy assertions run in both portable and Windows
+client suites. Local static checks are not compilation or native picker proof;
+the corrected real picker path requires a hosted Windows UI run.

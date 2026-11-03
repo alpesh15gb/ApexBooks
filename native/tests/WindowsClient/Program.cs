@@ -160,6 +160,13 @@ Check(!WindowOwnership.ReachesApp(2,1,_=>0),"unowned matching-title or same-proc
 Check(!WindowOwnership.ReachesApp(2,1,_=>9),"unrelated owner and self-cycle are rejected");
 Check(!WindowOwnership.ReachesApp(2,1,h=>h==2?3:2),"cyclic owner chain is rejected");
 Check(!WindowOwnership.ReachesApp(0,1,_=>1)&&!WindowOwnership.ReachesApp(2,0,_=>0)&&!WindowOwnership.ReachesApp(1,1,_=>1),"zero handles and app itself cannot be picker");
+Check(WindowOwnership.ValidAnchor(10,2012,2012,true,true),"live launched-process visible native HWND is accepted as picker anchor");
+Check(!WindowOwnership.ValidAnchor(0,2012,2012,true,true)&&!WindowOwnership.ValidAnchor(10,2012,999,true,true),"zero or foreign-PID anchor is rejected");
+Check(!WindowOwnership.ValidAnchor(10,2012,2012,false,true)&&!WindowOwnership.ValidAnchor(10,2012,2012,true,false),"exited process or hidden stale anchor is rejected");
+Check(WindowOwnership.StablePicker(20,10,10,h=>h==20?10:0),"shell picker reaches stable live anchor despite different cached content HWND");
+Check(!WindowOwnership.StablePicker(20,10,11,h=>h==20?11:0),"anchor replacement aborts rather than retargeting even when new ownership matches");
+Check(!WindowOwnership.StablePicker(20,10,10,h=>h==20?9:0),"same title or process without live anchor ownership is rejected");
+Check(!WindowOwnership.StablePicker(20,10,0,h=>10),"missing live anchor cannot authorize existing picker");
 var ownerCalls=0;Check(!WindowOwnership.ReachesApp(2,1,h=>{ownerCalls++;return h+1;})&&ownerCalls==64,"unbounded owner chain stops at64 hops");
 Check(WindowOwnership.ReachesApp(65,1,h=>h-1)&&!WindowOwnership.ReachesApp(66,1,h=>h-1),"ownership depth accepts64 hops and rejects65");
 

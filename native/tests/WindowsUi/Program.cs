@@ -108,59 +108,95 @@ AutomationElement? EditField(string label)
 string Value(AutomationElement element)=>((ValuePattern)element.GetCurrentPattern(ValuePattern.Pattern)).Current.Value;
 void Invoke(AutomationElement element){if(element.TryGetCurrentPattern(InvokePattern.Pattern,out var pattern))((InvokePattern)pattern).Invoke();else if(element.TryGetCurrentPattern(SelectionItemPattern.Pattern,out pattern))((SelectionItemPattern)pattern).Select();else throw new Exception("Control has no supported Invoke/Selection pattern: "+element.Current.Name);}
 void Set(AutomationElement element,string value){if(!element.TryGetCurrentPattern(ValuePattern.Pattern,out var pattern))throw new Exception("Control has no supported Value pattern: "+element.Current.Name);((ValuePattern)pattern).SetValue(value);}
+nint discoveredPickerAnchor=0;
+nint LiveAppAnchor()
+{
+    try{
+        if(app is null||app.HasExited)return 0;
+        app.Refresh();var handle=app.MainWindowHandle;
+        NativePickerWindows.GetWindowThreadProcessId(handle,out var pid);
+        return WindowOwnership.ValidAnchor(handle,app.Id,pid,!app.HasExited,NativePickerWindows.IsWindowVisible(handle))?handle:0;
+    }catch(InvalidOperationException){return 0;}
+}
+bool ReadyPicker(AutomationElement candidate,string title,nint anchor)
+{
+    var info=candidate.Current;var hwnd=(nint)info.NativeWindowHandle;var bounds=info.BoundingRectangle;
+    NativePickerWindows.GetWindowThreadProcessId(hwnd,out var candidatePid);
+    return candidatePid==(uint)info.ProcessId&&info.Name==title&&info.IsEnabled&&!info.IsOffscreen&&bounds.Width>0&&bounds.Height>0
+        &&NativePickerWindows.IsWindowVisible(hwnd)&&NativePickerWindows.IsWindowEnabled(hwnd)
+        &&WindowOwnership.StablePicker(hwnd,anchor,LiveAppAnchor(),h=>NativePickerWindows.GetWindow(h,4));
+}
 AutomationElement? OwnedPicker(string title)
 {
-    if(window is null||app is null||app.HasExited)return null;
-    var nested=window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Window)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==title&&e.Current.IsEnabled&&!e.Current.IsOffscreen);
-    if(nested is not null)return nested;
-    var appHwnd=(nint)window.Current.NativeWindowHandle;
-    if(appHwnd==0||window.Current.ProcessId!=app.Id)return null;
-    NativePickerWindows.GetWindowThreadProcessId(appHwnd,out var processId);
-    if(processId!=(uint)app.Id)return null;
-    // Shell dialogs may be desktop-level UIA windows. A matching name or PID
-    // is never sufficient: the bounded native owner chain must reach our app.
+    discoveredPickerAnchor=0;var anchor=LiveAppAnchor();if(anchor==0)return null;
+    // Use the live launched-process native anchor, not the cached WinUI content HWND.
+    var liveWindow=AutomationElement.FromHandle(anchor);
+    foreach(var candidate in liveWindow.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Window)).Cast<AutomationElement>())
+        if(ReadyPicker(candidate,title,anchor)){discoveredPickerAnchor=anchor;return candidate;}
     foreach(var candidate in AutomationElement.RootElement.FindAll(TreeScope.Children,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Window)).Cast<AutomationElement>()){
-        try{
-            if(candidate.Current.Name!=title||!candidate.Current.IsEnabled||candidate.Current.IsOffscreen)continue;
-            var hwnd=(nint)candidate.Current.NativeWindowHandle;
-            if(WindowOwnership.ReachesApp(hwnd,appHwnd,h=>NativePickerWindows.GetWindow(h,4)))return candidate;
-        }catch(ElementNotAvailableException){/* Candidate disappeared; never broaden the scope. */}
+        try{if(ReadyPicker(candidate,title,anchor)){discoveredPickerAnchor=anchor;return candidate;}}
+        catch(ElementNotAvailableException){/* Never broaden scope for disappearing candidates. */}
     }
-    return null;
+    // Some shell pickers are absent from desktop UIA children. Only obtain UIA
+    // from a visible/enabled native HWND whose bounded owner chain reaches our live app.
+    AutomationElement? found=null;var examined=0;
+    NativePickerWindows.EnumWindows((hwnd,_)=>{
+        if(++examined>2048||LiveAppAnchor()!=anchor)return false;
+        try{
+        if(!NativePickerWindows.IsWindowVisible(hwnd)||!NativePickerWindows.IsWindowEnabled(hwnd)||!WindowOwnership.StablePicker(hwnd,anchor,LiveAppAnchor(),h=>NativePickerWindows.GetWindow(h,4)))return true;
+        var caption=new StringBuilder(128);NativePickerWindows.GetWindowText(hwnd,caption,caption.Capacity);
+        if(caption.ToString()!=title)return true;
+        try{var candidate=AutomationElement.FromHandle(hwnd);if((nint)candidate.Current.NativeWindowHandle==hwnd&&ReadyPicker(candidate,title,anchor)){found=candidate;return false;}}
+        catch(ElementNotAvailableException){/* A disappeared owned window is not a replacement picker. */}
+        }catch(InvalidOperationException){/* Unavailable provider; no action or scope expansion. */}
+        return true;
+    },0);
+    if(found is not null)discoveredPickerAnchor=anchor;
+    return found;
 }
 void ChooseNativeFile(string title,string action,string path)
 {
     var dialog=Wait(()=>OwnedPicker(title),"app-owned system "+title+" picker",120);
-    var field=Wait(()=>dialog.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Edit)).Cast<AutomationElement>().FirstOrDefault(e=>(e.Current.Name is "File name:" or "File name"||e.Current.AutomationId=="1148")&&e.Current.IsEnabled&&!e.Current.IsOffscreen&&e.TryGetCurrentPattern(ValuePattern.Pattern,out _)),title+" File name");
+    var anchor=discoveredPickerAnchor;
+    void RequireSamePicker(){if(anchor==0||!ReadyPicker(dialog,title,anchor))throw new Exception("Picker or launched app anchor changed; refusing to retarget file action.");}
+    void RequirePickerControl(AutomationElement control,bool keyboard=false){
+        RequireSamePicker();var current=control.Current;var bounds=current.BoundingRectangle;
+        if(!current.IsEnabled||current.IsOffscreen||bounds.Width<=0||bounds.Height<=0||(keyboard&&!current.HasKeyboardFocus))throw new Exception("Picker control is no longer ready or focused; refusing file input.");
+    }
+    void SendPickerKey(AutomationElement control,string key){RequirePickerControl(control,true);System.Windows.Forms.SendKeys.SendWait(key);}
+    RequireSamePicker();
+    var field=Wait(()=>dialog.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Edit)).Cast<AutomationElement>().FirstOrDefault(e=>(e.Current.Name is "File name:" or "File name"||e.Current.AutomationId=="1148")&&e.Current.IsEnabled&&!e.Current.IsOffscreen&&e.Current.BoundingRectangle.Width>0&&e.Current.BoundingRectangle.Height>0&&e.TryGetCurrentPattern(ValuePattern.Pattern,out _)),title+" File name");
+    RequireSamePicker();
     if(action=="Save"){
         // ValuePattern can change the shell edit's displayed text without
         // updating its selected filename. Use genuine keyboard input and commit
         // the edit before activating Save. No retry after activation.
-        field.SetFocus();Wait(()=>field.Current.HasKeyboardFocus?field:null,"Save filename keyboard focus",10);
-        System.Windows.Forms.SendKeys.SendWait("^a");System.Windows.Forms.SendKeys.SendWait("{BACKSPACE}");
+        RequirePickerControl(field);field.SetFocus();Wait(()=>field.Current.HasKeyboardFocus?field:null,"Save filename keyboard focus",10);
+        SendPickerKey(field,"^a");SendPickerKey(field,"{BACKSPACE}");
         Wait(()=>Value(field)==""?field:null,"Save filename cleared",10);
         var typed="";var deadline=Stopwatch.StartNew();
         foreach(var character in path){
+            RequireSamePicker();
             if(deadline.Elapsed>TimeSpan.FromSeconds(30)||!field.Current.HasKeyboardFocus)throw new Exception("Save filename lost focus or exceeded typing deadline.");
             var key=character switch{'{'=>"{{}",'}'=>"{}}",'+' or '^' or '%' or '~' or '(' or ')'=>"{"+character+"}",_=>character.ToString()};
-            System.Windows.Forms.SendKeys.SendWait(key);typed+=character;
+            SendPickerKey(field,key);typed+=character;
             Wait(()=>Value(field)==typed?field:null,"Save filename character "+typed.Length,5);
         }
         Check("Save filename keyboard entry matches exact destination",Value(field)==path);
-        System.Windows.Forms.SendKeys.SendWait("{TAB}");
+        SendPickerKey(field,"{TAB}");
         Wait(()=>!field.Current.HasKeyboardFocus?field:null,"Save filename committed on Tab",10);
-    }else Set(field,path);
+    }else {RequirePickerControl(field);Set(field,path);}
     Check(title+" picker contains exact requested path",Value(field)==path);
-    var confirm=Wait(()=>dialog.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Button)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==action&&e.Current.IsEnabled&&!e.Current.IsOffscreen),title+" "+action+" button");
+    var confirm=Wait(()=>dialog.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Button)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==action&&e.Current.IsEnabled&&!e.Current.IsOffscreen&&e.Current.BoundingRectangle.Width>0&&e.Current.BoundingRectangle.Height>0),title+" "+action+" button");
     if(action=="Save"){
         // Shell Save can make outgoing COM calls. UIA Invoke dispatches a
         // synchronous input call and produced RPC_E_CANTCALLOUT_ININPUTSYNCCALL
         // on the hosted runner. Use one genuine keyboard activation instead.
-        confirm.SetFocus();Wait(()=>confirm.Current.HasKeyboardFocus?confirm:null,"native Save button keyboard focus",10);
+        RequirePickerControl(confirm);confirm.SetFocus();Wait(()=>confirm.Current.HasKeyboardFocus?confirm:null,"native Save button keyboard focus",10);
         Check("committed Save destination survives button focus",Value(field)==path);
         Snapshot("10-native-save-destination");
-        System.Windows.Forms.SendKeys.SendWait(" ");
-    }else Invoke(confirm);
+        SendPickerKey(confirm," ");
+    }else {RequirePickerControl(confirm);Invoke(confirm);}
 }
 void Snapshot(string name){if(window is null)return;var rectangle=window.Current.BoundingRectangle;if(rectangle.Width<1||rectangle.Height<1)throw new Exception("App has no visible capture rectangle.");using var bitmap=new Drawing.Bitmap((int)rectangle.Width,(int)rectangle.Height);using(var graphics=Drawing.Graphics.FromImage(bitmap))graphics.CopyFromScreen((int)rectangle.X,(int)rectangle.Y,0,0,bitmap.Size);bitmap.Save(Path.Combine(evidence,name+".png"),Drawing.Imaging.ImageFormat.Png);
     // Only this synthetic app window, never the desktop or credentials. Bounded diagnostic for log-only artifact readers.
@@ -353,6 +389,11 @@ finally{if(app is not null&&!app.HasExited){app.Kill(entireProcessTree:true);app
 
 static class NativePickerWindows
 {
+    internal delegate bool Callback(nint hwnd,nint state);
+    [System.Runtime.InteropServices.DllImport("user32.dll",ExactSpelling=true)]internal static extern bool EnumWindows(Callback callback,nint state);
+    [System.Runtime.InteropServices.DllImport("user32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode)]internal static extern int GetWindowText(nint hwnd,StringBuilder text,int count);
+    [System.Runtime.InteropServices.DllImport("user32.dll",ExactSpelling=true)]internal static extern bool IsWindowVisible(nint hwnd);
+    [System.Runtime.InteropServices.DllImport("user32.dll",ExactSpelling=true)]internal static extern bool IsWindowEnabled(nint hwnd);
     [System.Runtime.InteropServices.DllImport("user32.dll",ExactSpelling=true)]
     internal static extern nint GetWindow(nint hwnd,uint command);
     [System.Runtime.InteropServices.DllImport("user32.dll",ExactSpelling=true)]
