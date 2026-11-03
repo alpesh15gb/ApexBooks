@@ -57,7 +57,24 @@ void ChooseNativeFile(string title,string action,string path)
 {
     var dialog=Wait(()=>window?.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Window)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==title&&!e.Current.IsOffscreen),"owned system "+title+" picker",120);
     var field=Wait(()=>dialog.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Edit)).Cast<AutomationElement>().FirstOrDefault(e=>(e.Current.Name is "File name:" or "File name"||e.Current.AutomationId=="1148")&&e.TryGetCurrentPattern(ValuePattern.Pattern,out _)),title+" File name");
-    Set(field,path);
+    if(action=="Save"){
+        // ValuePattern can change the shell edit's displayed text without
+        // updating its selected filename. Use genuine keyboard input and commit
+        // the edit before activating Save. No retry after activation.
+        field.SetFocus();Wait(()=>field.Current.HasKeyboardFocus?field:null,"Save filename keyboard focus",10);
+        System.Windows.Forms.SendKeys.SendWait("^a");System.Windows.Forms.SendKeys.SendWait("{BACKSPACE}");
+        Wait(()=>Value(field)==""?field:null,"Save filename cleared",10);
+        var typed="";var deadline=Stopwatch.StartNew();
+        foreach(var character in path){
+            if(deadline.Elapsed>TimeSpan.FromSeconds(30)||!field.Current.HasKeyboardFocus)throw new Exception("Save filename lost focus or exceeded typing deadline.");
+            var key=character switch{'{'=>"{{}",'}'=>"{}}",'+' or '^' or '%' or '~' or '(' or ')'=>"{"+character+"}",_=>character.ToString()};
+            System.Windows.Forms.SendKeys.SendWait(key);typed+=character;
+            Wait(()=>Value(field)==typed?field:null,"Save filename character "+typed.Length,5);
+        }
+        Check("Save filename keyboard entry matches exact destination",Value(field)==path);
+        System.Windows.Forms.SendKeys.SendWait("{TAB}");
+        Wait(()=>!field.Current.HasKeyboardFocus?field:null,"Save filename committed on Tab",10);
+    }else Set(field,path);
     Check(title+" picker contains exact requested path",Value(field)==path);
     var confirm=Wait(()=>dialog.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Button)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==action&&e.Current.IsEnabled),title+" "+action+" button");
     if(action=="Save"){
@@ -65,6 +82,8 @@ void ChooseNativeFile(string title,string action,string path)
         // synchronous input call and produced RPC_E_CANTCALLOUT_ININPUTSYNCCALL
         // on the hosted runner. Use one genuine keyboard activation instead.
         confirm.SetFocus();Wait(()=>confirm.Current.HasKeyboardFocus?confirm:null,"native Save button keyboard focus",10);
+        Check("committed Save destination survives button focus",Value(field)==path);
+        Snapshot("10-native-save-destination");
         System.Windows.Forms.SendKeys.SendWait(" ");
     }else Invoke(confirm);
 }

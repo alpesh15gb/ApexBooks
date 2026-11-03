@@ -87,7 +87,7 @@ class CompleteBackupDraft {
                     Button(enabled=!state.busy&&state.completedCompany.isBlank(),onClick=::commit){Text(if(state.pending=="commit")"Retry the SAME restore" else "Confirm restore into new company")}
                 }}
                 if(state.completedCompany.isNotBlank())TextButton(enabled=!state.busy,onClick={state.reset()}){Text("Start a different restore")}
-                if(state.completedCompany.isNotBlank())Button(enabled=!state.busy,onClick={act{val id=state.completedCompany;vm.loadCompanies(id);vm.notice="Restored company opened. No existing company was overwritten."}}){Text("Open restored company")}
+                if(state.completedCompany.isNotBlank())Button(enabled=!state.busy&&vm.busy==0,onClick={if(vm.busy==0){val id=state.completedCompany;vm.task{vm.loadCompanies(id);if(vm.signedIn&&vm.companyId==id&&vm.recordsReady)vm.notice="Restored company opened. No existing company was overwritten."}}}){Text("Open restored company")}
             }else{
                 Toggle("Encrypt saved backup",state.encrypt,{if(!state.busy&&state.pending.isBlank()&&state.file==null)state.encrypt=it},enabled=!state.busy&&state.pending.isBlank()&&state.file==null)
                 if(state.encrypt&&state.file==null)Field("Encryption password · at least 12 characters",state.password,{state.password=it},password=true,readOnly=state.busy||state.pending.isNotBlank(),maximum=128)

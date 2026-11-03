@@ -61,6 +61,14 @@ class LocalUiAcceptanceTest {
     }
     private fun clickReadyAction(device:UiDevice,text:String){
         awaitReadyAction(device,text)
+        clickStableControl(device,By.text(text),text)
+    }
+    private fun clickReadyDescription(device:UiDevice,description:String){
+        val selector=By.desc(description)
+        assertTrue("Visible control: $description",device.wait(Until.hasObject(selector),30000))
+        clickStableControl(device,selector,description)
+    }
+    private fun clickStableControl(device:UiDevice,selector:BySelector,label:String){
         // Compose may expose a non-clickable TextView inside the actual action.
         // Wait for scroll/layout settling and activate that real clickable ancestor
         // once; never repeat a financial action after an uncertain outcome.
@@ -69,7 +77,7 @@ class LocalUiAcceptanceTest {
         var previous:android.graphics.Rect?=null
         var stable=0
         while(android.os.SystemClock.uptimeMillis()<deadline){
-            var target=device.findObject(By.text(text).enabled(true))
+            var target=device.findObject(selector)
             while(target!=null&&!target.isClickable)target=target.parent
             if(target!=null&&target.isEnabled){
                 val bounds=target.visibleBounds
@@ -79,7 +87,7 @@ class LocalUiAcceptanceTest {
             }else{stable=0;previous=null}
             android.os.SystemClock.sleep(150)
         }
-        fail("No stable visible clickable action: $text")
+        fail("No stable visible clickable action: $label")
     }
     private fun typeOnlyPassword(device:UiDevice,password:String){
         // Export has only a password; restore has the name followed by its password.
@@ -240,7 +248,11 @@ class LocalUiAcceptanceTest {
             val bill=saved.single{it.s("kind")=="purchase_bill"};val evidence=(api.request(api.company(companyIds.getValue(target),"/records/${bill.s("id")}/attachments"))as JSONObject).a("attachments").objects().single()
             assertTrue("UI archive retains evidence",evidence.optBoolean("is_archived"));assertEquals(receiptBytes.size,evidence.optInt("size_bytes"));assertEquals(sha256(receiptBytes),evidence.s("sha256"))
             device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-retained-receipt.png"))
-            device.findObject(By.desc("Close")).click();device.pressBack();device.findObject(By.text("More")).click();clickReadyAction(device,"Settings")
+            clickReadyDescription(device,"Close")
+            assertTrue("Receipt dialog closed",device.wait(Until.gone(By.desc("Close")),15000))
+            clickReadyDescription(device,"Close transaction")
+            assertTrue("Purchase detail closed",device.wait(Until.gone(By.desc("Close transaction")),15000))
+            clickReadyAction(device,"More");clickReadyAction(device,"Settings")
             clickReadyAction(device,"Download backup")
             assertTrue("Complete-backup entry is capability gated and visible",device.wait(Until.hasObject(By.text("Complete company backup")),15000));assertTrue(device.hasObject(By.text("Encrypt saved backup")))
             device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-complete-backup-entry.png"))
@@ -267,7 +279,8 @@ class LocalUiAcceptanceTest {
                 assertTrue("Native save action is enabled",device.wait(Until.hasObject(save),15000));device.findObject(save).click()
                 assertTrue("Encrypted backup saved through the real picker",device.wait(Until.hasObject(By.text("Complete backup verified and saved to your selected location.")),30000))
                 device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-encrypted-backup-saved.png"))
-                device.findObject(By.desc("Close")).click()
+                clickReadyDescription(device,"Close")
+                assertTrue("Export dialog closed after saved file",device.wait(Until.gone(By.desc("Close")),15000))
                 clickReadyAction(device,"Restore company backup")
                 assertTrue(device.wait(Until.hasObject(By.text("Restore complete portable backup")),15000))
                 scrollTo(device,"New company name")
@@ -304,6 +317,9 @@ class LocalUiAcceptanceTest {
                 assertEquals("Original archived receipt metadata unchanged",canonical(evidence),canonical(originalEvidence))
                 clickReadyAction(device,"Open restored company")
                 assertTrue("Explicitly opened new company",device.wait(Until.hasObject(By.text(restoredName)),30000))
+                assertTrue("Restore dialog dismissed",device.wait(Until.gone(By.text("Restore complete portable backup")),15000))
+                clickReadyAction(device,"Transactions")
+                assertTrue("Restored company history loaded into the actual register",device.wait(Until.hasObject(By.text("UI Smoke Buyer")),30000))
                 device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-restored-company.png"))
             } finally { device.executeShellCommand("rm -f '/sdcard/Download/$backupName'") }
         } finally { resolver.delete(receiptUri,null,null) }

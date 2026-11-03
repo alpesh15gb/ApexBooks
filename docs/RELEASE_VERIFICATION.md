@@ -44,6 +44,10 @@ Local `730efcbde0a4c770552feee618026182b474136f` adds fail-closed release identi
 
 The generic backup helpers support only the reviewed root local-Compose database and require explicit scope. They are not a hosted-provider recovery procedure. A company ZIP is not a full-database recovery point. See [backup boundaries](../deploy/SECURE_BACKUP.md) and [release preflight](../deploy/vps/README.md).
 
+## Restore navigation cancellation correction
+
+A deterministic local coroutine regression reproduced a real Android load-lifetime defect: opening a restored company from the dialog-owned scope cleared that dialog before the pending record/bank loads completed, leaving the new company selected with `recordsReady=false`. The correction dispatches only this navigation through the existing ViewModel-owned task and retains the company/session generation guards and loaded-state success check. `native/tests/AndroidLifecycle/check.py` compiles the actual production `chooseCompany` and `task` bodies with controlled suspension barriers and verifies both the old cancellation case and corrected lifetime. It uses existing Gradle Kotlin/coroutines libraries, no network or Android runtime. Full Android rebuild and the actual restored-register UI assertion remain required on this new correction; the prior device pass is not evidence for this changed app line.
+
 ## Known-baseline upgrade rehearsal
 
 The pinned original repository `1e8d981149e8a4dce597ec49933b33887bcf00d6` was upgraded in an isolated synthetic SQLite rehearsal: readiness 503→200, all original rows/columns across 33 tables preserved, six reports equal, repeated migration unchanged, and the original application reopened its pre-upgrade physical backup. A receipt added after upgrade and complete ZIP restore preserved bytes, financials and exact commit replay. No original 1.3 receipt storage is implied. The actual production schema, PostgreSQL migration behavior at production scale and provider recovery remain unverified. See [the detailed 1.3→1.5 checklist](UPGRADE_1_3_TO_1_5.md) and `tests/upgrade/rehearse_legacy.py`.

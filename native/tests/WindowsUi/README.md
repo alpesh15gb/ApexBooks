@@ -110,3 +110,12 @@ actual Settings search with the exact Download/Restore action names before
 waiting for their visible, enabled buttons. It does not remove the visibility
 check or invoke hidden controls. All prior rapid typing and financial/receipt
 checks passed in that run; the Save repair and backup round trip still await CI.
+
+
+Run `41564385744` closed the Save dialog and completed export staging cleanup,
+but no file appeared at the required destination. The filename had been set via
+ValuePattern only. The test now enters that path with genuine focus-confirmed
+keyboard input, commits the edit with Tab, verifies the exact text again after
+focusing Save, and captures the picker before one activation. The expected-path
+file and encrypted-envelope checks remain mandatory; no alternate file is accepted.
+The destination-binding explanation is an inference pending the next Windows run.
