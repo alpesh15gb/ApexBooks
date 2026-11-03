@@ -204,6 +204,14 @@ foreach(var noteKind in new[]{"credit_note","debit_note"}){
  Check(postedBody.ToJsonString()==beforePreview&&previewBody["data"]!["lines"]![0].Text("itc_treatment")=="ineligible"&&previewBody["data"]!["lines"]![0].Text("discount_amount")=="10","preview clone preserves ITC/fixed discount without leaking hint into posted body");
  Check(!WorkflowMasterValues.DocumentPreview(postedBody,null)["data"].Object().ContainsKey("preview_record_id"),"new "+noteKind+" preview does not exclude another note");
 }
+// Manual source selection and contextual return creation share the same header default.
+var returnDiscountSource=JsonNode.Parse("""{"document_discount_percent":"10","round_total":true,"lines":[{"quantity":"1","rate":"100","discount_amount":"10","itc_treatment":"ineligible","price_includes_tax":true}]}""")!;
+var returnDiscountBefore=returnDiscountSource.ToJsonString();
+Check(WorkflowMasterValues.SourceDocumentDiscount(returnDiscountSource)=="10","return source preserves header discount percentage");
+Check(WorkflowMasterValues.SourceDocumentDiscount(new JsonObject())=="0","changing to source without header discount resets previous percentage");
+Check(WorkflowMasterValues.SourceDocumentDiscount(null)=="0","missing return source has zero header discount");
+Check(WorkflowMasterValues.SourceDocumentDiscount(new JsonObject{["document_discount_percent"]="0"})=="0","explicit zero source discount is preserved");
+Check(returnDiscountSource.ToJsonString()==returnDiscountBefore,"header selection does not mutate source fixed discount ITC inclusive price or rounding");
 Check(!WorkflowMasterValues.DocumentPreview(new JsonObject{["kind"]="sales_invoice",["data"]=new JsonObject()},"invoice-id")["data"].Object().ContainsKey("preview_record_id"),"non-return amendment never receives return preview exclusion");
 
 await JournalSubmissionTests.Run(Check);

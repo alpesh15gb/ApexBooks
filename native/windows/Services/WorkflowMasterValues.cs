@@ -21,6 +21,9 @@ public static class WorkflowMasterValues
         if(token is null||!long.TryParse(token.ToJsonString(),NumberStyles.None,CultureInfo.InvariantCulture,out var version))throw new InvalidOperationException("The source document revision is invalid. Close and reopen the conversion after refreshing.");
         return version;
     }
+    // Copy the source header percentage, not its calculated per-line allocations or round-off.
+    public static string SourceDocumentDiscount(JsonNode? data) => data.Text("document_discount_percent") is { Length: > 0 } value ? value : "0";
+
     public static JsonObject DocumentPreview(JsonObject candidate,string? editingRecordId)
     {
         var preview=candidate.Copy().Object();var data=preview["data"].Object();preview["name"]="Preview";
