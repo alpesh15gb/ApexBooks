@@ -35,6 +35,27 @@ decimal Number(JsonNode? node,string key)=>decimal.TryParse(node?[key]?.ToString
 AutomationElement Wait(Func<AutomationElement?> find,string description,int seconds=60){var timeout=Stopwatch.StartNew();while(timeout.Elapsed.TotalSeconds<seconds){try{var element=find();if(element is not null)return element;}catch(ElementNotAvailableException){}if(app?.HasExited==true)throw new Exception($"WinUI exited with {app.ExitCode} while waiting for {description}");Thread.Sleep(250);}throw new Exception("UI timeout: "+description);}
 AutomationElement? Find(string name,ControlType? type=null)=>window?.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>().FirstOrDefault(x=>x.Current.Name==name&&(type is null||x.Current.ControlType==type));
 AutomationElement? ReadyButton(string label){var button=Find(label,ControlType.Button);return button is not null&&button.Current.IsEnabled&&!button.Current.IsOffscreen?button:null;}
+AutomationElement FocusReadyButton(string label)
+{
+    var button=Wait(()=>Find(label,ControlType.Button),label+" control");
+    if(button.Current.IsOffscreen&&button.TryGetCurrentPattern(ScrollItemPattern.Pattern,out var item))((ScrollItemPattern)item).ScrollIntoView();
+    if(button.Current.IsOffscreen){
+        // Focusing a WinUI button does not necessarily scroll it into view.
+        // Scroll only its own nearest scrollable ancestor, never the desktop.
+        var ancestor=TreeWalker.RawViewWalker.GetParent(button);ScrollPattern? scroll=null;
+        for(var depth=0;ancestor is not null&&depth<32;depth++,ancestor=TreeWalker.RawViewWalker.GetParent(ancestor)){
+            if(ancestor.Current.NativeWindowHandle==window!.Current.NativeWindowHandle)break;
+            if(ancestor.TryGetCurrentPattern(ScrollPattern.Pattern,out var pattern)&&((ScrollPattern)pattern).Current.VerticallyScrollable){scroll=(ScrollPattern)pattern;break;}
+        }
+        if(scroll is null)throw new Exception("No owned scroll container can reveal "+label);
+        for(var step=0;button.Current.IsOffscreen&&step<40;step++){
+            var target=button.Current.BoundingRectangle;var viewport=ancestor!.Current.BoundingRectangle;
+            var direction=target.Height>0&&target.Bottom<viewport.Top?ScrollAmount.SmallDecrement:ScrollAmount.SmallIncrement;
+            scroll.Scroll(ScrollAmount.NoAmount,direction);Thread.Sleep(100);
+        }
+    }
+    button=Wait(()=>ReadyButton(label),label+" visible and enabled after owned scrolling");button.SetFocus();return button;
+}
 AutomationElement? EditField(string label)
 {
     if(window is null)return null;
@@ -148,6 +169,17 @@ try{
     var reference="UI"+Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();const string createdBuyer="UI Created Partial-Payment Buyer";
     Set(Wait(()=>EditField("Customer / supplier"),"invoice customer"),createdBuyer);
     Set(Wait(()=>EditField("Reference number"),"invoice reference"),reference);
+    Invoke(Wait(()=>ReadyButton("+ Create customer here"),"inline customer entry"));
+    Set(Wait(()=>EditField("New customer name"),"inline customer name"),"Cancelled inline customer");
+    Invoke(FocusReadyButton("Cancel inline create"));
+    Check("inline customer cancel preserves original invoice reference",Value(Wait(()=>EditField("Reference number"),"original invoice reference after child cancel"))==reference);
+    Invoke(Wait(()=>ReadyButton("+ Create customer here"),"reopen inline customer entry"));
+    Set(Wait(()=>EditField("New customer name"),"new customer name"),createdBuyer);
+    Invoke(FocusReadyButton("Create and use customer"));
+    Wait(()=>Find("Create and use customer",ControlType.Button) is null?window:null,"inline customer returned to same invoice");
+    Check("inline customer selection preserves invoice reference",Value(Wait(()=>EditField("Reference number"),"invoice reference after inline create"))==reference);
+    var inlineParty=(await CompanyRecords(cid)).OfType<JsonObject>().Single(r=>r["kind"]?.ToString()=="party"&&r["name"]?.ToString()==createdBuyer);
+
     var itemSelector=Wait(()=>EditField("Item / service"),"visible invoice item selector");
     // Confirm keyboard ownership and acknowledge each visible edit before sending more.
     // Never blindly repeat a whole string after uncertain keyboard delivery.
@@ -183,11 +215,23 @@ try{
     Check("visible item selector accepted genuine user text",Value(itemSelector)==itemDescription);
     Set(Wait(()=>EditField("Quantity"),"invoice line quantity"),"1");
     Set(Wait(()=>EditField("Rate (₹)"),"invoice line rate"),"250");
+    Invoke(FocusReadyButton("+ Create item here"));
+    var inlineItemName="UI Inline Service "+reference;
+    Set(Wait(()=>EditField("New item name"),"new inline item name"),inlineItemName);
+    Set(Wait(()=>EditField("New item sale rate (₹)"),"inline service rate"),"0");
+    Invoke(FocusReadyButton("Create and use item"));
+    Wait(()=>Find("Create and use item",ControlType.Button) is null?window:null,"inline service returned to invoice");
+    Check("inline item preserves existing line quantity and rate",Value(Wait(()=>EditField("Quantity"),"existing quantity after inline item"))=="1"&&Value(Wait(()=>EditField("Rate (₹)"),"existing rate after inline item"))=="250");
+    var inlineItem=(await CompanyRecords(cid)).OfType<JsonObject>().Single(r=>r["kind"]?.ToString()=="item"&&r["name"]?.ToString()==inlineItemName);
+
     Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Text)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name.StartsWith("Subtotal ",StringComparison.Ordinal)&&e.Current.Name.Contains("Total ",StringComparison.Ordinal)),"server-calculated invoice preview");
     Snapshot("03-invoice-form");Invoke(Wait(()=>Find("Save invoice",ControlType.Button),"save invoice button"));
     Wait(()=>Find("Save invoice",ControlType.Button) is null?window:null,"invoice form saved and closed");
     var createdRows=await CompanyRecords(cid);var created=createdRows.OfType<JsonObject>().SingleOrDefault(r=>r["number"]?.ToString()==reference)??throw new Exception("UI invoice did not appear in canonical records.");
     var createdId=created["id"]!.GetValue<string>();
+    var inlineInvoice=await Get($"/api/companies/{cid}/records/{createdId}");var invoiceLines=inlineInvoice["data"]!["lines"]!.AsArray();
+    Check("inline masters use returned IDs without replacing existing line",inlineInvoice["data"]?["party_id"]?.ToString()==inlineParty["id"]?.ToString()&&invoiceLines.Count==2&&invoiceLines[1]?["item_id"]?.ToString()==inlineItem["id"]?.ToString()&&Number(invoiceLines[0],"rate")==250&&Number(invoiceLines[1],"rate")==0);
+
     Check("invoice was created through the real form exactly once",createdRows.OfType<JsonObject>().Count(r=>r["number"]?.ToString()==reference)==1&&created["name"]?.ToString()==createdBuyer&&Number(created,"amount")==250&&Number(created,"outstanding")==250);
     Invoke(Wait(()=>Find(reference,ControlType.Button),"UI-created invoice register row"));Wait(()=>Find(createdBuyer),"UI-created invoice detail");
     Invoke(Wait(()=>Find("Record payment received",ControlType.Button),"collect partial invoice payment"));

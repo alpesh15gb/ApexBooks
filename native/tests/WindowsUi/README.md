@@ -130,3 +130,21 @@ receipt upload, encrypted Save and restore Open; all real file and hash assertio
 remain mandatory. `WindowOwnership.cs` is linked into portable/client tests with
 direct, nested, unrelated, cyclic and depth-boundary regressions. A new hosted run
 is required to validate desktop-level picker execution.
+
+
+The native inline-master candidate adds real-UI steps to the financial journey:
+cancel an inline customer without losing the invoice reference, create/select a
+customer, then create a zero-rate service after entering the existing250 line.
+The appended review line must preserve the original quantity/rate; the saved
+invoice must contain both returned master IDs and exactly two lines. The existing
+250 invoice,100 collection,150 balance, dirty-discard, receipt and encrypted-backup
+assertions remain unchanged. These new steps are authored but not yet compiled or
+executed in the current environment, which lacks .NET. No runtime pass is claimed.
+
+
+PR5 run `41592390939` passed inline customer creation/cancellation and preserved
+the invoice reference, then showed the item-create action below the dialog's
+viewport. Focus alone did not reveal it. The test now uses ScrollItem when
+available or the button's nearest vertical ScrollPattern ancestor (bounded40
+small steps), then still requires a visible enabled button before invocation.
+It never scrolls the desktop or invokes the hidden action. Runtime recheck pending.
