@@ -37,3 +37,41 @@ test('cancelled fetch does not start network requests and error propagates witho
     return Array.from({ length: 500 }, (_, id) => ({ id }));
   }, 'company'), /Network interrupted/);
 });
+
+test('a concurrent insert restarts the scan rather than publishing duplicate financial rows', async () => {
+  const source = Array.from({ length: 1001 }, (_, id) => ({ id: String(id), amount: '100.00' }));
+  const offsets = [], progress = [];
+  let inserted = false;
+  const result = await fetchCompanyRecords(async path => {
+    const offset = Number(new URL(path, 'http://localhost').searchParams.get('offset'));
+    offsets.push(offset);
+    if (offset === 500 && !inserted) {
+      source.unshift({ id: 'new-invoice', amount: '250.00' });
+      inserted = true;
+    }
+    return source.slice(offset, offset + COMPANY_PAGE_SIZE);
+  }, 'synthetic', { onProgress: value => progress.push(value) });
+  assert.deepEqual(offsets, [0, 500, 0, 500, 1000]);
+  assert.deepEqual(result, source);
+  assert.equal(new Set(result.map(row => row.id)).size, result.length);
+  assert.equal(result.reduce((sum, row) => sum + Number(row.amount), 0), 100350);
+  assert.ok(progress.includes(0), 'restart resets partial progress');
+});
+
+test('repeated overlapping pages stop after one retry without publishing partial books', async () => {
+  let calls = 0;
+  const batch = Array.from({ length: 500 }, (_, id) => ({ id: String(id) }));
+  await assert.rejects(fetchCompanyRecords(async () => { calls++; return batch; }, 'synthetic'), /Company data changed while loading/);
+  assert.equal(calls, 4);
+});
+
+test('company change during an overlapping response does not restart the obsolete scan', async () => {
+  let current = true, calls = 0;
+  const batch = Array.from({ length: 500 }, (_, id) => ({ id: String(id) }));
+  const result = await fetchCompanyRecords(async () => {
+    if (++calls === 2) current = false;
+    return batch;
+  }, 'old-company', { isCurrent: () => current });
+  assert.equal(result, null);
+  assert.equal(calls, 2);
+});

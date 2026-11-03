@@ -1,4 +1,5 @@
 """Credit limits are non-posting warnings based on canonical customer balances."""
+from master_test_helpers import fresh_master_edit
 import base64,json,unittest
 from decimal import Decimal
 from uuid import uuid4
@@ -40,14 +41,14 @@ class CreditWarningTest(unittest.TestCase):
         c,h,b=self.context();p=self.post(c,h,b,'party');path=b+'/parties/'+p['id']+'/credit-status'
         disabled=c.get(path,headers=h,params={'proposed_amount':100}).json();self.assertIsNone(disabled['credit_limit']);self.assertIsNone(disabled['remaining_credit']);self.assertFalse(disabled['exceeded'])
         for value in ('0','100.0000'):
-            r=c.put(b+'/masters/'+p['id'],headers=h,json={'name':p['name'],'credit_limit':value});self.assertEqual(r.status_code,200,r.text)
-            preserved=c.put(b+'/masters/'+p['id'],headers=h,json={'name':p['name']}).json();self.assertEqual(Decimal(preserved['data']['credit_limit']),Decimal(value))
+            r=c.put(b+'/masters/'+p['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+p['id'], h, {'name':p['name'],'credit_limit':value}));self.assertEqual(r.status_code,200,r.text)
+            preserved=c.put(b+'/masters/'+p['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+p['id'], h, {'name':p['name']})).json();self.assertEqual(Decimal(preserved['data']['credit_limit']),Decimal(value))
             z=c.get(path,headers=h,params={'proposed_amount':'0.01'});self.assertEqual(z.status_code,200,z.text);self.assertEqual(z.json()['exceeded'],Decimal(value)==0)
         for value in ('-1','1.001','NaN','Infinity','10000000000000'):
-            r=c.put(b+'/masters/'+p['id'],headers=h,json={'name':p['name'],'credit_limit':value});self.assertEqual(r.status_code,422,r.text)
+            r=c.put(b+'/masters/'+p['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+p['id'], h, {'name':p['name'],'credit_limit':value}));self.assertEqual(r.status_code,422,r.text)
             r=c.get(path,headers=h,params={'proposed_amount':value});self.assertEqual(r.status_code,422,r.text)
         r=c.post(b+'/records',headers=h,json={'kind':'item','name':'Invalid limit','data':{'credit_limit':100}});self.assertEqual(r.status_code,422,r.text)
-        r=c.put(b+'/masters/'+p['id'],headers=h,json={'name':p['name'],'credit_limit':None});self.assertEqual(r.status_code,200,r.text)
+        r=c.put(b+'/masters/'+p['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+p['id'], h, {'name':p['name'],'credit_limit':None}));self.assertEqual(r.status_code,200,r.text)
         self.assertIsNone(c.get(path,headers=h).json()['credit_limit'])
 
     def test_scope_roles_import_backup_and_restore_validation(self):
@@ -59,7 +60,7 @@ class CreditWarningTest(unittest.TestCase):
         self.assertEqual(c.get(path,headers=viewer).status_code,404)
         c.post(b+'/members',headers=h,json={'email':creds['email'],'role':'viewer'}).raise_for_status()
         self.assertEqual(c.get(path,headers=viewer).status_code,200)
-        self.assertEqual(c.put(b+'/masters/'+p['id'],headers=viewer,json={'name':p['name'],'credit_limit':100}).status_code,403)
+        self.assertEqual(c.put(b+'/masters/'+p['id'],headers=viewer,json={**({'name':p['name'],'credit_limit':100}), 'version': 0}).status_code,403)
         other=c.post('/api/companies',headers=h,json={'name':'Other credit','tax_mode':'unregistered'}).json()['id']
         self.assertEqual(c.get('/api/companies/'+other+'/parties/'+p['id']+'/credit-status',headers=h).status_code,404)
         payload=c.get(b+'/data-export.json',headers=h).json()

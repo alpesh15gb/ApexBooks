@@ -315,7 +315,7 @@ def require_write(company: Company, user: User, session: Session):
 def audit(session, company_id, user, action, entity_type, entity_id, details=None):
     session.add(AuditEvent(company_id=company_id, actor_id=user.id, action=action, entity_type=entity_type, entity_id=entity_id, details=details or {}))
 def obj(record):
-    return {'id': record.id, 'kind': record.kind, 'name': record.name, 'number': record.number, 'date': record.date.isoformat(), 'amount': str(record.amount), 'data': record.data}
+    return {'id': record.id, 'kind': record.kind, 'name': record.name, 'number': record.number, 'date': record.date.isoformat(), 'amount': str(record.amount), 'data': ({'version': 0, **(record.data or {})} if record.kind in {'party', 'item'} else record.data)}
 def company_obj(c, session, user=None):
     profile = session.get(CompanyTaxProfile, c.id)
     return {'id': c.id, 'name': c.name, 'book_label':c.book_label, 'gstin': c.gstin, 'state_code': c.state_code, 'address': c.address, 'tax_mode': profile.mode if profile else 'regular', 'role': member_role(c, user, session) if user else 'owner'}
@@ -425,6 +425,10 @@ class MasterRow(BaseModel):
     credit_limit: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2, allow_inf_nan=False)
     is_active: bool = Field(default=True, strict=True)
     shipping_address: str = Field(default='', max_length=500)
+
+class MasterUpdate(MasterRow):
+    # Omitted revisions get an actionable conflict, not an unsafe legacy bypass.
+    version: int = Field(default=None, strict=True, ge=0)
 
 def validate_master_defaults(master, kind):
     if master.credit_limit is not None and kind != 'party':
@@ -1141,7 +1145,7 @@ def records(company_id: str, kind: str = '', compact:bool=False, offset:int=Quer
             data={k:v for k,v in row.data.items() if k not in {'vyapar_source','image_data_url','company_snapshot','document_branding'}}
             if row.kind not in {'item','party'}:data['lines']=[]
             if isinstance(data.get('document_branding'),dict):data['document_branding']={k:v for k,v in data['document_branding'].items() if k not in {'logo','signature'}}
-            value['data']=data
+            value['data']={'version': 0, **data} if row.kind in {'party','item'} else data
         result.append({**value, **record_status(row, row.id in posted,
             applied=applied.get(row.id, Decimal('0')), consumed=consumed.get(row.id, Decimal('0')),
             credit_used=credit_used.get(row.id, Decimal('0')), converted_to=conversions.get(row.id))})
@@ -1348,15 +1352,22 @@ def import_masters(company_id: str, body: MasterImport, user: User = Depends(cur
     return {**result, 'created': len(ready)}
 
 @app.put('/api/companies/{company_id}/masters/{master_id}')
-def update_master(company_id: str, master_id: str, body: MasterRow,
+def update_master(company_id: str, master_id: str, body: MasterUpdate,
                   user: User = Depends(current_user), session: Session = Depends(db)):
     lock_company(company_id, user, session)
     validate_item_image(body)
     master = session.scalar(select(Record).where(Record.company_id == company_id,
         Record.id == master_id, Record.kind.in_(['party', 'item'])))
     if not master: raise HTTPException(404, 'Party or item not found')
+    if body.version is None:
+        raise HTTPException(409, 'Master revision required; refresh this party or item and update your app before saving')
+    version = (master.data or {}).get('version', 0)
+    if type(version) is not int or version < 0:
+        raise HTTPException(409, 'This master has an invalid stored revision; ask the company owner to repair or restore it before editing')
+    if body.version != version:
+        raise HTTPException(409, 'This party or item changed on another device. Close this editor, refresh company data and reopen it before saving.')
     validate_master_defaults(body, master.kind)
-    # New metadata omitted by an older client is retained, not implicitly cleared.
+    # Optional metadata omitted by a revision-aware client is retained, not implicitly cleared.
     # Validate that retained threshold against the proposed classification too.
     if master.kind == 'item' and 'low_stock_threshold' not in body.model_fields_set and (master.data or {}).get('low_stock_threshold') is not None and (not body.track_stock or body.item_type != 'goods'):
         raise HTTPException(422, 'Clear the low-stock threshold explicitly before changing this item classification')
@@ -1379,6 +1390,7 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
     for field in ('is_active','shipping_address'):
         if field in body.model_fields_set and (field != 'shipping_address' or master.kind == 'party'):
             master.data={**master.data,field:getattr(body,field)}
+    master.data = {**master.data, 'version': version + 1}
     audit(session, company_id, user, 'master.updated', master.kind, master.id)
     if master.kind == 'item' and hasattr(sys.modules[__name__], 'commerce_stock_changed'): commerce_stock_changed(company_id, session)
     session.commit(); session.refresh(master)

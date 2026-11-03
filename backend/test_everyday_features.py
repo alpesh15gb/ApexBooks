@@ -1,4 +1,5 @@
 """Additive everyday metadata and review-only suggestions stay non-posting."""
+from master_test_helpers import fresh_master_edit
 import unittest
 from decimal import Decimal
 from uuid import uuid4
@@ -27,10 +28,10 @@ class EverydayFeaturesTest(unittest.TestCase):
         self.post(c,h,b,'debit_note','Supplier',{'applied_to':bill['id'],'lines':[line]},'2026-04-04')
         self.assertEqual(c.get(path,headers=h,params={'as_of':'2026-04-04'}).json()['total_low_stock'],1)
         before=c.get(b+'/journals',headers=h).json()
-        # Old clients omitting new fields must retain configured thresholds.
-        saved=c.put(b+'/masters/'+item['id'],headers=h,json={'name':item['name'],'track_stock':True,'purchase_rate':10})
+        # Omitting optional metadata must retain configured thresholds.
+        saved=c.put(b+'/masters/'+item['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+item['id'], h, {'name':item['name'],'track_stock':True,'purchase_rate':10}))
         self.assertEqual(saved.status_code,200,saved.text);self.assertEqual(Decimal(saved.json()['data']['low_stock_threshold']),Decimal('2.5'))
-        c.put(b+'/masters/'+item['id'],headers=h,json={'name':item['name'],'track_stock':True,'low_stock_threshold':None}).raise_for_status()
+        c.put(b+'/masters/'+item['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+item['id'], h, {'name':item['name'],'track_stock':True,'low_stock_threshold':None})).raise_for_status()
         self.assertEqual(c.get(path,headers=h).json()['total_low_stock'],0)
         self.assertEqual(c.get(b+'/journals',headers=h).json(),before)
 
@@ -38,11 +39,11 @@ class EverydayFeaturesTest(unittest.TestCase):
         c,h,b=self.context()
         item=self.post(c,h,b,'item','Synthetic retained threshold',{'track_stock':True,'item_type':'goods','low_stock_threshold':'2'})
         before=c.get(b+'/journals',headers=h).json()
-        response=c.put(b+'/masters/'+item['id'],headers=h,json={'name':item['name'],'track_stock':True,'item_type':'services'})
+        response=c.put(b+'/masters/'+item['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+item['id'], h, {'name':item['name'],'track_stock':True,'item_type':'services'}))
         self.assertEqual(response.status_code,422,response.text)
         current=c.get(b+'/records/'+item['id'],headers=h).json()
         self.assertEqual(current['data']['item_type'],'goods');self.assertEqual(Decimal(current['data']['low_stock_threshold']),2)
-        cleared=c.put(b+'/masters/'+item['id'],headers=h,json={'name':item['name'],'track_stock':True,'item_type':'goods','low_stock_threshold':None})
+        cleared=c.put(b+'/masters/'+item['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+item['id'], h, {'name':item['name'],'track_stock':True,'item_type':'goods','low_stock_threshold':None}))
         self.assertEqual(cleared.status_code,200,cleared.text);self.assertIsNone(cleared.json()['data']['low_stock_threshold'])
         self.assertEqual(c.get(b+'/journals',headers=h).json(),before)
 
@@ -53,7 +54,7 @@ class EverydayFeaturesTest(unittest.TestCase):
         params={'from_date':'2026-04-01','to_date':'2026-04-30'}
         stock=c.get(b+'/reports/stock',headers=h,params=params);self.assertEqual(stock.status_code,200,stock.text)
         before=stock.json();journals=c.get(b+'/journals',headers=h).json()
-        response=c.put(b+'/masters/'+item['id'],headers=h,json={'name':item['name'],'track_stock':True,'item_type':'services'})
+        response=c.put(b+'/masters/'+item['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+item['id'], h, {'name':item['name'],'track_stock':True,'item_type':'services'}))
         self.assertEqual(response.status_code,422,response.text)
         self.assertEqual(c.get(b+'/records/'+item['id'],headers=h).json()['data']['item_type'],'goods')
         self.assertEqual(c.get(b+'/reports/stock',headers=h,params=params).json(),before);self.assertEqual(c.get(b+'/journals',headers=h).json(),journals)
@@ -64,11 +65,11 @@ class EverydayFeaturesTest(unittest.TestCase):
         for issued,expected in [('2024-01-31','2024-03-01'),('2026-12-31','2027-01-30')]:
             r=c.get(path,headers=h,params={'document_date':issued});self.assertEqual(r.status_code,200,r.text);self.assertEqual(r.json()['suggested_due_date'],expected)
         invoice=self.post(c,h,b,'sales_invoice',party['name'],{'due_date':'2026-04-20','lines':[{'description':'Service','quantity':1,'rate':100,'gst_rate':0}]})
-        c.put(b+'/masters/'+party['id'],headers=h,json={'name':party['name'],'payment_terms_days':0}).raise_for_status()
+        c.put(b+'/masters/'+party['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+party['id'], h, {'name':party['name'],'payment_terms_days':0})).raise_for_status()
         self.assertEqual(c.get(path,headers=h,params={'document_date':'2026-04-02'}).json()['suggested_due_date'],'2026-04-02')
-        preserved=c.put(b+'/masters/'+party['id'],headers=h,json={'name':party['name']}).json()
+        preserved=c.put(b+'/masters/'+party['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+party['id'], h, {'name':party['name']})).json()
         self.assertEqual(preserved['data']['payment_terms_days'],0)
-        c.put(b+'/masters/'+party['id'],headers=h,json={'name':party['name'],'payment_terms_days':None}).raise_for_status()
+        c.put(b+'/masters/'+party['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+party['id'], h, {'name':party['name'],'payment_terms_days':None})).raise_for_status()
         self.assertIsNone(c.get(path,headers=h,params={'document_date':'2026-04-02'}).json()['suggested_due_date'])
         self.assertEqual(c.get(b+'/records/'+invoice['id'],headers=h).json()['data']['due_date'],'2026-04-20')
 
@@ -103,7 +104,7 @@ class EverydayFeaturesTest(unittest.TestCase):
         for path,params in paths:self.assertEqual(c.get(b+path,headers=viewer,params=params).status_code,404)
         c.post(b+'/members',headers=h,json={'email':creds['email'],'role':'viewer'}).raise_for_status()
         for path,params in paths:self.assertEqual(c.get(b+path,headers=viewer,params=params).status_code,200)
-        self.assertEqual(c.put(b+'/masters/'+party['id'],headers=viewer,json={'name':party['name'],'payment_terms_days':3}).status_code,403)
+        self.assertEqual(c.put(b+'/masters/'+party['id'],headers=viewer,json={**({'name':party['name'],'payment_terms_days':3}), 'version': 0}).status_code,403)
         other=c.post('/api/companies',headers=h,json={'name':'Other company','tax_mode':'unregistered'}).json()['id']
         self.assertEqual(c.get('/api/companies/'+other+'/parties/'+party['id']+'/item-prices',headers=h,params={'item_id':item['id'],'side':'sales'}).status_code,404)
         self.assertEqual(c.get(b+'/parties/'+party['id']+'/item-prices',headers=h,params={'item_id':item['id'],'side':'invalid'}).status_code,422)
@@ -112,13 +113,13 @@ class EverydayFeaturesTest(unittest.TestCase):
         c,h,b=self.context()
         item=self.post(c,h,b,'item','Trailing zeros',{'track_stock':True,'low_stock_threshold':'2.5000'})
         self.assertEqual(c.get(b+'/reports/reorder',headers=h).status_code,200)
-        updated=c.put(b+'/masters/'+item['id'],headers=h,json={'name':item['name'],'track_stock':True,'low_stock_threshold':'3.12500'})
+        updated=c.put(b+'/masters/'+item['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+item['id'], h, {'name':item['name'],'track_stock':True,'low_stock_threshold':'3.12500'}))
         self.assertEqual(updated.status_code,200,updated.text)
         imported=c.post(b+'/masters/import',headers=h,json={'kind':'item','dry_run':False,'rows':[{'name':'Imported zeros','track_stock':True,'low_stock_threshold':'1.00000'}]})
         self.assertEqual(imported.status_code,200,imported.text)
         report=c.get(b+'/reports/reorder',headers=h);self.assertEqual(report.status_code,200,report.text)
         self.assertEqual(sorted(Decimal(r['low_stock_threshold']) for r in report.json()['rows']),[Decimal('1'),Decimal('3.125')])
-        invalid=c.put(b+'/masters/'+item['id'],headers=h,json={'name':item['name'],'track_stock':True,'low_stock_threshold':'3.12501'})
+        invalid=c.put(b+'/masters/'+item['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+item['id'], h, {'name':item['name'],'track_stock':True,'low_stock_threshold':'3.12501'}))
         self.assertEqual(invalid.status_code,422,invalid.text)
 
     def test_master_defaults_survive_portable_restore_and_import(self):

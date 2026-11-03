@@ -69,6 +69,29 @@ class ConcurrentPostingTest(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=4) as pool:
             return list(pool.map(send, range(4)))
 
+    def test_two_master_edits_share_one_revision_only_one_wins(self):
+        item = self.create({'kind': 'item', 'name': 'Concurrent master',
+                            'data': {'sale_rate': 100}})
+        path = self.base + '/masters/' + item['id']
+        gate = Barrier(2)
+        def save(rate):
+            with TestClient(app, client=('pg-master-' + uuid4().hex, 50000)) as client:
+                gate.wait(timeout=15)
+                return client.put(path, headers=self.headers,
+                    json={'name': item['name'], 'version': 0, 'sale_rate': rate})
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(save, (120, 130)))
+        self.assertEqual(sorted(r.status_code for r in results), [200, 409],
+                         [r.text for r in results])
+        winner = next(r.json() for r in results if r.status_code == 200)
+        current = self.client.get(self.base + '/records/' + item['id'],
+                                  headers=self.headers).json()
+        self.assertEqual(current['data']['version'], 1)
+        self.assertEqual(current['data']['sale_rate'], winner['data']['sale_rate'])
+        events = self.client.get(self.base + '/audit-events', headers=self.headers).json()
+        edits = [e for e in events if e['action'] == 'master.updated' and e['entity_id'] == item['id']]
+        self.assertEqual(len(edits), 1)
+
     def test_attachment_concurrent_dedupe_and_key_binding(self):
         import hashlib
         bill = self.create({'kind': 'expense', 'name': 'Concurrent receipt',
