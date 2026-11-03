@@ -123,8 +123,9 @@ def page_candidate(m, statement):
         if not isinstance(kind, str) or not criteria[2].compare(m.Record.kind == kind): return None
     if statement._offset_clause is None or statement._distinct or statement._group_by_clauses:
         return None
+    captured_created = statement._order_by_clauses[1].element
     page = statement.with_only_columns(m.Record.id.label('page_id'), m.Record.date.label('page_date'),
-                                       created.label('page_created_at')).subquery('profile_page')
+                                       captured_created.label('page_created_at')).subquery('profile_page')
     # Preserve all filters twice defensively. No raw data is carried by the page.
     return (select(*columns).join(page, m.Record.id == page.c.page_id)
             .where(*criteria).order_by(page.c.page_date.desc(), page.c.page_created_at.desc(), page.c.page_id.desc()))
@@ -326,6 +327,7 @@ def main():
             version = cn.exec_driver_sql('SHOW server_version').scalar_one()
         results = {}; snapshots = {}; plans = {}; projections = {}
         output = {'completed': False, 'phase': 'fixture_ready',
+                  'candidate_variant': 'shared_original_created_order_expression_v2',
                   'scope': 'Synthetic loopback PostgreSQL; warm in-process TestClient, analyzed fixture; no network/native startup claim',
                   'postgres_version': version, 'size': args.size, 'date_shape': args.date_shape, 'json_shape': args.json_shape,
                   'fixture': {'records': args.size, 'journals': args.size, 'journal_lines': 2 * args.size,

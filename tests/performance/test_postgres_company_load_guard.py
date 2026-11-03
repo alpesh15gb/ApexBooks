@@ -63,6 +63,13 @@ class CandidateQueryTest(unittest.TestCase):
         inner = candidate.get_final_froms()[0].right.element
         self.assertEqual(list(inner.selected_columns.keys()), ['page_id', 'page_date', 'page_created_at'])
         self.assertEqual(inner._offset_clause.value, 4500); self.assertEqual(inner._limit_clause.value, 500)
+        self.assertIs(inner.selected_columns.page_created_at.element, original._order_by_clauses[1].element)
+        self.assertIs(inner._order_by_clauses[1], original._order_by_clauses[1])
+        compiled = candidate.compile(dialect=dialect())
+        self.assertEqual(sum(value == 'created_at' for value in compiled.params.values()), 1)
+        self.assertEqual(sum(value == '' for value in compiled.params.values()), 1)
+        self.assertEqual(sql.count('%(data_1)s'), 2)
+        self.assertEqual(sql.count('%(coalesce_1)s'), 2)
         self.assertNotIn('jsonb_set', str(inner.compile(dialect=dialect())))
         self.assertIsNotNone(profile.page_candidate(m, original.limit(None)))
         self.assertIsNotNone(profile.page_candidate(m, original.where(record.kind == 'payment_in')))

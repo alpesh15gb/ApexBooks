@@ -1,7 +1,8 @@
 # Disposable PostgreSQL page-projection comparison
 
 This is a test-only comparison harness, **not a production query/index change**.
-The candidate has not yet been measured on PostgreSQL; it must pass hosted CI.
+The first candidate completed hosted PostgreSQL comparison; its mixed result is
+recorded below. No subsequent candidate is measured or implied by those results.
 PostgreSQL execution requires the dedicated disposable CI service. Local syntax
 and guard tests do not establish PostgreSQL correctness or timings.
 
@@ -65,7 +66,8 @@ mobile, device or production-load guarantees. Cursor timings exclude Python
 materialization/serialization, while HTTP wall time includes them and response JSON decoding. Cursor-event
 counts are not a count of every driver/network round trip. Each workload
 starts from a fresh database, but caches are intentionally warm during retained
-samples. No optimization is justified until actual PostgreSQL results are read.
+samples. The completed measurements below show a tradeoff, not an unconditional
+optimization recommendation.
 
 ## Measured baseline and bounded hypothesis
 
@@ -90,7 +92,7 @@ remain untouched. Match/rewrite counts are asserted against request counts.
 This interception adds Python query-matching overhead to BOTH timed variants;
 these are comparison numbers, not an uninstrumented production latency claim.
 
-VERBOSE plan gates require a 500-row, three-output narrow LIMIT boundary without
+VERBOSE plan gates require a 500-row, three-distinct-output narrow LIMIT boundary without
 raw data/compact JSON, and compact-projection output nodes processing at most
 500 rows. Join algorithm is not prescribed. Baseline/candidate plan structures
 and projection node counts are emitted for independent review. First-page
@@ -101,8 +103,8 @@ After timings, untimed byte-equality checks cover kind filters, offset without
 limit, page crossings, empty pages, unchanged full responses, an empty second
 company, archived item/party data, hidden kinds, outsider denial and viewer/owner
 parity. Extra edge records are confined to the second company, and are not part
-of the measured storage/fixture. No actual candidate performance improvement is
-claimed until the new hosted results are available.
+of the measured storage/fixture. The completed results below quantify this candidate’s slower first page and
+faster deep/full reads; they do not establish a universal performance improvement.
 
 ## Incomplete diagnostic artifacts
 
@@ -150,3 +152,42 @@ expression evaluation is free**. The candidate inner scan showed roughly twice
 the buffer hits in these first-page plans, alongside higher scan time; duplicate
 created-key extraction is a possible contributor requiring further evidence.
 The accepted narrow LIMIT must execute once, not repeat a 500-row page in loops.
+
+## Completed comparison: mixed tradeoff, not a shipped optimization
+
+Source `e7fcb2aa`, hosted run `41696559672`, artifacts `13261091455` /
+`13261191572` completed both PostgreSQL 17.11 cases. Both artifacts report
+`completed: true`; all 11 untimed edge checks, byte-identical responses across
+variants, narrow 500-row page boundaries and at-most-500-row compact projections
+passed. Warm TestClient wall-time medians (baseline → candidate):
+
+| Synthetic records | First page | Deep page | Complete scan |
+| --- | --- | --- | --- |
+| 3000 | 147.684 → 201.435 ms (**36.40% slower**) | 314.127 → 204.626 ms (34.86% faster) | 1726.196 → 1360.882 ms (21.16% faster) |
+| 5000 | 225.358 → 313.394 ms (**39.06% slower**) | 526.315 → 309.885 ms (41.12% faster) | 4281.888 → 3506.356 ms (18.11% faster) |
+
+Percentages use `(candidate / baseline - 1) × 100`, with decreases described as
+faster. These are warm, synthetic 3000/5000-row, spread-date, high-entropy-metadata
+PostgreSQL measurements with instrumented in-process HTTP. They establish neither
+WAN/native latency nor cold-start behavior. The test-only candidate improves
+later pages and complete scans while materially delaying the first page; it is
+**not an unqualified first-load improvement**. No application query optimization,
+index or deployment has shipped from this experiment. Raw artifacts are retained
+with the hosted run, not copied into the repository.
+
+## Second test-only variant: original sort-expression reuse (unmeasured)
+
+The next candidate is explicitly labelled
+`shared_original_created_order_expression_v2` in every partial/final artifact.
+It selects the exact expression object already present in the original query’s
+created-key ORDER BY, rather than constructing a second equivalent expression.
+Compilation now uses one shared created-key/default bind pair in SELECT and ORDER
+BY, instead of two equal-valued pairs. Original predicates, ordering, LIMIT/OFFSET
+and outer captured-key ordering remain unchanged. A compile/identity regression
+asserts this reuse; all byte-parity and actual-plan gates remain in force.
+
+This is a bounded explanation to test for the first candidate’s duplicated
+created-key output and scan penalty, **not a measured second-variant speedup**.
+The completed figures above belong only to the first candidate. PostgreSQL plan,
+buffer and first/deep/full timing evidence for this second variant remains pending
+hosted execution. No application SQL, index or deployed behavior is changed.
