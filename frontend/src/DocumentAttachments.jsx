@@ -11,10 +11,18 @@ export default function DocumentAttachments({ companyId, recordId, role, api, on
   useEffect(() => { onLockChange(locked); }, [locked,onLockChange]);
   useEffect(() => {
     const current = ++scope.current; let active = true;
-    setLoading(true); setData(null); setError(''); setFile(null);
+    setLoading(true); setData(null); setError(''); setFile(null); setDownloading('');
     api(base).then(value => { if (active && scope.current === current) setData(value); }).catch(e => { if (active && scope.current === current) setError(e.message); }).finally(() => { if (active && scope.current === current) setLoading(false); });
     return () => { active = false; scope.current++; download.current?.abort(); };
   }, [api,base,revision]);
+  useEffect(() => {
+    const changedSession = event => {
+      if (event.key !== 'token' && event.key !== null) return;
+      download.current?.abort(); download.current = null; setDownloading('');
+    };
+    window.addEventListener('storage', changedSession);
+    return () => window.removeEventListener('storage', changedSession);
+  }, []);
   async function perform(operation) {
     const current = scope.current; setError('');
     try {
@@ -41,16 +49,30 @@ export default function DocumentAttachments({ companyId, recordId, role, api, on
     perform(() => api(`/companies/${companyId}/attachments/${row.id}`,{method:'PUT',headers:{'Content-Type':'application/json','Idempotency-Key':key},body}));
   }
   async function saveFile(row) {
-    const current = scope.current; const controller = new AbortController(); download.current?.abort(); download.current = controller;
+    const currentScope = scope.current, token = globalThis.localStorage?.getItem('token') ?? null;
+    const controller = new AbortController(); download.current?.abort(); download.current = controller;
+    const current = () => scope.current === currentScope && download.current === controller && !controller.signal.aborted
+      && (globalThis.localStorage?.getItem('token') ?? null) === token;
     setDownloading(row.id); setError('');
     try {
+      if (!current()) return;
       const response = await api(`/companies/${companyId}/attachments/${row.id}/download`,{rawResponse:true,signal:controller.signal});
+      if (!current()) return;
       const blob = await verifiedReceiptDownload(response,row);
-      if (scope.current !== current || controller.signal.aborted) return;
-      const url = URL.createObjectURL(blob), link = document.createElement('a');
-      link.href = url; link.download = safeReceiptFilename(row.filename); link.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
-    } catch (e) { if (scope.current === current && !controller.signal.aborted) setError(e.message); }
-    finally { if (scope.current === current) setDownloading(''); }
+      if (!current()) return;
+      let url;
+      try {
+        url = URL.createObjectURL(blob);
+        if (!current()) return;
+        const link = document.createElement('a');
+        link.href = url; link.download = safeReceiptFilename(row.filename);
+        if (current()) link.click();
+      } finally { if (url) setTimeout(() => URL.revokeObjectURL(url),1000); }
+    } catch (e) { if (current()) setError(e.message); }
+    finally {
+      controller.abort();
+      if (scope.current === currentScope && download.current === controller) { download.current = null; setDownloading(''); }
+    }
   }
   const storage = data?.storage;
   const full = storage && (Number(storage.remaining_bytes) < (file?.size || 1) || data.attachments.length >= storage.max_files_per_record || storage.file_count >= storage.max_files_per_company);
