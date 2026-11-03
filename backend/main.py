@@ -626,6 +626,7 @@ def posting_lines(kind, amount, data, tax_mode):
     return lines
 def money(value): return Decimal(str(value)).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
 def calculate(data, company, tax_mode, kind, session):
+    data = {key: value for key, value in data.items() if key not in {'return_rounding', 'preview_record_id'}}
     lines = data.get('lines', [])
     if not isinstance(lines, list) or not 1 <= len(lines) <= 100: raise HTTPException(422, 'Add 1 to 100 items')
     state = str(data.get('place_of_supply', ''))
@@ -1563,6 +1564,8 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
         if body.date < target.date: raise HTTPException(422, 'Note date cannot precede its source document')
         previous_notes = list(session.scalars(select(Record).where(Record.company_id == company_id, Record.kind == body.kind)))
         previous_notes = [note for note in previous_notes if note.data.get('applied_to') == target.id]
+        from return_rounding import reconcile
+        data, amount = reconcile(sys.modules[__name__], company, body.kind, data, amount, target, previous_notes, tax_mode, session)
         if amount + sum((note.amount for note in previous_notes), Decimal('0')) > target.amount:
             raise HTTPException(422, 'Notes exceed the original document amount')
         for tax_key in ('cgst', 'sgst', 'igst', 'supplier_tax'):

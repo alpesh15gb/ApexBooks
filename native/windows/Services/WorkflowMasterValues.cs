@@ -7,6 +7,13 @@ namespace ApexBooks_Windows.Services;
 /// <summary>Optional master defaults are validated before any request; the API remains authoritative.</summary>
 public static class WorkflowMasterValues
 {
+    public static JsonObject DocumentPreview(JsonObject candidate,string? editingRecordId)
+    {
+        var preview=candidate.Copy().Object();var data=preview["data"].Object();preview["name"]="Preview";
+        data.Remove("preview_record_id");
+        if((preview.Text("kind") is "credit_note" or "debit_note")&&!string.IsNullOrWhiteSpace(editingRecordId))data["preview_record_id"]=editingRecordId;
+        preview["data"]=data.Copy();return preview;
+    }
     public static JsonObject MasterUpdate(JsonObject openedData,JsonObject editedData,string name)
     {
         // Only the snapshot opened by the editor supplies the concurrency token.

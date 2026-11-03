@@ -518,6 +518,7 @@ export default function RecordEditor({
     form,
     lines: lines.map(serializeLineDiscount),
     enabled: doc,
+    recordId: edit?.id,
   });
   const saveLabel =
     {

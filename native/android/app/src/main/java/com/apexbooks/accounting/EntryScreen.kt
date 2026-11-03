@@ -44,7 +44,7 @@ import org.json.JSONObject
         editor.preview = null; editor.previewError = ""
         if (editor.lines.isEmpty() || editor.lines.any { it.get("description").isBlank() || it.get("quantity").isBlank() || it.get("rate").isBlank() }) return@LaunchedEffect
         delay(350)
-        try { editor.preview = vm.api.request(vm.api.company(editor.companyId, "/documents/preview"), "POST", JSONObject(serialized)) as JSONObject }
+        try { editor.preview = vm.api.request(vm.api.company(editor.companyId, "/documents/preview"), "POST", documentPreviewBody(JSONObject(serialized),editor.previous?.s("id").orEmpty())) as JSONObject }
         catch (e: Exception) { currentCoroutineContext().ensureActive(); editor.previewError = e.message ?: "Preview is unavailable."; if (e is ApiFailure && e.status == 401) vm.failure(e) }
     }
     LaunchedEffect(step) { scroll.scrollTo(0); stepError = "" }
