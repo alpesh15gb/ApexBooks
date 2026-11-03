@@ -1,3 +1,4 @@
+import { verifySettlementResponse } from "./settlementResponse.js";
 import { businessDate } from "./businessDate.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import React, { useEffect, useState } from "react";
@@ -60,31 +61,36 @@ export function CreditSettlements({
     if (busy) return;
     setError("");
     try {
-      const path = `/companies/${companyId}/credits/${note.id}/settle`;
-      const options = {
-        method: "POST",
-        headers: { "Idempotency-Key": requestKey },
-        body: JSON.stringify({
-          kind: "credit",
-          date: form.date,
-          amount: form.amount,
-          data: {
-            action: form.action,
-            applied_to: form.target,
-            payment_account: form.account,
-            bank_account_id: form.bank,
-          },
-        }),
-      };
-      if (!await posting.run(() => api(path, options))) return;
-      await refresh();
+      if (pending) {
+        if (!await posting.retry()) return;
+      } else {
+        const path = `/companies/${companyId}/credits/${note.id}/settle`;
+        const options = {
+          method: "POST",
+          headers: { "Idempotency-Key": requestKey },
+          body: JSON.stringify({
+            kind: "credit",
+            date: form.date,
+            amount: form.amount,
+            data: {
+              action: form.action,
+              applied_to: form.target,
+              payment_account: form.account,
+              bank_account_id: form.bank,
+            },
+          }),
+        };
+        const expected = { family: 'credit', action: form.action, paymentKind: kind, sourceId: note.id, body: JSON.parse(options.body) };
+        if (!await posting.run(async () => verifySettlementResponse(await api(path, options), expected))) return;
+      }
       setForm({ ...form, note: "", amount: "", target: "" });
       setRequestKey(crypto.randomUUID());
+      await refresh();
     } catch (e) {
       setError(e.message);
     }
   }
-  if (!notes.length) return null;
+  if (!notes.length && !pending) return null;
   return (
     <section className="panel settings-panel">
       <h2>
@@ -95,7 +101,13 @@ export function CreditSettlements({
       <p>
         Apply an unused note balance to another document or record a refund.
       </p>
-      {canWrite && (
+      {pending && <div className="info-box" role="status">
+        <p>{pendingPostingMessage}</p>
+        <button type="button" className="button primary" disabled={busy} onClick={submit}>
+          {busy ? "Confirming previous save…" : "Retry previous save"}
+        </button>
+      </div>}
+      {canWrite && notes.length > 0 && (
         <form className="form-grid" onSubmit={submit}>
           <fieldset className="form-grid full submission-fields" disabled={busy || pending}>
           <label>
@@ -205,7 +217,6 @@ export function CreditSettlements({
             />
           </label>
           </fieldset>
-          {pending && !busy && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
           <button className="button primary full" disabled={busy || !note}>
             {busy
               ? "Saving…"

@@ -6,13 +6,13 @@ import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
-import { createRoot } from 'react-dom/client';
 
 const temporary = await mkdtemp(resolve('node_modules/.submission-tests-'));
 const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+const { createRoot } = await import('react-dom/client');
 const company = { id: 'synthetic-company', name: 'Synthetic', tax_mode: 'unregistered', state_code: '27', role: 'owner' };
 async function component(name) {
   const outfile = resolve(temporary, `${name}.mjs`);
@@ -120,7 +120,8 @@ test('advance application locks selection and retries the same key after uncerta
     if (path.endsWith('bank-accounts')) return [];
     requests.push({ path, options });
     if (requests.length === 1) throw new TypeError('Connection lost');
-    return { id: 'application' };
+    const body = JSON.parse(options.body);
+    return { id: 'application', posted: true, kind: 'advance_application', date: body.date, amount: body.amount, data: { advance_id: 'advance', applied_to: body.data.applied_to, payment_kind: 'payment_in' } };
   };
   await act(async () => root.render(React.createElement(Advances, {
     companyId: company.id, kind: 'payment_in', canWrite: true, refresh: async () => {}, api: advanceApi,
@@ -130,6 +131,13 @@ test('advance application locks selection and retries the same key after uncerta
     ],
   })));
   await act(async () => { const select = document.querySelector('select'); select.value = 'advance'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
+  await act(async () => {
+    const target = [...document.querySelectorAll('select')].find(select => [...select.options].some(option => option.value === 'invoice'));
+    target.value = 'invoice'; target.dispatchEvent(new window.Event('change', { bubbles: true }));
+    const amount = document.querySelector('input[type="number"]');
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(amount, '100');
+    amount.dispatchEvent(new window.Event('input', { bubbles: true }));
+  });
   await act(async () => submit(document.querySelector('form')));
   assert.equal(document.querySelector('select').disabled, true);
   assert.equal(document.querySelector('fieldset').disabled, true);

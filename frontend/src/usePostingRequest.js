@@ -15,6 +15,8 @@ export function usePostingRequest(options) {
   };
   return {
     busy: request.current.busy, pending: request.current.pending, run,
+    // Recover without rebuilding inputs from a refreshed or removed source row.
+    retry: () => request.current.pending ? run() : Promise.resolve(false),
     // Event handlers need authoritative state before React commits a redraw.
     isLocked: () => request.current.busy || request.current.pending,
   };
