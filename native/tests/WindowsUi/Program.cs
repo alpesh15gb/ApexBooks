@@ -37,25 +37,59 @@ AutomationElement? Find(string name,ControlType? type=null)=>window?.FindAll(Tre
 AutomationElement? ReadyButton(string label){var button=Find(label,ControlType.Button);return button is not null&&button.Current.IsEnabled&&!button.Current.IsOffscreen?button:null;}
 AutomationElement FocusReadyButton(string label)
 {
-    var button=Wait(()=>Find(label,ControlType.Button),label+" control");
-    if(button.Current.IsOffscreen&&button.TryGetCurrentPattern(ScrollItemPattern.Pattern,out var item))((ScrollItemPattern)item).ScrollIntoView();
-    if(button.Current.IsOffscreen){
-        // Focusing a WinUI button does not necessarily scroll it into view.
-        // Scroll only its own nearest scrollable ancestor, never the desktop.
-        var ancestor=TreeWalker.RawViewWalker.GetParent(button);ScrollPattern? scroll=null;
-        for(var depth=0;ancestor is not null&&depth<32;depth++,ancestor=TreeWalker.RawViewWalker.GetParent(ancestor)){
-            if(ancestor.Current.NativeWindowHandle==window!.Current.NativeWindowHandle)break;
-            if(ancestor.TryGetCurrentPattern(ScrollPattern.Pattern,out var pattern)&&((ScrollPattern)pattern).Current.VerticallyScrollable){scroll=(ScrollPattern)pattern;break;}
-        }
-        if(scroll is null)throw new Exception("No owned scroll container can reveal "+label);
-        for(var step=0;button.Current.IsOffscreen&&step<40;step++){
-            var target=button.Current.BoundingRectangle;var viewport=ancestor!.Current.BoundingRectangle;
-            var direction=target.Height>0&&target.Bottom<viewport.Top?ScrollAmount.SmallDecrement:ScrollAmount.SmallIncrement;
-            scroll.Scroll(ScrollAmount.NoAmount,direction);Thread.Sleep(100);
-        }
+    // The viewport can change when preview/credit information arrives. Re-evaluate
+    // owned scrolling throughout readiness rather than passively waiting below fold.
+    var timeout=Stopwatch.StartNew();var scrollSteps=0;var stable=0;
+    var diagnostics=new Queue<string>();
+    void Record(string value){diagnostics.Enqueue(value);while(diagnostics.Count>20)diagnostics.Dequeue();}
+    string Bounds(System.Windows.Rect bounds)=>$"{bounds.X:0.0},{bounds.Y:0.0},{bounds.Width:0.0},{bounds.Height:0.0}";
+    while(timeout.Elapsed.TotalSeconds<60){
+        if(app?.HasExited==true)throw new Exception($"WinUI exited with {app.ExitCode} while revealing {label}");
+        try{
+            var button=Find(label,ControlType.Button);
+            if(button is null){stable=0;Thread.Sleep(250);continue;}
+            var bounds=button.Current.BoundingRectangle;
+            var visible=!button.Current.IsOffscreen&&bounds.Width>0&&bounds.Height>0;
+            Record($"t={timeout.ElapsedMilliseconds} button={Bounds(bounds)} enabled={button.Current.IsEnabled} offscreen={button.Current.IsOffscreen} steps={scrollSteps}");
+            if(visible&&button.Current.IsEnabled){
+                // Focus only the identified app-descendant button; it never invokes it.
+                button.SetFocus();Thread.Sleep(150);
+                var ready=ReadyButton(label);var readyBounds=ready?.Current.BoundingRectangle;
+                if(ready is not null&&readyBounds is {Width:>0,Height:>0}){
+                    if(++stable>=2)return ready;
+                    continue;
+                }
+                stable=0;
+            }else stable=0;
+            var currentBounds=button.Current.BoundingRectangle;
+            var needsReveal=button.Current.IsOffscreen||currentBounds.Width<=0||currentBounds.Height<=0;
+            if(needsReveal&&scrollSteps<80){
+                if(button.TryGetCurrentPattern(ScrollItemPattern.Pattern,out var item)){
+                    Record("ScrollIntoView attempt");
+                    ((ScrollItemPattern)item).ScrollIntoView();scrollSteps++;Thread.Sleep(150);
+                }
+                var afterItem=button.Current.BoundingRectangle;
+                if(scrollSteps<80&&(button.Current.IsOffscreen||afterItem.Width<=0||afterItem.Height<=0)){
+                    // Walk only from this app descendant toward the launched window.
+                    var ancestor=TreeWalker.RawViewWalker.GetParent(button);ScrollPattern? scroll=null;
+                    for(var depth=0;ancestor is not null&&depth<32;depth++,ancestor=TreeWalker.RawViewWalker.GetParent(ancestor)){
+                        if(ancestor.Equals(window)||ancestor.Equals(AutomationElement.RootElement)||ancestor.Current.ProcessId!=window!.Current.ProcessId)break;
+                        if(ancestor.TryGetCurrentPattern(ScrollPattern.Pattern,out var pattern)&&((ScrollPattern)pattern).Current.VerticallyScrollable){scroll=(ScrollPattern)pattern;break;}
+                    }
+                    if(scroll is not null){
+                        var target=button.Current.BoundingRectangle;var viewport=ancestor!.Current.BoundingRectangle;
+                        var direction=target.Height>0&&target.Bottom<viewport.Top?ScrollAmount.SmallDecrement:ScrollAmount.SmallIncrement;
+                        Record($"viewport={Bounds(viewport)} percent={scroll.Current.VerticalScrollPercent:0.0} view={scroll.Current.VerticalViewSize:0.0} direction={direction}");
+                        scroll.Scroll(ScrollAmount.NoAmount,direction);scrollSteps++;
+                    }else Record("No scrollable app ancestor currently exposed");
+                }
+            }
+        }catch(ElementNotAvailableException){stable=0;Record("App control changed during readiness inspection");}
+        Thread.Sleep(250);
     }
-    button=Wait(()=>ReadyButton(label),label+" visible and enabled after owned scrolling");button.SetFocus();return button;
+    throw new Exception("UI timeout: "+label+" visible, enabled and positive bounds after owned scrolling; "+string.Join(" | ",diagnostics));
 }
+
 AutomationElement? EditField(string label)
 {
     if(window is null)return null;
