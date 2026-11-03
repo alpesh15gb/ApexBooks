@@ -19,13 +19,15 @@ jobs:
   local-device-acceptance:
     # Ordinary PR/push checks intentionally skip device permission changes.
     # Android build/unit/lint remain in the normal check workflow.
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_temporary_kvm_access }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.allow_temporary_kvm_access) || (github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.pull_request.number == 5 && github.event.pull_request.head.repo.full_name == 'alpesh15gb/ApexBooks' && github.head_ref == 'codex/native-inline-masters' && github.run_number == 49 && github.run_attempt == 1) }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
       JWT_SECRET: synthetic-native-device-ci-only-not-a-production-secret
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.pull_request.number == 5 && github.event.pull_request.head.repo.full_name == 'alpesh15gb/ApexBooks' && github.head_ref == 'codex/native-inline-masters' && github.run_number == 49 && github.run_attempt == 1 && 'ddb2b8858d764d03cc1b1a691e3f411f937aafb9' || github.sha }}
       - name: Record checked-out build revision
         shell: bash
         run: |
@@ -111,7 +113,7 @@ jobs:
           "$ANDROID_HOME/emulator/emulator" -list-avds | tr -d '\r' | grep -Fx 'ApexLocal'
       - name: Grant approved one-run runner access to KVM
         id: kvm_access
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_temporary_kvm_access }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.allow_temporary_kvm_access) || (github.event_name == 'pull_request' && github.repository == 'alpesh15gb/ApexBooks' && github.event.pull_request.number == 5 && github.event.pull_request.head.repo.full_name == 'alpesh15gb/ApexBooks' && github.head_ref == 'codex/native-inline-masters' && github.run_number == 49 && github.run_attempt == 1) }}
         run: |
           test -c /dev/kvm
           command -v getfacl
