@@ -119,3 +119,14 @@ keyboard input, commits the edit with Tab, verifies the exact text again after
 focusing Save, and captures the picker before one activation. The expected-path
 file and encrypted-envelope checks remain mandatory; no alternate file is accepted.
 The destination-binding explanation is an inference pending the next Windows run.
+
+
+Picker discovery first searches the app UIA subtree. For desktop-level shell
+windows, it verifies the app HWND still belongs to the launched process and
+requires the candidate's native `GW_OWNER` chain to reach that HWND. Matching
+process IDs or window titles alone never authorize a candidate. Traversal rejects
+zero handles, cycles and chains beyond 64 hops. The same finder is used for
+receipt upload, encrypted Save and restore Open; all real file and hash assertions
+remain mandatory. `WindowOwnership.cs` is linked into portable/client tests with
+direct, nested, unrelated, cyclic and depth-boundary regressions. A new hosted run
+is required to validate desktop-level picker execution.

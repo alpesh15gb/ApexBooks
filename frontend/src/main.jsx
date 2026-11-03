@@ -1,3 +1,4 @@
+import { inlineItemCreator } from "./inlineItem.js";
 import { inlinePartyCreator } from "./inlineParty.js";
 import { businessDate, businessFinancialYear } from "./businessDate.js";
 import { CORE_ENHANCEMENTS, capabilityFeatures, supportsFeature, routeFeature, companyDisplayName, masterEditBlockReason } from "./capabilities.js";
@@ -682,6 +683,11 @@ function App() {
     closeRecord(refreshed);
   }
   const createInlineParty = inlinePartyCreator({
+    api, companyId, isCurrent: workspaceScope.current.capture(),
+    token: localStorage.token, getToken: () => localStorage.token,
+    onCreated: created => setRecords(rows => [...rows.filter(row => row.id !== created.id), created]),
+  });
+  const createInlineItem = inlineItemCreator({
     api, companyId, isCurrent: workspaceScope.current.capture(),
     token: localStorage.token, getToken: () => localStorage.token,
     onCreated: created => setRecords(rows => [...rows.filter(row => row.id !== created.id), created]),
@@ -1730,6 +1736,7 @@ function App() {
             close={closeRecord}
             save={saveRecord}
             createParty={createInlineParty}
+            createItem={createInlineItem}
           />
         ))}
       {modal === "stock_opening" && (

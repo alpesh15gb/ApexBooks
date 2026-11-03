@@ -154,6 +154,15 @@ var conflictTransport=new MasterConflictTransport();using(var masterApi=new Apex
  Check(editedMaster.Text("phone")=="draft"&&editedMaster.Number("version")==99&&openedMaster.Number("version")==3,"master conflict never mutates draft or opened snapshot");
 }
 
+Check(WindowOwnership.ReachesApp(2,1,h=>h==2?1:0),"picker direct native owner reaches app");
+Check(WindowOwnership.ReachesApp(3,1,h=>h==3?2:h==2?1:0),"picker nested owner chain reaches app");
+Check(!WindowOwnership.ReachesApp(2,1,_=>0),"unowned matching-title or same-process picker is rejected");
+Check(!WindowOwnership.ReachesApp(2,1,_=>9),"unrelated owner and self-cycle are rejected");
+Check(!WindowOwnership.ReachesApp(2,1,h=>h==2?3:2),"cyclic owner chain is rejected");
+Check(!WindowOwnership.ReachesApp(0,1,_=>1)&&!WindowOwnership.ReachesApp(2,0,_=>0)&&!WindowOwnership.ReachesApp(1,1,_=>1),"zero handles and app itself cannot be picker");
+var ownerCalls=0;Check(!WindowOwnership.ReachesApp(2,1,h=>{ownerCalls++;return h+1;})&&ownerCalls==64,"unbounded owner chain stops at64 hops");
+Check(WindowOwnership.ReachesApp(65,1,h=>h-1)&&!WindowOwnership.ReachesApp(66,1,h=>h-1),"ownership depth accepts64 hops and rejects65");
+
 var paging=new PagingTransport();using var pagingApi=new ApexApi("https://synthetic-paging.invalid",paging);
 var timer=System.Diagnostics.Stopwatch.StartNew();for(var offset=0;offset<1250;offset+=100)await pagingApi.Send(pagingApi.CompanyPath("test",$"/records?compact=true&limit=100&offset={offset}"));var baselineMs=timer.ElapsedMilliseconds;
 Check(paging.Calls==13,"baseline 1250 records uses 13 small-page requests");paging.Calls=0;timer.Restart();var allRows=await pagingApi.Records("test");var improvedMs=timer.ElapsedMilliseconds;
