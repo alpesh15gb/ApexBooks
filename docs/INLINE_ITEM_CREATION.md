@@ -25,6 +25,8 @@ This uses the existing company-scoped idempotent master-create API. It adds no A
 
 Local aggregate verification on 2026-11-03 passed 200 backend tests, 142 frontend tests, lint and production build, five synthetic HTTP workflows, one complete-backup HTTP round trip, 231 native API route matches, nine backup-target and 21 deployment-preflight mocks, and simulated backup/restore checks. Real-age infrastructure-backup checks were not run locally because `age`/`age-keygen` are unavailable. The existing bundle-size warning remains.
 
-No new real-browser visual/keyboard acceptance or hosted CI run is claimed for this checkpoint. Native inline creation remains outside this web-only scope. No production data or permissions are needed. Real-browser access and upload approval are separate; neither is bypassed by these tests.
+Hosted PR4 source `6637300` passed API/web/native build checks (run `41588525653`), including PostgreSQL and the isolated known-baseline upgrade, and both unsigned Release jobs (run `41588525680`). The unchanged Windows UI harness failed in run `41588525754`: the screenshot showed an open system file picker, while the picker was absent from the app-descendant accessibility tree. This is tracked as a picker-discovery acceptance blocker, not evidence of a financial or inline-web failure. A narrow ownership-validated harness correction requires its own compile/runtime rerun.
+
+No new real-browser visual/keyboard acceptance is claimed for this checkpoint. Native inline creation remains outside this web-only scope. No production data or permissions are needed. Real-browser access and upload approval are separate; neither is bypassed by these tests.
 
 Retry state remains in memory. Browser process death is not covered by this flow and no exactly-once or offline-posting guarantee is made.
