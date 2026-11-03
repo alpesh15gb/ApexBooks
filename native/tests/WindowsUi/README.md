@@ -93,3 +93,12 @@ compilation does not establish picker or restore execution. Every picker remains
 scoped to the app-owned dialog. There is no service export/restore substitute,
 plaintext fallback, skipped assertion, or OS permission change. The retained file
 and passphrase are generated synthetic fixtures only, never user backup data.
+
+
+Run `41559696848` passed the mandatory rapid typing/control-identity check and
+all existing financial/receipt assertions, then exposed a shell **Save As** COM
+warning: “An outgoing call cannot be made since the application is dispatching
+an input-synchronous call.” The test now verifies the exact destination and
+keyboard focus on the real Save button, then activates it once with Space instead
+of synchronous UIA Invoke. It does not dismiss the warning, repeat an uncertain
+save, alter the app, or bypass the picker. This repair still requires CI execution.

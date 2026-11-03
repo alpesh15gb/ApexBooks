@@ -55,6 +55,14 @@ class LocalUiAcceptanceTest {
         if(roots!=null){roots.click();assertTrue(device.wait(Until.hasObject(By.text("Downloads")),15000));device.findObject(By.text("Downloads")).click()}
         return pkg
     }
+    private fun awaitReadyAction(device:UiDevice,text:String){
+        scrollTo(device,text)
+        assertTrue("Action is ready: $text",device.wait(Until.hasObject(By.text(text).enabled(true)),60000))
+    }
+    private fun clickReadyAction(device:UiDevice,text:String){
+        awaitReadyAction(device,text)
+        device.findObject(By.text(text).enabled(true)).click()
+    }
     private fun typeOnlyPassword(device:UiDevice,password:String){
         // Export has only a password; restore has the name followed by its password.
         // The caller first scrolls to the actual password label, so the final visible
@@ -231,7 +239,8 @@ class LocalUiAcceptanceTest {
                 // Exercise the app's streaming encryption and actual Android save picker.
                 scrollTo(device,"Encryption password · at least 12 characters");typeOnlyPassword(device,backupPassword)
                 scrollTo(device,"Prepare complete backup");device.findObject(By.text("Prepare complete backup")).click()
-                scrollTo(device,"Save verified backup file");device.findObject(By.text("Save verified backup file")).click()
+                scrollTo(device,"Complete backup verified and ready to save. It includes archived receipts.")
+                clickReadyAction(device,"Save verified backup file")
                 val pickerPackage=documentPickerDownloads(device)
                 val filenameFields=device.findObjects(By.pkg(pickerPackage).clazz("android.widget.EditText"))
                 assertEquals("Native save picker filename field",1,filenameFields.size)
@@ -250,12 +259,13 @@ class LocalUiAcceptanceTest {
                 documentPickerDownloads(device)
                 assertTrue("Saved encrypted file is offered by the real picker",device.wait(Until.hasObject(By.text(backupName)),15000));device.findObject(By.text(backupName)).click()
                 scrollTo(device,"Encrypted backup detected. Authenticate locally before any upload.")
+                awaitReadyAction(device,"Authenticate, upload & validate")
                 scrollTo(device,"Backup password · local only");typeOnlyPassword(device,backupPassword)
-                scrollTo(device,"Authenticate, upload & validate");device.findObject(By.text("Authenticate, upload & validate")).click()
+                clickReadyAction(device,"Authenticate, upload & validate")
                 scrollTo(device,"Review before creating the new company")
                 assertEquals("Preview creates no company",companiesBefore,(api.request("/api/companies")as JSONArray).objects().map{it.s("id")}.toSet())
                 device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-restore-preview.png"))
-                scrollTo(device,"Confirm restore into new company");device.findObject(By.text("Confirm restore into new company")).click()
+                clickReadyAction(device,"Confirm restore into new company")
                 scrollTo(device,"Open restored company")
                 val companiesAfter=(api.request("/api/companies")as JSONArray).objects()
                 val restored=companiesAfter.single{it.s("name")==restoredName};val restoredId=restored.s("id")
@@ -274,7 +284,7 @@ class LocalUiAcceptanceTest {
                 assertArrayEquals("Original receipt exact bytes unchanged",receiptBytes,api.rawBytes(api.company(sourceId,"/attachments/${evidence.s("id")}/download"),maximumResponse=2*1024*1024))
                 val originalEvidence=(api.request(api.company(sourceId,"/records/${bill.s("id")}/attachments"))as JSONObject).a("attachments").objects().single()
                 assertEquals("Original archived receipt metadata unchanged",canonical(evidence),canonical(originalEvidence))
-                device.findObject(By.text("Open restored company")).click()
+                clickReadyAction(device,"Open restored company")
                 assertTrue("Explicitly opened new company",device.wait(Until.hasObject(By.text(restoredName)),30000))
                 device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-restored-company.png"))
             } finally { device.executeShellCommand("rm -f '/sdcard/Download/$backupName'") }
