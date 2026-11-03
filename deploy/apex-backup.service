@@ -6,5 +6,7 @@ After=docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/apex-books
+# Operator-reviewed scope; no automatic local-database opt-in.
+EnvironmentFile=/etc/apex-books/backup.env
 ExecStart=/opt/apex-books/deploy/backup.sh /var/backups/apex-books
 UMask=0077

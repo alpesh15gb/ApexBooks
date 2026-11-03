@@ -10,7 +10,7 @@ Pinned `BouncyCastle.Cryptography` **2.7.0**, the official current stable C# pac
 
 - [Official C# download and NuGet link](https://www.bouncycastle.org/download/bouncy-castle-c/)
 - [Official package](https://www.nuget.org/packages/BouncyCastle.Cryptography/2.7.0)
-- NuGet `dotnet list package --vulnerable --include-transitive` on 2026-11-02: no vulnerable packages reported from nuget.org. This is advisory-feed evidence, not proof of absence of defects. Both project lock files pin the dependency hash.
+- NuGet `dotnet list package --vulnerable --include-transitive` on 2026-11-02: no vulnerable packages reported from nuget.org. This is advisory-feed evidence, not proof of absence of defects. Project lock files, including the shared library’s explicit Windows RID variants, pin the dependency hash.
 
 ## Security and bounded-memory contract
 
@@ -45,3 +45,7 @@ The default test run always verifies the checked-in synthetic fixtures in `nativ
 - Existing Android-compatible JCE writer, Android streaming writer, and Unicode-password fixture all decrypted to the exact expected SHA256 in C#. Reverse C# fixtures are supplied to the Android utility tests separately.
 - 128MiB: roundtrip plus cancellation cleanup passed under 64MiB managed heap cap, process peak 102,236,160 bytes (~97.5MiB), 16.8 seconds including a second parse for cancellation.
 - 320MiB: same checks passed under the same managed cap, process peak 102,236,160 bytes, 44.9 seconds including cancellation test. These are local synthetic throughput/memory observations, not an app/UI or device performance guarantee.
+
+## Restore isolation
+
+The WinUI build propagates `RuntimeIdentifier=win-x64`, while the standalone codec test is portable. The shared library now uses `packages.<RuntimeIdentifier>.lock.json` only for an explicit runtime and keeps `packages.lock.json` portable. Windows x64/x86/ARM64 variants are checked in. This prevents an app build from rewriting the portable lock graph and causing NU1004 on the subsequent `dotnet restore native/tests/WindowsBackupStreaming --locked-mode`. Locked mode remains enforced; no package versions or hashes were relaxed. Local cached/offline checks cover app-then-codec and codec-then-app restore ordering.

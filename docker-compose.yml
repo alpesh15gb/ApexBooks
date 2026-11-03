@@ -14,7 +14,11 @@ services:
       timeout: 5s
       retries: 10
   api:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        APEX_BUILD_SHA: ${APEX_SOURCE_SHA:-unknown}
+        APEX_RELEASE_VERSION: ${APEX_RELEASE_VERSION:-unknown}
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://apex:${POSTGRES_PASSWORD}@db:5432/apex
@@ -37,7 +41,11 @@ services:
       timeout: 5s
       retries: 6
   commerce-worker:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        APEX_BUILD_SHA: ${APEX_SOURCE_SHA:-unknown}
+        APEX_RELEASE_VERSION: ${APEX_RELEASE_VERSION:-unknown}
     profiles: [commerce]
     restart: unless-stopped
     command: ["sh", "-c", "python -c 'from commerce import cipher; cipher()' && exec python commerce_worker.py"]
@@ -50,7 +58,11 @@ services:
       api:
         condition: service_healthy
   web:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_BUILD_SHA: ${APEX_SOURCE_SHA:-unknown}
+        APEX_RELEASE_VERSION: ${APEX_RELEASE_VERSION:-unknown}
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:80"

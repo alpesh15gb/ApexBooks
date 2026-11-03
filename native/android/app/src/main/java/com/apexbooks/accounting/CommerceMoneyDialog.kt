@@ -15,7 +15,7 @@ import java.util.UUID
 @Composable fun CommerceMoneyDialog(vm:AppModel,connectionId:String,workspace:JSONObject,onClose:()->Unit){
     val cid=vm.companyId;val key=remember(cid,connectionId){UUID.randomUUID().toString()}
     var kind by remember{mutableStateOf("capture")};var order by remember{mutableStateOf("")};var target by remember{mutableStateOf("")}
-    var source by remember{mutableStateOf("")};var issued by remember{mutableStateOf(java.time.LocalDate.now().toString())};var amount by remember{mutableStateOf("")}
+    var source by remember{mutableStateOf("")};var issued by remember{mutableStateOf(today())};var amount by remember{mutableStateOf("")}
     var net by remember{mutableStateOf("")};var fee by remember{mutableStateOf("0")};var bank by remember{mutableStateOf("")}
     var supply by remember{mutableStateOf("goods")};var gst by remember{mutableStateOf("0")};var pos by remember{mutableStateOf(workspace.optJSONObject("connection")?.optJSONObject("config")?.optJSONObject("capabilities")?.s("company_state_code")?:"")}
     val quantities=remember{mutableStateMapOf<String,String>()};val captureIds=remember{mutableStateListOf<String>()};val refundIds=remember{mutableStateListOf<String>()}

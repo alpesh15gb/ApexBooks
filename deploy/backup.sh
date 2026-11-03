@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run from the project root on the VPS. The dump contains every tenant.
+# Refuse external or ambiguous targets before creating files or changing data.
+python3 "$(dirname -- "${BASH_SOURCE[0]}")/check_backup_target.py"
+
+# Run from the project root for a reviewed local Compose database only. The dump contains every tenant.
 backup_dir="${1:-./backups}"
 umask 077
 mkdir -p -- "$backup_dir"

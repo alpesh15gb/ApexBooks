@@ -32,14 +32,19 @@ import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
+fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.now()):Pair<LocalDate,LocalDate> {
+    val end=businessDate(instant)
+    val start=when(period){"month"->end.withDayOfMonth(1);"30days"->end.minusDays(29);else->LocalDate.of(if(end.monthValue>=4)end.year else end.year-1,4,1)}
+    return start to end
+}
+
 @Composable fun DashboardScreen(vm:AppModel){
     var period by rememberSaveable{mutableStateOf("year")}
     var summary by remember{mutableStateOf<JSONObject?>(null)}
     var financial by remember{mutableStateOf<JSONObject?>(null)}
     var gst by remember{mutableStateOf<JSONObject?>(null)}
-    val end=LocalDate.now()
-    val start=when(period){"month"->end.withDayOfMonth(1);"30days"->end.minusDays(29);else->LocalDate.parse(financialStart())}
-    LaunchedEffect(vm.companyId,vm.revision,period){
+    val (start,end)=dashboardPeriod(period)
+    LaunchedEffect(vm.companyId,vm.revision,period,end){
         summary=null;financial=null;gst=null
         try{coroutineScope{
             val query="?from_date=$start&to_date=$end"

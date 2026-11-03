@@ -11,10 +11,24 @@ import org.json.JSONObject
 import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.TestWatcher
+import org.junit.runner.Description
 import java.io.File
 import java.util.UUID
 
 class LocalUiAcceptanceTest {
+    @get:Rule val failureEvidence=object:TestWatcher(){
+        override fun failed(error:Throwable,description:Description){
+            val instrumentation=InstrumentationRegistry.getInstrumentation()
+            val device=UiDevice.getInstance(instrumentation)
+            val directory=instrumentation.targetContext.getExternalFilesDir(null)?:return
+            // Dedicated synthetic emulator only; capture the actual failing UI before another test resets it.
+            runCatching{device.takeScreenshot(File(directory,"local-native-failure.png"))}
+            runCatching{device.dumpWindowHierarchy(File(directory,"local-native-failure.xml"))}
+        }
+    }
+
     private fun scrollTo(device:UiDevice,text:String) {
         repeat(10){if(device.hasObject(By.text(text)))return;device.swipe(device.displayWidth/2,device.displayHeight*3/4,device.displayWidth/2,device.displayHeight/4,30);device.waitForIdle()}
         assertTrue("Visible action: $text",device.hasObject(By.text(text)))
@@ -37,6 +51,11 @@ class LocalUiAcceptanceTest {
             val item=api.saveRecord(company.s("id"),JSONObject().put("kind","item").put("name","UI Reorder Item").put("data",JSONObject().put("item_type","goods").put("track_stock",true).put("unit","pcs").put("sale_rate","100").put("purchase_rate","40").put("gst_rate","0").put("tax_treatment","nil_rated").put("low_stock_threshold","3")),UUID.randomUUID().toString())
             api.saveRecord(company.s("id"),JSONObject().put("kind","purchase_bill").put("name","UI Smoke Buyer").put("date",today()).put("data",JSONObject().put("party_id",party.s("id")).put("supplier_state","27").put("place_of_supply","27").put("lines",JSONArray().put(JSONObject().put("item_id",item.s("id")).put("description","UI Reorder Item").put("quantity","1").put("rate","40").put("gst_rate","0").put("tax_treatment","nil_rated")))),UUID.randomUUID().toString())
             api.saveRecord(company.s("id"),JSONObject().put("kind","sales_invoice").put("name","UI Smoke Buyer").put("date",today()).put("data",JSONObject().put("place_of_supply","27").put("lines",JSONArray().put(JSONObject().put("description","UI test service").put("quantity","1").put("rate","100").put("gst_rate","0")))),UUID.randomUUID().toString())
+        }
+        for((_,cid) in companyIds){
+            val report=api.request(api.company(cid,"/reports/reorder?as_of=${today()}")) as JSONObject
+            assertEquals("Synthetic fixture has one low-stock item",1,report.a("rows").length())
+            assertEquals("UI Reorder Item",report.a("rows").getJSONObject(0).s("name"))
         }
         api.logout()
         val launch=context.packageManager.getLaunchIntentForPackage(context.packageName)!!.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
@@ -74,7 +93,10 @@ class LocalUiAcceptanceTest {
         device.pressBack()
         assertTrue(device.wait(Until.hasObject(By.text("Home")),15000));device.findObject(By.text("Home")).click()
         scrollTo(device,"Low stock & reorder review");device.findObject(By.text("Low stock & reorder review")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("UI Reorder Item")),30000))
+        assertTrue("Reorder report loaded",device.wait(Until.hasObject(By.textContains("items at or below threshold")),30000))
+        device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-reorder-open.png"))
+        scrollTo(device,"UI Reorder Item")
+        assertTrue("Exact seeded low-stock item is visible after scrolling",device.hasObject(By.text("UI Reorder Item")))
         scrollTo(device,"Review purchase order · 1 items");device.findObject(By.text("Review purchase order · 1 items")).click()
         assertTrue(device.wait(Until.hasObject(By.text("New Purchase Order")),15000))
         device.findObject(By.text("Enter manually")).click()

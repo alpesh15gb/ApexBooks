@@ -5,6 +5,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RegisterAndPeriodTest {
+    @Test fun dashboardUsesSameIndiaDayAsDocumentDefaults(){
+        val instant=java.time.Instant.parse("2026-11-02T18:30:00Z")
+        assertEquals(java.time.LocalDate.parse("2026-04-01") to java.time.LocalDate.parse("2026-11-03"),dashboardPeriod("year",instant))
+        assertEquals(java.time.LocalDate.parse("2026-11-01") to java.time.LocalDate.parse("2026-11-03"),dashboardPeriod("month",instant))
+        assertEquals(java.time.LocalDate.parse("2026-10-05") to java.time.LocalDate.parse("2026-11-03"),dashboardPeriod("30days",instant))
+        assertEquals(java.time.LocalDate.parse("2027-04-01") to java.time.LocalDate.parse("2027-04-01"),dashboardPeriod("year",java.time.Instant.parse("2027-03-31T18:30:00Z")))
+    }
+
     private fun row(id:String,date:String,amount:String,due:String,kind:String="sales_invoice")=JSONObject().put("id",id).put("kind",kind).put("name","Customer QA").put("number",id).put("date",date).put("amount",amount).put("outstanding",due).put("posted",true).put("data",JSONObject())
     @Test fun advancesAndCreditsHaveActionableBalanceStates(){
         val advance=row("advance","2026-11-01","100","0","payment_in").put("data",JSONObject().put("is_advance",true)).put("advance_remaining","40")

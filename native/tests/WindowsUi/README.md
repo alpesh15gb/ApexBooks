@@ -63,7 +63,9 @@ real Windows **Open** picker, uploads and archives via actual controls, verifies
 canonical bytes/hash/state, and enters Settings → complete-backup dialog without
 starting an export. It preserves all mandatory invoice250/collection100/balance150
 and dirty-draft assertions. Picker automation targets the English hosted runner's
-`Open` window and `File name` field; missing/inaccessible picker fails with the
+owned `Open` descendant window and `File name` field; missing/inaccessible picker fails with the
 usual diagnostics rather than substituting a hidden API upload. This extension is
 compiled locally but **requires its own Windows CI execution** before success can
 be claimed. No OS permission/security changes are performed.
+
+CI run `41543179994` reached the genuine Open picker, visible both in the app-window screenshot and its descendant UIA tree, but the old desktop-child selector timed out. The selector now stays scoped to the launched app’s descendants; it still requires the real File name edit and Open button and never substitutes an API upload. A new Windows run is required to verify the remainder.

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run from the project root on the VPS. Restores the entire database.
+# Refuse external or ambiguous targets before creating files or changing data.
+python3 "$(dirname -- "${BASH_SOURCE[0]}")/check_backup_target.py"
+
+# Run from the project root for a reviewed local Compose database only. Restores the entire database.
 backup="${1:-}"
 if [[ -z "$backup" || ! -f "$backup" ]]; then
   echo "Usage: deploy/restore.sh /path/to/apex-backup.dump" >&2

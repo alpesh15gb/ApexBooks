@@ -16,6 +16,8 @@ trap 'rm -rf -- "$contract_dir"' EXIT
 PYTHONPATH=backend DATABASE_URL=sqlite:// JWT_SECRET=synthetic-contract-check-secret-32chars \
   "$PYTHON" -c 'import json; from main import app; print(json.dumps(app.openapi()))' > "$contract_dir/openapi.json"
 "$PYTHON" native/tools/check_api_routes.py --contract "$contract_dir/openapi.json" --output "$contract_dir/routes.json"
+python3 -m unittest discover -s deploy -p test_backup_target.py
+python3 -m unittest discover -s deploy/vps -p test_manage.py
 bash deploy/test-backup-safety.sh
 if command -v age >/dev/null && command -v age-keygen >/dev/null; then
   bash deploy/test-secure-backup.sh

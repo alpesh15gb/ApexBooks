@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Refuse external or ambiguous targets before creating files or changing data.
+python3 "$(dirname -- "${BASH_SOURCE[0]}")/check_backup_target.py"
+
 # Encrypt before writing to disk and verify the uploaded ciphertext byte for byte.
 # Run from the project root. The backup contains all companies and tenants.
 backup_dir="${1:-/var/backups/apex-books}"

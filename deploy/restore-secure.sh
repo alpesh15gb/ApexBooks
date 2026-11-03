@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Refuse external or ambiguous targets before creating files or changing data.
+python3 "$(dirname -- "${BASH_SOURCE[0]}")/check_backup_target.py"
+
 # Decrypt and validate before stopping the application or changing the database.
 backup="${1:-}"
 identity="${APEX_RESTORE_IDENTITY_FILE:-}"

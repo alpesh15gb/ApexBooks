@@ -91,9 +91,12 @@ jobs:
         shell: pwsh
         run: |
           dotnet restore native/tests/WindowsBackupStreaming --locked-mode
+          if ($LASTEXITCODE -ne 0) { throw "Streaming backup locked restore failed." }
           dotnet build native/tests/WindowsBackupStreaming --no-restore
+          if ($LASTEXITCODE -ne 0) { throw "Streaming backup test build failed." }
           $env:DOTNET_GCHeapHardLimit="0x4000000"
           dotnet native/tests/WindowsBackupStreaming/bin/Debug/net10.0/WindowsBackupStreaming.Tests.dll --max
+          if ($LASTEXITCODE -ne 0) { throw "Streaming backup bounded-memory checks failed." }
   postgres-concurrency:
     runs-on: ubuntu-latest
     timeout-minutes: 15

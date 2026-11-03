@@ -15,6 +15,8 @@ cat > "$work/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 case "$*" in
+  'compose config --format json') printf '%s' '{"services":{"db":{"image":"postgres:16-alpine","environment":{"POSTGRES_DB":"apex","POSTGRES_USER":"apex"}},"api":{"environment":{"DATABASE_URL":"postgresql+psycopg://apex:synthetic@db:5432/apex"}}}}' ;;
+  'compose exec -T api python -c '*) exit 0 ;;
   *'pg_dump'*) if [[ "${TEST_FAIL_DUMP:-0}" == 1 ]]; then printf 'partial'; exit 1; fi; printf 'synthetic-postgres-archive' ;;
   *'pg_restore --list'*) [[ "$(cat)" == 'synthetic-postgres-archive' ]] ;;
   *'pg_restore --clean'*) cat > "$TEST_WORK/restored" ;;
@@ -33,6 +35,7 @@ case "$1" in
 esac
 EOF
 chmod +x "$work/bin/docker" "$work/bin/rclone"
+export APEX_BACKUP_SCOPE=compose-local
 export TEST_WORK="$work" PATH="$work/bin:$PATH"
 age-keygen -o "$work/key" 2>/dev/null
 age-keygen -o "$work/other-key" 2>/dev/null

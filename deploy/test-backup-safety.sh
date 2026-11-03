@@ -13,6 +13,8 @@ cat > "$work/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 case "$*" in
+  'compose config --format json') printf '%s' '{"services":{"db":{"image":"postgres:16-alpine","environment":{"POSTGRES_DB":"apex","POSTGRES_USER":"apex"}},"api":{"environment":{"DATABASE_URL":"postgresql+psycopg://apex:synthetic@db:5432/apex"}}}}' ;;
+  'compose exec -T api python -c '*) exit 0 ;;
   *'pg_dump'*) if [[ "${TEST_FAIL_DUMP:-0}" == 1 ]]; then printf 'partial'; exit 1; fi; printf 'synthetic-archive' ;;
   *'pg_restore --list'*) [[ "${TEST_INVALID_ARCHIVE:-0}" != 1 ]] && [[ "$(cat)" == 'synthetic-archive' ]] ;;
   *'pg_restore --clean'*) [[ "$*" == *'--single-transaction'* ]] && cat > "$TEST_WORK/restored" ;;
@@ -23,6 +25,16 @@ esac
 EOF
 chmod +x "$work/bin/docker"
 export PATH="$work/bin:$PATH" TEST_WORK="$work"
+# Every entry point must reject an unreviewed target before touching Docker,
+# creating backup directories, decrypting data or requiring real credentials.
+for script in backup backup-secure restore restore-secure; do
+  if APEX_BACKUP_SCOPE=unreviewed bash "deploy/$script.sh" "$work/backups/not-created" > "$work/output" 2> "$work/error"; then
+    echo "Expected target refusal: $script" >&2; exit 1
+  fi
+  grep -q 'APEX_BACKUP_SCOPE=compose-local' "$work/error"
+  [[ ! -e "$work/backups/not-created" && ! -e "$work/stopped" && ! -e "$work/restored" ]]
+done
+export APEX_BACKUP_SCOPE=compose-local
 if TEST_FAIL_DUMP=1 bash deploy/backup.sh "$work/backups" > "$work/output" 2> "$work/error"; then
   echo 'Expected dump failure' >&2; exit 1
 fi
