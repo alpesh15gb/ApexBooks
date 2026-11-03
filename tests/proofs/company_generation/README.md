@@ -171,3 +171,39 @@ SQLAlchemy `text`; a local psycopg-query-parser regression checks the actual
 readiness statements without a database. Bounded incomplete JSON is now written
 before startup and updated at each phase, without exception strings, URLs, or
 credentials. Actual PostgreSQL proof results remain pending a corrected CI run.
+
+### Hosted PostgreSQL evidence (2026-11-03)
+
+Corrected source `95c3522244d28fa76c783e065d8cf52274631b9f` completed
+[proof run 41710281324](https://github.com/alpesh15gb/ApexBooks/actions/runs/41710281324),
+job `126176247182`, on disposable PostgreSQL 17.11. Four pure checks and seven
+actual PostgreSQL tests passed; the latter ran in 3.439 seconds. Artifact
+`13267907949` contains the bounded `result.json` with `completed=true`, seven
+tests, zero failures and zero errors. This supersedes the pending-execution note
+above for this exact source only.
+
+The passing suite deliberately includes failures of the proposed design:
+
+- Opposite multi-company transactions produced observed mutual blocking, one
+  `40P01` deadlock victim and one committed transaction. Rolled-back increments
+  disappeared. Per-row sorted counter locking is not a global lock-order proof.
+- Actual commerce claim/retry methods completed after an observed row-lock wait,
+  incrementing generation twice. Final inbox status was `pending` with its lease
+  cleared: the existing retry endpoint overwrote a newly claimed lease. The
+  generation proof did not correct or establish exactly-once commerce handling.
+- Reservation expiry changed availability without a generation increment;
+  TRUNCATE was also unobserved. The separate SQLite REPLACE omission remains.
+
+Rollback/savepoint/visibility, no-op/replay, two independent process commits,
+readiness negative controls, membership, synthetic restore and retained evidence
+checks passed within their stated scope. This is not exhaustive writer coverage,
+a performance qualification or a production-ready freshness token. The prototype
+remains **unshippable**; no application migration, endpoint or watcher was added.
+
+Other checks on the same source were terminal: main CI `41710281043` and unsigned
+Release `41710281134` passed; Android device `41710280975` was intentionally
+skipped. Windows UI `41710280969` failed at an owned Open-picker lookup. Its
+artifact `13267883603` showed a visible enabled picker owned by the launched
+process's current main window, while the harness cached an invisible different
+window and found no matching top-level UIA candidate. No application or picker
+trust-rule change is included here, and this run is not reported as a UI pass.
