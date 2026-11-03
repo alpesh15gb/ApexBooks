@@ -13,6 +13,10 @@ export function usePostingRequest(options) {
     try { return await promise; }
     finally { redraw(n => n + 1); }
   };
-  return { busy: request.current.busy, pending: request.current.pending, run };
+  return {
+    busy: request.current.busy, pending: request.current.pending, run,
+    // Event handlers need authoritative state before React commits a redraw.
+    isLocked: () => request.current.busy || request.current.pending,
+  };
 }
 export const pendingPostingMessage = 'The previous response was not confirmed. Your submitted details are locked. Retry the same save to recover its result; do not create another transaction.';

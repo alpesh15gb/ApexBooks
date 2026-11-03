@@ -8,17 +8,26 @@ from sqlalchemy import select,delete
 from sqlalchemy.orm import Session
 from workflow_extensions import retry
 import re
+from document_inputs import financial_signature,metadata_fields,editable_inputs,merge_display_lines,normalize_input as normalize
 
 def install(app,m):
     @app.put('/api/companies/{company_id}/documents/{record_id}')
     def amend(company_id:str,record_id:str,body:m.RecordInput,request:Request,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
         company=m.lock_company(company_id,user,session)
-        key,digest,old=retry(m,company_id,body,request,session,'amend:'+record_id)
+        # Presence matters for expenses: omitted amount preserves the saved value,
+        # whereas explicit zero is invalid. Do not alias their retry identities.
+        hash_body=body.model_dump(mode='json') if body.kind=='expense' and 'amount' not in body.model_fields_set else None
+        if hash_body is not None:hash_body.pop('amount')
+        key,digest,old=retry(m,company_id,body,request,session,'amend:'+record_id,hash_body=hash_body)
         if old:return old
         record=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==record_id))
         allowed=m.POSTED_KINDS
         if not record or record.kind not in allowed:raise HTTPException(404,'Editable posted document not found')
         if body.kind!=record.kind:raise HTTPException(422,'Document type cannot change')
+        # Older header editors omit amount. Preserve it only when absent; an
+        # explicit zero remains a real financial input and fails posting rules.
+        if record.kind == 'expense' and 'amount' not in body.model_fields_set:
+            body=body.model_copy(update={'amount':record.amount})
         posting=session.scalar(select(m.RecordPosting).where(m.RecordPosting.company_id==company_id,m.RecordPosting.record_id==record.id))
         if not posting:raise HTTPException(409,'This legacy entry needs posting before financial amendment')
         if body.data.get('version',0)!=record.data.get('version',0):raise HTTPException(409,'Document changed; reload before editing')
@@ -27,46 +36,14 @@ def install(app,m):
         if not body.number.strip() or len(body.number)>16:raise HTTPException(422,'Reference must contain 1–16 characters')
         if session.scalar(select(m.Record.id).where(m.Record.company_id==company_id,m.Record.kind==record.kind,m.Record.number==body.number.strip(),m.Record.id!=record.id)):raise HTTPException(409,'Reference already exists')
         # Clients submit editable inputs, never replacement posting/snapshot fields.
-        metadata={'party_id','party_gstin','party_address','party_phone','shipping_address','due_date','notes','terms','category'}
-        if record.kind=='pos':metadata.add('tender_amount')
-        inputs=metadata|{'lines','place_of_supply','supplier_state','document_discount_percent','round_total','return_stock','payment_account','bank_account_id','direction','to_bank_account_id','applied_to','allocations','is_advance','advance_supply','advance_gst_rate','tender_amount'}
+        metadata=metadata_fields(record.kind)
+        inputs=editable_inputs(record.kind)
         submitted={k:v for k,v in body.data.items() if k in inputs}
         data={**record.data,**submitted}
         m.validate_active_references(company_id,record.kind,body.name,data,session,record)
         profile=session.get(m.CompanyTaxProfile,company_id)
-        purchase=record.kind in {'purchase_bill','debit_note','expense'}
-        fields=('item_id','quantity','rate','gst_rate','discount_percent','discount_amount','tax_treatment','price_includes_tax')+ (('itc_treatment',) if purchase and (profile.mode if profile else 'regular')=='regular' else ())
-        numeric={'quantity','rate','gst_rate','discount_percent','discount_amount','document_discount_percent','advance_gst_rate'}
-        def normalize(key,value):
-            if key in {'bank_account_id','to_bank_account_id'}:return str(value or 'default')
-            if key=='payment_account':return str(value or 'cash')
-            if key in numeric:
-                try:
-                    value=Decimal(str(value or 0))
-                    if not value.is_finite():raise ValueError()
-                    return value
-                except (ValueError,ArithmeticError):raise HTTPException(422,'Invalid numeric document input')
-            if key in {'price_includes_tax','is_advance','round_total','return_stock'}:
-                if not isinstance(value,bool):raise HTTPException(422,'Invalid document option')
-                return value
-            return str(value or '')
         def signature(data,amount,party,day):
-            defaults={'is_advance':False,'round_total':False,'return_stock':True,'price_includes_tax':False,'payment_account':'cash','tax_treatment':'taxable','itc_treatment':'pending_review','place_of_supply':company.state_code,'supplier_state':str(data.get('party_gstin') or '')[:2] or company.state_code}
-            roots=['applied_to']
-            if record.kind in {'payment_in','payment_out','pos','expense'}:
-                roots+=['payment_account']
-                if data.get('payment_account','cash')=='bank':roots+=['bank_account_id']
-            if record.kind=='bank_transfer':
-                roots+=['direction','bank_account_id']
-                if data.get('direction')=='bank_to_bank':roots+=['to_bank_account_id']
-            if record.kind in {'payment_in','payment_out'}:roots+=['is_advance']
-            if record.kind in m.DOCUMENTS:roots+=['document_discount_percent','round_total','place_of_supply']
-            if purchase:roots+=['supplier_state']
-            if record.kind in {'credit_note','debit_note'}:roots+=['return_stock']
-            if record.kind in {'payment_in','payment_out'} and data.get('is_advance'):roots+=['advance_supply','advance_gst_rate','place_of_supply']
-            try:lines=tuple(tuple(normalize(k,line.get(k,defaults.get(k,''))) for k in fields) for line in data.get('lines',[]))
-            except (TypeError,AttributeError):raise HTTPException(422,'Invalid document lines')
-            return amount,party.strip().casefold(),day,tuple((k,normalize(k,data.get(k,defaults.get(k,'')))) for k in roots),lines
+            return financial_signature(record.kind,company.state_code,profile.mode if profile else 'regular',m.DOCUMENTS,data,amount,party,day)
         intent=signature(data,record.amount,body.name,body.date)!=signature(record.data,record.amount,record.name,record.date)
         if record.kind in {'payment_in','payment_out'} and 'allocations' in body.data:
             existing=[]
@@ -90,7 +67,10 @@ def install(app,m):
                     raise HTTPException(422, 'Enter a positive allocation with at most two decimal places')
                 proposed.append((target_id, value))
             intent=intent or sorted(existing)!=sorted(proposed)
-        intent=intent or (record.kind not in m.DOCUMENTS and m.money(body.amount)!=record.amount)
+        # Amount-only expenses use the entered amount just like payments; line-based
+        # expenses remain calculated documents and ignore a client's total.
+        entered_amount = record.kind not in m.DOCUMENTS or (record.kind == 'expense' and not data.get('lines'))
+        intent=intent or (entered_amount and m.money(body.amount)!=record.amount)
         if record.data.get('commerce_connection_id') and (intent or any(data.get(k) != record.data.get(k) for k in metadata-{'notes','terms','due_date'})):
             raise HTTPException(409,'This document is linked to an ecommerce source. Use its source correction / credit workflow to keep both systems reconciled.')
         if intent and record.kind in m.DOCUMENTS and (record.kind!='expense' or data.get('lines')):data,amount=m.calculate(data,company,profile.mode if profile else 'regular',record.kind,session)
@@ -127,17 +107,7 @@ def install(app,m):
                 except (ValueError,TypeError):raise HTTPException(422,'Enter a valid due date')
                 if due<body.date:raise HTTPException(422,'Due date cannot precede the document date')
             if 'lines' in submitted:
-                merged=[]
-                for old,line in zip(record.data.get('lines',[]),submitted['lines']):
-                    for field,limit in {'description':200,'hsn':16,'unit':24}.items():
-                        if len(str(line.get(field,old.get(field,''))))>limit:raise HTTPException(422,'Invalid item '+field)
-                    if not str(line.get('description',old.get('description',''))).strip():raise HTTPException(422,'Enter an item description')
-                    if old.get('item_id') and line.get('description',old.get('description'))!=old.get('description'):raise HTTPException(422,'Keep the selected item name')
-                    if line.get('mrp') not in (None,''):
-                        value=normalize('rate',line['mrp'])
-                        if value<0 or value>Decimal('9999999999999.99') or value.as_tuple().exponent < -2:raise HTTPException(422,'Invalid MRP')
-                    merged.append({**old,**{k:v for k,v in line.items() if k in {'description','hsn','unit','mrp'}}})
-                data['lines']=merged
+                data['lines']=merge_display_lines(record.data.get('lines',[]),submitted['lines'])
             record.name=body.name.strip();record.number=body.number.strip();record.data={**data,'version':version,'updated_at':datetime.now(timezone.utc).isoformat()}
         else:
             if record.data.get('is_advance') and any(row.data.get('advance_id')==record.id for row in session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind.in_(['advance_application','advance_refund'])))):raise HTTPException(409,'This advance has settlements. Its description and notes can still be edited.')

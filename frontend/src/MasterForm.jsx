@@ -1,9 +1,9 @@
 import { supportsFeature, supportedMasterData } from "./capabilities.js";
 import {imageInput} from "./imageInput.js";
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { X } from "lucide-react";
 
-export default function MasterForm({ kind, close, save, record, features = [] }) {
+export default function MasterForm({ kind, close, save, record, features = [], editBlockReason = "", checkEditSupport, embedded = false, initialName = "", locked = false, notice = "" }) {
   const supported = feature => supportsFeature(features, feature);
   const isParty = kind === "party";
   const [form, setForm] = useState({
@@ -26,13 +26,20 @@ export default function MasterForm({ kind, close, save, record, features = [] })
     barcode: "",
     item_type: "goods",
     ...record?.data,
-    name: record?.name || "",tax_treatment:record?.data?.tax_treatment || (Number(record?.data?.gst_rate||0)>0?"taxable":"nil_rated"),
+    name: record?.name || initialName,tax_treatment:record?.data?.tax_treatment || (Number(record?.data?.gst_rate||0)>0?"taxable":"nil_rated"),
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const update=event=>{const key=event.target.name,value=event.target.value;setForm(current=>({...current,[key]:value,...(key==='gst_rate'?{tax_treatment:Number(value)>0?'taxable':current.tax_treatment==='taxable'?'nil_rated':current.tax_treatment}:key==='tax_treatment'&&value!=='taxable'?{gst_rate:'0'}:{})}))};
+  const submitting = useRef(false);
+  const nameInput = useRef(null);
+  useEffect(() => { if (embedded) nameInput.current?.focus(); }, [embedded]);
+  const dismiss = () => { if (!submitting.current && !busy && !locked) close(); };
+  const update=event=>{const key=event.target.name,value=event.target.value;setForm(current=>({...current,[key]:value,...(embedded && key==="item_type" && value==="services"?{track_stock:false,low_stock_threshold:""}:{}),...(key==='gst_rate'?{tax_treatment:Number(value)>0?'taxable':current.tax_treatment==='taxable'?'nil_rated':current.tax_treatment}:key==='tax_treatment'&&value!=='taxable'?{gst_rate:'0'}:{})}))};
   async function submit(event) {
     event.preventDefault();
+    if (submitting.current) return;
+    if (record && editBlockReason) { setError(editBlockReason); return; }
+    submitting.current = true;
     setBusy(true);
     setError("");
     try {
@@ -65,19 +72,27 @@ export default function MasterForm({ kind, close, save, record, features = [] })
     } catch (err) {
       setError(err.message);
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
   return (
     <div
-      className="overlay"
-      onMouseDown={(event) => event.target === event.currentTarget && close()}
+      className={embedded ? "inline-party-form" : "overlay"}
+      onMouseDown={(event) => !embedded && event.target === event.currentTarget && dismiss()}
     >
       <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Entry form"
+        className={embedded ? "" : "modal"}
+        role={embedded ? "region" : "dialog"}
+        aria-modal={embedded ? undefined : "true"}
+        aria-label={embedded ? `Create ${isParty ? "party" : "item or service"} without leaving invoice` : "Entry form"}
+        onKeyDown={event => {
+          if (!embedded || event.key !== "Tab") return;
+          const controls = [...event.currentTarget.querySelectorAll('button, input, select, textarea')].filter(control => !control.matches(':disabled'));
+          const first = controls[0], last = controls[controls.length - 1];
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+        }}
       >
         <div className="modal-heading">
           <div>
@@ -90,15 +105,17 @@ export default function MasterForm({ kind, close, save, record, features = [] })
                 : "Add a reusable record to this company."}
             </p>
           </div>
-          <button className="icon-button" aria-label="Close" onClick={close}>
+          <button className="icon-button" aria-label="Close" onClick={dismiss} disabled={busy || locked}>
             <X size={18} />
           </button>
         </div>
         <form className="form-grid" onSubmit={submit}>
+          <fieldset className="form-grid full submission-fields" disabled={busy || locked}>
           {!supported("master_lifecycle") && <p className="info-box full">Advanced master settings need an updated connected API. Core details can still be saved; unsupported settings will not be submitted.</p>}
           <label className="full">
             {isParty ? "Party name" : "Item name"}
             <input
+              ref={nameInput}
               name="name"
               required
               maxLength="120"
@@ -173,7 +190,7 @@ export default function MasterForm({ kind, close, save, record, features = [] })
             </>
           ) : (
             <>
-              <div className="full"><label>Item image<input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={async e=>{const file=e.target.files?.[0];if(!file)return;setBusy(true);setError('');try{const [image,thumbnail]=await Promise.all([imageInput(file,600,64000),imageInput(file,160,15000)]);setForm(current=>({...current,image_data_url:image,image_thumbnail:thumbnail}))}catch(err){setError(err.message)}finally{setBusy(false);e.target.value=''}}}/></label>{(form.image_data_url||form.image_thumbnail)&&<><img src={form.image_data_url||form.image_thumbnail} alt="Item preview" style={{maxWidth:150,maxHeight:120}}/><button className="link" type="button" onClick={()=>setForm({...form,image_data_url:'',image_thumbnail:''})}>Remove item image</button></>}</div>
+              {!embedded && <div className="full"><label>Item image<input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={async e=>{const file=e.target.files?.[0];if(!file)return;setBusy(true);setError('');try{const [image,thumbnail]=await Promise.all([imageInput(file,600,64000),imageInput(file,160,15000)]);setForm(current=>({...current,image_data_url:image,image_thumbnail:thumbnail}))}catch(err){setError(err.message)}finally{setBusy(false);e.target.value=''}}}/></label>{(form.image_data_url||form.image_thumbnail)&&<><img src={form.image_data_url||form.image_thumbnail} alt="Item preview" style={{maxWidth:150,maxHeight:120}}/><button className="link" type="button" onClick={()=>setForm({...form,image_data_url:'',image_thumbnail:''})}>Remove item image</button></>}</div>}
               <label>
                 Item type
                 <select
@@ -253,25 +270,29 @@ export default function MasterForm({ kind, close, save, record, features = [] })
                 <input
                   type="checkbox"
                   checked={form.track_stock}
-                  disabled={!!record}
+                  disabled={!!record || (embedded && form.item_type === "services")}
                   onChange={(event) =>
                     setForm({ ...form, track_stock: event.target.checked })
                   }
                 />{" "}
                 Track stock quantities for this item
                 {record && " (fixed after creation)"}
+                {embedded && form.item_type === "services" && <small>Services do not track stock. Stock tracking and any low-stock threshold are cleared.</small>}
               </label>
               {supported("low_stock_reorder") && ((form.track_stock && form.item_type !== "services") || (form.low_stock_threshold !== "" && form.low_stock_threshold != null)) && <label className="full">Low-stock threshold<input name="low_stock_threshold" type="number" min="0" step="0.001" value={form.low_stock_threshold ?? ""} onChange={update} placeholder="Disabled" /><small>Alerts when on-hand stock is at or below this quantity. Blank explicitly disables alerts. Clear this value before changing to a service or untracked item. Changing this never posts stock or accounting entries.</small></label>}
 
             </>
           )}
-          {error && <div className="error full">{error}</div>}
+          {record && editBlockReason && <div className="info-box full" role="status"><p>{editBlockReason}</p>{checkEditSupport && <button type="button" className="button secondary" onClick={() => { setError(""); checkEditSupport(); }}>Check API support again</button>}</div>}
+          </fieldset>
+          {notice && <p className="info-box full" role="status">{notice}</p>}
+          {error && <div className="error full" role="alert">{error}</div>}
           <div className="modal-actions full">
-            <button type="button" className="button secondary" onClick={close}>
+            <button type="button" className="button secondary" onClick={dismiss} disabled={busy || locked}>
               Cancel
             </button>
-            <button className="button primary" disabled={busy}>
-              {busy ? "Saving…" : `Save ${isParty ? "party" : "item"}`}
+            <button className="button primary" disabled={busy || (!!record && !!editBlockReason)}>
+              {busy ? "Saving…" : locked ? `Retry same ${isParty ? "party" : "item"} save` : embedded ? (isParty ? "Create and use party" : "Create item and add line") : `Save ${isParty ? "party" : "item"}`}
             </button>
           </div>
         </form>

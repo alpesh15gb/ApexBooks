@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, StrictInt
 from pwdlib import PasswordHash
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -128,6 +128,20 @@ class Journal(Base):
     reference: Mapped[str] = mapped_column(String(80), nullable=False)
     memo: Mapped[str] = mapped_column(String(500), nullable=False, default='')
     created_by: Mapped[str] = mapped_column(ForeignKey('users.id'), nullable=False)
+
+class JournalCommand(Base):
+    __tablename__ = 'journal_commands'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'operation', 'key'),
+        ForeignKeyConstraint(['company_id', 'journal_id'], ['journals.company_id', 'journals.id']),
+    )
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    company_id: Mapped[str] = mapped_column(ForeignKey('companies.id'), nullable=False, index=True)
+    operation: Mapped[str] = mapped_column(String(128), nullable=False)
+    key: Mapped[str] = mapped_column(String(80), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    journal_id: Mapped[str] = mapped_column(String, nullable=False)
+    response: Mapped[dict] = mapped_column(JSON, nullable=False)
 
 class JournalLine(Base):
     __tablename__ = 'journal_lines'
@@ -315,7 +329,7 @@ def require_write(company: Company, user: User, session: Session):
 def audit(session, company_id, user, action, entity_type, entity_id, details=None):
     session.add(AuditEvent(company_id=company_id, actor_id=user.id, action=action, entity_type=entity_type, entity_id=entity_id, details=details or {}))
 def obj(record):
-    return {'id': record.id, 'kind': record.kind, 'name': record.name, 'number': record.number, 'date': record.date.isoformat(), 'amount': str(record.amount), 'data': record.data}
+    return {'id': record.id, 'kind': record.kind, 'name': record.name, 'number': record.number, 'date': record.date.isoformat(), 'amount': str(record.amount), 'data': ({'version': 0, **(record.data or {})} if record.kind in {'party', 'item'} else record.data)}
 def company_obj(c, session, user=None):
     profile = session.get(CompanyTaxProfile, c.id)
     return {'id': c.id, 'name': c.name, 'book_label':c.book_label, 'gstin': c.gstin, 'state_code': c.state_code, 'address': c.address, 'tax_mode': profile.mode if profile else 'regular', 'role': member_role(c, user, session) if user else 'owner'}
@@ -351,7 +365,7 @@ class RecordInput(BaseModel):
     number: str = ''
     date: DateType = Field(default_factory=business_today)
     amount: Decimal = Field(default=Decimal('0'), max_digits=15, decimal_places=2, allow_inf_nan=False)
-    data: dict = Field(default_factory=dict)
+    data: dict = Field(default_factory=dict, description='Document inputs. A new conversion with source_document_id requires source_document_version: the nonnegative integer version captured when the source was reviewed (legacy sources default to 0). Missing or stale conversion versions return 409; malformed versions return 422. Exact successful idempotent retries remain replayable.')
 class AccountInput(BaseModel):
     code: str = Field(min_length=1, max_length=32, pattern=r'^[A-Za-z0-9_-]+$')
     name: str = Field(min_length=1, max_length=120)
@@ -385,6 +399,9 @@ class StatementImport(BaseModel):
     lines: list[StatementInputLine] = Field(min_length=1, max_length=5000)
 class MatchInput(BaseModel):
     record_id: str
+class UnmatchInput(BaseModel):
+    expected_record_id: str = Field(min_length=1, max_length=100)
+    expected_match_revision: StrictInt = Field(ge=0, description='Captured statement match_revision; never replace it with a newly fetched token while retrying.')
 class BankMatchAllocationInput(BaseModel):
     record_id: str
     amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2, allow_inf_nan=False)
@@ -425,6 +442,10 @@ class MasterRow(BaseModel):
     credit_limit: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2, allow_inf_nan=False)
     is_active: bool = Field(default=True, strict=True)
     shipping_address: str = Field(default='', max_length=500)
+
+class MasterUpdate(MasterRow):
+    # Omitted revisions get an actionable conflict, not an unsafe legacy bypass.
+    version: int = Field(default=None, strict=True, ge=0)
 
 def validate_master_defaults(master, kind):
     if master.credit_limit is not None and kind != 'party':
@@ -470,12 +491,29 @@ class StockAdjustmentInput(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 def lock_company(company_id, user, session):
-    company = company_for(company_id, user, session)
-    session.execute(select(Company.id).where(Company.id == company_id).with_for_update()).scalar_one()
-    # Recheck access after waiting for the same lock used by membership changes.
-    # A revoked editor must not resume a queued posting with stale authorization.
-    require_write(company, user, session)
-    return company
+    # SQLite ignores FOR UPDATE. Reserve its single writer before checking any
+    # financial balance; otherwise concurrent advance/credit spends can both pass.
+    # Never flush unrelated pending ORM changes before obtaining that reservation.
+    with session.no_autoflush:
+        for pending in list(session.dirty) + list(session.deleted):
+            relevant = (isinstance(pending, Company) and pending.id == company_id or
+                        isinstance(pending, CompanyMember) and pending.company_id == company_id)
+            if relevant and (pending in session.deleted or session.is_modified(pending, include_collections=False)):
+                raise HTTPException(409, 'Flush the pending company or membership change before starting another company write')
+        company = company_for(company_id, user, session)
+        if session.bind.dialect.name == 'sqlite':
+            session.execute(update(Company).where(Company.id == company_id)
+                .values(name=Company.name).execution_options(synchronize_session=False))
+        else:
+            session.execute(select(Company.id).where(Company.id == company_id).with_for_update()).scalar_one()
+        # Refresh identities after waiting, then recheck access. Cached owner or
+        # membership roles must not authorize a queued write after a role change.
+        session.expire(company)
+        company = company_for(company_id, user, session)
+        session.scalar(select(CompanyMember).where(CompanyMember.company_id == company_id,
+            CompanyMember.user_id == user.id).execution_options(populate_existing=True))
+        require_write(company, user, session)
+        return company
 def require_open_period(company_id, date, session):
     period_lock = session.get(PeriodLock, company_id)
     if period_lock and date <= period_lock.locked_through:
@@ -622,6 +660,7 @@ def posting_lines(kind, amount, data, tax_mode):
     return lines
 def money(value): return Decimal(str(value)).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
 def calculate(data, company, tax_mode, kind, session):
+    data = {key: value for key, value in data.items() if key not in {'return_rounding', 'preview_record_id'}}
     lines = data.get('lines', [])
     if not isinstance(lines, list) or not 1 <= len(lines) <= 100: raise HTTPException(422, 'Add 1 to 100 items')
     state = str(data.get('place_of_supply', ''))
@@ -718,6 +757,25 @@ def calculate(data, company, tax_mode, kind, session):
     data={**data,'round_off':str(rounded-total)}
     return data, money(rounded)
 
+def allocated_return_cost(source_qty, source_cost, prior_qty, prior_cost, quantity):
+    """Allocate rounded cumulative original cost without restoring it twice.
+
+    Older partial returns may have rounded above today's cumulative target. Leave
+    those historical postings untouched and allocate zero until quantity catches
+    up, but never accept a history that already exceeded the original total cost.
+    """
+    values = (source_qty, source_cost, prior_qty, prior_cost, quantity)
+    if (any(not value.is_finite() for value in values) or source_qty <= 0 or
+            source_cost < 0 or prior_qty < 0 or prior_cost < 0 or quantity <= 0 or
+            prior_qty + quantity > source_qty or prior_cost > source_cost or
+            (prior_qty == 0 and prior_cost != 0)):
+        raise HTTPException(409, 'Source stock return valuation is inconsistent; review the original sale and prior returns')
+    remaining = source_cost - prior_cost
+    if prior_qty + quantity == source_qty:
+        return remaining
+    cumulative = money(source_cost * (prior_qty + quantity) / source_qty)
+    return min(remaining, max(Decimal('0'), cumulative - prior_cost))
+
 def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session):
     if kind not in {'purchase_bill', 'debit_note', 'sales_invoice', 'pos', 'credit_note'}: return data
     if kind in {'credit_note','debit_note'} and data.get('return_stock') is False:
@@ -726,7 +784,9 @@ def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session)
     previous_notes = {}
     if target and kind in {'credit_note', 'debit_note'}:
         posted_notes = select(RecordPosting.record_id).where(RecordPosting.company_id == company_id)
-        for note in session.scalars(select(Record).where(Record.company_id == company_id, Record.kind.in_([kind, 'stock_return'] if kind == 'credit_note' else [kind]), Record.id.in_(posted_notes))):
+        physical_returns = select(StockMovement.source_record_id).where(StockMovement.company_id == company_id)
+        for note in session.scalars(select(Record).where(Record.company_id == company_id, Record.kind.in_([kind, 'stock_return'] if kind == 'credit_note' else [kind]),
+                or_(Record.id.in_(posted_notes), (Record.kind == 'stock_return') & Record.id.in_(physical_returns)))):
             if note.data.get('applied_to') != target.id or note.data.get('return_stock') is False: continue
             for line in note.data.get('lines', []):
                 item_id = line.get('item_id')
@@ -779,8 +839,8 @@ def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session)
             held_qty += qty; held_value += cost
         elif kind == 'credit_note':
             source_cost = sum((Decimal(str(original.get('inventory_cost', '0'))) for original in source_lines), Decimal('0'))
-            remaining_qty = source_qty - prior_qty - (now_qty - qty)
-            cost = source_cost - prior_cost - sum((Decimal(str(other.get('inventory_cost', '0'))) for other in valued if other.get('item_id') == item_id), Decimal('0')) if qty == remaining_qty else money(source_cost * qty / source_qty)
+            current_cost = sum((Decimal(str(other.get('inventory_cost', '0'))) for other in valued if other.get('item_id') == item_id), Decimal('0'))
+            cost = allocated_return_cost(source_qty, source_cost, prior_qty + now_qty - qty, prior_cost + current_cost, qty)
             held_qty += qty; held_value += cost
         else:
             if qty > held_qty: raise HTTPException(422, f'Insufficient stock for {item.name}')
@@ -1141,7 +1201,7 @@ def records(company_id: str, kind: str = '', compact:bool=False, offset:int=Quer
             data={k:v for k,v in row.data.items() if k not in {'vyapar_source','image_data_url','company_snapshot','document_branding'}}
             if row.kind not in {'item','party'}:data['lines']=[]
             if isinstance(data.get('document_branding'),dict):data['document_branding']={k:v for k,v in data['document_branding'].items() if k not in {'logo','signature'}}
-            value['data']=data
+            value['data']={'version': 0, **data} if row.kind in {'party','item'} else data
         result.append({**value, **record_status(row, row.id in posted,
             applied=applied.get(row.id, Decimal('0')), consumed=consumed.get(row.id, Decimal('0')),
             credit_used=credit_used.get(row.id, Decimal('0')), converted_to=conversions.get(row.id))})
@@ -1348,37 +1408,56 @@ def import_masters(company_id: str, body: MasterImport, user: User = Depends(cur
     return {**result, 'created': len(ready)}
 
 @app.put('/api/companies/{company_id}/masters/{master_id}')
-def update_master(company_id: str, master_id: str, body: MasterRow,
+def update_master(company_id: str, master_id: str, body: MasterUpdate,
                   user: User = Depends(current_user), session: Session = Depends(db)):
     lock_company(company_id, user, session)
     validate_item_image(body)
     master = session.scalar(select(Record).where(Record.company_id == company_id,
         Record.id == master_id, Record.kind.in_(['party', 'item'])))
     if not master: raise HTTPException(404, 'Party or item not found')
+    if body.version is None:
+        raise HTTPException(409, 'Master revision required; refresh this party or item and update your app before saving')
+    version = (master.data or {}).get('version', 0)
+    if type(version) is not int or version < 0:
+        raise HTTPException(409, 'This master has an invalid stored revision; ask the company owner to repair or restore it before editing')
+    if body.version != version:
+        raise HTTPException(409, 'This party or item changed on another device. Close this editor, refresh company data and reopen it before saving.')
     validate_master_defaults(body, master.kind)
-    # New metadata omitted by an older client is retained, not implicitly cleared.
+    # Optional metadata omitted by a revision-aware client is retained, not implicitly cleared.
     # Validate that retained threshold against the proposed classification too.
     if master.kind == 'item' and 'low_stock_threshold' not in body.model_fields_set and (master.data or {}).get('low_stock_threshold') is not None and (not body.track_stock or body.item_type != 'goods'):
         raise HTTPException(422, 'Clear the low-stock threshold explicitly before changing this item classification')
     if body.name.strip() != master.name: raise HTTPException(422, 'Names cannot be changed after creation')
+    updated_data = dict(master.data or {})
     if master.kind == 'party':
         if body.party_type not in {'customer', 'supplier', 'both'}: raise HTTPException(422, 'Choose a valid party type')
         if body.gstin and not re.fullmatch(r'\d{2}[A-Z0-9]{13}', body.gstin.upper()): raise HTTPException(422, 'GSTIN must contain 15 characters')
         if body.email.strip() and not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', body.email.strip()): raise HTTPException(422, 'Enter a valid email')
-        master.data = {**(master.data or {}), 'party_type': body.party_type, 'gstin': body.gstin.upper(), 'address': body.address,
+        updated_data = {**updated_data, 'party_type': body.party_type, 'gstin': body.gstin.upper(), 'address': body.address,
                        'phone': body.phone.strip(), 'email': body.email.strip()}
-        if 'payment_terms_days' in body.model_fields_set:master.data={**master.data,'payment_terms_days':body.payment_terms_days}
-        if 'credit_limit' in body.model_fields_set:master.data={**master.data,'credit_limit':str(body.credit_limit) if body.credit_limit is not None else None}
+        if 'payment_terms_days' in body.model_fields_set:updated_data={**updated_data,'payment_terms_days':body.payment_terms_days}
+        if 'credit_limit' in body.model_fields_set:updated_data={**updated_data,'credit_limit':str(body.credit_limit) if body.credit_limit is not None else None}
     else:
         if body.track_stock != bool(master.data.get('track_stock', False)):
             raise HTTPException(422, 'Stock tracking cannot be changed after item creation')
         if body.item_type != master.data.get('item_type', 'goods') and body.track_stock and session.scalar(select(StockMovement.id).where(StockMovement.company_id == company_id, StockMovement.item_id == master.id).limit(1)):
             raise HTTPException(422, 'Item classification cannot change after stock history; create a separate item instead')
         values = body.model_dump(mode='json')
-        master.data = {**(master.data or {}), **{key: values[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold') if key not in {'image_data_url','image_thumbnail','low_stock_threshold'} or key in body.model_fields_set}}
+        updated_data = {**updated_data, **{key: values[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold') if key not in {'image_data_url','image_thumbnail','low_stock_threshold'} or key in body.model_fields_set}}
     for field in ('is_active','shipping_address'):
         if field in body.model_fields_set and (field != 'shipping_address' or master.kind == 'party'):
-            master.data={**master.data,field:getattr(body,field)}
+            updated_data={**updated_data,field:getattr(body,field)}
+    updated_data['version'] = version + 1
+    # SQLite ignores FOR UPDATE. Compare-and-swap protects the revision even
+    # when two clients read the same snapshot before either begins writing.
+    # Do not dirty the ORM object before this statement: autoflush would bypass it.
+    changed = session.execute(update(Record).where(
+        Record.company_id == company_id, Record.id == master_id,
+        func.coalesce(cast(Record.data['version'].as_string(), Text), '0') == str(version)
+    ).values(data=updated_data).execution_options(synchronize_session=False))
+    if changed.rowcount != 1:
+        raise HTTPException(409, 'This party or item changed on another device. Close this editor, refresh company data and reopen it before saving.')
+    session.expire(master, ['data'])
     audit(session, company_id, user, 'master.updated', master.kind, master.id)
     if master.kind == 'item' and hasattr(sys.modules[__name__], 'commerce_stock_changed'): commerce_stock_changed(company_id, session)
     session.commit(); session.refresh(master)
@@ -1444,6 +1523,13 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             existing = session.get(Record, previous.record_id)
             return {**obj(existing), 'posted': bool(session.scalar(select(RecordPosting.id).where(RecordPosting.company_id == company_id, RecordPosting.record_id == existing.id)))}
     data, amount = {k:v for k,v in body.data.items() if k not in {'recurring_template_id','recurring_occurrence_date'}}, money(body.amount)
+    if body.kind in {'sales_invoice', 'purchase_bill', 'pos'}:
+        # Only credit/debit notes can choose a financial-only return. Normal
+        # documents always post their tracked physical movement with valuation.
+        data.pop('return_stock', None)
+    if body.kind in {'payment_in', 'payment_out'}:
+        # Unallocated credit is derived for return notes, never payment input.
+        data.pop('unallocated_credit', None)
     if body.kind in DOCUMENTS|POSTED_KINDS:
         validate_active_references(company_id, body.kind, body.name, data, session, historical_record)
     if body.kind in {'payment_in','payment_out','bank_transfer'}:
@@ -1520,6 +1606,18 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
         if body.kind not in allowed_sources: raise HTTPException(422, 'This document type cannot be converted')
         conversion_source = session.scalar(select(Record).where(Record.company_id == company_id, Record.id == source_id, Record.kind.in_(allowed_sources[body.kind])))
         if not conversion_source: raise HTTPException(422, 'Choose a matching source document in this company')
+        # Bind a conversion to the source snapshot the user actually reviewed.
+        # Exact successful retries return above, even after this source is consumed.
+        if 'source_document_version' not in data:
+            raise HTTPException(409, 'Conversion source revision required; update the app and reopen the source document before converting')
+        source_version = data['source_document_version']
+        if type(source_version) is not int or source_version < 0:
+            raise HTTPException(422, 'Source document version must be a nonnegative integer')
+        current_source_version = conversion_source.data.get('version', 0)
+        if type(current_source_version) is not int or current_source_version < 0:
+            raise HTTPException(409, 'Source document has an invalid stored version; repair or restore it before converting')
+        if source_version != current_source_version:
+            raise HTTPException(409, 'Conversion source changed; reopen it and review the conversion again')
         if conversion_source.name.strip().casefold() != body.name.strip().casefold(): raise HTTPException(422, 'Conversion party must match the source document')
         if body.date < conversion_source.date: raise HTTPException(422, 'Conversion date cannot precede its source document')
         if conversion_source.data.get('vyapar_converted'): raise HTTPException(409, 'This source document was already converted in Vyapar')
@@ -1540,12 +1638,10 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
         if body.date < target.date: raise HTTPException(422, 'Note date cannot precede its source document')
         previous_notes = list(session.scalars(select(Record).where(Record.company_id == company_id, Record.kind == body.kind)))
         previous_notes = [note for note in previous_notes if note.data.get('applied_to') == target.id]
-        if amount + sum((note.amount for note in previous_notes), Decimal('0')) > target.amount:
-            raise HTTPException(422, 'Notes exceed the original document amount')
-        for tax_key in ('cgst', 'sgst', 'igst', 'supplier_tax'):
-            reversed_tax = sum((Decimal(str(note.data.get(tax_key, 0))) for note in previous_notes), Decimal('0'))
-            if Decimal(str(data.get(tax_key, 0))) + reversed_tax > Decimal(str(target.data.get(tax_key, 0))):
-                raise HTTPException(422, 'Note tax exceeds the original document tax')
+        from return_rounding import reconcile
+        data, amount = reconcile(sys.modules[__name__], company, body.kind, data, amount, target, previous_notes, tax_mode, session)
+        from return_budgets import validate_return_budgets
+        validate_return_budgets(body.kind, data, amount, target, previous_notes, tax_mode)
         settled = applied_total(company_id, target.id, session)
         offset = min(amount, max(Decimal('0'), target.amount - settled)) if target.kind!='pos' else Decimal('0')
         data = {**data, 'unallocated_credit': str(amount-offset)}
@@ -1591,7 +1687,7 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             for key, debit, credit in posting_lines(body.kind, amount, data, tax_mode):
                 session.add(JournalLine(company_id=company_id, journal_id=journal.id, account_id=posting_account(company_id, key, session), debit=debit, credit=credit))
             session.add(RecordPosting(company_id=company_id, record_id=r.id, journal_id=journal.id))
-            if body.kind in {'purchase_bill', 'debit_note', 'sales_invoice', 'pos', 'credit_note'} and data.get('return_stock') is not False:
+            if body.kind in {'purchase_bill', 'debit_note', 'sales_invoice', 'pos', 'credit_note'} and not (body.kind in {'credit_note', 'debit_note'} and data.get('return_stock') is False):
                 for index, line in enumerate(data.get('lines', [])):
                     item_id = line.get('item_id')
                     if not item_id: continue
@@ -1722,30 +1818,35 @@ def post_stock_adjustment(company_id: str, body: StockAdjustmentInput, request: 
         amount = money(body.quantity * body.unit_cost)
         quantity, cost_value = body.quantity, amount
         debit_key, credit_key = 'inventory', 'inventory_gain'
-    if amount <= 0 or amount > Decimal('9999999999999.99'):
+    if amount < 0 or amount > Decimal('9999999999999.99'):
         raise HTTPException(422, 'Adjustment value is outside the supported range')
+    if amount == 0 and (held_qty < 0 or held_value < 0 or held_qty == 0 and held_value != 0):
+        raise HTTPException(409, 'Stock valuation is inconsistent; review the existing movements before adjusting')
     record = Record(company_id=company_id, kind='stock_adjustment', name=item.name, date=body.date,
         amount=amount, data={'item_id': item.id, 'direction': body.direction,
             'quantity': str(body.quantity), 'cost_value': str(amount),
             'unit_cost': str(body.unit_cost) if body.unit_cost is not None else None,
-            'reason': body.reason.strip(), 'unit': item.data.get('unit', '')})
+            'reason': body.reason.strip(), 'unit': item.data.get('unit', ''),
+            **({'zero_value_adjustment': True, 'valuation_quantity_before': str(held_qty),
+                'valuation_value_before': str(held_value)} if amount == 0 else {})})
     session.add(record)
     try:
         session.flush()
         record.number = 'ADJ-' + record.id[:8].upper()
-        journal = Journal(company_id=company_id, date=body.date, reference='AUTO:' + record.id,
-                          memo=f'Stock {body.direction}: {item.name} — {body.reason.strip()}'[:500], created_by=user.id)
-        session.add(journal); session.flush()
-        session.add(JournalLine(company_id=company_id, journal_id=journal.id,
-            account_id=system_account(company_id, debit_key, session), debit=amount, credit=Decimal('0')))
-        session.add(JournalLine(company_id=company_id, journal_id=journal.id,
-            account_id=system_account(company_id, credit_key, session), debit=Decimal('0'), credit=amount))
-        session.add(RecordPosting(company_id=company_id, record_id=record.id, journal_id=journal.id))
+        if amount > 0:
+            journal = Journal(company_id=company_id, date=body.date, reference='AUTO:' + record.id,
+                              memo=f'Stock {body.direction}: {item.name} — {body.reason.strip()}'[:500], created_by=user.id)
+            session.add(journal); session.flush()
+            session.add(JournalLine(company_id=company_id, journal_id=journal.id,
+                account_id=system_account(company_id, debit_key, session), debit=amount, credit=Decimal('0')))
+            session.add(JournalLine(company_id=company_id, journal_id=journal.id,
+                account_id=system_account(company_id, credit_key, session), debit=Decimal('0'), credit=amount))
+            session.add(RecordPosting(company_id=company_id, record_id=record.id, journal_id=journal.id))
         session.add(StockMovement(company_id=company_id, item_id=item.id, source_record_id=record.id,
                                   line_index=0, date=body.date, quantity=quantity, cost_value=cost_value))
         audit(session, company_id, user, 'stock.adjustment_posted', 'item', item.id,
               {'direction': body.direction, 'quantity': str(body.quantity),
-               'value': str(amount), 'record_id': record.id})
+               'value': str(amount), 'record_id': record.id, 'posted': amount > 0})
         if hasattr(sys.modules[__name__], 'commerce_stock_changed'): commerce_stock_changed(company_id, session)
         if retry_key:
             session.add(IdempotencyKey(company_id=company_id, key=retry_key, request_hash=request_digest, record_id=record.id))
@@ -1753,7 +1854,7 @@ def post_stock_adjustment(company_id: str, body: StockAdjustmentInput, request: 
     except IntegrityError:
         session.rollback()
         raise HTTPException(409, 'Stock adjustment conflicts with an existing entry')
-    return {**obj(record), 'posted': True}
+    return {**obj(record), 'posted': amount > 0}
 
 @app.get('/api/companies/{company_id}/accounts')
 def list_accounts(company_id: str, user: User = Depends(current_user), session: Session = Depends(db)):
@@ -1805,9 +1906,25 @@ def create_account(company_id: str, body: AccountInput, user: User = Depends(cur
         raise HTTPException(409, 'Account code already exists')
     return {'id': account.id, 'code': account.code, 'name': account.name, 'category': account.category}
 
-@app.post('/api/companies/{company_id}/journals', status_code=201)
-def create_journal(company_id: str, body: JournalInput, user: User = Depends(current_user), session: Session = Depends(db)):
+def journal_retry(company_id, operation, body, request, session):
+    raw = request.headers.get('Idempotency-Key')
+    if raw is None: return None, None, None
+    key = raw.strip()
+    if not key or len(key) > 80: raise HTTPException(422, 'Journal retry key must contain 1 to 80 characters')
+    digest = hashlib.sha256(json.dumps({'operation': operation, 'body': body.model_dump(mode='json')},
+        sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    previous = session.scalar(select(JournalCommand).where(JournalCommand.company_id == company_id,
+        JournalCommand.operation == operation, JournalCommand.key == key))
+    if previous:
+        if previous.request_hash != digest: raise HTTPException(409, 'Journal retry key was used for a different request')
+        return key, digest, dict(previous.response)
+    return key, digest, None
+
+@app.post('/api/companies/{company_id}/journals', status_code=201, openapi_extra={'parameters': [{'name': 'Idempotency-Key', 'in': 'header', 'required': False, 'schema': {'type': 'string', 'minLength': 1, 'maxLength': 80}, 'description': 'Optional legacy-compatible retry key. Exact successful requests replay before period-lock validation; new clients require journal_idempotency capability and preserve this key and body across uncertain outcomes.'}]})
+def create_journal(company_id: str, body: JournalInput, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):
     lock_company(company_id, user, session)
+    retry_key, request_hash, previous = journal_retry(company_id, 'create', body, request, session)
+    if previous is not None: return previous
     require_open_period(company_id, body.date, session)
     reference = body.reference.strip()
     if not reference: raise HTTPException(422, 'Reference is required')
@@ -1826,11 +1943,15 @@ def create_journal(company_id: str, body: JournalInput, user: User = Depends(cur
         for line in body.lines:
             session.add(JournalLine(company_id=company_id, journal_id=journal.id, account_id=line.account_id, debit=line.debit, credit=line.credit))
         audit(session, company_id, user, 'journal.created', 'journal', journal.id, {'reference': reference})
+        response = {'id': journal.id, 'date': journal.date.isoformat(), 'reference': journal.reference, 'memo': journal.memo}
+        if retry_key:
+            session.add(JournalCommand(company_id=company_id, operation='create', key=retry_key,
+                request_hash=request_hash, journal_id=journal.id, response=response))
         session.commit()
     except IntegrityError:
         session.rollback()
         raise HTTPException(409, 'Journal reference already exists')
-    return {'id': journal.id, 'date': journal.date.isoformat(), 'reference': journal.reference, 'memo': journal.memo}
+    return response
 
 @app.get('/api/companies/{company_id}/journals')
 def list_journals(company_id: str, user: User = Depends(current_user), session: Session = Depends(db)):
@@ -1842,9 +1963,12 @@ def list_journals(company_id: str, user: User = Depends(current_user), session: 
     source = {p.journal_id: p.record_id for p in session.scalars(select(RecordPosting).where(RecordPosting.company_id == company_id))}
     return [{'id': j.id, 'date': j.date.isoformat(), 'reference': j.reference, 'memo': j.memo, 'source_record_id': source.get(j.id), 'reversed_by': originals.get(j.id), 'reversal_of': reversals.get(j.id), 'lines': [{'account_id': l.account_id, 'debit': str(l.debit), 'credit': str(l.credit)} for l in session.scalars(select(JournalLine).where(JournalLine.company_id == company_id, JournalLine.journal_id == j.id))]} for j in entries]
 
-@app.post('/api/companies/{company_id}/journals/{journal_id}/reverse', status_code=201)
-def reverse_journal(company_id: str, journal_id: str, body: ReversalInput, user: User = Depends(current_user), session: Session = Depends(db)):
+@app.post('/api/companies/{company_id}/journals/{journal_id}/reverse', status_code=201, openapi_extra={'parameters': [{'name': 'Idempotency-Key', 'in': 'header', 'required': False, 'schema': {'type': 'string', 'minLength': 1, 'maxLength': 80}, 'description': 'Optional legacy-compatible retry key. Exact successful requests replay before period-lock validation; new clients require journal_idempotency capability and preserve this key and body across uncertain outcomes.'}]})
+def reverse_journal(company_id: str, journal_id: str, body: ReversalInput, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):
     lock_company(company_id, user, session)
+    operation = 'reverse:' + journal_id
+    retry_key, request_hash, previous = journal_retry(company_id, operation, body, request, session)
+    if previous is not None: return previous
     require_open_period(company_id, body.date, session)
     original = session.scalar(select(Journal).where(Journal.company_id == company_id, Journal.id == journal_id))
     if not original: raise HTTPException(404, 'Journal not found')
@@ -1863,11 +1987,15 @@ def reverse_journal(company_id: str, journal_id: str, body: ReversalInput, user:
         for line in lines:
             session.add(JournalLine(company_id=company_id, journal_id=reversal.id, account_id=line.account_id, debit=line.credit, credit=line.debit))
         audit(session, company_id, user, 'journal.reversed', 'journal', reversal.id, {'original_id': journal_id, 'reason': body.reason.strip()})
+        response = {'id': reversal.id, 'reference': reversal.reference, 'reversal_of': journal_id}
+        if retry_key:
+            session.add(JournalCommand(company_id=company_id, operation=operation, key=retry_key,
+                request_hash=request_hash, journal_id=reversal.id, response=response))
         session.commit()
     except IntegrityError:
         session.rollback()
         raise HTTPException(409, 'Reference already exists or journal was already reversed')
-    return {'id': reversal.id, 'reference': reversal.reference, 'reversal_of': journal_id}
+    return response
 
 @app.get('/api/companies/{company_id}/period-lock')
 def get_period_lock(company_id: str, user: User = Depends(current_user), session: Session = Depends(db)):
@@ -1887,31 +2015,44 @@ def set_period_lock(company_id: str, body: LockInput, user: User = Depends(curre
     session.commit()
     return {'locked_through': body.locked_through.isoformat()}
 
+def ledger_snapshot(company_id, from_date, to_date, session, *, closing_from=None):
+    # One statement snapshots account identities and journal values together.
+    # Keep Decimal accumulation in Python: SQLite SUM over Numeric uses floats.
+    movements = (select(JournalLine.account_id, Journal.date.label('date'), JournalLine.debit, JournalLine.credit)
+        .join(Journal, (Journal.id == JournalLine.journal_id) & (Journal.company_id == JournalLine.company_id))
+        .where(Journal.company_id == company_id, Journal.date <= to_date)).subquery()
+    rows = session.execute(select(LedgerAccount.id, LedgerAccount.code, LedgerAccount.name, LedgerAccount.category,
+        movements.c.date, movements.c.debit, movements.c.credit)
+        .outerjoin(movements, movements.c.account_id == LedgerAccount.id)
+        .where(LedgerAccount.company_id == company_id).order_by(LedgerAccount.code))
+    accounts, period, cumulative = [], {}, {}
+    from types import SimpleNamespace
+    for account_id, code, name, category, day, debit, credit in rows:
+        if account_id not in cumulative:
+            accounts.append(SimpleNamespace(id=account_id, code=code, name=name, category=category))
+            period[account_id] = Decimal('0'); cumulative[account_id] = Decimal('0')
+        if day is None: continue
+        value = debit - credit
+        if from_date is None or day >= from_date: period[account_id] += value
+        if closing_from is None or day >= closing_from: cumulative[account_id] += value
+    return accounts, period, cumulative
+
 @app.get('/api/companies/{company_id}/trial-balance')
 def trial_balance(company_id: str, through: DateType, user: User = Depends(current_user), session: Session = Depends(db)):
     company_for(company_id, user, session)
-    accounts = list(session.scalars(select(LedgerAccount).where(LedgerAccount.company_id == company_id).order_by(LedgerAccount.code)))
-    totals = {a.id: Decimal('0') for a in accounts}
-    rows = session.execute(select(JournalLine.account_id, JournalLine.debit, JournalLine.credit).join(Journal, (Journal.id == JournalLine.journal_id) & (Journal.company_id == JournalLine.company_id)).where(Journal.company_id == company_id, Journal.date <= through))
-    for account_id, debit, credit in rows: totals[account_id] += debit - credit
+    accounts, _, totals = ledger_snapshot(company_id, None, through, session)
     result = [{'id': a.id, 'code': a.code, 'name': a.name, 'category': a.category, 'debit': str(max(totals[a.id], Decimal('0'))), 'credit': str(max(-totals[a.id], Decimal('0')))} for a in accounts]
     return {'through': through.isoformat(), 'accounts': result, 'total_debit': str(sum((max(value, Decimal('0')) for value in totals.values()), Decimal('0'))), 'total_credit': str(sum((max(-value, Decimal('0')) for value in totals.values()), Decimal('0')))}
 
 def account_movements(company_id, from_date, to_date, session):
-    accounts = list(session.scalars(select(LedgerAccount).where(LedgerAccount.company_id == company_id).order_by(LedgerAccount.code)))
-    totals = {a.id: Decimal('0') for a in accounts}
-    rows = session.execute(select(JournalLine.account_id, JournalLine.debit, JournalLine.credit)
-        .join(Journal, (Journal.id == JournalLine.journal_id) & (Journal.company_id == JournalLine.company_id))
-        .where(Journal.company_id == company_id, Journal.date >= from_date, Journal.date <= to_date))
-    for account_id, debit, credit in rows: totals[account_id] += debit - credit
-    return accounts, totals
+    accounts, period, _ = ledger_snapshot(company_id, from_date, to_date, session)
+    return accounts, period
 
 @app.get('/api/companies/{company_id}/reports/financial')
 def financial_report(company_id: str, from_date: DateType, to_date: DateType, user: User = Depends(current_user), session: Session = Depends(db)):
     company_for(company_id, user, session)
     if from_date > to_date: raise HTTPException(422, 'Start date must be before end date')
-    accounts, period = account_movements(company_id, from_date, to_date, session)
-    _, cumulative = account_movements(company_id, DateType(1900, 1, 1), to_date, session)
+    accounts, period, cumulative = ledger_snapshot(company_id, from_date, to_date, session, closing_from=DateType(1900, 1, 1))
     rows = [{'code': a.code, 'name': a.name, 'category': a.category,
              'period_balance': str(period[a.id] if a.category in {'asset', 'expense'} else -period[a.id]),
              'closing_balance': str(cumulative[a.id] if a.category in {'asset', 'expense'} else -cumulative[a.id])}
@@ -1944,11 +2085,13 @@ def party_report(company_id: str, from_date: DateType, to_date: DateType, party:
     for r in records:
         if r.data.get('is_advance'): continue
         if r.kind in {'sales_invoice','opening_receivable'}: receivable += r.amount
-        elif r.kind in {'credit_note', 'payment_in'}: receivable -= r.amount - Decimal(str(r.data.get('unallocated_credit',0)))
+        elif r.kind == 'payment_in': receivable -= r.amount
+        elif r.kind == 'credit_note': receivable -= r.amount - Decimal(str(r.data.get('unallocated_credit',0)))
         elif r.kind in {'purchase_bill','opening_payable'}: payable += r.amount
         elif r.kind in {'advance_application','credit_application'} and r.data.get('payment_kind') == 'payment_in': receivable -= r.amount
         elif r.kind in {'advance_application','credit_application'}: payable -= r.amount
-        elif r.kind in {'debit_note','payment_out'}: payable -= r.amount - Decimal(str(r.data.get('unallocated_credit',0)))
+        elif r.kind == 'payment_out': payable -= r.amount
+        elif r.kind == 'debit_note': payable -= r.amount - Decimal(str(r.data.get('unallocated_credit',0)))
         if r.date < from_date:
             opening_receivable, opening_payable = receivable, payable
         else:
@@ -2264,7 +2407,7 @@ def item_report(company_id: str, from_date: DateType, to_date: DateType, user: U
                 values[key] = {'name': name, 'hsn': key[1], 'opening_quantity': Decimal('0'), 'purchased_quantity': Decimal('0'),
                                'sold_quantity': Decimal('0'), 'closing_quantity': Decimal('0'), 'purchase_value': Decimal('0'), 'sales_value': Decimal('0')}
             item = values[key]
-            qty = Decimal(str(line.get('quantity', 0))) if record.data.get('return_stock') is not False else Decimal('0')
+            qty = Decimal('0') if record.kind in {'credit_note', 'debit_note'} and record.data.get('return_stock') is False else Decimal(str(line.get('quantity', 0)))
             taxable = Decimal(str(line.get('taxable', 0)))
             movement = qty if record.kind in {'purchase_bill', 'credit_note'} else -qty
             if record.date < from_date:
@@ -2389,15 +2532,33 @@ def import_bank_statement(company_id: str, body: StatementImport, user: User = D
         raise HTTPException(409, 'Concurrent import conflict; retry')
     return {'added': added, 'duplicates': duplicates}
 
+def bank_match_revision_query(company_id):
+    return select(AuditEvent.entity_id.label('line_id'), func.count(AuditEvent.id).label('revision')).where(
+        AuditEvent.company_id == company_id, AuditEvent.entity_type == 'bank_statement_line',
+        AuditEvent.action.in_(('bank_statement.matched', 'bank_statement.unmatched'))
+    ).group_by(AuditEvent.entity_id)
+
+def bank_match_revisions(company_id, line_ids, session):
+    # Audit rows are immutable. Restoring creates new company/line identities and
+    # archives source events under backup.source_event, so their live count is 0.
+    if not line_ids: return {}
+    return dict(session.execute(bank_match_revision_query(company_id).where(AuditEvent.entity_id.in_(line_ids))).all())
+
 @app.get('/api/companies/{company_id}/bank-statement')
 def bank_statement(company_id: str, bank_account_id: str = 'default', as_of: DateType | None = None, user: User = Depends(current_user), session: Session = Depends(db)):
     company_for(company_id, user, session)
     bank_account = bank_account_for(company_id, bank_account_id, session)
     bank_id = bank_account.id if bank_account else None
     scope = BankStatementLine.bank_account_id == bank_id if bank_id else BankStatementLine.bank_account_id.is_(None)
-    statement_query = select(BankStatementLine).where(BankStatementLine.company_id == company_id, scope)
+    # Read exact-match identity and its generation in one database snapshot. Two
+    # independent SELECTs could pair an old identity with a newer ABA revision.
+    revision_counts = bank_match_revision_query(company_id).subquery()
+    statement_query = select(BankStatementLine, func.coalesce(revision_counts.c.revision, 0)).outerjoin(
+        revision_counts, revision_counts.c.line_id == BankStatementLine.id).where(BankStatementLine.company_id == company_id, scope)
     if as_of: statement_query = statement_query.where(BankStatementLine.date <= as_of)
-    rows = list(session.scalars(statement_query.order_by(BankStatementLine.date.desc(), BankStatementLine.id)))
+    snapshots = list(session.execute(statement_query.order_by(BankStatementLine.date.desc(), BankStatementLine.id)))
+    rows = [row for row, revision in snapshots]
+    revisions = {row.id: revision for row, revision in snapshots}
     allocations_by_line = {r.id: [] for r in rows}
     if rows:
         for allocation in session.scalars(select(BankMatchAllocation).where(
@@ -2413,6 +2574,7 @@ def bank_statement(company_id: str, bank_account_id: str = 'default', as_of: Dat
         result.append({'id': line.id, 'bank_account_id': line.bank_account_id or 'default',
             'date': line.date.isoformat(), 'description': line.description, 'reference': line.reference,
             'amount': str(line.amount), 'matched_record_id': line.matched_record_id,
+            'match_revision': revisions.get(line.id, 0),
             'matched_amount': str(matched_amount), 'remaining_amount': str(abs(line.amount) - matched_amount),
             'allocations': allocations})
     return result
@@ -2502,18 +2664,20 @@ def remove_bank_match_allocation(company_id: str, allocation_id: str, user: User
     return {'removed': allocation_id}
 
 @app.delete('/api/companies/{company_id}/bank-statement/{line_id}/match')
-def unmatch_bank_statement(company_id: str, line_id: str, user: User = Depends(current_user), session: Session = Depends(db)):
+def unmatch_bank_statement(company_id: str, line_id: str, body: UnmatchInput | None = None, user: User = Depends(current_user), session: Session = Depends(db)):
     lock_company(company_id, user, session)
     line = session.scalar(select(BankStatementLine).where(BankStatementLine.company_id == company_id, BankStatementLine.id == line_id))
     if not line: raise HTTPException(404, 'Statement line not found')
-    if not line.matched_record_id and session.scalar(select(BankMatchAllocation.id).where(
-        BankMatchAllocation.company_id == company_id, BankMatchAllocation.statement_line_id == line.id)):
-        raise HTTPException(409, 'Remove this line’s allocations individually')
+    if body is None:
+        raise HTTPException(409, 'Bank match revision required; update the app and reload the statement before unmatching')
+    revision = bank_match_revisions(company_id, [line.id], session).get(line.id, 0)
+    if not line.matched_record_id or line.matched_record_id != body.expected_record_id or revision != body.expected_match_revision:
+        raise HTTPException(409, 'Bank match changed; reload the statement and review its current match')
     old_record_id = line.matched_record_id
     line.matched_record_id = None
     if old_record_id: audit(session, company_id, user, 'bank_statement.unmatched', 'bank_statement_line', line.id, {'record_id': old_record_id})
     session.commit()
-    return {'matched_record_id': None}
+    return {'matched_record_id': None, 'match_revision': revision + 1}
 
 @app.get('/api/companies/{company_id}/bank-reconciliation')
 def bank_reconciliation(company_id: str, bank_account_id: str = 'default', as_of: DateType | None = None, opening_balance: Decimal = Query(Decimal('0')), user: User = Depends(current_user), session: Session = Depends(db)):

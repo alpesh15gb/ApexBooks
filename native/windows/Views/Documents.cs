@@ -14,8 +14,13 @@ public sealed partial class MainPage
     private async Task EditDocument(string kind, JsonObject? previous = null, JsonObject? conversion = null,JsonObject? returnSource=null,JsonObject? draftSeed=null)
     {
         var cid = CompanyId; var stamp = generation;
+        var editorSession=Api.SessionGeneration;var inlineOpen=false;InlineMasterSubmission? inlineCommand=null;
+        var inlineAllowed=kind=="sales_invoice"&&previous is null&&conversion is null&&returnSource is null&&draftSeed is null&&CanWrite;
         if (conversion is not null) conversion = (await Api.Record(cid, conversion.Text("id"))).Object();
         if (stamp != generation) return;
+        var conversionId=conversion?.Text("id")??"";
+        long? conversionVersion=conversion is null?null:WorkflowMasterValues.SourceDocumentVersion(conversion["data"].Object());
+        var conversionVerifiedAtOpen=Supports("document_conversion_revisions");
         var source = previous ?? conversion ?? returnSource ?? draftSeed; var data = source?["data"].Object() ?? new();
         var regular = Company.Text("tax_mode") == "regular"; var purchase = kind is "purchase_bill" or "purchase_order" or "debit_note" or "expense";
         var panel = Stack(16); panel.Width = Math.Clamp(((App.Window.Content as FrameworkElement)?.ActualWidth ?? 1240) - 112, 420, 1320);
@@ -23,6 +28,7 @@ public sealed partial class MainPage
         var info = new InfoBar { IsClosable = true };
         void LocalError(Exception e) { info.Severity = InfoBarSeverity.Error; info.Message = e.Message; info.IsOpen = true; }
         panel.Children.Add(info);if(!Api.Capabilities.HasCoreAdditions)panel.Children.Add(CapabilityNotice());
+        if(conversion is not null&&!conversionVerifiedAtOpen){panel.Children.Add(Text("Conversion saving is disabled until the API confirms source revision protection. Check features, then close and reopen this conversion. Ordinary document creation remains available.",12));panel.Children.Add(CapabilityNotice());}
         var party = new AutoSuggestBox { Header = kind == "expense" ? "Supplier / expense description" : "Customer / supplier", Text = source.Text("name"), PlaceholderText = "Choose a party or enter a name" };
         var number = Input("Reference number", previous.Text("number"));number.PlaceholderText="Assigned on save";number.MaxLength=16;
         var date = new DateInput("Document date", previous.Text("date") is { Length: > 0 } d ? d : J.Today);
@@ -31,7 +37,7 @@ public sealed partial class MainPage
         var shipping = Input("Shipping address", data.Text("shipping_address"), true);var lastShippingDefault="";
         var supplierState = Input("Supplier state code", data.Text("supplier_state") is { Length: > 0 } ss ? ss : data.Text("party_gstin").Length>=2 ? data.Text("party_gstin")[..2] : Company.Text("state_code"));
         var supply = Input("Place of supply · state code", data.Text("place_of_supply") is { Length: > 0 } ps ? ps : Company.Text("state_code"));
-        var discount = Input("Document discount (%)", data.Text("document_discount_percent") is { Length: > 0 } disc ? disc : "0");
+        var discount = Input("Document discount (%)", WorkflowMasterValues.SourceDocumentDiscount(data));
         var round = new CheckBox { Content = "Round total to nearest rupee", IsChecked = data.Flag("round_total") };
         var returnStock = new CheckBox { Content = "Return stock with this note", IsChecked = !data.ContainsKey("return_stock") || data.Flag("return_stock") };
         var method = Select("Paid through", [("cash", "Cash"), ("bank", "Bank / UPI / card")], data.Text("payment_account") is { Length: > 0 } pay ? pay : "cash");
@@ -55,7 +61,7 @@ public sealed partial class MainPage
             if (tender.Text.Length > 0) values["tender_amount"] = tender.Text;
             if (appliedTo.Length > 0) values["applied_to"] = appliedTo;
             if (previous is not null) values["version"] = data["version"].Copy() ?? JsonValue.Create(0);
-            if (conversion is not null) values["source_document_id"] = conversion.Text("id");
+            if(conversionVersion is { } sourceRevision){values["source_document_id"]=conversionId;values["source_document_version"]=sourceRevision;}
             return values;
         }
         string FixedSignature()=>appliedTo+"|"+string.Join("|",lines.Select(line=>line.DiscountReviewIdentity+":"+line.DiscountReviewRevision+":"+line.Quantity.Text+":"+line.Data().Text("discount_amount")));
@@ -74,7 +80,7 @@ public sealed partial class MainPage
             try
             {
                 await Task.Delay(350, request.Token);
-                var body = BodyValue(); body["name"] = "Preview"; var result = await Api.Send(Api.CompanyPath(cid, "/documents/preview"), HttpMethod.Post, body, cancellation: request.Token);
+                var body = WorkflowMasterValues.DocumentPreview(BodyValue(),previous?.Text("id")); var result = await Api.Send(Api.CompanyPath(cid, "/documents/preview"), HttpMethod.Post, body, cancellation: request.Token);
                 if (!request.IsCancellationRequested) {
                     var calculated=result["data"];preview.Text = "Subtotal " + J.Money(calculated.Number("taxable")) + "   ·   GST " + J.Money(calculated.Number("cgst") + calculated.Number("sgst") + calculated.Number("igst") + calculated.Number("supplier_tax")) + "   ·   Total " + J.Money(result.Number("amount"));
                     var values=calculated?["lines"].Array()??new();for(var i=0;i<Math.Min(lines.Count,values.Count);i++)lines[i].Amount.Text=J.Money(values[i].Number("taxable")+values[i].Number("tax"));
@@ -92,6 +98,7 @@ public sealed partial class MainPage
         }
         void AddLine(JsonObject? initial = null, bool preserveImportedValues = false)
         {
+            if(inlineAllowed&&lines.Count>=100){LocalError(new InvalidOperationException("An invoice supports at most100 lines."));return;}
             var line = new DocumentLine(Records.OfType<JsonObject>().Where(r => r.Text("kind") == "item" && (WorkflowMasterValues.IsActive(r)||previous is not null&&r.Text("id")==initial.Text("item_id"))), purchase, regular, initial, preserveImportedValues); var holder = Stack(6); holder.Children.Add(line.View);
             var history=Stack(8);
             if(Supports("party_price_history")&&kind is "sales_invoice" or "purchase_bill" or "estimate" or "proforma" or "sales_order" or "purchase_order"){
@@ -110,10 +117,37 @@ public sealed partial class MainPage
             holder.Children.Add(Button("Remove this item", () => { lines.Remove(line); linesPanel.Children.Remove(holder); _ = Calculate(); }));
             lines.Add(line); linesPanel.Children.Add(holder); line.Changed += () => _ = Calculate();_ = Calculate();
         }
+        DocumentLine? pristineLine=null;string pristineLineData="";
+        bool PristinePlaceholder()=>InlineMasterSubmission.CanReusePlaceholder(lines.Count,lines.Count==1&&ReferenceEquals(lines[0],pristineLine),lines.Count==1?lines[0].Data().ToJsonString():"",pristineLineData);
+        void BeginInline(string masterKind,Control returnFocus)
+        {
+            if(!inlineAllowed||inlineOpen||submission.Unresolved||cid!=CompanyId||stamp!=generation||editorSession!=Api.SessionGeneration||!CanWrite)return;
+            if(masterKind=="item"&&!InlineMasterSubmission.CanAppend(lines.Count))throw new InvalidOperationException("An invoice supports at most100 lines. Remove a line before creating another item.");
+            var original=panel.Children.Select(child=>(Child:child,Visibility:child.Visibility)).ToArray();StackPanel? childPanel=null;inlineOpen=true;
+            bool Current()=>cid==CompanyId&&stamp==generation&&editorSession==Api.SessionGeneration&&CanWrite;
+            void Close(){if(childPanel is not null)panel.Children.Remove(childPanel);foreach(var entry in original)entry.Child.Visibility=entry.Visibility;inlineOpen=false;inlineCommand=null;returnFocus.Focus(FocusState.Programmatic);returnFocus.StartBringIntoView();}
+            var editor=InlineMasterEditor(masterKind,cid,Current,created=>{
+                if(!Current())return;
+                if(!Records.Any(r=>r.Text("id")==created.Text("id")))Records.Add(created.Copy());
+                created=InlineMasterSubmission.CurrentRow(Records,created);
+                if(!WorkflowMasterValues.IsActive(created)){Close();LocalError(new InvalidOperationException("The master was created but is now archived. It was not selected. Refresh and review/reactivate it in Parties or Items after leaving this invoice; do not create a duplicate."));return;}
+                if(masterKind=="party"){
+                    var values=created["data"];partyId=created.Text("id");party.Text=created.Text("name");address.Text=values.Text("address");phone.Text=values.Text("phone");gstin.Text=values.Text("gstin");
+                    var delivery=WorkflowMasterValues.ShippingAddress(values);if(shipping.Text.Length==0||shipping.Text==lastShippingDefault)shipping.Text=delivery;lastShippingDefault=delivery;
+                    supply.Text=InlineMasterSubmission.PartySupplyState(created,Company.Text("state_code"));
+                }else{
+                    if(!InlineMasterSubmission.CanAppend(lines.Count))throw new InvalidOperationException("Item created, but invoice is full. Cancel and select it in a later invoice.");
+                    if(PristinePlaceholder()){lines.Clear();linesPanel.Children.Clear();}
+                    AddLine(InlineMasterSubmission.ItemLine(created,regular));
+                }
+                Close();_=Calculate();
+            },Close);childPanel=editor.Panel;inlineCommand=editor.Submission;
+            foreach(var entry in original)entry.Child.Visibility=Visibility.Collapsed;panel.Children.Insert(0,childPanel);childPanel.StartBringIntoView();
+        }
         void ReplaceLines(JsonArray values, bool preserveImportedValues = false) { lines.Clear(); linesPanel.Children.Clear(); foreach (var value in values.OfType<JsonObject>()) AddLine(value,preserveImportedValues); if (lines.Count == 0) AddLine(); _ = Calculate(); }
 
         panel.Children.Add(SectionHeading("01",purchase?"Supplier & bill details":"Customer & document details","Choose an existing party to fill its saved details."));
-        var identity=Stack(10);identity.Children.Add(party);identity.Children.Add(regular||purchase?Columns(phone,gstin):phone);
+        var identity=Stack(10);identity.Children.Add(party);if(inlineAllowed)identity.Children.Add(AsyncButton("+ Create customer here",()=>{BeginInline("party",party);return Task.CompletedTask;},LocalError));identity.Children.Add(regular||purchase?Columns(phone,gstin):phone);
         var metadata=Stack(10);metadata.Children.Add(Columns(number,date.View));
         if(kind is "sales_invoice" or "purchase_bill")metadata.Children.Add(regular||purchase?Columns(due.View,supply):due.View);else if(regular||purchase)metadata.Children.Add(supply);
         if(purchase)metadata.Children.Add(supplierState);
@@ -137,7 +171,7 @@ public sealed partial class MainPage
             target.SelectionChanged += async (_, _) =>
             {
                 var id = Value(target); appliedTo = id; if (id.Length == 0) return; target.IsEnabled = false;sourceLoading=true;
-                try { var original = await Api.Record(cid, id); if (appliedTo != id) return; party.Text = original.Text("name"); var values = original["data"]; partyId = values.Text("party_id"); address.Text = values.Text("party_address"); gstin.Text = values.Text("party_gstin"); phone.Text = values.Text("party_phone"); supply.Text = values.Text("place_of_supply"); supplierState.Text = values.Text("supplier_state") is { Length: > 0 } state ? state : values.Text("party_gstin").Length >= 2 ? values.Text("party_gstin")[..2] : Company.Text("state_code"); ReplaceLines(values?["lines"].Array() ?? new()); }
+                try { var original = await Api.Record(cid, id); if (appliedTo != id) return; party.Text = original.Text("name"); var values = original["data"]; partyId = values.Text("party_id"); address.Text = values.Text("party_address"); gstin.Text = values.Text("party_gstin"); phone.Text = values.Text("party_phone"); supply.Text = values.Text("place_of_supply"); supplierState.Text = values.Text("supplier_state") is { Length: > 0 } state ? state : values.Text("party_gstin").Length >= 2 ? values.Text("party_gstin")[..2] : Company.Text("state_code"); discount.Text = WorkflowMasterValues.SourceDocumentDiscount(values); ReplaceLines(values?["lines"].Array() ?? new()); }
                 catch (Exception e) { LocalError(e); } finally { target.IsEnabled = true;sourceLoading=false; }
             };
             panel.Children.Add(target);
@@ -160,6 +194,7 @@ public sealed partial class MainPage
         }
         panel.Children.Add(SectionHeading("02","Items & services","Select an item or enter a description. Tax and totals are calculated automatically."));
         panel.Children.Add(linesPanel); ReplaceLines(data["lines"].Array()); panel.Children.Add(Button("+ Add item", () => AddLine()));
+        if(inlineAllowed){pristineLine=lines.Count==1?lines[0]:null;pristineLineData=pristineLine?.Data().ToJsonString()??"";Button? createItem=null;createItem=AsyncButton("+ Create item here",()=>{BeginInline("item",createItem!);return Task.CompletedTask;},LocalError);panel.Children.Add(createItem);}
         panel.Children.Add(SectionHeading("03","Adjustments & notes","Review the final amounts before saving."));
         if(kind is "credit_note" or "debit_note"){
             fixedReviewBox=new CheckBox{Content="I reviewed the fixed ₹ line discounts against the quantities being returned"};panel.Children.Add(Text("Fixed ₹ discounts are copied unchanged from the source. They are not automatically prorated when return quantities change; review each affected line.",12));panel.Children.Add(fixedReviewBox);
@@ -181,6 +216,8 @@ public sealed partial class MainPage
         var baseline=BodyValue().ToJsonString();var keepNew=false;
         async Task Save()
         {
+            if(conversion is not null)Api.Capabilities.RequireDocumentConversionSupport();
+            if(inlineOpen)throw new Exception("Finish or cancel the inline master creation before saving this invoice.");
             if(sourceLoading)throw new Exception("Wait for the source document to finish loading.");
             if(!submission.Unresolved&&NeedsFixedReview()&&!fixedReview.IsAcknowledged(FixedSignature()))throw new Exception("Review each fixed ₹ discount against the quantities being returned, then acknowledge the review before saving.");
             if (party.Text.Trim().Length == 0) throw new Exception("Enter the customer, supplier or description.");
@@ -191,11 +228,11 @@ public sealed partial class MainPage
             }
             if (kind is "credit_note" or "debit_note" && appliedTo.Length == 0) throw new Exception("Choose the original posted document.");
             try{await Api.SaveRecord(cid, submission.Body(BodyValue()), retryKey, previous);submission.Succeeded();}
-            catch(Exception e){submission.Failed(e);NativeUi.SetFormEnabled(panel,!submission.Unresolved);if(submission.Unresolved)throw new Exception("The save outcome is unknown. The original values are locked; press Save again to safely recover the same document.",e);throw;}
+            catch(Exception e){var revisionConflict=WorkflowMasterValues.DocumentWriteFailed(submission,e,conversion is not null);NativeUi.SetFormEnabled(panel,!submission.Unresolved);if(revisionConflict)throw new Exception(e.Message+" Your entered values remain in this form. Copy any needed changes, then close, refresh and reopen the source to compare. If an earlier attempt was interrupted, it may already have saved; check the destination before creating another.",e);if(submission.Unresolved)throw new Exception("The save outcome is unknown. The original values are locked; press Save again to safely recover the same document.",e);throw;}
         }
         var saved = await Dialog((previous is not null ? "Edit " : "New ") + FeatureCatalog.Singular(kind), panel, Save,
             previous is null ? "Save " + (kind=="purchase_bill"?"bill":kind=="sales_invoice"?"invoice":"document") : "Save changes",
-            canSave:()=>!sourceLoading,unresolved:()=>submission.Unresolved,hasChanges:()=>BodyValue().ToJsonString()!=baseline,
+            canSave:()=>!sourceLoading&&!inlineOpen&&(conversion is null||conversionVerifiedAtOpen&&Supports("document_conversion_revisions")),unresolved:()=>submission.Unresolved||inlineCommand?.Unresolved==true,hasChanges:()=>inlineOpen||BodyValue().ToJsonString()!=baseline,
             saveAndNew:previous is null&&conversion is null?async()=>{await Save();keepNew=true;}:null,stickyFooter:Card(totals));
         previewRequest?.Cancel(); if (saved && cid == CompanyId) await Refresh();
         if(saved&&keepNew&&cid==CompanyId)await EditDocument(kind);

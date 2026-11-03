@@ -27,7 +27,7 @@ export default function StockAdjustment({items, close, save}) {
         <label>Quantity<input name="quantity" type="number" min="0.001" step="0.001" required value={form.quantity} onChange={change}/></label>
         {form.direction === 'increase' && <label>Cost per unit (₹)<input name="unit_cost" type="number" min="0.01" step="0.01" required value={form.unit_cost} onChange={change}/></label>}
         <label className="full">Reason<input name="reason" required maxLength="500" value={form.reason} onChange={change} placeholder="e.g. stock count or damage"/></label>
-        <div className="info-box full">A decrease uses the current moving average cost and posts an inventory loss. An increase uses the entered cost and posts an inventory gain. Adjustments cannot be backdated before the latest stock movement.</div>
+        <div className="info-box full">A decrease uses the current moving average cost; an increase uses the entered cost. Nonzero values post an inventory loss or gain. A zero-value adjustment changes counted stock only, with no financial journal. Adjustments cannot be backdated before the latest stock movement.</div>
         </fieldset>
         {pending && !busy && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
         {error && <div className="error full">{error}</div>}

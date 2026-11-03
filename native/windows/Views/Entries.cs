@@ -41,6 +41,8 @@ public sealed partial class MainPage
     {
         var cid = CompanyId; var panel = Stack(); panel.MinWidth = 580;
         var data = existing?["data"].Copy().Object() ?? new JsonObject();var initialMasterData=data.Copy().Object();
+        var revisionVerifiedAtOpen=Supports("master_edit_revisions");
+        if(existing is not null&&!revisionVerifiedAtOpen){panel.Children.Add(Text("Editing this existing party or item is disabled until the server confirms master revision protection. Check features, then close and reopen this editor. Creating and viewing masters remains available.",12));panel.Children.Add(CapabilityNotice());}
         var name = Input(kind == "party" ? "Party name" : "Item name", existing.Text("name")); name.MaxLength=120;name.IsReadOnly = existing is not null; panel.Children.Add(name);
         var active=new CheckBox{Content="Active · available for new documents",IsChecked=WorkflowMasterValues.IsActive(existing),IsEnabled=Supports("master_lifecycle")};panel.Children.Add(active);if(!Api.Capabilities.HasCoreAdditions)panel.Children.Add(CapabilityNotice());panel.Children.Add(Text("Archiving removes this master from new-entry pickers without deleting its historical records. Reactivate here when needed.",12));
         var fields = new Dictionary<string, TextBox>(); ComboBox? partyType = null, itemType = null, treatment = null; CheckBox? tracked = null;
@@ -86,10 +88,9 @@ public sealed partial class MainPage
             if (treatment is not null) data["tax_treatment"] = Value(treatment);
             if (tracked is not null) data["track_stock"] = tracked.IsChecked == true;
             if (kind == "item") foreach (var key in new[] { "sale_rate", "purchase_rate", "gst_rate" }) if (data.Text(key).Length == 0) data[key] = "0";
-            var body = existing is null ? new JsonObject { ["kind"] = kind, ["name"] = name.Text.Trim(), ["date"] = J.Today, ["data"] = data.Copy() } : data.Copy().Object();
-            if (existing is not null) body["name"] = name.Text.Trim();
-            await Api.Send(Api.CompanyPath(cid, existing is null ? "/records" : "/masters/" + existing.Text("id")), existing is null ? HttpMethod.Post : HttpMethod.Put, body);
-        },hasChanges:()=>Signature()!=baseline);
+            if(existing is null)await Api.Send(Api.CompanyPath(cid,"/records"),HttpMethod.Post,new JsonObject{["kind"]=kind,["name"]=name.Text.Trim(),["date"]=J.Today,["data"]=data.Copy()});
+            else await Api.SaveMaster(cid,existing.Text("id"),initialMasterData,data,name.Text);
+        },canSave:()=>existing is null||revisionVerifiedAtOpen&&Supports("master_edit_revisions"),hasChanges:()=>Signature()!=baseline);
         if (saved && cid == CompanyId) await Refresh();
     }
 

@@ -93,7 +93,7 @@ class ExpandedVyaparTests(unittest.TestCase):
         self.assertEqual(note.status_code,200,note.text)
         self.assertEqual(Decimal(note.json()['data']['igst']),0);self.assertEqual(Decimal(note.json()['data']['cgst']),9)
         estimate=next(x for x in r if x['kind']=='estimate' and x['data']['vyapar_source_id']==5)
-        order=c.post(b+'/records',headers=h,json={'kind':'sales_order','name':estimate['name'],'date':'2026-04-02','data':{'source_document_id':estimate['id'],'party_id':estimate['data']['party_id'],'place_of_supply':estimate['data']['place_of_supply'],'lines':estimate['data']['lines']}})
+        order=c.post(b+'/records',headers=h,json={'kind':'sales_order','name':estimate['name'],'date':'2026-04-02','data':{'source_document_id':estimate['id'],'source_document_version':estimate['data'].get('version',0),'party_id':estimate['data']['party_id'],'place_of_supply':estimate['data']['place_of_supply'],'lines':estimate['data']['lines']}})
         self.assertEqual(order.status_code,200,order.text);self.assertEqual(Decimal(order.json()['data']['igst']),0)
         t['kb_transactions'][0]['txn_place_of_supply']='Unknown source state'
         self.assertFalse(posting_plan(t)['ready'])

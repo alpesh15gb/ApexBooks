@@ -141,9 +141,13 @@ class AccessIntegrityTest(unittest.TestCase):
     def test_write_role_is_checked_after_company_lock(self):
         from unittest.mock import Mock,patch
         import main
+        from contextlib import nullcontext
+        from types import SimpleNamespace
         events=[];session=Mock();session.execute.side_effect=lambda statement: events.append('lock') or Mock()
+        session.no_autoflush=nullcontext();session.dirty=[];session.deleted=[]
+        session.bind.dialect.name='postgresql'
         with patch.object(main,'company_for',return_value=object()),patch.object(main,'require_write',side_effect=lambda *args: events.append('authorize')):
-            main.lock_company('synthetic',object(),session)
+            main.lock_company('synthetic',SimpleNamespace(id='synthetic-user'),session)
         self.assertEqual(events,['lock','authorize'])
 
     def test_cross_company_resource_ids_cannot_be_written(self):

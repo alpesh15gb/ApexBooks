@@ -85,6 +85,66 @@ def document_lines(record):
     return result
 
 
+
+def inward_document_lines(record):
+    """Render saved inward tax budgets without reclassifying supplier GST.
+
+    Consistent line totals retain every paise. Legacy disagreement is shown as
+    an explicit document reconciliation row, never assigned to a different ITC
+    category merely because that line happens to be first.
+    """
+    data = record['data']
+    def saved(value):
+        try:
+            value = dec(value)
+            if not value.is_finite() or value < 0 or value != rounded(value):
+                raise ValueError()
+            return value
+        except (ValueError, ArithmeticError):
+            raise HTTPException(409, 'Stored inward tax budgets are inconsistent; review the source document before exporting') from None
+    heads = {h: saved(data.get(h, 0)) for h in HEADS}
+    pending = {h: saved(data.get('pending_input_' + h, heads[h])) for h in HEADS}
+    blocked = {h: heads[h] - pending[h] for h in HEADS}
+    if any(v < 0 for v in blocked.values()) or saved(data.get('input_tax_ineligible', 0)) != sum(blocked.values(), ZERO):
+        raise HTTPException(409, 'Stored inward tax budgets are inconsistent; review the source document before exporting')
+    result = [{**line, **{h: ZERO for h in HEADS}, 'book_pending': ZERO,
+               'book_ineligible': ZERO, 'allocation_review': ''} for line in data.get('lines', [])]
+    for is_pending, budget in ((True, pending), (False, blocked)):
+        indices = [i for i, line in enumerate(result)
+                   if (line.get('itc_treatment', 'pending_review') == 'pending_review') == is_pending]
+        weights = [saved(result[i].get('tax', 0)) for i in indices]
+        total = sum(budget.values(), ZERO)
+        field = 'book_pending' if is_pending else 'book_ineligible'
+        if sum(weights, ZERO) != total:
+            for i in indices:
+                result[i]['allocation_review'] = 'Stored line tax differs from saved document classification; see reconciliation row'
+            if total:
+                result.append({'taxable': ZERO, 'gst_rate': ZERO, **budget, 'book_pending': total if is_pending else ZERO,
+                               'book_ineligible': ZERO if is_pending else total,
+                               'allocation_review': 'DOCUMENT-LEVEL TAX RECONCILIATION (not an invoice item): saved ' + ('pending-review' if is_pending else 'ineligible') + ' tax; review source line metadata'})
+            continue
+        remaining = dict(budget)
+        remaining_total = total
+        for i, weight in zip(indices, weights):
+            available = weight
+            # Allocate within both row and head margins. The last head receives
+            # the exact residual, never a second independently rounded paise.
+            for h_index, h in enumerate(HEADS):
+                later = sum((remaining[k] for k in HEADS[h_index + 1:]), ZERO)
+                # Integer cents avoid Decimal-context precision loss near the
+                # supported 15-digit amount boundary. Round the ratio half up.
+                denominator = int(remaining_total * 100)
+                numerator = int(weight * 100) * int(remaining[h] * 100)
+                desired = Decimal((2 * numerator + denominator) // (2 * denominator)) / 100 if denominator else ZERO
+                value = min(remaining[h], available, max(available - later, desired))
+                result[i][h] = value
+                remaining[h] -= value
+                available -= value
+            result[i][field] = weight
+            remaining_total -= weight
+    return result
+
+
 def prepare(kind, data, company, records):
     issues = []
     warnings = []
@@ -294,14 +354,15 @@ def inward_sheets(records, company):
         gstin = str(d.get('party_gstin', ''))
         target = 'Purchase returns' if r['kind'] == 'debit_note' else 'B2B' if gstin else 'Unregistered suppliers'
         sign = Decimal('-1') if r['kind'] == 'debit_note' else Decimal('1')
-        for line in document_lines(r):
-            tax = sum((dec(line[h]) for h in HEADS), ZERO)
-            pending = tax if line.get('itc_treatment', 'pending_review') == 'pending_review' else ZERO
-            values = [dec(line.get('taxable')), dec(line['igst']), dec(line['cgst']), dec(line['sgst']), ZERO, pending, tax - pending]
+        for line in inward_document_lines(r):
+            pending = dec(line['book_pending'])
+            blocked = dec(line['book_ineligible'])
+            values = [dec(line.get('taxable')), dec(line['igst']), dec(line['cgst']), dec(line['sgst']), ZERO, pending, blocked]
             review = 'Buyer-issued debit note; reconcile with supplier credit note' if target == 'Purchase returns' else 'Entered bill; portal details unavailable'
+            if line.get('allocation_review'): review += '; ' + line['allocation_review']
             buckets[target].append([gstin, r['party'], r['number'], r['date'], number(sign * dec(r['amount'])),
                                     POS.get(str(d.get('place_of_supply')), d.get('place_of_supply', '')), number(line.get('gst_rate')),
-                                    *[number(sign * v) for v in values[:4]], None, number(sign * pending), number(sign * (tax - pending)), None, None, review])
+                                    *[number(sign * v) for v in values[:4]], None, number(sign * pending), number(sign * blocked), None, None, review])
             for i, value in enumerate(values): totals[target][i] += sign * value
     result = [sheet('Summary', 'Purchase-book inward supplies reconciliation',
                     ['Book section', 'Taxable value', 'Integrated tax', 'Central tax', 'State/UT tax', 'Cess not captured', 'Proposed ITC', 'GST excluded from book ITC'],

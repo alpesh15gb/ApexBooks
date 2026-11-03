@@ -8,7 +8,7 @@ import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import { act } from 'react';
 
-async function workspace(role, verify, additional = [], capabilities = CORE_ENHANCEMENTS) {
+async function workspace(role, verify, additional = [], capabilities = CORE_ENHANCEMENTS, { masterError = null } = {}) {
   const temporary = await mkdtemp(resolve('node_modules/.workspace-tests-'));
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' });
   Object.assign(globalThis, { window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage, MutationObserver: dom.window.MutationObserver, requestAnimationFrame: cb => setTimeout(cb, 0), ResizeObserver: class { observe() {} disconnect() {} }, IS_REACT_ACT_ENVIRONMENT: true });
@@ -16,17 +16,25 @@ async function workspace(role, verify, additional = [], capabilities = CORE_ENHA
   localStorage.token = 'synthetic-token';
   const company = { id: 'company', name: 'Synthetic company', state_code: '27', tax_mode: 'unregistered', role };
   const invoice = { id: 'invoice', kind: 'sales_invoice', name: 'Synthetic customer', number: 'INV-1', date: '2026-11-02', posted: true, amount: '100', outstanding: '40', data: { lines: [{ description: 'Service', quantity: '1', rate: '100', gst_rate: '0' }], place_of_supply: '27' } };
-  const posts = [], requests = [];
+  const posts = [], requests = [], masterWrites = [];
   const previousFetch = globalThis.fetch;
   globalThis.fetch = async (path, options = {}) => {
     requests.push(path);
     let data;
-    if (path === '/api/capabilities') { if (capabilities === null) return { ok:false,status:404,json:async()=>({detail:'Not Found'}) }; data={api_version:'synthetic',capabilities_version:1,supported_features:capabilities}; }
+    if (path === '/api/capabilities') {
+      const advertised = typeof capabilities === 'function' ? capabilities() : capabilities;
+      if (advertised === null || advertised?.status) return { ok: false, status: advertised?.status || 404, json: async () => ({ detail: 'Synthetic capability check unavailable' }) };
+      data = { api_version: 'synthetic', capabilities_version: 1, supported_features: advertised };
+    }
     else if (path === '/api/companies') data = [company, { ...company, id: 'other-company', name: 'Other company' }];
     else if (path.includes('/records?')) data = [invoice, ...additional];
     else if (path.endsWith('/records/invoice')) { const { outstanding, ...detail } = invoice; data = detail; }
     else if (additional.some(row => path.endsWith('/records/' + row.id))) data = additional.find(row => path.endsWith('/records/' + row.id));
-    else if (path.includes('/masters/') && options.method === 'PUT') data = { id: 'master-saved' };
+    else if (path.includes('/masters/') && options.method === 'PUT') {
+      masterWrites.push(JSON.parse(options.body));
+      if (masterError) return { ok: false, status: 409, json: async () => ({ detail: masterError }) };
+      data = { id: 'master-saved' };
+    }
     else if (path.endsWith('/records') && options.method === 'POST') { posts.push(JSON.parse(options.body)); data = { id: 'saved' }; }
     else if (path.endsWith('/bank-accounts')) data = [{ id: 'default', name: 'Synthetic bank' }];
     else if (path.endsWith('/preferences')) data = { document_template: 'classic' };
@@ -40,7 +48,7 @@ async function workspace(role, verify, additional = [], capabilities = CORE_ENHA
     await build({ entryPoints: ['src/main.jsx'], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'react-dom/client', 'lucide-react'], loader: { '.css': 'empty' } });
     await act(async () => { await import(pathToFileURL(outfile)); });
     const click = async text => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text); assert.ok(button, `Button ${text}`); await act(async () => button.click()); };
-    await verify({ click, posts, invoice, dom, requests });
+    await verify({ click, posts, invoice, dom, requests, masterWrites });
   } finally {
     globalThis.fetch = previousFetch;
     dom.window.close();
@@ -166,7 +174,8 @@ test('estimate detail can create a linked nonposting sales order', async () => {
     await act(async () => document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
     assert.equal(posts[0].kind, 'sales_order');
     assert.equal(posts[0].data.source_document_id, 'estimate');
-  }, [estimate]);
+    assert.equal(posts[0].data.source_document_version, 0);
+  }, [estimate], [...CORE_ENHANCEMENTS, 'document_conversion_revisions']);
 });
 
 test('initial company history does not duplicate the dashboard report requests', async () => {
@@ -203,4 +212,80 @@ test('older API disables new workflows while core invoice register remains usabl
   await click('Items');assert.equal([...document.querySelectorAll('button')].find(button=>button.textContent.includes('Low stock & reorder')).disabled,true);
   assert.equal(requests.filter(path=>path==='/api/capabilities').length,1);
  },[],null);
+});
+
+
+test('master edits submit the original revision and preserve the form on a stale conflict', async () => {
+  const message = 'This party or item changed on another device. Close this editor, refresh company data and reopen it before saving.';
+  await workspace('owner', async ({ click, dom, masterWrites }) => {
+    await click('Items'); await click('Edit');
+    const input = document.querySelector('input[name="sale_rate"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input, '125');
+      input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    });
+    await act(async () => document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.equal(masterWrites[0].version, 7);
+    assert.equal(masterWrites[0].sale_rate, '125');
+    assert.ok(document.querySelector('.modal form'), 'conflict never closes or silently resubmits');
+    assert.match(document.querySelector('.modal').textContent, /changed on another device/);
+    assert.equal(document.querySelector('input[name="sale_rate"]').value, '125');
+    assert.equal(masterWrites.length, 1);
+  }, [{ id: 'revision-item', kind: 'item', name: 'Revision item', data: { version: 7, sale_rate: '100', purchase_rate: '60' } }], CORE_ENHANCEMENTS, { masterError: message });
+});
+
+test('legacy master snapshots explicitly send revision zero, never omit the concurrency guard', async () => {
+  await workspace('owner', async ({ click, dom, masterWrites }) => {
+    await click('Items'); await click('Edit');
+    await act(async () => document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.equal(masterWrites[0].version, 0);
+  }, [{ id: 'legacy-item', kind: 'item', name: 'Legacy item', data: { sale_rate: '100' } }]);
+});
+
+
+test('old or unverified APIs cannot receive protected master edits, while new masters remain available', async () => {
+  for (const [capabilities, message] of [[[], /needs an update/], [null, /needs an update/], [{ status: 503 }, /could not be verified/]]) {
+    await workspace('owner', async ({ click, dom, masterWrites, posts }) => {
+      await click('Items'); await click('Edit');
+      assert.match(document.querySelector('.modal').textContent, message);
+      assert.equal([...document.querySelectorAll('.modal button')].find(button => button.textContent === 'Save item').disabled, true);
+      await act(async () => document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+      assert.equal(masterWrites.length, 0);
+      await click('Cancel'); await click('Add item');
+      assert.equal([...document.querySelectorAll('.modal button')].find(button => button.textContent === 'Save item').disabled, false);
+      assert.equal(posts.length, 0, 'creating remains a deliberate user action');
+    }, [{ id: 'gated-item', kind: 'item', name: 'Gated item', data: { version: 2, sale_rate: '100' } }], capabilities);
+  }
+});
+
+test('transient capability retry enables the same master form without replacing its original revision', async () => {
+  let capabilityCalls = 0;
+  await workspace('owner', async ({ click, dom, masterWrites }) => {
+    await click('Items'); await click('Edit');
+    assert.match(document.querySelector('.modal').textContent, /could not be verified/);
+    const input = document.querySelector('input[name="sale_rate"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input, '130');
+      input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    });
+    const retry = [...document.querySelectorAll('.modal button')].find(button => button.textContent === 'Check API support again');
+    await act(async () => retry.click());
+    assert.equal(document.querySelector('input[name="sale_rate"]').value, '130');
+    assert.equal([...document.querySelectorAll('.modal button')].find(button => button.textContent === 'Save item').disabled, false);
+    await act(async () => document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.equal(masterWrites[0].version, 3);
+    assert.equal(masterWrites[0].sale_rate, '130');
+    assert.equal(capabilityCalls, 2);
+  }, [{ id: 'retry-item', kind: 'item', name: 'Retry item', data: { version: 3, sale_rate: '100' } }], () => ++capabilityCalls === 1 ? { status: 503 } : CORE_ENHANCEMENTS);
+});
+
+test('conversion editor on old API stays reviewable but cannot submit without revision protection', async () => {
+  const estimate = { id:'old-quote',kind:'estimate',name:'Buyer',number:'EST-OLD',date:'2026-11-02',amount:'100',posted:false,data:{version:4,lines:[{description:'Service',quantity:'1',rate:'100',gst_rate:'0'}]} };
+  await workspace('owner',async({click,posts,dom})=>{
+    await click('Estimates');await click('EST-OLD');await click('Create sales order');
+    assert.match(document.querySelector('.modal').textContent,/API needs an update for protected document conversion/);
+    const save=[...document.querySelectorAll('.modal button')].find(button=>button.textContent==='Save sales order');assert.equal(save.disabled,true);
+    await act(async()=>document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})));assert.equal(posts.length,0);
+    assert.equal(document.querySelector('.modal input[name=rate]').value,'100');
+  },[estimate],CORE_ENHANCEMENTS);
 });

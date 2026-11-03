@@ -180,20 +180,37 @@ public sealed class ApexApi : IDisposable
 
     public async Task<JsonArray> Records(string companyId)
     {
-        var rows = new JsonArray();
-        for (var offset = 0; ; offset += 500)
+        // Offset pages can overlap when another client inserts during a scan.
+        // Never publish deduplicated or partial financial data: restart once.
+        for(var attempt=0;attempt<2;attempt++)
         {
-            var page = (await Send(CompanyPath(companyId, $"/records?compact=true&limit=500&offset={offset}")).ConfigureAwait(false)).Array();
-            foreach (var item in page) rows.Add(item.Copy());
-            if (page.Count < 500) return rows;
+            var rows=new JsonArray();var seen=new HashSet<string>(StringComparer.Ordinal);
+            for(var offset=0;;offset+=500)
+            {
+                var page=(await Send(CompanyPath(companyId,$"/records?compact=true&limit=500&offset={offset}")).ConfigureAwait(false)).Array();
+                var overlap=false;
+                foreach(var item in page){if(!seen.Add(item.Text("id"))){overlap=true;break;}rows.Add(item.Copy());}
+                if(overlap)break;
+                if(page.Count<500)return rows;
+            }
         }
+        throw new InvalidOperationException("Company records changed while loading. No partial balances were loaded. Refresh the company and try again.");
     }
 
     public Task<JsonNode> Record(string companyId, string recordId) => Send(CompanyPath(companyId, "/records/" + Uri.EscapeDataString(recordId)));
 
+    public async Task<JsonNode> SaveMaster(string companyId,string masterId,JsonObject openedData,JsonObject editedData,string name)
+    {
+        Capabilities.RequireMasterRevisionSupport();
+        var body=WorkflowMasterValues.MasterUpdate(openedData,editedData,name);
+        try{return await Send(CompanyPath(companyId,"/masters/"+Uri.EscapeDataString(masterId)),HttpMethod.Put,body).ConfigureAwait(false);}
+        catch(ApiFailure error)when(error.Status==409){throw new ApiFailure(409,error.Message+" Your edits remain in this form. An earlier interrupted attempt may already have saved. Copy any needed changes, then close, refresh the company, and reopen the master to compare before saving again.");}
+    }
+
     public Task<JsonNode> SaveRecord(string companyId, JsonObject body, string retryKey, JsonNode? previous = null)
     {
         var kind = body.Text("kind");
+        if(previous is null&&body["data"].Text("source_document_id").Length>0)Capabilities.RequireDocumentConversionSupport();
         var suffix = previous is null ? "/records" : new[] { "estimate", "proforma", "sales_order", "purchase_order" }.Contains(kind) ? "/drafts/" + previous.Text("id") : "/documents/" + previous.Text("id");
         return Send(CompanyPath(companyId, suffix), previous is null ? HttpMethod.Post : HttpMethod.Put, body, retryKey);
     }
