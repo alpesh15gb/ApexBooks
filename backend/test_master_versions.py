@@ -3,8 +3,8 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-import main
 import test_everyday_features
+import main
 
 
 class MasterVersionsTest(unittest.TestCase):
@@ -97,3 +97,38 @@ class MasterVersionsTest(unittest.TestCase):
         self.assertEqual(c.put(path, headers=viewer, json=payload).status_code, 403)
         other = c.post('/api/companies', headers=h, json={'name': 'Other scope', 'tax_mode': 'unregistered'}).json()['id']
         self.assertEqual(c.put('/api/companies/' + other + '/masters/' + row['id'], headers=h, json=payload).status_code, 404)
+
+    def test_sqlite_simultaneous_master_snapshots_have_one_winner(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        from fastapi.testclient import TestClient
+        if main.engine.dialect.name != 'sqlite':
+            self.skipTest('Dedicated SQLite compare-and-swap regression')
+        for kind in ('party', 'item'):
+            c, h, base = self.context()
+            row = self.post(c, h, base, kind, 'SQLite race ' + kind, {'sale_rate': 100})
+            path = base + '/masters/' + row['id']
+            gate = Barrier(2)
+            validate = main.validate_master_defaults
+            def both_read_original_revision(body, master_kind):
+                validate(body, master_kind)
+                # This hook follows the actual handler's revision read/check.
+                # Both real HTTP calls must reach it before either writes.
+                gate.wait(timeout=10)
+            def save(value):
+                with TestClient(main.app) as client:
+                    return client.put(path, headers=h, json={
+                        'name': row['name'], 'version': 0,
+                        'sale_rate': value, 'phone': str(value)})
+            with patch.object(main, 'validate_master_defaults', both_read_original_revision):
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    results = list(pool.map(save, (120, 130)))
+            self.assertEqual(sorted(r.status_code for r in results), [200, 409], [r.text for r in results])
+            winner = next(r.json() for r in results if r.status_code == 200)
+            current = c.get(base + '/records/' + row['id'], headers=h).json()
+            self.assertEqual(current['data']['version'], 1)
+            field = 'sale_rate' if kind == 'item' else 'phone'
+            self.assertEqual(current['data'][field], winner['data'][field])
+            edits = [e for e in c.get(base + '/audit-events', headers=h).json()
+                     if e['action'] == 'master.updated' and e['entity_id'] == row['id']]
+            self.assertEqual(len(edits), 1)

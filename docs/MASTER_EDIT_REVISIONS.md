@@ -79,3 +79,29 @@ in the isolated CI jobs above. The first hosted upgrade comparison failed becaus
 party-statement metadata now includes the explicit revision zero. A separate test
 correction permits only that strict zero and retains all financial and physical-row
 equality checks; it also verifies unversioned edits return 409 without changing data.
+
+## Revision lifecycle review
+
+A follow-up review found two additional cases that are covered by narrow regressions:
+
+- SQLite ignores `SELECT FOR UPDATE`. Two real HTTP edits synchronized after reading
+  revision zero previously both succeeded. Master replacement now uses an atomic
+  compare-and-swap against the stored revision, before audit/commerce side effects.
+  The deterministic SQLite test requires one success, one conflict and one audit.
+- Upgrading a masters-only source import to full posting previously replaced master
+  data and reset its revision. Existing revisions now advance monotonically. Invalid
+  revisions fail before mutation, and each replacement also uses compare-and-swap.
+  An interleaved HTTP edit causes the whole migration to roll back with 409, leaving
+  that concurrent edit intact. A fresh preview/retry can then proceed.
+
+The import retains its existing reviewed source-replacement behavior; this does not
+silently merge manual edits into source data. All new regression backups are synthetic.
+This review does not establish SQLite concurrency safety for every financial route,
+nor does it add process-death recovery or a persistent posting queue.
+
+After those lifecycle fixes, the isolated aggregate check passed 196 backend tests,
+118 web tests plus lint/build, all six HTTP/complete-backup checks, 231 native route
+matches and the same deployment/backup mocks. The known-baseline upgrade/recovery
+rehearsal also passed. The new SQL compare-and-swap path still requires the dedicated
+PostgreSQL CI rerun; earlier PostgreSQL success predates this narrow backend change.
+No native source or API schema changed in this lifecycle correction.

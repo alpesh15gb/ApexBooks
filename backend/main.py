@@ -1372,25 +1372,36 @@ def update_master(company_id: str, master_id: str, body: MasterUpdate,
     if master.kind == 'item' and 'low_stock_threshold' not in body.model_fields_set and (master.data or {}).get('low_stock_threshold') is not None and (not body.track_stock or body.item_type != 'goods'):
         raise HTTPException(422, 'Clear the low-stock threshold explicitly before changing this item classification')
     if body.name.strip() != master.name: raise HTTPException(422, 'Names cannot be changed after creation')
+    updated_data = dict(master.data or {})
     if master.kind == 'party':
         if body.party_type not in {'customer', 'supplier', 'both'}: raise HTTPException(422, 'Choose a valid party type')
         if body.gstin and not re.fullmatch(r'\d{2}[A-Z0-9]{13}', body.gstin.upper()): raise HTTPException(422, 'GSTIN must contain 15 characters')
         if body.email.strip() and not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', body.email.strip()): raise HTTPException(422, 'Enter a valid email')
-        master.data = {**(master.data or {}), 'party_type': body.party_type, 'gstin': body.gstin.upper(), 'address': body.address,
+        updated_data = {**updated_data, 'party_type': body.party_type, 'gstin': body.gstin.upper(), 'address': body.address,
                        'phone': body.phone.strip(), 'email': body.email.strip()}
-        if 'payment_terms_days' in body.model_fields_set:master.data={**master.data,'payment_terms_days':body.payment_terms_days}
-        if 'credit_limit' in body.model_fields_set:master.data={**master.data,'credit_limit':str(body.credit_limit) if body.credit_limit is not None else None}
+        if 'payment_terms_days' in body.model_fields_set:updated_data={**updated_data,'payment_terms_days':body.payment_terms_days}
+        if 'credit_limit' in body.model_fields_set:updated_data={**updated_data,'credit_limit':str(body.credit_limit) if body.credit_limit is not None else None}
     else:
         if body.track_stock != bool(master.data.get('track_stock', False)):
             raise HTTPException(422, 'Stock tracking cannot be changed after item creation')
         if body.item_type != master.data.get('item_type', 'goods') and body.track_stock and session.scalar(select(StockMovement.id).where(StockMovement.company_id == company_id, StockMovement.item_id == master.id).limit(1)):
             raise HTTPException(422, 'Item classification cannot change after stock history; create a separate item instead')
         values = body.model_dump(mode='json')
-        master.data = {**(master.data or {}), **{key: values[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold') if key not in {'image_data_url','image_thumbnail','low_stock_threshold'} or key in body.model_fields_set}}
+        updated_data = {**updated_data, **{key: values[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold') if key not in {'image_data_url','image_thumbnail','low_stock_threshold'} or key in body.model_fields_set}}
     for field in ('is_active','shipping_address'):
         if field in body.model_fields_set and (field != 'shipping_address' or master.kind == 'party'):
-            master.data={**master.data,field:getattr(body,field)}
-    master.data = {**master.data, 'version': version + 1}
+            updated_data={**updated_data,field:getattr(body,field)}
+    updated_data['version'] = version + 1
+    # SQLite ignores FOR UPDATE. Compare-and-swap protects the revision even
+    # when two clients read the same snapshot before either begins writing.
+    # Do not dirty the ORM object before this statement: autoflush would bypass it.
+    changed = session.execute(update(Record).where(
+        Record.company_id == company_id, Record.id == master_id,
+        func.coalesce(cast(Record.data['version'].as_string(), Text), '0') == str(version)
+    ).values(data=updated_data).execution_options(synchronize_session=False))
+    if changed.rowcount != 1:
+        raise HTTPException(409, 'This party or item changed on another device. Close this editor, refresh company data and reopen it before saving.')
+    session.expire(master, ['data'])
     audit(session, company_id, user, 'master.updated', master.kind, master.id)
     if master.kind == 'item' and hasattr(sys.modules[__name__], 'commerce_stock_changed'): commerce_stock_changed(company_id, session)
     session.commit(); session.refresh(master)
