@@ -41,6 +41,9 @@ public sealed partial class MainPage
     {
         var cid = CompanyId; var panel = Stack(); panel.MinWidth = 580;
         var data = existing?["data"].Copy().Object() ?? new JsonObject();var initialMasterData=data.Copy().Object();
+        var openedWorkspace=workspaceGeneration;var openedSession=Api.SessionGeneration;
+        bool MasterWorkspaceCurrent()=>Api.SignedIn&&CompanyId==cid&&workspaceGeneration==openedWorkspace&&Api.SessionGeneration==openedSession;
+        var masterCommand=existing is null?null:new MasterEditSubmission(Api,cid,existing.Text("id"),kind,initialMasterData);
         var revisionVerifiedAtOpen=Supports("master_edit_revisions");
         if(existing is not null&&!revisionVerifiedAtOpen){panel.Children.Add(Text("Editing this existing party or item is disabled until the server confirms master revision protection. Check features, then close and reopen this editor. Creating and viewing masters remains available.",12));panel.Children.Add(CapabilityNotice());}
         var name = Input(kind == "party" ? "Party name" : "Item name", existing.Text("name")); name.MaxLength=120;name.IsReadOnly = existing is not null; panel.Children.Add(name);
@@ -75,6 +78,7 @@ public sealed partial class MainPage
             buttons.Children.Add(Button("Remove image", () => { data["image_data_url"] = ""; data["image_thumbnail"] = ""; preview.Source = null; })); panel.Children.Add(buttons);
         }
         string Signature(){var values=data.Copy().Object();values["name"]=name.Text;values["is_active"]=active.IsChecked==true;foreach(var field in fields)values[field.Key]=field.Value.Text;if(partyType is not null)values["party_type"]=Value(partyType);if(itemType is not null)values["item_type"]=Value(itemType);if(treatment is not null)values["tax_treatment"]=Value(treatment);if(tracked is not null)values["track_stock"]=tracked.IsChecked==true;return values.ToJsonString();}var baseline=Signature();
+        if(existing is not null&&!MasterWorkspaceCurrent())return;
         var saved = await Dialog((existing is null ? "New " : "Edit ") + kind, panel, async () =>
         {
             if (string.IsNullOrWhiteSpace(name.Text)) throw new Exception("Enter a name.");
@@ -89,9 +93,13 @@ public sealed partial class MainPage
             if (tracked is not null) data["track_stock"] = tracked.IsChecked == true;
             if (kind == "item") foreach (var key in new[] { "sale_rate", "purchase_rate", "gst_rate" }) if (data.Text(key).Length == 0) data[key] = "0";
             if(existing is null)await Api.Send(Api.CompanyPath(cid,"/records"),HttpMethod.Post,new JsonObject{["kind"]=kind,["name"]=name.Text.Trim(),["date"]=J.Today,["data"]=data.Copy()});
-            else await Api.SaveMaster(cid,existing.Text("id"),initialMasterData,data,name.Text);
-        },canSave:()=>existing is null||revisionVerifiedAtOpen&&Supports("master_edit_revisions"),hasChanges:()=>Signature()!=baseline);
-        if (saved && cid == CompanyId) await Refresh();
+            else try{await masterCommand!.Save(data,name.Text,MasterWorkspaceCurrent);}
+                catch(Exception error)when(masterCommand!.ReviewRequired){throw new Exception(error.Message+" "+masterCommand.ReviewMessage,error);}
+        },canSave:()=>existing is null||MasterWorkspaceCurrent()&&revisionVerifiedAtOpen&&Supports("master_edit_revisions")&&masterCommand?.ReviewRequired!=true,
+            hasChanges:()=>Signature()!=baseline,reviewBeforeClose:()=>masterCommand?.ReviewRequired==true?masterCommand.ReviewMessage:null);
+        // Explicit close/review only reloads the original workspace; a read is not proof of our PUT's outcome.
+        if(existing is not null){if((saved||masterCommand!.ReviewRequired)&&MasterWorkspaceCurrent())await Refresh();}
+        else if(saved&&cid==CompanyId)await Refresh();
     }
 
     internal static async Task<BitmapImage?> Bitmap(string uri)

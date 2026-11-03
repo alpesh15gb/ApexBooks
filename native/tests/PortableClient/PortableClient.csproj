@@ -18,4 +18,6 @@
   <ItemGroup><Compile Include="../WindowsClient/JournalSubmissionTests.cs" Link="JournalSubmissionTests.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../WindowsClient/CompanyReadContractTests.cs" Link="CompanyReadContractTests.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../WindowsClient/RecordEditRecoveryTests.cs" Link="RecordEditRecoveryTests.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../windows/Services/MasterEditSubmission.cs" Link="MasterEditSubmission.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../WindowsClient/MasterEditSubmissionTests.cs" Link="MasterEditSubmissionTests.cs" /></ItemGroup>
 </Project>
