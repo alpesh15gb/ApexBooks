@@ -37,3 +37,11 @@ An independent read-only synthetic review found no concrete discrepancy or cap b
 Native preview-only forwarding tests are authored separately. Their compilation and runtime verification require hosted CI because the local native toolchains are unavailable; no new Android device permission or test run is implied.
 
 The final local aggregate passes 214 backend tests, web tests/lint/production build, local HTTP checks, 232 native route literals with zero unmatched routes, and 9 backup-target plus 21 deployment mock tests. Three Android preview tests and seven Windows preview assertions are authored but await hosted native compilation. Main and production are unchanged by this review branch.
+
+## Existing-note display edits
+
+An independent review found that changing only an unlinked description, HSN or unit on a reconciled return could preview the independently rounded amount even though amendment correctly preserved the saved residual amount. Existing-note preview now shares the amendment financial-input signature and safe display-line merge. A posted, company/source-matched note with a trusted saved reconciliation marker retains exact calculated fields only when its financial inputs and date are unchanged. Changed financial inputs still use normal calculation and strict new-note reconciliation; new-note description/HSN/unit matching is not relaxed.
+
+The original reproduction now returns ₹106.18 consistently before editing, in preview, and after saving the new description. Added regressions cover both credit/debit notes, display fields, partial metadata requests, changed financial inputs/date, tracked-item identity, invalid lines and missing postings.
+
+Correction verification: 219 backend tests and five focused existing-preview cases pass. The original independent reproduction and a separate read-only review pass. Isolated local HTTP acceptance, the 6.4 MB complete-backup roundtrip, and the web preview test also pass. This correction changes no native/client code or new-note rounding eligibility.
