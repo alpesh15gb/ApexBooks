@@ -124,15 +124,24 @@ class VyaparPostingTest(unittest.TestCase):
             row=next(r for r in client.get(base+'/records',headers=headers).json() if r['kind']=='party')
             original_plan=vyapar_migration.posting_plan
             def interleave_edit(tables):
-                # Migration has read revisions but has not made its first write.
+                # Exercise migrate's independent CAS defense without the route's
+                # company lock: a caller with a stale master snapshot must roll back.
                 response=client.put(base+'/masters/'+row['id'],headers=headers,
                     json={'name':row['name'],**row['data'],'phone':'Concurrent edit survives'})
                 self.assertEqual(response.status_code,200,response.text)
                 return original_plan(tables)
-            with patch.object(vyapar_migration,'posting_plan',side_effect=interleave_edit):
-                response=client.post(base+'/imports/vyapar-posting/commit',headers=headers,json=payload)
-            self.assertEqual(response.status_code,409,response.text)
-            self.assertIn('changed during migration',response.json()['detail'])
+            from fastapi import HTTPException
+            from vyapar_import import inspect_backup
+            with Session(main.engine) as session:
+                company=session.get(main.Company,base.rsplit('/',1)[-1])
+                user=session.get(main.User,company.owner_id)
+                with patch.object(vyapar_migration,'posting_plan',side_effect=interleave_edit):
+                    with self.assertRaises(HTTPException) as raised:
+                        vyapar_migration.migrate(company,user,session,
+                            inspect_backup(payload['backup_base64']),'commit',payload['digest'])
+                self.assertEqual(raised.exception.status_code,409)
+                self.assertIn('changed during migration',raised.exception.detail)
+                session.rollback()
             current=client.get(base+'/records/'+row['id'],headers=headers).json()
             self.assertEqual(current['data']['version'],1)
             self.assertEqual(current['data']['phone'],'Concurrent edit survives')

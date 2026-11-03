@@ -474,12 +474,29 @@ class StockAdjustmentInput(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 def lock_company(company_id, user, session):
-    company = company_for(company_id, user, session)
-    session.execute(select(Company.id).where(Company.id == company_id).with_for_update()).scalar_one()
-    # Recheck access after waiting for the same lock used by membership changes.
-    # A revoked editor must not resume a queued posting with stale authorization.
-    require_write(company, user, session)
-    return company
+    # SQLite ignores FOR UPDATE. Reserve its single writer before checking any
+    # financial balance; otherwise concurrent advance/credit spends can both pass.
+    # Never flush unrelated pending ORM changes before obtaining that reservation.
+    with session.no_autoflush:
+        for pending in list(session.dirty) + list(session.deleted):
+            relevant = (isinstance(pending, Company) and pending.id == company_id or
+                        isinstance(pending, CompanyMember) and pending.company_id == company_id)
+            if relevant and (pending in session.deleted or session.is_modified(pending, include_collections=False)):
+                raise HTTPException(409, 'Flush the pending company or membership change before starting another company write')
+        company = company_for(company_id, user, session)
+        if session.bind.dialect.name == 'sqlite':
+            session.execute(update(Company).where(Company.id == company_id)
+                .values(name=Company.name).execution_options(synchronize_session=False))
+        else:
+            session.execute(select(Company.id).where(Company.id == company_id).with_for_update()).scalar_one()
+        # Refresh identities after waiting, then recheck access. Cached owner or
+        # membership roles must not authorize a queued write after a role change.
+        session.expire(company)
+        company = company_for(company_id, user, session)
+        session.scalar(select(CompanyMember).where(CompanyMember.company_id == company_id,
+            CompanyMember.user_id == user.id).execution_options(populate_existing=True))
+        require_write(company, user, session)
+        return company
 def require_open_period(company_id, date, session):
     period_lock = session.get(PeriodLock, company_id)
     if period_lock and date <= period_lock.locked_through:

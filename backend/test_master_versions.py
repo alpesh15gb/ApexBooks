@@ -109,18 +109,18 @@ class MasterVersionsTest(unittest.TestCase):
             row = self.post(c, h, base, kind, 'SQLite race ' + kind, {'sale_rate': 100})
             path = base + '/masters/' + row['id']
             gate = Barrier(2)
-            validate = main.validate_master_defaults
-            def both_read_original_revision(body, master_kind):
-                validate(body, master_kind)
-                # This hook follows the actual handler's revision read/check.
-                # Both real HTTP calls must reach it before either writes.
+            lock = main.lock_company
+            def both_attempt_original_revision(company_id, user, session):
+                # Synchronize attempts before the writer reservation, not inside
+                # the now-serialized version read/check critical section.
                 gate.wait(timeout=10)
+                return lock(company_id, user, session)
             def save(value):
                 with TestClient(main.app) as client:
                     return client.put(path, headers=h, json={
                         'name': row['name'], 'version': 0,
                         'sale_rate': value, 'phone': str(value)})
-            with patch.object(main, 'validate_master_defaults', both_read_original_revision):
+            with patch.object(main, 'lock_company', both_attempt_original_revision):
                 with ThreadPoolExecutor(max_workers=2) as pool:
                     results = list(pool.map(save, (120, 130)))
             self.assertEqual(sorted(r.status_code for r in results), [200, 409], [r.text for r in results])
