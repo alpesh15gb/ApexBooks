@@ -102,3 +102,11 @@ an input-synchronous call.” The test now verifies the exact destination and
 keyboard focus on the real Save button, then activates it once with Space instead
 of synchronous UIA Invoke. It does not dismiss the warning, repeat an uncertain
 save, alter the app, or bypass the picker. This repair still requires CI execution.
+
+
+Run `41561397371` confirmed the visible-action guard must navigate the long
+Settings page rather than invoke an offscreen control. The harness now uses the
+actual Settings search with the exact Download/Restore action names before
+waiting for their visible, enabled buttons. It does not remove the visibility
+check or invoke hidden controls. All prior rapid typing and financial/receipt
+checks passed in that run; the Save repair and backup round trip still await CI.

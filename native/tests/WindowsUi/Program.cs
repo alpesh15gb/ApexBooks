@@ -184,7 +184,7 @@ try{
     var evidencePath=$"/api/companies/{cid}/records/{evidenceBill["id"]!.GetValue<string>()}/attachments";var uploaded=(await Get(evidencePath))["attachments"]!.AsArray();var expectedSha=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(evidenceBytes)).ToLowerInvariant();
     Check("real receipt picker uploaded exactly one matching retained file",uploaded.Count==1&&uploaded[0]?["sha256"]?.ToString()==expectedSha&&Number(uploaded[0],"size_bytes")==evidenceBytes.Length);
     Invoke(Wait(()=>Find("Archive retained receipt",ControlType.Button),"archive receipt through UI"));Wait(()=>Find("Reactivate retained receipt",ControlType.Button),"archived receipt UI state");var archived=(await Get(evidencePath))["attachments"]!.AsArray();Check("archive UI retains the original evidence bytes and lineage",archived.Count==1&&archived[0]?["is_archived"]?.GetValue<bool>()==true&&archived[0]?["sha256"]?.ToString()==expectedSha);Snapshot("08-archived-receipt");
-    Invoke(Wait(()=>Find("Done",ControlType.Button),"close retained receipt panel"));Invoke(NavigationItem("Settings"));Invoke(Wait(()=>ReadyButton("Download backup"),"settings complete backup entry"));Wait(()=>Find("Complete portable backup"),"complete backup dialog");Wait(()=>ReadyButton("Verify and save backup"),"complete backup explicit save action");Snapshot("09-complete-backup-entry");Check("complete backup is discoverable after retaining receipt evidence");
+    Invoke(Wait(()=>Find("Done",ControlType.Button),"close retained receipt panel"));Invoke(NavigationItem("Settings"));Set(Wait(()=>EditField("Find a setting, for example logo, Vyapar or prefixes"),"Settings search"),"Download backup");Invoke(Wait(()=>ReadyButton("Download backup"),"settings complete backup entry"));Wait(()=>Find("Complete portable backup"),"complete backup dialog");Wait(()=>ReadyButton("Verify and save backup"),"complete backup explicit save action");Snapshot("09-complete-backup-entry");Check("complete backup is discoverable after retaining receipt evidence");
     var reportQuery=$"?from_date={date}&to_date={date}";
     var sourceSummary=await Get($"/api/companies/{cid}/reports/summary{reportQuery}");
     var sourceFinancial=await Get($"/api/companies/{cid}/reports/financial{reportQuery}");
@@ -201,6 +201,7 @@ try{
     var envelope=JsonNode.Parse(await File.ReadAllTextAsync(backupPath))!.AsObject();
     Check("actual Save picker produced encrypted v1 envelope",envelope["format"]?.ToString()=="apex-encrypted-backup"&&Number(envelope,"version")==1&&envelope["ciphertext"] is JsonValue);
     Snapshot("10-encrypted-export-saved");
+    Set(Wait(()=>EditField("Find a setting, for example logo, Vyapar or prefixes"),"Settings search after export"),"Restore company backup");
     Invoke(Wait(()=>ReadyButton("Restore company backup"),"restore from Settings"));
     ChooseNativeFile("Open","Open",backupPath);
     Wait(()=>Find("Restore complete backup into a new company"),"restore encrypted backup dialog");

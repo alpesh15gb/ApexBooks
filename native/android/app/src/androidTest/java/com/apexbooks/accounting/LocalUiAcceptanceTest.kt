@@ -61,7 +61,25 @@ class LocalUiAcceptanceTest {
     }
     private fun clickReadyAction(device:UiDevice,text:String){
         awaitReadyAction(device,text)
-        device.findObject(By.text(text).enabled(true)).click()
+        // Compose may expose a non-clickable TextView inside the actual action.
+        // Wait for scroll/layout settling and activate that real clickable ancestor
+        // once; never repeat a financial action after an uncertain outcome.
+        device.waitForIdle()
+        val deadline=android.os.SystemClock.uptimeMillis()+10000
+        var previous:android.graphics.Rect?=null
+        var stable=0
+        while(android.os.SystemClock.uptimeMillis()<deadline){
+            var target=device.findObject(By.text(text).enabled(true))
+            while(target!=null&&!target.isClickable)target=target.parent
+            if(target!=null&&target.isEnabled){
+                val bounds=target.visibleBounds
+                if(bounds.width()>0&&bounds.height()>0&&bounds==previous)stable++ else stable=0
+                previous=android.graphics.Rect(bounds)
+                if(stable>=3){target.click();return}
+            }else{stable=0;previous=null}
+            android.os.SystemClock.sleep(150)
+        }
+        fail("No stable visible clickable action: $text")
     }
     private fun typeOnlyPassword(device:UiDevice,password:String){
         // Export has only a password; restore has the name followed by its password.
@@ -137,12 +155,12 @@ class LocalUiAcceptanceTest {
         // The remaining journeys are review-only: no order or second invoice is posted.
         device.pressBack()
         assertTrue(device.wait(Until.hasObject(By.text("Home")),15000));device.findObject(By.text("Home")).click()
-        scrollTo(device,"Low stock & reorder review");device.findObject(By.text("Low stock & reorder review")).click()
+        clickReadyAction(device,"Low stock & reorder review")
         assertTrue("Reorder report loaded",device.wait(Until.hasObject(By.textContains("items at or below threshold")),30000))
         device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-reorder-open.png"))
         scrollTo(device,"UI Reorder Item")
         assertTrue("Exact seeded low-stock item is visible after scrolling",device.hasObject(By.text("UI Reorder Item")))
-        scrollTo(device,"Review purchase order · 1 items");device.findObject(By.text("Review purchase order · 1 items")).click()
+        clickReadyAction(device,"Review purchase order · 1 items")
         assertTrue(device.wait(Until.hasObject(By.text("New Purchase Order")),15000))
         chooseSavedParty(device)
         device.findObject(By.text("Next: add items")).click()
@@ -150,16 +168,16 @@ class LocalUiAcceptanceTest {
         assertTrue("Reorder draft shows the selected item card",device.wait(Until.hasObject(By.text("UI Reorder Item")),15000))
         device.findObject(By.text("UI Reorder Item")).click()
         assertTrue("Reorder draft preserves the selected item",device.wait(Until.hasObject(By.desc("Item / service · UI Reorder Item")),15000))
-        scrollTo(device,"Check this party’s item prices");device.findObject(By.text("Check this party’s item prices")).click()
+        clickReadyAction(device,"Check this party’s item prices")
         scrollTo(device,"Last posted price for this exact party and item.");assertTrue(device.hasObject(By.text("Last posted price for this exact party and item.")))
-        scrollTo(device,"Apply suggested price & tax basis");device.findObject(By.text("Apply suggested price & tax basis")).click()
+        clickReadyAction(device,"Apply suggested price & tax basis")
         device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-reorder-price-review.png"))
         device.findObject(By.desc("Close entry")).click()
         assertTrue(device.wait(Until.hasObject(By.text("Discard draft")),15000));device.findObject(By.text("Discard draft")).click()
-        scrollTo(device,"New invoice");device.findObject(By.text("New invoice")).click()
+        clickReadyAction(device,"New invoice")
         assertTrue(device.wait(Until.hasObject(By.text("New Sales Invoice")),15000))
         chooseSavedParty(device)
-        scrollTo(device,"Check party payment terms");device.findObject(By.text("Check party payment terms")).click()
+        clickReadyAction(device,"Check party payment terms")
         scrollTo(device,"Use suggested due date");assertTrue(device.hasObject(By.text("Use suggested due date")));device.findObject(By.text("Use suggested due date")).click()
         scrollTo(device,By.desc("Due date · optional · "+java.time.LocalDate.parse(today()).plusDays(30).toString()),"Applied due date")
         assertTrue("Explicit terms Apply sets the suggested date",device.hasObject(By.desc("Due date · optional · "+java.time.LocalDate.parse(today()).plusDays(30).toString())))
@@ -173,7 +191,7 @@ class LocalUiAcceptanceTest {
         assertEquals("Reviewing suggestions creates no purchase order",0,afterReview.count{it.s("kind")=="purchase_order"})
         assertEquals("Discarded terms review creates no new invoice",1,afterReview.count{it.s("kind")=="sales_invoice"})
         // Create a real second invoice entirely through the native document editor.
-        scrollTo(device,"New invoice");device.findObject(By.text("New invoice")).click()
+        clickReadyAction(device,"New invoice")
         assertTrue(device.wait(Until.hasObject(By.text("New Sales Invoice")),15000))
         chooseSavedParty(device)
         device.findObject(By.text("Next: add items")).click()
@@ -207,23 +225,23 @@ class LocalUiAcceptanceTest {
             requireNotNull(resolver.openOutputStream(receiptUri)).use { it.write(receiptBytes) }
             assertEquals("Publish synthetic receipt to Downloads",1,resolver.update(receiptUri,ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING,0) },null,null))
             requireNotNull(resolver.openInputStream(receiptUri)).use { assertArrayEquals("Published fixture bytes",receiptBytes,it.readBytes()) }
-            device.findObject(By.text("More")).click();scrollTo(device,"Purchase bills");device.findObject(By.text("Purchase bills")).click()
-            assertTrue(device.wait(Until.hasObject(By.text("UI Smoke Buyer")),30000));device.findObject(By.text("UI Smoke Buyer")).click()
-            scrollTo(device,"Retained receipts & attachments");device.findObject(By.text("Retained receipts & attachments")).click()
+            device.findObject(By.text("More")).click();clickReadyAction(device,"Purchase bills")
+            assertTrue("Purchase register arrived after menu navigation",device.wait(Until.hasObject(By.text("UI Smoke Buyer")),30000));clickReadyAction(device,"UI Smoke Buyer")
+            clickReadyAction(device,"Retained receipts & attachments")
             assertTrue(device.wait(Until.hasObject(By.text("Choose receipt · PDF / JPEG / PNG").enabled(true)),30000));device.findObject(By.text("Choose receipt · PDF / JPEG / PNG")).click()
             assertTrue("Real Android document picker opens",device.wait(Until.hasObject(By.pkg("com.google.android.documentsui")),15000)||device.hasObject(By.pkg("com.android.documentsui")))
             val roots=device.findObject(By.desc("Show roots"))?:device.findObject(By.desc("Open navigation drawer"))
             if(roots!=null){roots.click();assertTrue(device.wait(Until.hasObject(By.text("Downloads")),15000));device.findObject(By.text("Downloads")).click()}
             assertTrue("Synthetic PDF is selectable in the system picker",device.wait(Until.hasObject(By.text(receiptName)),15000));device.findObject(By.text(receiptName)).click()
-            scrollTo(device,"Upload receipt");device.findObject(By.text("Upload receipt")).click()
+            clickReadyAction(device,"Upload receipt")
             scrollTo(device,"Archive · retain evidence");assertTrue("Receipt is retained after actual UI upload",device.hasObject(By.text("Archive · retain evidence")));device.findObject(By.text("Archive · retain evidence")).click()
-            scrollTo(device,"Show archived receipts");device.findObject(By.text("Show archived receipts")).click()
+            clickReadyAction(device,"Show archived receipts")
             scrollTo(device,By.textContains("Archived · retained"),"Archived receipt state");assertTrue(device.hasObject(By.textContains("Archived · retained")))
             val bill=saved.single{it.s("kind")=="purchase_bill"};val evidence=(api.request(api.company(companyIds.getValue(target),"/records/${bill.s("id")}/attachments"))as JSONObject).a("attachments").objects().single()
             assertTrue("UI archive retains evidence",evidence.optBoolean("is_archived"));assertEquals(receiptBytes.size,evidence.optInt("size_bytes"));assertEquals(sha256(receiptBytes),evidence.s("sha256"))
             device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-retained-receipt.png"))
-            device.findObject(By.desc("Close")).click();device.pressBack();device.findObject(By.text("More")).click();scrollTo(device,"Settings");device.findObject(By.text("Settings")).click()
-            scrollTo(device,"Download backup");device.findObject(By.text("Download backup")).click()
+            device.findObject(By.desc("Close")).click();device.pressBack();device.findObject(By.text("More")).click();clickReadyAction(device,"Settings")
+            clickReadyAction(device,"Download backup")
             assertTrue("Complete-backup entry is capability gated and visible",device.wait(Until.hasObject(By.text("Complete company backup")),15000));assertTrue(device.hasObject(By.text("Encrypt saved backup")))
             device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-complete-backup-entry.png"))
             val sourceId=companyIds.getValue(target)
@@ -238,7 +256,7 @@ class LocalUiAcceptanceTest {
             try {
                 // Exercise the app's streaming encryption and actual Android save picker.
                 scrollTo(device,"Encryption password · at least 12 characters");typeOnlyPassword(device,backupPassword)
-                scrollTo(device,"Prepare complete backup");device.findObject(By.text("Prepare complete backup")).click()
+                clickReadyAction(device,"Prepare complete backup")
                 scrollTo(device,"Complete backup verified and ready to save. It includes archived receipts.")
                 clickReadyAction(device,"Save verified backup file")
                 val pickerPackage=documentPickerDownloads(device)
@@ -250,12 +268,12 @@ class LocalUiAcceptanceTest {
                 assertTrue("Encrypted backup saved through the real picker",device.wait(Until.hasObject(By.text("Complete backup verified and saved to your selected location.")),30000))
                 device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-encrypted-backup-saved.png"))
                 device.findObject(By.desc("Close")).click()
-                scrollTo(device,"Restore company backup");device.findObject(By.text("Restore company backup")).click()
+                clickReadyAction(device,"Restore company backup")
                 assertTrue(device.wait(Until.hasObject(By.text("Restore complete portable backup")),15000))
                 scrollTo(device,"New company name")
                 val nameFields=device.findObjects(By.clazz("android.widget.EditText"));assertEquals("New company name field",1,nameFields.size)
                 nameFields.single().click();nameFields.single().text=restoredName;device.pressBack()
-                scrollTo(device,"Choose backup file");device.findObject(By.text("Choose backup file")).click()
+                clickReadyAction(device,"Choose backup file")
                 documentPickerDownloads(device)
                 assertTrue("Saved encrypted file is offered by the real picker",device.wait(Until.hasObject(By.text(backupName)),15000));device.findObject(By.text(backupName)).click()
                 scrollTo(device,"Encrypted backup detected. Authenticate locally before any upload.")
