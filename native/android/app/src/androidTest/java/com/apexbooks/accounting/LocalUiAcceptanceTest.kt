@@ -42,6 +42,27 @@ class LocalUiAcceptanceTest {
         repeat(16){if(device.hasObject(selector))return;device.swipe(device.displayWidth/2,device.displayHeight/4,device.displayWidth/2,device.displayHeight*3/4,30);device.waitForIdle()}
         assertTrue("Visible action: $label",device.hasObject(selector))
     }
+    private fun canonical(value:Any?):String=when(value){
+        is JSONObject->value.keys().asSequence().toList().sorted().joinToString(prefix="{",postfix="}"){JSONObject.quote(it)+":"+canonical(value.get(it))}
+        is JSONArray->(0 until value.length()).joinToString(prefix="[",postfix="]"){canonical(value.get(it))}
+        is String->JSONObject.quote(value)
+        else->value?.toString()?:"null"
+    }
+    private fun documentPickerDownloads(device:UiDevice):String {
+        assertTrue("Real Android document picker opens",device.wait(Until.hasObject(By.pkg("com.google.android.documentsui")),15000)||device.hasObject(By.pkg("com.android.documentsui")))
+        val pkg=if(device.hasObject(By.pkg("com.google.android.documentsui")))"com.google.android.documentsui"else"com.android.documentsui"
+        val roots=device.findObject(By.desc("Show roots"))?:device.findObject(By.desc("Open navigation drawer"))
+        if(roots!=null){roots.click();assertTrue(device.wait(Until.hasObject(By.text("Downloads")),15000));device.findObject(By.text("Downloads")).click()}
+        return pkg
+    }
+    private fun typeOnlyPassword(device:UiDevice,password:String){
+        // Export has only a password; restore has the name followed by its password.
+        // The caller first scrolls to the actual password label, so the final visible
+        // editable field is the password rather than an offscreen name field.
+        val fields=device.findObjects(By.clazz("android.widget.EditText"))
+        assertTrue("Visible backup password field",fields.size in 1..2)
+        fields.last().click();fields.last().text=password;device.pressBack()
+    }
     private fun chooseSavedParty(device:UiDevice){
         val selector=By.desc("Saved party · Enter manually")
         scrollTo(device,selector,"Saved party selector")
@@ -196,7 +217,67 @@ class LocalUiAcceptanceTest {
             device.findObject(By.desc("Close")).click();device.pressBack();device.findObject(By.text("More")).click();scrollTo(device,"Settings");device.findObject(By.text("Settings")).click()
             scrollTo(device,"Download backup");device.findObject(By.text("Download backup")).click()
             assertTrue("Complete-backup entry is capability gated and visible",device.wait(Until.hasObject(By.text("Complete company backup")),15000));assertTrue(device.hasObject(By.text("Encrypt saved backup")))
-            device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-complete-backup-entry.png"));device.findObject(By.desc("Close")).click()
+            device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-complete-backup-entry.png"))
+            val sourceId=companyIds.getValue(target)
+            val period="?from_date=1900-01-01&to_date=${today()}"
+            val reportPaths=listOf("/reports/summary$period","/reports/financial$period")
+            val sourceReports=reportPaths.associateWith{canonical(api.request(api.company(sourceId,it)))}
+            val sourceRecords=canonical(JSONArray(api.records(sourceId).sortedBy{it.s("id")}))
+            val companiesBefore=(api.request("/api/companies")as JSONArray).objects().map{it.s("id")}.toSet()
+            val backupName="apex-ui-roundtrip-${UUID.randomUUID()}.apexbackup"
+            val backupPassword="Synthetic-backup-only-2026!"
+            val restoredName="UI Restored ${UUID.randomUUID().toString().take(8)}"
+            try {
+                // Exercise the app's streaming encryption and actual Android save picker.
+                scrollTo(device,"Encryption password · at least 12 characters");typeOnlyPassword(device,backupPassword)
+                scrollTo(device,"Prepare complete backup");device.findObject(By.text("Prepare complete backup")).click()
+                scrollTo(device,"Save verified backup file");device.findObject(By.text("Save verified backup file")).click()
+                val pickerPackage=documentPickerDownloads(device)
+                val filenameFields=device.findObjects(By.pkg(pickerPackage).clazz("android.widget.EditText"))
+                assertEquals("Native save picker filename field",1,filenameFields.size)
+                filenameFields.single().click();filenameFields.single().text=backupName;device.pressBack()
+                val save=By.pkg(pickerPackage).res("android:id/button1").enabled(true)
+                assertTrue("Native save action is enabled",device.wait(Until.hasObject(save),15000));device.findObject(save).click()
+                assertTrue("Encrypted backup saved through the real picker",device.wait(Until.hasObject(By.text("Complete backup verified and saved to your selected location.")),30000))
+                device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-encrypted-backup-saved.png"))
+                device.findObject(By.desc("Close")).click()
+                scrollTo(device,"Restore company backup");device.findObject(By.text("Restore company backup")).click()
+                assertTrue(device.wait(Until.hasObject(By.text("Restore complete portable backup")),15000))
+                scrollTo(device,"New company name")
+                val nameFields=device.findObjects(By.clazz("android.widget.EditText"));assertEquals("New company name field",1,nameFields.size)
+                nameFields.single().click();nameFields.single().text=restoredName;device.pressBack()
+                scrollTo(device,"Choose backup file");device.findObject(By.text("Choose backup file")).click()
+                documentPickerDownloads(device)
+                assertTrue("Saved encrypted file is offered by the real picker",device.wait(Until.hasObject(By.text(backupName)),15000));device.findObject(By.text(backupName)).click()
+                scrollTo(device,"Encrypted backup detected. Authenticate locally before any upload.")
+                scrollTo(device,"Backup password · local only");typeOnlyPassword(device,backupPassword)
+                scrollTo(device,"Authenticate, upload & validate");device.findObject(By.text("Authenticate, upload & validate")).click()
+                scrollTo(device,"Review before creating the new company")
+                assertEquals("Preview creates no company",companiesBefore,(api.request("/api/companies")as JSONArray).objects().map{it.s("id")}.toSet())
+                device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-restore-preview.png"))
+                scrollTo(device,"Confirm restore into new company");device.findObject(By.text("Confirm restore into new company")).click()
+                scrollTo(device,"Open restored company")
+                val companiesAfter=(api.request("/api/companies")as JSONArray).objects()
+                val restored=companiesAfter.single{it.s("name")==restoredName};val restoredId=restored.s("id")
+                assertTrue("Restore uses a new company identity",restoredId !in companiesBefore)
+                assertEquals("Exactly one company created after explicit confirmation",companiesBefore+restoredId,companiesAfter.map{it.s("id")}.toSet())
+                for(path in reportPaths){
+                    assertEquals("Restored canonical report $path",sourceReports.getValue(path),canonical(api.request(api.company(restoredId,path))))
+                    assertEquals("Original company report unchanged $path",sourceReports.getValue(path),canonical(api.request(api.company(sourceId,path))))
+                }
+                assertEquals("Original records unchanged",sourceRecords,canonical(JSONArray(api.records(sourceId).sortedBy{it.s("id")})))
+                val restoredBill=api.records(restoredId).single{it.s("kind")=="purchase_bill"}
+                val restoredEvidence=(api.request(api.company(restoredId,"/records/${restoredBill.s("id")}/attachments"))as JSONObject).a("attachments").objects().single()
+                assertTrue("Archived evidence survives encrypted UI roundtrip",restoredEvidence.optBoolean("is_archived"))
+                assertEquals(receiptBytes.size,restoredEvidence.optInt("size_bytes"));assertEquals(sha256(receiptBytes),restoredEvidence.s("sha256"))
+                assertArrayEquals("Restored receipt exact bytes",receiptBytes,api.rawBytes(api.company(restoredId,"/attachments/${restoredEvidence.s("id")}/download"),maximumResponse=2*1024*1024))
+                assertArrayEquals("Original receipt exact bytes unchanged",receiptBytes,api.rawBytes(api.company(sourceId,"/attachments/${evidence.s("id")}/download"),maximumResponse=2*1024*1024))
+                val originalEvidence=(api.request(api.company(sourceId,"/records/${bill.s("id")}/attachments"))as JSONObject).a("attachments").objects().single()
+                assertEquals("Original archived receipt metadata unchanged",canonical(evidence),canonical(originalEvidence))
+                device.findObject(By.text("Open restored company")).click()
+                assertTrue("Explicitly opened new company",device.wait(Until.hasObject(By.text(restoredName)),30000))
+                device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-restored-company.png"))
+            } finally { device.executeShellCommand("rm -f '/sdcard/Download/$backupName'") }
         } finally { resolver.delete(receiptUri,null,null) }
         api.logout()
     }

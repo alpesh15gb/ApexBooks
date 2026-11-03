@@ -52,6 +52,13 @@ AutomationElement? EditField(string label)
 string Value(AutomationElement element)=>((ValuePattern)element.GetCurrentPattern(ValuePattern.Pattern)).Current.Value;
 void Invoke(AutomationElement element){if(element.TryGetCurrentPattern(InvokePattern.Pattern,out var pattern))((InvokePattern)pattern).Invoke();else if(element.TryGetCurrentPattern(SelectionItemPattern.Pattern,out pattern))((SelectionItemPattern)pattern).Select();else throw new Exception("Control has no supported Invoke/Selection pattern: "+element.Current.Name);}
 void Set(AutomationElement element,string value){if(!element.TryGetCurrentPattern(ValuePattern.Pattern,out var pattern))throw new Exception("Control has no supported Value pattern: "+element.Current.Name);((ValuePattern)pattern).SetValue(value);}
+void ChooseNativeFile(string title,string action,string path)
+{
+    var dialog=Wait(()=>window?.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Window)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==title&&!e.Current.IsOffscreen),"owned system "+title+" picker",120);
+    var field=Wait(()=>dialog.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Edit)).Cast<AutomationElement>().FirstOrDefault(e=>(e.Current.Name is "File name:" or "File name"||e.Current.AutomationId=="1148")&&e.TryGetCurrentPattern(ValuePattern.Pattern,out _)),title+" File name");
+    Set(field,path);
+    Invoke(Wait(()=>dialog.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Button)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==action&&e.Current.IsEnabled),title+" "+action+" button"));
+}
 void Snapshot(string name){if(window is null)return;var rectangle=window.Current.BoundingRectangle;if(rectangle.Width<1||rectangle.Height<1)throw new Exception("App has no visible capture rectangle.");using var bitmap=new Drawing.Bitmap((int)rectangle.Width,(int)rectangle.Height);using(var graphics=Drawing.Graphics.FromImage(bitmap))graphics.CopyFromScreen((int)rectangle.X,(int)rectangle.Y,0,0,bitmap.Size);bitmap.Save(Path.Combine(evidence,name+".png"),Drawing.Imaging.ImageFormat.Png);
     // Only this synthetic app window, never the desktop or credentials. Bounded diagnostic for log-only artifact readers.
     if(name=="03-invoice-form"||name=="failure-visible-app"){
@@ -94,8 +101,38 @@ try{
     Set(Wait(()=>EditField("Customer / supplier"),"invoice customer"),createdBuyer);
     Set(Wait(()=>EditField("Reference number"),"invoice reference"),reference);
     var itemSelector=Wait(()=>EditField("Item / service"),"visible invoice item selector");
-    itemSelector.SetFocus();System.Windows.Forms.SendKeys.SendWait("^a");System.Windows.Forms.SendKeys.SendWait("Invoice created through Windows UI");System.Windows.Forms.SendKeys.SendWait("{TAB}");
-    Check("visible item selector accepted genuine user text",Value(itemSelector)=="Invoice created through Windows UI");
+    // Confirm keyboard ownership and acknowledge each visible edit before sending more.
+    // Never blindly repeat a whole string after uncertain keyboard delivery.
+    bool ItemHasFocus()=>itemSelector.Current.HasKeyboardFocus||itemSelector.FindFirst(TreeScope.Descendants,new PropertyCondition(AutomationElement.HasKeyboardFocusProperty,true)) is not null;
+    var typingDeadline=Stopwatch.StartNew();
+    void AwaitItemValue(string expected,string phase)
+    {
+        while(typingDeadline.Elapsed<TimeSpan.FromSeconds(30)){
+            if(Value(itemSelector)==expected)return;
+            if(!ItemHasFocus())throw new Exception($"Item selector lost keyboard focus during {phase}; observed synthetic value: '{Value(itemSelector)}'");
+            Thread.Sleep(25);
+        }
+        throw new Exception($"Item selector keyboard timeout during {phase}; expected '{expected}', observed '{Value(itemSelector)}'");
+    }
+    itemSelector.SetFocus();Wait(()=>ItemHasFocus()?itemSelector:null,"item selector owns keyboard focus",10);
+    System.Windows.Forms.SendKeys.SendWait("^a");System.Windows.Forms.SendKeys.SendWait("{BACKSPACE}");AwaitItemValue("","clear");
+    const string itemDescription="Invoice created through Windows UI";var entered="";
+    foreach(var character in itemDescription){
+        if(!ItemHasFocus())throw new Exception("Item selector lost keyboard focus before next character; refusing to type into another control.");
+        System.Windows.Forms.SendKeys.SendWait(character.ToString());entered+=character;AwaitItemValue(entered,"character "+entered.Length);
+    }
+    Check("item selector contains the exact complete text before Tab",Value(itemSelector)==itemDescription);
+    // A second, continuous burst is mandatory: paced entry must not hide dropped
+    // fast typing or an application control replacement during TextChanged.
+    var originalItemRuntimeId=itemSelector.GetRuntimeId();typingDeadline.Restart();
+    System.Windows.Forms.SendKeys.SendWait("^a");System.Windows.Forms.SendKeys.SendWait("{BACKSPACE}");AwaitItemValue("","rapid-entry clear");
+    if(!ItemHasFocus())throw new Exception("Item selector lost focus before rapid typing.");
+    System.Windows.Forms.SendKeys.SendWait(itemDescription);AwaitItemValue(itemDescription,"continuous rapid typing");
+    var currentItem=Wait(()=>EditField("Item / service"),"same item selector after rapid typing");
+    Check("rapid typing retains exact text, keyboard focus and control identity",Value(currentItem)==itemDescription&&ItemHasFocus()&&originalItemRuntimeId.SequenceEqual(currentItem.GetRuntimeId()));
+    System.Windows.Forms.SendKeys.SendWait("{TAB}");
+    Wait(()=>!ItemHasFocus()?itemSelector:null,"item selector commits on Tab",10);
+    Check("visible item selector accepted genuine user text",Value(itemSelector)==itemDescription);
     Set(Wait(()=>EditField("Quantity"),"invoice line quantity"),"1");
     Set(Wait(()=>EditField("Rate (₹)"),"invoice line rate"),"250");
     Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Text)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name.StartsWith("Subtotal ",StringComparison.Ordinal)&&e.Current.Name.Contains("Total ",StringComparison.Ordinal)),"server-calculated invoice preview");
@@ -138,7 +175,52 @@ try{
     var evidencePath=$"/api/companies/{cid}/records/{evidenceBill["id"]!.GetValue<string>()}/attachments";var uploaded=(await Get(evidencePath))["attachments"]!.AsArray();var expectedSha=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(evidenceBytes)).ToLowerInvariant();
     Check("real receipt picker uploaded exactly one matching retained file",uploaded.Count==1&&uploaded[0]?["sha256"]?.ToString()==expectedSha&&Number(uploaded[0],"size_bytes")==evidenceBytes.Length);
     Invoke(Wait(()=>Find("Archive retained receipt",ControlType.Button),"archive receipt through UI"));Wait(()=>Find("Reactivate retained receipt",ControlType.Button),"archived receipt UI state");var archived=(await Get(evidencePath))["attachments"]!.AsArray();Check("archive UI retains the original evidence bytes and lineage",archived.Count==1&&archived[0]?["is_archived"]?.GetValue<bool>()==true&&archived[0]?["sha256"]?.ToString()==expectedSha);Snapshot("08-archived-receipt");
-    Invoke(Wait(()=>Find("Done",ControlType.Button),"close retained receipt panel"));Invoke(NavigationItem("Settings"));Invoke(Wait(()=>Find("Download backup",ControlType.Button),"settings complete backup entry"));Wait(()=>Find("Complete portable backup"),"complete backup dialog");Wait(()=>Find("Verify and save backup",ControlType.Button),"complete backup explicit save action");Snapshot("09-complete-backup-entry");Check("complete backup is discoverable after retaining receipt evidence");Invoke(Wait(()=>Find("Cancel",ControlType.Button),"cancel backup before starting export"));
+    Invoke(Wait(()=>Find("Done",ControlType.Button),"close retained receipt panel"));Invoke(NavigationItem("Settings"));Invoke(Wait(()=>Find("Download backup",ControlType.Button),"settings complete backup entry"));Wait(()=>Find("Complete portable backup"),"complete backup dialog");Wait(()=>Find("Verify and save backup",ControlType.Button),"complete backup explicit save action");Snapshot("09-complete-backup-entry");Check("complete backup is discoverable after retaining receipt evidence");
+    var reportQuery=$"?from_date={date}&to_date={date}";
+    var sourceSummary=await Get($"/api/companies/{cid}/reports/summary{reportQuery}");
+    var sourceFinancial=await Get($"/api/companies/{cid}/reports/financial{reportQuery}");
+    var sourceRecords=await CompanyRecords(cid);var sourceCompanies=(await Get("/api/companies")).AsArray();
+    const string backupPassword="Synthetic-UI-Backup-Only-42!";
+    var backupPath=Path.Combine(evidence,"synthetic-encrypted-roundtrip.apexbackup");
+    Check("backup destination is fresh",!File.Exists(backupPath));
+    var encryption=Wait(()=>Find("Encrypt portable backup locally (recommended)",ControlType.CheckBox),"local encryption option");
+    Check("local encryption is selected by default",((TogglePattern)encryption.GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState==ToggleState.On);
+    Set(Wait(()=>EditField("Backup password · at least 12 characters"),"export password"),backupPassword);
+    Invoke(Wait(()=>Find("Verify and save backup",ControlType.Button),"verified encrypted export"));
+    ChooseNativeFile("Save As","Save",backupPath);
+    Wait(()=>Find("Verify and save backup",ControlType.Button) is null&&File.Exists(backupPath)?window:null,"encrypted backup saved and dialog closed",120);
+    var envelope=JsonNode.Parse(await File.ReadAllTextAsync(backupPath))!.AsObject();
+    Check("actual Save picker produced encrypted v1 envelope",envelope["format"]?.ToString()=="apex-encrypted-backup"&&Number(envelope,"version")==1&&envelope["ciphertext"] is JsonValue);
+    Snapshot("10-encrypted-export-saved");
+    Invoke(Wait(()=>Find("Restore company backup",ControlType.Button),"restore from Settings"));
+    ChooseNativeFile("Open","Open",backupPath);
+    Wait(()=>Find("Restore complete backup into a new company"),"restore encrypted backup dialog");
+    var restoredName="Windows UI Restored "+Guid.NewGuid().ToString("N")[..8];
+    Set(Wait(()=>EditField("Name for the NEW restored company"),"new restored company name"),restoredName);
+    Set(Wait(()=>EditField("Encrypted backup passphrase"),"restore passphrase"),backupPassword);
+    var encryptedImport=Wait(()=>Find("This file uses Apex encrypted-backup v1",ControlType.CheckBox),"encrypted import mode");
+    Check("encrypted file is recognized without plaintext fallback",((TogglePattern)encryptedImport.GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState==ToggleState.On);
+    Invoke(Wait(()=>Find("Validate / resume and preview",ControlType.Button),"authenticate upload and preview"));
+    Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Text)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name.Contains("Complete SHA256 verified. Review below",StringComparison.Ordinal)),"authenticated immutable preview",120);
+    Check("preview has not created a company",(await Get("/api/companies")).AsArray().Count==sourceCompanies.Count);
+    Snapshot("11-restore-reviewed-preview");
+    Invoke(Wait(()=>Find("Restore reviewed backup",ControlType.Button),"explicit new-company restore"));
+    Wait(()=>Find(restoredName),"new restored company selected",120);Invoke(NavigationItem("Dashboard"));Wait(()=>Find("Business overview"),"restored dashboard");Snapshot("12-restored-company-dashboard");
+    var companiesAfter=(await Get("/api/companies")).AsArray();var restoredCompany=companiesAfter.OfType<JsonObject>().Single(c=>c["name"]?.ToString()==restoredName);var restoredCid=restoredCompany["id"]!.GetValue<string>();
+    Check("explicit restore created exactly one distinct company",companiesAfter.Count==sourceCompanies.Count+1&&restoredCid!=cid);
+    var restoredSummary=await Get($"/api/companies/{restoredCid}/reports/summary{reportQuery}");var restoredFinancial=await Get($"/api/companies/{restoredCid}/reports/financial{reportQuery}");
+    Check("restored canonical summary and financial accounts match source",JsonNode.DeepEquals(sourceSummary,restoredSummary)&&JsonNode.DeepEquals(sourceFinancial,restoredFinancial));
+    var restoredRecords=await CompanyRecords(restoredCid);var restoredInvoice=restoredRecords.OfType<JsonObject>().Single(r=>r["number"]?.ToString()==reference);
+    Check("restored invoice retains partial settlement",Number(restoredInvoice,"amount")==250&&Number(restoredInvoice,"outstanding")==150);
+    var restoredBill=restoredRecords.OfType<JsonObject>().Single(r=>r["kind"]?.ToString()=="purchase_bill"&&r["number"]?.ToString()==evidenceBill["number"]?.ToString());
+    var restoredAttachments=(await Get($"/api/companies/{restoredCid}/records/{restoredBill["id"]}/attachments"))["attachments"]!.AsArray();var retained=restoredAttachments.Single()!;
+    Check("restored archived receipt preserves metadata",retained["is_archived"]?.GetValue<bool>()==true&&retained["sha256"]?.ToString()==expectedSha&&Number(retained,"size_bytes")==evidenceBytes.Length);
+    using(var download=await http.GetAsync($"/api/companies/{restoredCid}/attachments/{retained["id"]}/download")){
+        download.EnsureSuccessStatusCode();var bytes=await download.Content.ReadAsByteArrayAsync();Check("restored retained receipt bytes match original",bytes.SequenceEqual(evidenceBytes)&&Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant()==expectedSha);
+    }
+    Check("original company records and reports remain unchanged",JsonNode.DeepEquals(sourceRecords,await CompanyRecords(cid))&&JsonNode.DeepEquals(sourceSummary,await Get($"/api/companies/{cid}/reports/summary{reportQuery}"))&&JsonNode.DeepEquals(sourceFinancial,await Get($"/api/companies/{cid}/reports/financial{reportQuery}")));
+    Check("original archived receipt remains unchanged",JsonNode.DeepEquals(archived,(await Get(evidencePath))["attachments"]));
+    await File.WriteAllTextAsync(Path.Combine(evidence,"backup-roundtrip-verification.json"),new JsonObject{["source_company_id"]=cid,["restored_company_id"]=restoredCid,["encrypted_v1"]=true,["native_save_and_open_pickers"]=true,["summary"]=restoredSummary.DeepClone(),["financial"]=restoredFinancial.DeepClone(),["receipt_sha256"]=expectedSha,["receipt_bytes"]=evidenceBytes.Length,["original_unchanged"]=true}.ToJsonString());
     await File.WriteAllTextAsync(Path.Combine(evidence,"receipt-verification.json"),new JsonObject{["record_id"]=evidenceBill["id"]!.DeepClone(),["attachment_id"]=archived[0]?["id"]?.DeepClone(),["sha256"]=expectedSha,["is_archived"]=true,["ui_file_picker_used"]=true}.ToJsonString());
     Dump();
     await File.WriteAllTextAsync(Path.Combine(evidence,"result.json"),new JsonObject{["passed"]=true,["api_origin"]=origin.ToString(),["checks"]=new JsonArray(checks.Select(x=>(JsonNode)JsonValue.Create(x)!).ToArray())}.ToJsonString());

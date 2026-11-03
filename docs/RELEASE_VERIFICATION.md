@@ -44,6 +44,12 @@ Local `730efcbde0a4c770552feee618026182b474136f` adds fail-closed release identi
 
 The generic backup helpers support only the reviewed root local-Compose database and require explicit scope. They are not a hosted-provider recovery procedure. A company ZIP is not a full-database recovery point. See [backup boundaries](../deploy/SECURE_BACKUP.md) and [release preflight](../deploy/vps/README.md).
 
+## Known-baseline upgrade rehearsal
+
+The pinned original repository `1e8d981149e8a4dce597ec49933b33887bcf00d6` was upgraded in an isolated synthetic SQLite rehearsal: readiness 503→200, all original rows/columns across 33 tables preserved, six reports equal, repeated migration unchanged, and the original application reopened its pre-upgrade physical backup. A receipt added after upgrade and complete ZIP restore preserved bytes, financials and exact commit replay. No original 1.3 receipt storage is implied. The actual production schema, PostgreSQL migration behavior at production scale and provider recovery remain unverified. See [the detailed 1.3→1.5 checklist](UPGRADE_1_3_TO_1_5.md) and `tests/upgrade/rehearse_legacy.py`.
+
+The native encrypted save-picker→restore-picker→new-company UI tests are a separate new extension; they compile locally but are not covered by the earlier entry-only device pass. They assert canonical reports and retained evidence bytes while leaving the original company unchanged. The Windows item-typing regression retains a mandatory rapid whole-string input check, exact text and stable focused control identity; it does not replace fast typing with a paced-only test.
+
 ## Deployment mapping and recovery remain unverified
 
 Repository documentation describes a Vercel preview and separate production web/API origins. The observed Vercel preview deployment is older than this candidate, has no source revision in its inspected metadata and has no production custom domains attached to that inspected project. Database environment entries were observed without reading their values: **database sharing versus isolation is unknown**, not proven either way. No current deployed source, database identity or production health is inferred from these facts.

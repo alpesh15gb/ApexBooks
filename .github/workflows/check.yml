@@ -34,6 +34,15 @@ jobs:
       - run: npm ci --prefix frontend
       - run: sudo apt-get update && sudo apt-get install -y age
       - run: bash scripts/check.sh
+      - name: Rehearse the known 1.3 repository schema upgrade in isolated SQLite
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline=1e8d981149e8a4dce597ec49933b33887bcf00d6
+          if ! git cat-file -e "$baseline^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$baseline"
+          fi
+          python tests/upgrade/rehearse_legacy.py
   android-client:
     runs-on: ubuntu-latest
     timeout-minutes: 30
