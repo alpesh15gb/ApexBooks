@@ -9,6 +9,7 @@ class ToolDraft {
     var journalReviewRequired by mutableStateOf(false)
     val key=UUID.randomUUID().toString()
     val submission=RetrySubmission()
+    val settlement=SettlementCommand(submission,key)
     val values=mutableStateMapOf<String,String>()
 }
 class ToolDraftStore {

@@ -1,3 +1,4 @@
+import { verifySettlementResponse } from "./settlementResponse.js";
 import { businessDate } from "./businessDate.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import React, { useState } from "react";
@@ -85,24 +86,28 @@ export default function Advances({
     if (busy) return;
     setError("");
     try {
-      const path = `/companies/${companyId}/advances/${selected}/${form.action}`;
-      const options = {
-        method: "POST",
-        headers: { "Idempotency-Key": key },
-        body: JSON.stringify({
-          kind: "advance_application",
-          name: advance.name,
-          date: form.date,
-          amount: form.amount,
-          data: {
-            applied_to: form.target,
-            payment_account: form.payment_account,
-            bank_account_id: form.bank_account_id,
-          },
-        }),
-      };
-      if (!await posting.run(() => api(path, options))) return;
-      await refresh();
+      if (pending) {
+        if (!await posting.retry()) return;
+      } else {
+        const path = `/companies/${companyId}/advances/${selected}/${form.action}`;
+        const options = {
+          method: "POST",
+          headers: { "Idempotency-Key": key },
+          body: JSON.stringify({
+            kind: "advance_application",
+            name: advance.name,
+            date: form.date,
+            amount: form.amount,
+            data: {
+              applied_to: form.target,
+              payment_account: form.payment_account,
+              bank_account_id: form.bank_account_id,
+            },
+          }),
+        };
+        const expected = { family: 'advance', action: form.action, paymentKind: kind, sourceId: selected, body: JSON.parse(options.body) };
+        if (!await posting.run(async () => verifySettlementResponse(await api(path, options), expected))) return;
+      }
       setForm({
         date: today(),
         target: "",
@@ -112,11 +117,12 @@ export default function Advances({
         bank_account_id: "default",
       });
       setKey(crypto.randomUUID());
+      await refresh();
     } catch (reason) {
       setError(reason.message);
     }
   }
-  if (!advances.length) return null;
+  if (!advances.length && !pending) return null;
   return (
     <section className="panel settings-panel">
       <h2>{kind === "payment_in" ? "Customer" : "Supplier"} advances</h2>
@@ -153,7 +159,12 @@ export default function Advances({
           </button>
         </div>
       </div>
-      {pending && !busy && <p className="info-box" role="status">{pendingPostingMessage}</p>}
+      {pending && <div className="info-box" role="status">
+        <p>{pendingPostingMessage}</p>
+        <button type="button" className="button primary" disabled={busy} onClick={submit}>
+          {busy ? "Confirming previous save…" : "Retry previous save"}
+        </button>
+      </div>}
       {error && (
         <div className="error" role="alert">
           {error}
