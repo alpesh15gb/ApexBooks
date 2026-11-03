@@ -100,6 +100,13 @@ class LocalUiAcceptanceTest {
         var previous:android.graphics.Rect?=null
         var stable=0
         while(android.os.SystemClock.uptimeMillis()<deadline){
+            // UIAutomator can report a background button as visible underneath
+            // Gboard. A late IME animation must not turn Create into a keypress.
+            val keyboard=By.pkg(java.util.regex.Pattern.compile("com\\.(google\\.android|android)\\.inputmethod\\.latin"))
+            if(device.hasObject(keyboard)){
+                dismissVisibleKeyboard(device);previous=null;stable=0
+                continue
+            }
             var target=device.findObject(selector)
             while(target!=null&&!target.isClickable)target=target.parent
             if(target!=null&&target.isEnabled){
@@ -126,6 +133,7 @@ class LocalUiAcceptanceTest {
         assertTrue("Editable field: $label",device.wait(Until.hasObject(selector),10000))
         val field=device.findObject(selector);assertTrue(field.isEnabled);field.click();field.text=value
         dismissVisibleKeyboard(device)
+        assertTrue("Exact entered value retained: $label",device.wait(Until.hasObject(By.clazz("android.widget.EditText").text(value)),10000))
     }
     private fun chooseSavedParty(device:UiDevice){
         val selector=By.desc("Saved party · Enter manually")
