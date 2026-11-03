@@ -15,6 +15,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -32,7 +34,10 @@ import org.json.JSONObject
     var discard by remember { mutableStateOf(false) }
     var stepError by remember { mutableStateOf("") }
     val scroll = rememberScrollState()
-    val idle = !editor.saving && !editor.scanning && !editor.sourceLoading
+    val idle = !editor.saving && !editor.scanning && !editor.sourceLoading && editor.inlineMaster==null
+    val inlineFocus=remember{FocusRequester()}
+    var hadInline by remember{mutableStateOf(false)}
+    LaunchedEffect(editor.inlineMaster){if(editor.inlineMaster!=null)hadInline=true else if(hadInline){hadInline=false;runCatching{inlineFocus.requestFocus()}}}
     val serialized = if (editor.document) editor.body().toString() else ""
     LaunchedEffect(serialized) {
         if (!editor.document) return@LaunchedEffect
@@ -106,6 +111,7 @@ import org.json.JSONObject
                         Section(if (editor.purchase) "Supplier details" else "Customer details") {
                             if (editor.kind in setOf("credit_note", "debit_note")) Choice("Original invoice / bill", editor.get("applied_to"), listOf("" to "Choose source") + editor.targets().map { it.s("id") to "${it.s("number")} · ${it.s("name")}" }, editor::chooseSource)
                             Choice("Saved party", editor.get("party_id"), listOf("" to "Enter manually") + editor.parties().map { it.s("id") to it.s("name") }, editor::chooseParty)
+                            if(editor.canCreateInline)OutlinedButton(enabled=idle&&!editor.retryPending,onClick={editor.beginInlineMaster("party")},modifier=Modifier.focusRequester(inlineFocus)){Text("Create customer & use")}
                             Field(if (editor.kind == "expense") "Supplier / expense description" else if (editor.purchase) "Supplier name" else "Customer name", editor.get("name"), editor::changePartyName, maximum = 120)
                             if (editor.document) Field("Phone · optional", editor.get("party_phone"), { change("party_phone", it) }, maximum = 32)
                         }
@@ -130,6 +136,7 @@ import org.json.JSONObject
                     if (editor.document && step == 1) {
                         Heading("Items & services", "${editor.lines.size} item lines · tap a line to edit")
                         editor.lines.forEachIndexed { index, line -> key(line.uiKey) { CollapsibleLine(editor, line, index) } }
+                        if(editor.canCreateInline)OutlinedButton(enabled=idle&&!editor.retryPending&&canAppendInlineItem(editor.lines,editor.regular),onClick={editor.beginInlineMaster("item")},modifier=Modifier.fillMaxWidth().focusRequester(inlineFocus)){Text("Create item & use")}
                         OutlinedButton(onClick = { if (editor.lines.size < 100) editor.lines.add(LineState(regular = editor.regular)) }, enabled = idle, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Add, null); Text("Add item or service") }
                     }
                     if (editor.document && step == 2) {
@@ -175,6 +182,17 @@ import org.json.JSONObject
             } }
         }
     }
+    editor.inlineMaster?.let{child->
+        ActionDialog("Create ${if(child.kind=="party")"customer"else"item"} for this invoice",vm,
+            confirm=if(child.retryPending)"Retry original creation"else"Create & use",
+            enabled=editor.canCreateInline,working={child.saving},unresolved={child.retryPending},hasChanges={child.changed()},
+            onSave={editor.saveInlineMaster()},onDismiss={editor.closeInlineMaster()}){
+            Text("Your invoice stays open. Creating this master does not post an invoice or stock opening.")
+            if(child.saving)LinearProgressIndicator(Modifier.fillMaxWidth())
+            else if(child.retryPending){Text("Creation may already have succeeded. Retry the original name, details and date before closing; no different master will be selected.");DetailValue("Name",child.get("name"));DetailValue("Creation date",child.get("date"))}
+            else MasterFields(child,inline=true)
+        }
+    }
     if (discard && !editor.retryPending) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard unsaved changes?") }, text = { Text("This draft has not been saved.") }, confirmButton = { TextButton(onClick = { discard = false; vm.error = ""; vm.notice = ""; vm.editor = null }) { Text("Discard draft") } }, dismissButton = { TextButton(onClick = { discard = false }) { Text("Keep editing") } })
 }
 
@@ -194,13 +212,13 @@ import org.json.JSONObject
     }
 }
 
-@Composable private fun MasterFields(editor:EntryEditor){val vm=editor.vm;Section(if(editor.kind=="party")"Party details"else"Item details"){if(!editor.masterEditSupported){Text("Saving existing parties and items requires verified revision protection on the server.",color=MaterialTheme.colorScheme.error);FeatureUpgradeHint(vm)};Field("Name",editor.get("name"),{editor.set("name",it)},readOnly=editor.previous!=null,maximum=120);if(ApiCapabilities.masterFields.values.any{!vm.supports(it)})FeatureUpgradeHint(vm);if(vm.supports("master_lifecycle"))Toggle("Active for new transactions",editor.flag("is_active"),{editor.set("is_active",it.toString())});Text("Inactive masters stay in history but cannot be selected for new transactions. Reactivate here when needed.",style=MaterialTheme.typography.bodySmall);if(editor.kind=="party"){
+@Composable private fun MasterFields(editor:EntryEditor,inline:Boolean=false){val vm=editor.vm;Section(if(editor.kind=="party")"Party details"else"Item details"){if(!editor.masterEditSupported){Text("Saving existing parties and items requires verified revision protection on the server.",color=MaterialTheme.colorScheme.error);FeatureUpgradeHint(vm)};Field("Name",editor.get("name"),{editor.set("name",it)},readOnly=editor.previous!=null,maximum=120);if(ApiCapabilities.masterFields.values.any{!vm.supports(it)})FeatureUpgradeHint(vm);if(!inline&&vm.supports("master_lifecycle"))Toggle("Active for new transactions",editor.flag("is_active"),{editor.set("is_active",it.toString())});if(!inline)Text("Inactive masters stay in history but cannot be selected for new transactions. Reactivate here when needed.",style=MaterialTheme.typography.bodySmall);if(editor.kind=="party"){
     Choice("Party type",editor.get("party_type"),listOf("both" to "Customer and supplier","customer" to "Customer","supplier" to "Supplier"),{editor.set("party_type",it)});for((key,label)in listOf("gstin" to "GSTIN","phone" to "Phone","email" to "Email","address" to "Address","shipping_address" to "Default shipping address").filter{it.first!="shipping_address"||vm.supports("party_shipping_address")})Field(label,editor.get(key),{editor.set(key,if(key=="gstin")it.uppercase()else it)},multiline=key in setOf("address","shipping_address"),maximum=if(key=="gstin")15 else if(key in setOf("address","shipping_address"))500 else if(key=="phone")32 else 254)
         if(vm.supports("party_credit_limits"))Field("Customer credit limit · optional (₹)",editor.get("credit_limit"),{editor.set("credit_limit",it)},number=true,maximum=18);Text("Blank disables warnings; zero warns for any positive exposure. Warnings never block a sale.",style=MaterialTheme.typography.bodySmall)
         if(vm.supports("party_payment_terms"))Field("Payment terms · days (optional)",editor.get("payment_terms_days"),{editor.set("payment_terms_days",it)},number=true,maximum=4);Text("0 means due on the document date. Blank disables suggestions; saved document dates are never changed automatically.",style=MaterialTheme.typography.bodySmall)
     }else{
-        DataImage(editor.get("image_data_url"),Modifier.fillMaxWidth().height(130.dp));Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){OutlinedButton(onClick={vm.files.pick(arrayOf("image/*")){uri->vm.task{editor.set("image_data_url",vm.files.image(uri));editor.set("image_thumbnail",vm.files.image(uri,140,15000))}}}){Text("Upload item image")};TextButton(onClick={editor.set("image_data_url","");editor.set("image_thumbnail","")}){Text("Remove")}}
-        Choice("Type",editor.get("item_type"),listOf("goods" to "Goods","services" to "Services"),{editor.set("item_type",it)});Toggle("Track stock",editor.flag("track_stock"),{editor.set("track_stock",it.toString())},enabled=editor.previous==null);for((key,label)in listOf("hsn" to "HSN / SAC","unit" to "Unit","barcode" to "Barcode","sale_rate" to "Sale price (₹)","purchase_rate" to "Purchase price (₹)","gst_rate" to "GST rate (%)"))Field(label,editor.get(key),{editor.set(key,it)},number=key.endsWith("rate"),maximum=if(key=="barcode")80 else 24);Choice("Supply classification",editor.get("tax_treatment"),supplyChoices,{editor.set("tax_treatment",it)})
+        if(!inline){DataImage(editor.get("image_data_url"),Modifier.fillMaxWidth().height(130.dp));Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){OutlinedButton(onClick={vm.files.pick(arrayOf("image/*")){uri->vm.task{editor.set("image_data_url",vm.files.image(uri));editor.set("image_thumbnail",vm.files.image(uri,140,15000))}}}){Text("Upload item image")};TextButton(onClick={editor.set("image_data_url","");editor.set("image_thumbnail","")}){Text("Remove")}}}
+        Choice("Type",editor.get("item_type"),listOf("goods" to "Goods","services" to "Services"),{editor.set("item_type",it);if(inline&&it=="services")editor.set("track_stock","false")});Toggle("Track stock",editor.flag("track_stock"),{editor.set("track_stock",it.toString())},enabled=editor.previous==null&&(!inline||editor.get("item_type")!="services"));if(inline&&editor.get("item_type")=="services")Text("Services do not track stock.");for((key,label)in listOf("hsn" to "HSN / SAC","unit" to "Unit","barcode" to "Barcode","sale_rate" to "Sale price (₹)","purchase_rate" to "Purchase price (₹)","gst_rate" to "GST rate (%)"))Field(label,editor.get(key),{editor.set(key,it)},number=key.endsWith("rate"),maximum=if(key=="barcode")80 else 24);Choice("Supply classification",editor.get("tax_treatment"),supplyChoices,{editor.set("tax_treatment",it)})
         if(vm.supports("low_stock_reorder")&&((editor.flag("track_stock")&&editor.get("item_type")=="goods")||editor.get("low_stock_threshold").isNotBlank())){Field("Low-stock threshold · optional",editor.get("low_stock_threshold"),{editor.set("low_stock_threshold",it)},number=true,maximum=18);Text("Blank disables alerts. Items at or below this quantity appear in Reorder review; no purchase is posted automatically.",style=MaterialTheme.typography.bodySmall)}
     }}}
 val supplyChoices=listOf("taxable" to "Taxable","nil_rated" to "Nil rated","exempt" to "Exempt","non_gst" to "Non-GST")

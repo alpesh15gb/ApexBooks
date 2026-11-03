@@ -8,4 +8,5 @@
       <Compile Include="../../windows/Services/ClientCapabilities.cs" Link="ClientCapabilities.cs" /><Compile Include="../../windows/Services/CompleteBackupTransfer.cs" Link="CompleteBackupTransfer.cs" /><Compile Include="../../windows/Services/LineDiscountState.cs" Link="LineDiscountState.cs" /><Compile Include="../../windows/Services/BuildIdentity.cs" Link="BuildIdentity.cs" />
   </ItemGroup>
   <ItemGroup><Compile Include="../WindowsUi/WindowOwnership.cs" Link="WindowOwnership.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../windows/Services/InlineMasterSubmission.cs" Link="InlineMasterSubmission.cs" /></ItemGroup>
 </Project>

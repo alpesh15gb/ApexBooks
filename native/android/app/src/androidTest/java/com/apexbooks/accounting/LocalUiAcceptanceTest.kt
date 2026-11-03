@@ -120,6 +120,13 @@ class LocalUiAcceptanceTest {
         assertTrue("Visible backup password field",fields.size in 1..2)
         fields.last().click();fields.last().text=password;device.pressBack()
     }
+    private fun setNamedEdit(device:UiDevice,label:String,value:String){
+        scrollTo(device,label)
+        val selector=By.clazz("android.widget.EditText").hasDescendant(By.text(label))
+        assertTrue("Editable field: $label",device.wait(Until.hasObject(selector),10000))
+        val field=device.findObject(selector);assertTrue(field.isEnabled);field.click();field.text=value
+        dismissVisibleKeyboard(device)
+    }
     private fun chooseSavedParty(device:UiDevice){
         val selector=By.desc("Saved party · Enter manually")
         scrollTo(device,selector,"Saved party selector")
@@ -239,6 +246,40 @@ class LocalUiAcceptanceTest {
         assertEquals("Native-created invoice amount",0,created.decimal("amount").compareTo(java.math.BigDecimal("100")))
         assertEquals("Native-created invoice remains unpaid",0,created.decimal("outstanding").compareTo(java.math.BigDecimal("100")))
         assertEquals("Invoice save does not duplicate collection",1,saved.count{it.s("kind")=="payment_in"})
+        // Inline master creation must leave the same unsaved invoice and its math intact.
+        val inlineParty="UI Inline Customer ${UUID.randomUUID().toString().take(6)}"
+        val inlineItem="UI Inline Service ${UUID.randomUUID().toString().take(6)}"
+        val financialBefore=canonical(api.request(api.company(companyIds.getValue(target),"/reports/financial?from_date=1900-01-01&to_date=${today()}")))
+        clickReadyAction(device,"New invoice")
+        clickReadyAction(device,"Create customer & use")
+        setNamedEdit(device,"Name",inlineParty)
+        clickReadyAction(device,"Create & use")
+        assertTrue("Inline customer dialog closes",device.wait(Until.gone(By.text("Create customer for this invoice")),30000))
+        assertTrue("Returned customer selected on retained invoice",device.hasObject(By.clazz("android.widget.EditText").text(inlineParty)))
+        clickReadyAction(device,"Next: add items")
+        setNamedEdit(device,"Description","Retained draft line")
+        setNamedEdit(device,"Quantity","3");setNamedEdit(device,"Rate (₹)","100")
+        clickReadyDescription(device,"Line discount · Percentage (%)")
+        clickReadyAction(device,"Fixed amount (₹)");setNamedEdit(device,"Discount (₹)","10")
+        clickReadyAction(device,"Create item & use")
+        setNamedEdit(device,"Name",inlineItem)
+        clickReadyDescription(device,"Type · Goods");clickReadyAction(device,"Services")
+        setNamedEdit(device,"Sale price (₹)","25")
+        clickReadyAction(device,"Create & use")
+        assertTrue("Inline item dialog closes",device.wait(Until.gone(By.text("Create item for this invoice")),30000))
+        clickReadyAction(device,"Review document")
+        scrollTo(device,"Retained draft line × 3");scrollTo(device,"$inlineItem × 1")
+        assertTrue("Retained quantity/fixed discount plus new service preview totals315",device.wait(Until.hasObject(By.text(money("315"))),30000))
+        val inlineRows=api.records(companyIds.getValue(target))
+        assertEquals(1,inlineRows.count{it.s("kind")=="party"&&it.s("name")==inlineParty})
+        val service=inlineRows.single{it.s("kind")=="item"&&it.s("name")==inlineItem}
+        assertEquals("services",service.o("data").s("item_type"));assertFalse(service.o("data").optBoolean("track_stock"))
+        assertEquals("Inline masters alone post no invoice",2,inlineRows.count{it.s("kind")=="sales_invoice"})
+        assertEquals("Inline masters do not change financial reports",financialBefore,canonical(api.request(api.company(companyIds.getValue(target),"/reports/financial?from_date=1900-01-01&to_date=${today()}"))))
+        device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-inline-master-review.png"))
+        clickReadyDescription(device,"Close entry");clickReadyAction(device,"Discard draft")
+        assertTrue("Original invoice editor closes only on explicit discard",device.wait(Until.gone(By.text("New Sales Invoice")),15000))
+        assertEquals("Discarding inline review posts no invoice",2,api.records(companyIds.getValue(target)).count{it.s("kind")=="sales_invoice"})
         // Actual receipt controls + system picker. No API-upload shortcut is used.
         val receiptName="apex-ui-receipt-${UUID.randomUUID()}.pdf"
         val receiptBytes="%PDF-1.4\n% Synthetic Android UI receipt\n%%EOF\n".toByteArray()

@@ -163,6 +163,34 @@ Check(!WindowOwnership.ReachesApp(0,1,_=>1)&&!WindowOwnership.ReachesApp(2,0,_=>
 var ownerCalls=0;Check(!WindowOwnership.ReachesApp(2,1,h=>{ownerCalls++;return h+1;})&&ownerCalls==64,"unbounded owner chain stops at64 hops");
 Check(WindowOwnership.ReachesApp(65,1,h=>h-1)&&!WindowOwnership.ReachesApp(66,1,h=>h-1),"ownership depth accepts64 hops and rejects65");
 
+var inlineTransport=new InlineMasterTransport();using(var inlineApi=new ApexApi("https://synthetic-inline.invalid",inlineTransport)){
+ var command=new InlineMasterSubmission(inlineApi,"company-a");var original=JsonNode.Parse("{\"kind\":\"item\",\"name\":\"New service\",\"date\":\"2026-11-03\",\"data\":{\"item_type\":\"services\",\"track_stock\":false,\"sale_rate\":\"25\",\"gst_rate\":\"0\"}}")!.AsObject();
+ try{await command.Save(original,()=>true);}catch(ApiFailure error)when(error.Status==0){}Check(command.Unresolved,"inline unknown create retains unresolved command");
+ var changed=original.Copy().Object();changed["name"]="Changed after timeout";changed["date"]="2026-11-04";var created=await command.Save(changed,()=>true);
+ Check(!command.Unresolved&&created.Text("name")=="New service"&&inlineTransport.Bodies.Distinct().Count()==1&&inlineTransport.Keys.Distinct().Count()==1,"inline retry preserves exact original body date name and key");
+ var line=InlineMasterSubmission.ItemLine(created,true);Check(line.Text("item_id")=="created-master"&&line.Text("rate")=="25"&&line.Text("quantity")=="1"&&line.Text("discount_percent")=="0","created service maps to one reviewable linked invoice line");
+ Check(!created["data"].Flag("track_stock")&&created["data"].Text("item_type")=="services","inline service creates no tracked stock");
+ var denied=new InlineMasterSubmission(inlineApi,"company-a");var before=inlineTransport.Bodies.Count;try{await denied.Save(original,()=>false);}catch(OperationCanceledException){}Check(inlineTransport.Bodies.Count==before,"inline write rejects changed company or role before network");
+ var stale=new InlineMasterSubmission(inlineApi,"company-a");inlineApi.ForgetSession();try{await stale.Save(original,()=>true);}catch(OperationCanceledException){}Check(inlineTransport.Bodies.Count==before,"inline write rejects replacement session before network");
+ inlineTransport.Duplicate=true;var duplicate=new InlineMasterSubmission(inlineApi,"company-a");var rejected=false;try{await duplicate.Save(original,()=>true);}catch(ApiFailure error)when(error.Status==409){rejected=true;}Check(rejected&&!duplicate.Unresolved,"duplicate inline master is not selected and can be corrected or cancelled");
+}
+foreach(var malformed in new[]{"id","kind","name","invalid-active","company"}){
+ var invalidTransport=new InlineMasterTransport{Malformed=malformed};using var invalidApi=new ApexApi("https://synthetic-inline.invalid",invalidTransport);var command=new InlineMasterSubmission(invalidApi,"company-a");var body=JsonNode.Parse("{\"kind\":\"party\",\"name\":\"Customer\",\"date\":\"2026-11-03\",\"data\":{}}")!.AsObject();
+ try{await command.Save(body,()=>true);}catch(ApiFailure){}var rejected=false;try{await command.Save(body,()=>true);}catch(InvalidDataException){rejected=true;}Check(rejected&&command.Unresolved&&invalidTransport.Keys.Distinct().Count()==1,"malformed inline2xx "+malformed+" remains locked with original retry key");
+}
+var archivedTransport=new InlineMasterTransport{Malformed="inactive"};using(var archivedApi=new ApexApi("https://synthetic-inline.invalid",archivedTransport)){
+ var command=new InlineMasterSubmission(archivedApi,"company-a");var body=JsonNode.Parse("{\"kind\":\"party\",\"name\":\"Customer\",\"data\":{}}")!.AsObject();try{await command.Save(body,()=>true);}catch(ApiFailure){}var result=await command.Save(body,()=>true);Check(!command.Unresolved&&!WorkflowMasterValues.IsActive(result),"known inline creation later archived is acknowledged without selecting or recreating");
+}
+foreach(var replaceSession in new[]{false,true}){
+ var held=new InlineMasterTransport{Hold=true};using var heldApi=new ApexApi("https://synthetic-inline.invalid",held);var command=new InlineMasterSubmission(heldApi,"company-a");var current=true;var pending=command.Save(JsonNode.Parse("{\"kind\":\"party\",\"name\":\"Held customer\",\"data\":{}}")!.AsObject(),()=>current);await held.Entered.Task;if(replaceSession)heldApi.ForgetSession();else current=false;held.Release.SetResult(true);var rejected=false;try{await pending;}catch(OperationCanceledException){rejected=true;}Check(rejected&&command.Unresolved,"in-flight inline response cannot apply after "+(replaceSession?"signout":"company switch"));
+}
+var latestMaster=JsonNode.Parse("{\"id\":\"master\",\"kind\":\"party\",\"data\":{\"is_active\":false}}")!.AsObject();var returnedMaster=JsonNode.Parse("{\"id\":\"master\",\"kind\":\"party\",\"data\":{\"is_active\":true}}")!.AsObject();
+Check(!WorkflowMasterValues.IsActive(InlineMasterSubmission.CurrentRow(new JsonArray(latestMaster),returnedMaster)),"inline selection respects newer archived catalog row instead of stale create response");
+Check(InlineMasterSubmission.PartySupplyState(returnedMaster,"27")=="27"&&InlineMasterSubmission.PartySupplyState(JsonNode.Parse("{\"data\":{\"gstin\":\"29ABCDE1234F1Z5\"}}")!.AsObject(),"27")=="29","inline party resets supply state to company when GSTIN is absent");
+Check(InlineMasterSubmission.CanAppend(99)&&!InlineMasterSubmission.CanAppend(100)&&InlineMasterSubmission.CanAppend(1),"inline item respects100 line cap and pristine placeholder reuse");
+Check(InlineMasterSubmission.CanReusePlaceholder(1,true,"original","original")&&!InlineMasterSubmission.CanReusePlaceholder(1,false,"original","original")&&!InlineMasterSubmission.CanReusePlaceholder(2,true,"original","original"),"inline item reuses only the original sole placeholder instance");
+Check(!InlineMasterSubmission.CanReusePlaceholder(1,true,"quantity=2;discount_amount=10","quantity=1;discount_percent=0"),"edited quantity or fixed discount cannot be overwritten by inline item");
+
 var paging=new PagingTransport();using var pagingApi=new ApexApi("https://synthetic-paging.invalid",paging);
 var timer=System.Diagnostics.Stopwatch.StartNew();for(var offset=0;offset<1250;offset+=100)await pagingApi.Send(pagingApi.CompanyPath("test",$"/records?compact=true&limit=100&offset={offset}"));var baselineMs=timer.ElapsedMilliseconds;
 Check(paging.Calls==13,"baseline 1250 records uses 13 small-page requests");paging.Calls=0;timer.Restart();var allRows=await pagingApi.Records("test");var improvedMs=timer.ElapsedMilliseconds;
@@ -193,6 +221,19 @@ sealed class MasterConflictTransport:HttpMessageHandler
 {
  public List<HttpMethod> Methods=[];public List<decimal> Versions=[];
  protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation){if(request.RequestUri!.AbsolutePath=="/api/capabilities")return new(HttpStatusCode.OK){Content=new StringContent("{\"capabilities_version\":1,\"supported_features\":[\"master_edit_revisions\"]}")};Methods.Add(request.Method);Versions.Add(JsonNode.Parse(await request.Content!.ReadAsStringAsync(cancellation)).Number("version"));return new(HttpStatusCode.Conflict){Content=new StringContent("{\"detail\":\"Master version conflict\"}")};}
+}
+
+sealed class InlineMasterTransport:HttpMessageHandler
+{
+ public List<string> Bodies=[],Keys=[];public bool Duplicate,Hold;public string Malformed="";public TaskCompletionSource<bool> Entered=new(TaskCreationOptions.RunContinuationsAsynchronously),Release=new(TaskCreationOptions.RunContinuationsAsynchronously);
+ protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation){
+  var body=await request.Content!.ReadAsStringAsync(cancellation);Bodies.Add(body);Keys.Add(request.Headers.GetValues("Idempotency-Key").Single());
+  if(Duplicate)return new(HttpStatusCode.Conflict){Content=new StringContent("{\"detail\":\"A party or item with this name already exists\"}")};
+  if(Hold){Entered.SetResult(true);await Release.Task.WaitAsync(cancellation);}else if(Bodies.Count==1)throw new HttpRequestException("synthetic committed response lost");
+  var result=JsonNode.Parse(body)!.AsObject();result["id"]="created-master";
+  if(Malformed=="id")result["id"]="";if(Malformed=="kind")result["kind"]="expense";if(Malformed=="name")result["name"]="Unexpected";if(Malformed=="inactive")result["data"]!["is_active"]=false;if(Malformed=="invalid-active")result["data"]!["is_active"]="false";if(Malformed=="company")result["company_id"]="another-company";
+  return new(HttpStatusCode.OK){Content=new StringContent(result.ToJsonString())};
+ }
 }
 
 sealed class PagingTransport:HttpMessageHandler
