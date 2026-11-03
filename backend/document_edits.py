@@ -4,7 +4,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 from fastapi import Depends,HTTPException,Request
-from sqlalchemy import select,delete
+from sqlalchemy import select,delete,func
 from sqlalchemy.orm import Session
 from workflow_extensions import retry
 import re
@@ -110,6 +110,14 @@ def install(app,m):
                 data['lines']=merge_display_lines(record.data.get('lines',[]),submitted['lines'])
             record.name=body.name.strip();record.number=body.number.strip();record.data={**data,'version':version,'updated_at':datetime.now(timezone.utc).isoformat()}
         else:
+            if record.kind in {'credit_note','debit_note'}:
+                posted_settlements=select(m.RecordPosting.record_id).where(m.RecordPosting.company_id==company_id)
+                first_settlement=session.scalar(select(func.min(m.Record.date)).where(
+                    m.Record.company_id==company_id,m.Record.id.in_(posted_settlements),
+                    m.Record.kind.in_(['credit_application','customer_refund','supplier_refund']),
+                    m.Record.data['credit_note_id'].as_string()==record.id))
+                if first_settlement and body.date>first_settlement:
+                    raise HTTPException(422,f'Revised note date cannot follow an existing credit settlement; choose {first_settlement.isoformat()} or earlier')
             if record.data.get('is_advance') and any(row.data.get('advance_id')==record.id for row in session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind.in_(['advance_application','advance_refund'])))):raise HTTPException(409,'This advance has settlements. Its description and notes can still be edited.')
             if session.scalar(select(m.BankStatementLine.id).where(m.BankStatementLine.company_id==company_id,m.BankStatementLine.matched_record_id==record.id)) or session.scalar(select(m.BankMatchAllocation.id).where(m.BankMatchAllocation.company_id==company_id,m.BankMatchAllocation.record_id==record.id)):raise HTTPException(409,'Unmatch this bank transaction before changing its financial details')
             allocations=[]
