@@ -132,7 +132,11 @@ class LocalUiAcceptanceTest {
         scrollTo(device,selector,"Saved party selector")
         assertTrue("Saved party is an accessible clickable control",device.findObject(selector).isClickable)
         device.findObject(selector).click()
-        assertTrue(device.wait(Until.hasObject(By.text("UI Smoke Buyer")),15000));device.findObject(By.text("UI Smoke Buyer")).click()
+        clickReadyAction(device,"UI Smoke Buyer")
+        // Selection updates the form before the modal finishes dismissing.
+        // Wait for both real arrival states before invoking the next page action.
+        assertTrue("Saved party sheet dismissed",device.wait(Until.gone(By.text("Saved party")),15000))
+        assertTrue("Selected party reflected in retained document",device.wait(Until.hasObject(By.desc("Saved party · UI Smoke Buyer")),15000))
     }
 
     @Test fun signInAndSwitchSyntheticCompanies():Unit=runBlocking {
@@ -201,7 +205,7 @@ class LocalUiAcceptanceTest {
         clickReadyAction(device,"Review purchase order · 1 items")
         assertTrue(device.wait(Until.hasObject(By.text("New Purchase Order")),15000))
         chooseSavedParty(device)
-        device.findObject(By.text("Next: add items")).click()
+        clickReadyAction(device,"Next: add items")
         // Seeded lines open collapsed; expand the real visible card before inspecting its fields.
         assertTrue("Reorder draft shows the selected item card",device.wait(Until.hasObject(By.text("UI Reorder Item")),15000))
         device.findObject(By.text("UI Reorder Item")).click()
@@ -232,10 +236,10 @@ class LocalUiAcceptanceTest {
         clickReadyAction(device,"New invoice")
         assertTrue(device.wait(Until.hasObject(By.text("New Sales Invoice")),15000))
         chooseSavedParty(device)
-        device.findObject(By.text("Next: add items")).click()
+        clickReadyAction(device,"Next: add items")
         val itemSelector=By.desc("Item / service · Enter a description");scrollTo(device,itemSelector,"Item / service selector");device.findObject(itemSelector).click()
         assertTrue(device.wait(Until.hasObject(By.text("UI Reorder Item")),15000));device.findObject(By.text("UI Reorder Item")).click()
-        device.findObject(By.text("Review document")).click()
+        clickReadyAction(device,"Review document")
         assertTrue("API preview enables native save",device.wait(Until.hasObject(By.text("Save invoice").enabled(true)),30000))
         device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-invoice-review.png"))
         device.findObject(By.text("Save invoice")).click()
