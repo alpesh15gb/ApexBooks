@@ -7,4 +7,13 @@
       <Compile Include="../../windows/Services/WorkflowMasterValues.cs" Link="WorkflowMasterValues.cs" />
       <Compile Include="../../windows/Services/ClientCapabilities.cs" Link="ClientCapabilities.cs" /><Compile Include="../../windows/Services/CompleteBackupTransfer.cs" Link="CompleteBackupTransfer.cs" /><Compile Include="../../windows/Services/LineDiscountState.cs" Link="LineDiscountState.cs" /><Compile Include="../../windows/Services/BuildIdentity.cs" Link="BuildIdentity.cs" />
   </ItemGroup>
+  <ItemGroup><Compile Include="../WindowsUi/WindowOwnership.cs" Link="WindowOwnership.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../windows/Services/InlineMasterSubmission.cs" Link="InlineMasterSubmission.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../windows/Services/MonthChartAggregation.cs" Link="MonthChartAggregation.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../WindowsClient/MonthChartAggregationTests.cs" Link="MonthChartAggregationTests.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../WindowsClient/ConversionRevisionTests.cs" Link="ConversionRevisionTests.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../windows/Services/ExactBankUnmatch.cs" Link="ExactBankUnmatch.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../WindowsClient/ExactBankUnmatchTests.cs" Link="ExactBankUnmatchTests.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../windows/Services/JournalSubmission.cs" Link="JournalSubmission.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../WindowsClient/JournalSubmissionTests.cs" Link="JournalSubmissionTests.cs" /></ItemGroup>
 </Project>

@@ -1,4 +1,5 @@
 """Recurring worklists create reviewed drafts only, with durable occurrence identity."""
+from master_test_helpers import fresh_master_edit
 import base64,json,unittest
 from uuid import uuid4
 from decimal import Decimal
@@ -79,7 +80,7 @@ class RecurringDraftTest(unittest.TestCase):
         backup=c.get(b+'/data-export.json',headers=h).json();self.assertEqual(backup['stock_movements'],[])
         self.assertEqual(self.generate(c,h,b,t,'2026-04-30').status_code,409)
         # A separately reviewed conversion posts once (use untracked line for this test).
-        draft=generated[0];invoice=c.post(b+'/records',headers=h,json={'kind':'sales_invoice','name':p['name'],'date':'2026-04-01','data':{'source_document_id':draft['id'],'lines':[{'description':'Reviewed service','quantity':1,'rate':100,'gst_rate':0}]}})
+        draft=generated[0];invoice=c.post(b+'/records',headers=h,json={'kind':'sales_invoice','name':p['name'],'date':'2026-04-01','data':{'source_document_id':draft['id'],'source_document_version':draft['data'].get('version',0),'lines':[{'description':'Reviewed service','quantity':1,'rate':100,'gst_rate':0}]}})
         self.assertEqual(invoice.status_code,200,invoice.text);self.assertEqual(len(c.get(b+'/journals',headers=h).json()),1)
         replay=self.generate(c,h,b,t,'2026-01-31').json();self.assertEqual(replay['record']['converted_to'],invoice.json()['id'])
 
@@ -136,7 +137,7 @@ class RecurringDraftTest(unittest.TestCase):
         refreshed=c.put(b+'/recurring-templates/'+t['id'],headers=h,json={'version':1,'name':t['name'],'is_active':True,'source_record_id':source['id']});self.assertEqual(refreshed.status_code,200,refreshed.text)
         next_draft=self.generate(c,h,b,t,'2026-02-28').json()['record'];self.assertEqual(Decimal(next_draft['amount']),150)
         self.assertEqual(Decimal(c.get(b+'/records/'+first['id'],headers=h).json()['amount']),100)
-        c.put(b+'/masters/'+item['id'],headers=h,json={'name':item['name'],'track_stock':True,'is_active':False}).raise_for_status()
+        c.put(b+'/masters/'+item['id'],headers=h,json=fresh_master_edit(c, b+'/masters/'+item['id'], h, {'name':item['name'],'track_stock':True,'is_active':False})).raise_for_status()
         blocked=self.generate(c,h,b,t,'2026-03-31');self.assertEqual(blocked.status_code,422,blocked.text)
         self.assertEqual(c.get(b+'/recurring-templates/'+t['id'],headers=h).json()['generated_count'],2)
         self.assertEqual(c.get(b+'/journals',headers=h).json(),[])

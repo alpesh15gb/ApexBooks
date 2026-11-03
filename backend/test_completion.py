@@ -253,7 +253,7 @@ class CompletionTest(unittest.TestCase):
         updated={**payload,'number':estimate['number'],'data':{**payload['data'],'version':0,'document_discount_percent':'0'}}
         edit=client.put(base+'/drafts/'+estimate['id'],headers=h,json=updated);self.assertEqual(edit.status_code,200,edit.text);self.assertEqual(Decimal(edit.json()['amount']),118)
         self.assertEqual(client.put(base+'/drafts/'+estimate['id'],headers=h,json=updated).status_code,409)
-        invoice=client.post(base+'/records',headers=h,json={**updated,'kind':'sales_invoice','number':'','data':{**updated['data'],'source_document_id':estimate['id']}});self.assertEqual(invoice.status_code,200,invoice.text)
+        invoice=client.post(base+'/records',headers=h,json={**updated,'kind':'sales_invoice','number':'','data':{**updated['data'],'source_document_id':estimate['id'],'source_document_version':edit.json()['data']['version']}});self.assertEqual(invoice.status_code,200,invoice.text)
         self.assertEqual(client.put(base+'/drafts/'+estimate['id'],headers=h,json={**updated,'data':{**updated['data'],'version':1}}).status_code,409)
         expense=client.post(base+'/records',headers=h,json={'kind':'expense','name':'Synthetic landlord','date':'2026-04-02','data':{'place_of_supply':'36','category':'Office','payment_account':'cash','lines':[{'description':'Office rent','quantity':1,'rate':100,'gst_rate':18,'itc_treatment':'pending_review'}]}})
         self.assertEqual(expense.status_code,200,expense.text);self.assertEqual(Decimal(expense.json()['amount']),118)

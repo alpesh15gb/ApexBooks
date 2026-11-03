@@ -1,3 +1,7 @@
+import { sourceInputTaxSummary } from "./purchaseReturnGuidance.js";
+import { captureConversionSource, conversionBlockReason, isDefiniteConversionConflict } from "./conversionRevision.js";
+import InlineItemForm from "./InlineItemForm.jsx";
+import InlinePartyForm from "./InlinePartyForm.jsx";
 import { changeLineDiscount, serializeLineDiscount, lineDiscountMode } from "./lineDiscount.js";
 import { supportsFeature } from "./capabilities.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
@@ -10,7 +14,7 @@ import {
   useDocumentPreview,
 } from "./DocumentWorkbench.jsx";
 import { prepareInvoiceImage } from "./prepareInvoiceImage.js";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { availableMasters, partyShippingAddress, shippingForPartySelection } from "./masterLifecycle.js";
 import CreditStatus from "./CreditStatus.jsx";
 import PriceHistory from "./PriceHistory.jsx";
@@ -18,6 +22,8 @@ import PaymentAllocations from "./PaymentAllocations.jsx";
 export default function RecordEditor({
   kind,
   features = [],
+  capabilities,
+  onRetryCapabilities,
   company,
   companyId,
   records,
@@ -26,6 +32,8 @@ export default function RecordEditor({
   draftSeed,
   close,
   save,
+  createParty,
+  createItem,
   api,
   Modal,
   labels,
@@ -34,6 +42,9 @@ export default function RecordEditor({
   today,
   edit = false,
 }) {
+  const conversion = useRef(captureConversionSource(source, edit)).current;
+  const [conversionRejected, setConversionRejected] = useState("");
+  const conversionBlocked = conversionRejected || conversionBlockReason(conversion, capabilities, features);
   const supported = feature => supportsFeature(features, feature);
   const termsSupported = supported("party_payment_terms");
   const doc = documentKinds.includes(kind),
@@ -49,15 +60,54 @@ export default function RecordEditor({
   const initial = source || relatedSource || draftSeed;
   const [priceLine, setPriceLine] = useState(null), [termsSuggestion, setTermsSuggestion] = useState(null), [termsError, setTermsError] = useState("");
   const lastShippingDefault = useRef("");
+  const [inlineParty, setInlineParty] = useState(false);
+  const [partyLocked, setPartyLocked] = useState(false);
+  const [createdParties, setCreatedParties] = useState([]);
+  const partyButton = useRef(null);
+  const partyLockRef = useRef(false);
+  const updatePartyLock = useCallback(value => { partyLockRef.current = value; setPartyLocked(value); }, []);
+  const dismissParty = () => {
+    if (partyLockRef.current) return;
+    setInlineParty(false);
+    setTimeout(() => partyButton.current?.focus(), 0);
+  };
+  const [inlineItem, setInlineItem] = useState(false);
+  const [itemLocked, setItemLocked] = useState(false);
+  const [createdItems, setCreatedItems] = useState([]);
+  const [itemAdded, setItemAdded] = useState("");
+  const itemButton = useRef(null);
+  const itemFocusTarget = useRef(null);
+  useLayoutEffect(() => {
+    if (inlineItem || !itemFocusTarget.current) return;
+    // The invoice is visible and its new line is committed before focus moves.
+    // A timer can run before React commits, focusing a hidden or obsolete field.
+    const target = itemFocusTarget.current;
+    itemFocusTarget.current = null;
+    if (target === "quantity") {
+      const quantities = itemButton.current?.form?.querySelectorAll('.document-item-row [name="quantity"]');
+      quantities?.[quantities.length - 1]?.focus();
+    } else {
+      itemButton.current?.focus();
+    }
+  }, [inlineItem]);
+  const itemLockRef = useRef(false);
+  const updateItemLock = useCallback(value => { itemLockRef.current = value; setItemLocked(value); }, []);
+  const dismissItem = () => {
+    if (itemLockRef.current) return;
+    itemFocusTarget.current = "trigger";
+    setInlineItem(false);
+  };
   const retainedParties = edit || relatedSource ? [initial?.data?.party_id].filter(Boolean) : [];
   const retainedItems = edit || relatedSource ? (initial?.data?.lines || []).map(line => line.item_id).filter(Boolean) : [];
-  const partyChoices = availableMasters(records, "party", ["payment_in", "payment_out"].includes(kind) ? records.filter(record => record.kind === "party").map(record => record.id) : retainedParties);
-  const itemChoices = availableMasters(records, "item", retainedItems);
+  const partyChoices = availableMasters([...records, ...createdParties.filter(row => !records.some(record => record.id === row.id))], "party", ["payment_in", "payment_out"].includes(kind) ? records.filter(record => record.kind === "party").map(record => record.id) : retainedParties);
+  const itemChoices = availableMasters([...records, ...createdItems.filter(row => !records.some(record => record.id === row.id))], "item", retainedItems);
   const canWrite = ["owner", "editor"].includes(company.role);
   const isPayment = ["payment_in", "payment_out"].includes(kind);
   const [dirty, setDirty] = useState(false),
     [confirmClose, setConfirmClose] = useState(false);
   const requestClose = () => {
+    if (inlineParty) { dismissParty(); return; }
+    if (inlineItem) { dismissItem(); return; }
     if (saving || scanning || pending) return;
     if (dirty) setConfirmClose(true);
     else close();
@@ -171,6 +221,7 @@ export default function RecordEditor({
     [error, setError] = useState(""),
     [scanning, setScanning] = useState(false);
   const [reviewedReturnDiscounts, setReviewedReturnDiscounts] = useState("");
+  const [sourceInputTax, setSourceInputTax] = useState(() => !edit && kind === "debit_note" ? sourceInputTaxSummary(initial?.data?.lines) : "");
   const requiresDiscountReview = !edit && ["credit_note", "debit_note"].includes(kind) && !!form.applied_to && lines.some(line => lineDiscountMode(line) === "amount" && Number(line.discount_amount) > 0);
   const returnDiscountReviewKey = JSON.stringify([form.applied_to, lines.map(line => [line.item_id, line.description, line.quantity, line.rate, line.discount_amount, line.discount_percent])]);
   const [bankAccounts, setBankAccounts] = useState([
@@ -216,17 +267,17 @@ export default function RecordEditor({
   }, [kind]);
   const saveAction = useRef("close");
   const [submissionKey] = useState(() => crypto.randomUUID());
-  const posting = usePostingRequest();
+  const posting = usePostingRequest({ isDefinitiveRetryError: error => !!conversion && isDefiniteConversionConflict(error) });
   const { busy: saving, pending } = posting;
   useEffect(() => {
     const unload = event => {
-      if (dirty || saving || pending) { event.preventDefault(); event.returnValue = ""; }
+      if (dirty || saving || pending || partyLocked || itemLocked) { event.preventDefault(); event.returnValue = ""; }
     };
     const back = () => requestClose();
     window.addEventListener("beforeunload", unload);
     window.addEventListener("apex-close-editor", back);
     return () => { window.removeEventListener("beforeunload", unload); window.removeEventListener("apex-close-editor", back); };
-  }, [dirty, saving, pending, scanning]);
+  }, [dirty, saving, pending, scanning, inlineParty, partyLocked, inlineItem, itemLocked]);
 
   async function scan(e) {
     const file = e.target.files?.[0];
@@ -363,6 +414,7 @@ export default function RecordEditor({
     setError("");
     setForm((current) => ({ ...current, applied_to: id, name: "" }));
     setLines([emptyLine()]);
+    setSourceInputTax("");
     if (!id) {
       setLoadingSource(false);
       return;
@@ -371,6 +423,7 @@ export default function RecordEditor({
     try {
       const target = await api(`/companies/${companyId}/records/${id}`);
       if (request !== sourceRequest.current) return;
+      setSourceInputTax(sourceInputTaxSummary(target.data?.lines));
       setForm((current) => ({
         ...current,
         applied_to: id,
@@ -403,9 +456,10 @@ export default function RecordEditor({
   }
   async function submit(e) {
     e.preventDefault();
-    if (!canWrite || saving || scanning || loadingSource) return;
+    if (!canWrite || saving || scanning || loadingSource || inlineParty || inlineItem) return;
     setError("");
     try {
+      if (conversionBlocked) throw Error(conversionBlocked);
       if (requiresDiscountReview && reviewedReturnDiscounts !== returnDiscountReviewKey) throw Error("Review the fixed discounts for the returned quantities before saving.");
       const payload = {
           kind,
@@ -430,7 +484,8 @@ export default function RecordEditor({
                   form.payment_account === "bank"
                     ? form.bank_account_id
                     : undefined,
-                source_document_id: edit ? undefined : source?.id,
+                source_document_id: conversion?.id,
+                source_document_version: conversion?.version,
                 version: edit ? source?.data?.version || 0 : undefined,
                 notes: form.notes,
                 terms: form.terms,
@@ -465,6 +520,7 @@ export default function RecordEditor({
       const options = { keepOpen: saveAction.current === "new" };
       await posting.run(() => save(payload, submissionKey, options));
     } catch (err) {
+      if (conversion && isDefiniteConversionConflict(err)) setConversionRejected(err.message + ". Close this form, reopen the source and review its current contents before converting. Your entered details remain visible here.");
       setError(err.message);
     }
   }
@@ -475,6 +531,7 @@ export default function RecordEditor({
     form,
     lines: lines.map(serializeLineDiscount),
     enabled: doc,
+    recordId: edit?.id,
   });
   const saveLabel =
     {
@@ -502,6 +559,39 @@ export default function RecordEditor({
         variant={doc ? "document" : undefined}
         close={requestClose}
       >
+        {inlineParty && <InlinePartyForm today={today} features={features} initialName={form.name} createParty={createParty}
+          onLockChange={updatePartyLock} close={dismissParty} onCreated={created => {
+            if (!created) return;
+            const nextDefault = partyShippingAddress(created);
+            const previousDefault = lastShippingDefault.current;
+            setCreatedParties(current => [...current.filter(row => row.id !== created.id), created]);
+            setForm(current => ({ ...current, name: created.name, party_id: created.id,
+              party_address: created.data?.address || "", party_gstin: created.data?.gstin || "",
+              party_phone: created.data?.phone || "",
+              shipping_address: shippingForPartySelection(current.shipping_address, previousDefault, nextDefault),
+              place_of_supply: created.data?.gstin?.slice(0, 2) || company.state_code }));
+            lastShippingDefault.current = nextDefault;
+            setDirty(true); updatePartyLock(false); setInlineParty(false);
+            setTimeout(() => partyButton.current?.focus(), 0);
+          }} />}
+        {inlineItem && <InlineItemForm today={today} features={features} createItem={createItem}
+          onLockChange={updateItemLock} close={dismissItem} onCreated={created => {
+            if (!created) return;
+            setCreatedItems(current => [...current.filter(row => row.id !== created.id), created]);
+            // Reuse only the single pristine placeholder, never an edited draft line.
+            setLines(current => {
+              const blank = emptyLine();
+              const pristine = current.length === 1 && Reflect.ownKeys(current[0]).length === Reflect.ownKeys(blank).length &&
+                Reflect.ownKeys(blank).every(key => current[0][key] === blank[key]);
+              const added = { ...linkCatalogueItem({ ...blank, description: created.name }, created, false, company.tax_mode),
+                rate: String(created.data?.sale_rate ?? "") };
+              return pristine ? [added] : [...current, added];
+            });
+            setItemAdded(`${created.name} added as a new line. Review quantity, rate, discount and tax before saving.`);
+            itemFocusTarget.current = "quantity";
+            setDirty(true); updateItemLock(false); setInlineItem(false);
+          }} />}
+        <div hidden={inlineParty || inlineItem}>
         {/* Mark dirty after controlled inputs have queued their value updates.
             Capture-phase renders can restore the old value before onChange. */}
         <form
@@ -769,6 +859,7 @@ export default function RecordEditor({
                 targets={targets}
                 onSelectSource={selectSource}
               />
+              {kind === "sales_invoice" && !edit && !source && !relatedSource && createParty && <div className="full"><button ref={partyButton} type="button" className="button secondary" onClick={() => setInlineParty(true)}>Create new party</button></div>}
               <datalist id="apex-party-options">
                 {partyChoices
                   .map((r) => (
@@ -781,8 +872,14 @@ export default function RecordEditor({
                     <option key={r.id} value={r.name} />
                   ))}
               </datalist>
+              {!edit && kind === "debit_note" && company.tax_mode === "regular" && form.applied_to && <section className="info-box full" aria-label="Purchase return input-tax guidance"><strong>Keep the original bill’s input-tax classification</strong>{sourceInputTax && <p>Source bill: {sourceInputTax}.</p>}<p>Review each line’s tax options: input GST pending review or GST included in cost (ineligible). Earlier returns reduce the amount available in each classification. Pending review does not mean credit has been claimed.</p></section>}
               {!edit && (source || relatedSource || form.applied_to) && lines.some(line => lineDiscountMode(line) === "amount") && <p className="info-box full">Fixed rupee discounts were copied unchanged from the source. They are not automatically prorated when you change quantities. Review each discount against the quantities being converted or returned before saving.</p>}
               {requiresDiscountReview && <label className="checkbox full"><input type="checkbox" required checked={reviewedReturnDiscounts === returnDiscountReviewKey} onChange={event => setReviewedReturnDiscounts(event.target.checked ? returnDiscountReviewKey : "")} />I reviewed the copied fixed discounts for these returned quantities.</label>}
+              {kind === "sales_invoice" && !edit && !source && !relatedSource && createItem && <div className="full">
+                <button ref={itemButton} type="button" className="button secondary" disabled={lines.length >= 100} onClick={() => { if (lines.length < 100) setInlineItem(true); }}>Create item/service and add line</button>
+                <small>{lines.length >= 100 ? "Maximum 100 lines. Remove a line before creating another item." : "Creates a new catalogue entry and adds a new line. Existing lines stay unchanged."}</small>
+              </div>}
+              {itemAdded && <p className="info-box full" role="status">{itemAdded}</p>}
               <DocumentItems
                 lines={lines}
                 setLines={(next) => {
@@ -962,6 +1059,7 @@ export default function RecordEditor({
           )}
           </fieldset>
           {pending && !saving && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
+          {conversionBlocked && <div className="info-box full" role="status">{conversionBlocked}{onRetryCapabilities && !conversionRejected && <button type="button" className="button secondary" disabled={saving} onClick={onRetryCapabilities}>Check API support again</button>}</div>}
           {error && <div className="error full">{error}</div>}
           <div className="modal-actions full document-actions">
             {doc && (
@@ -997,7 +1095,7 @@ export default function RecordEditor({
             )}
             <button
               className="button primary"
-              disabled={!canWrite || saving || scanning || loadingSource}
+              disabled={!canWrite || saving || scanning || loadingSource || !!conversionBlocked}
             >
               {loadingSource
                 ? "Loading document…"
@@ -1007,6 +1105,7 @@ export default function RecordEditor({
             </button>
           </div>
         </form>
+        </div>
       </Modal>
       {priceLine && <PriceHistory api={api} companyId={companyId} party={priceLine.party} item={priceLine.item} side={purchase ? "purchase" : "sales"} Modal={Modal} close={() => setPriceLine(null)} apply={price => {
         setLines(current => current.map((line, index) => index === priceLine.index && line.item_id === priceLine.item.item_id ? { ...line, ...price } : line));

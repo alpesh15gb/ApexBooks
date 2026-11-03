@@ -107,6 +107,11 @@ class LiveAccountingWorkflow(unittest.TestCase):
         root = '/api/companies/' + company['id']
         def post(kind, name, data):
             return self.request('POST', root + '/records', {'kind': kind, 'name': name, 'date': '2026-04-02', 'data': data}, key=uuid4().hex)
+        def edit(row, changes):
+            # Model editing the returned snapshot, never attach a newer revision
+            # to stale form values. Each successful save becomes the next snapshot.
+            return self.request('PUT', root + '/masters/' + row['id'],
+                {**row['data'], 'name': row['name'], **changes})
         party = post('party', 'Terms party', {'payment_terms_days': 30})
         item = post('item', 'Threshold item', {'track_stock': True, 'low_stock_threshold': '5', 'purchase_rate': '80'})
         reorder = self.request('GET', root + '/reports/reorder?as_of=2026-04-02')
@@ -129,15 +134,17 @@ class LiveAccountingWorkflow(unittest.TestCase):
         self.assertTrue(prices['suggested_price_includes_tax'])
         self.assertEqual(self.request('GET', root + '/journals'), before)
         self.assertEqual(self.request('GET', root + '/records/' + invoice['id'])['data']['due_date'], '2026-04-10')
-        self.request('PUT', root + '/masters/' + party['id'], {'name': party['name'], 'active': False, 'address': 'Synthetic billing', 'shipping_address': 'Synthetic delivery'})
-        self.request('PUT', root + '/masters/' + service['id'], {'name': service['name'], 'active': False})
+        party = edit(party, {'is_active': False, 'address': 'Synthetic billing', 'shipping_address': 'Synthetic delivery'})
+        self.assertFalse(party['data']['is_active'])
+        service = edit(service, {'is_active': False})
+        self.assertFalse(service['data']['is_active'])
         self.request('POST', root + '/records', {'kind': 'payment_in', 'name': party['name'], 'date': '2026-04-03', 'amount': 20, 'data': {'applied_to': invoice['id'], 'payment_account': 'cash'}}, key=uuid4().hex)
         self.assertEqual(Decimal(self.request('GET', root + '/records/' + invoice['id'])['outstanding']), 117)
-        self.request('PUT', root + '/masters/' + party['id'], {'name': party['name'], 'active': True})
-        self.request('PUT', root + '/masters/' + service['id'], {'name': service['name'], 'active': True})
+        party = edit(party, {'is_active': True})
+        service = edit(service, {'is_active': True})
         historical = self.request('GET', root + '/records/' + invoice['id'])
         self.assertFalse(historical['data'].get('shipping_address'))
-        self.request('PUT', root + '/masters/' + party['id'], {'name': party['name'], 'credit_limit': '100'})
+        party = edit(party, {'credit_limit': '100'})
         credit_path = root + '/parties/' + party['id'] + '/credit-status?as_of=2026-04-30&proposed_amount=50'
         before = self.request('GET', root + '/journals')
         credit = self.request('GET', credit_path)
@@ -146,9 +153,9 @@ class LiveAccountingWorkflow(unittest.TestCase):
         self.assertTrue(credit['exceeded'])
         self.assertTrue(credit['warning_only'])
         self.assertEqual(self.request('GET', root + '/journals'), before)
-        self.request('PUT', root + '/masters/' + party['id'], {'name': party['name'], 'credit_limit': '0'})
+        party = edit(party, {'credit_limit': '0'})
         self.assertTrue(self.request('GET', credit_path)['exceeded'])
-        self.request('PUT', root + '/masters/' + party['id'], {'name': party['name'], 'credit_limit': None})
+        party = edit(party, {'credit_limit': None})
         self.assertFalse(self.request('GET', credit_path)['exceeded'])
         outsider_credentials = {'email': f'credit-outsider-{uuid4().hex}@example.invalid', 'password': credentials['password']}
         self.request('POST', '/api/auth/register', outsider_credentials)

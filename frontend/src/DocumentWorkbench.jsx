@@ -9,6 +9,7 @@ export function useDocumentPreview({
   form,
   lines,
   enabled,
+  recordId,
 }) {
   const [result, setResult] = useState(null);
   const payload = {
@@ -17,6 +18,8 @@ export function useDocumentPreview({
     date: form.date,
     data: {
       lines,
+      applied_to: form.applied_to,
+      preview_record_id: ["credit_note", "debit_note"].includes(kind) ? recordId : undefined,
       place_of_supply: form.place_of_supply,
       supplier_state: form.supplier_state,
       party_gstin: form.party_gstin,

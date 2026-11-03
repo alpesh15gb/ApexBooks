@@ -125,7 +125,7 @@ class AccountingIntegrityTest(unittest.TestCase):
         self.assertEqual(r.status_code,201,r.text)
         detail_matches_list(credit['id'],credit_remaining='20.00')
         estimate=post('estimate',data={'lines':[line]})
-        order=post('sales_order',data={'lines':[line],'source_document_id':estimate['id']})
+        order=post('sales_order',data={'lines':[line],'source_document_id':estimate['id'],'source_document_version':estimate['data'].get('version',0)})
         detail_matches_list(estimate['id'],converted_to=order['id'],posted=False,outstanding=None)
         detail_matches_list(order['id'],converted_to=None,posted=False,outstanding=None)
         from sqlalchemy.orm import Session

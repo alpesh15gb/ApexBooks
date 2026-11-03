@@ -79,6 +79,110 @@ class VyaparPostingTest(unittest.TestCase):
             remaining=next(r for r in client.get(base+'/records',headers=headers).json() if r['id']==advance['id'])
             self.assertEqual(Decimal(remaining['advance_remaining']),Decimal(0))
 
+    def imported_masters_context(self, client):
+        credentials={'email':uuid4().hex+'@migration-revision.invalid','password':'synthetic-strong-password'}
+        client.post('/api/auth/register',json=credentials).raise_for_status()
+        headers={'Authorization':'Bearer '+client.post('/api/auth/login',json=credentials).json()['token']}
+        company=client.post('/api/companies',headers=headers,json={'name':'Synthetic revision migration','tax_mode':'unregistered'}).json()
+        base='/api/companies/'+company['id'];payload={'backup_base64':encode(fixture())}
+        preview=client.post(base+'/imports/vyapar/preview',headers=headers,json=payload)
+        preview.raise_for_status();payload['digest']=preview.json()['digest']
+        client.post(base+'/imports/vyapar/commit',headers=headers,json=payload).raise_for_status()
+        return headers,base,payload
+
+    def test_existing_master_revisions_advance_on_full_posting_upgrade(self):
+        for edited in (False,True):
+            with self.subTest(edited=edited), TestClient(app,client=('revision-'+uuid4().hex,50000)) as client:
+                headers,base,payload=self.imported_masters_context(client)
+                masters=[r for r in client.get(base+'/records',headers=headers).json() if r['kind'] in ('party','item')]
+                for row in masters:
+                    self.assertEqual(row['data']['version'],0)
+                    if edited:
+                        response=client.put(base+'/masters/'+row['id'],headers=headers,json={'name':row['name'],**row['data'],'phone':'Synthetic edited phone'})
+                        self.assertEqual(response.status_code,200,response.text)
+                        self.assertEqual(response.json()['data']['version'],1)
+                preview=client.post(base+'/imports/vyapar-posting/preview',headers=headers,json=payload)
+                self.assertEqual(preview.status_code,200,preview.text)
+                posted=client.post(base+'/imports/vyapar-posting/commit',headers=headers,json=payload)
+                self.assertEqual(posted.status_code,200,posted.text)
+                expected=2 if edited else 1
+                for row in masters:
+                    path=base+'/masters/'+row['id']
+                    current=client.get(base+'/records/'+row['id'],headers=headers).json()
+                    self.assertEqual(current['data']['version'],expected)
+                    # Use current fields to isolate revision rejection, including
+                    # items whose stock tracking changed during full migration.
+                    for stale in range(expected):
+                        response=client.put(path,headers=headers,json={'name':current['name'],**current['data'],'version':stale})
+                        self.assertEqual(response.status_code,409,response.text)
+                    fresh=client.put(path,headers=headers,json={'name':current['name'],**current['data']})
+                    self.assertEqual(fresh.status_code,200,fresh.text)
+                    self.assertEqual(fresh.json()['data']['version'],expected+1)
+
+    def test_master_edit_during_migration_preflight_rolls_back_full_upgrade(self):
+        import main
+        import vyapar_migration
+        from sqlalchemy.orm import Session
+        with TestClient(app,client=('migration-race-'+uuid4().hex,50000)) as client:
+            headers,base,payload=self.imported_masters_context(client)
+            row=next(r for r in client.get(base+'/records',headers=headers).json() if r['kind']=='party')
+            original_plan=vyapar_migration.posting_plan
+            def interleave_edit(tables):
+                # Exercise migrate's independent CAS defense without the route's
+                # company lock: a caller with a stale master snapshot must roll back.
+                response=client.put(base+'/masters/'+row['id'],headers=headers,
+                    json={'name':row['name'],**row['data'],'phone':'Concurrent edit survives'})
+                self.assertEqual(response.status_code,200,response.text)
+                return original_plan(tables)
+            from fastapi import HTTPException
+            from vyapar_import import inspect_backup
+            with Session(main.engine) as session:
+                company=session.get(main.Company,base.rsplit('/',1)[-1])
+                user=session.get(main.User,company.owner_id)
+                with patch.object(vyapar_migration,'posting_plan',side_effect=interleave_edit):
+                    with self.assertRaises(HTTPException) as raised:
+                        vyapar_migration.migrate(company,user,session,
+                            inspect_backup(payload['backup_base64']),'commit',payload['digest'])
+                self.assertEqual(raised.exception.status_code,409)
+                self.assertIn('changed during migration',raised.exception.detail)
+                session.rollback()
+            current=client.get(base+'/records/'+row['id'],headers=headers).json()
+            self.assertEqual(current['data']['version'],1)
+            self.assertEqual(current['data']['phone'],'Concurrent edit survives')
+            records=client.get(base+'/records',headers=headers).json()
+            self.assertTrue(all(r['kind'] in ('party','item','vyapar_backup_archive') for r in records))
+            self.assertEqual(client.get(base+'/journals',headers=headers).json(),[])
+            with Session(main.engine) as session:
+                self.assertEqual(session.get(main.Company,base.rsplit('/',1)[-1]).gstin,'')
+            with Session(main.engine) as session:
+                from sqlalchemy import select
+                archive=session.scalar(select(main.Record).where(main.Record.company_id==base.rsplit('/',1)[-1],main.Record.kind=='vyapar_backup_archive'))
+                self.assertEqual(archive.data['scope'],'masters_and_source_archive')
+            # A fresh attempt uses the concurrent revision, succeeds, and advances it.
+            response=client.post(base+'/imports/vyapar-posting/commit',headers=headers,json=payload)
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(client.get(base+'/records/'+row['id'],headers=headers).json()['data']['version'],2)
+
+    def test_invalid_existing_master_revision_blocks_migration_without_side_effects(self):
+        import main
+        from sqlalchemy.orm import Session
+        with TestClient(app,client=('invalid-revision-'+uuid4().hex,50000)) as client:
+            headers,base,payload=self.imported_masters_context(client)
+            row=next(r for r in client.get(base+'/records',headers=headers).json() if r['kind']=='party')
+            for invalid in (None,False,True,-1,'0',0.0):
+                with self.subTest(invalid=invalid):
+                    with Session(main.engine) as session:
+                        stored=session.get(main.Record,row['id']);stored.data={**stored.data,'version':invalid};session.commit()
+                    before=client.get(base+'/records',headers=headers).json()
+                    for action in ('preview','commit'):
+                        response=client.post(base+'/imports/vyapar-posting/'+action,headers=headers,json=payload)
+                        self.assertEqual(response.status_code,409,response.text)
+                        self.assertIn('invalid stored revision',response.json()['detail'])
+                    self.assertEqual(client.get(base+'/records',headers=headers).json(),before)
+                    self.assertEqual(client.get(base+'/journals',headers=headers).json(),[])
+                    with Session(main.engine) as session:
+                        self.assertEqual(session.get(main.Company,base.rsplit('/',1)[-1]).gstin,'')
+
     def test_unreconciled_or_unsupported_source_blocks_plan(self):
         from vyapar_posting import posting_plan
         for mutate in (lambda t:t['kb_items'][0].update(item_stock_quantity=-3),lambda t:t['kb_names'][0].update(amount=999),lambda t:t['kb_transactions'][0].update(txn_type=99),lambda t:t.update(journal_entry=[{'id':1}])):

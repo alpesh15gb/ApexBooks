@@ -88,6 +88,7 @@ class LocalUiAcceptanceTest {
     }
     private fun clickReadyDescription(device:UiDevice,description:String){
         val selector=By.desc(description)
+        scrollTo(device,selector,description)
         assertTrue("Visible control: $description",device.wait(Until.hasObject(selector),30000))
         clickStableControl(device,selector,description)
     }
@@ -100,6 +101,13 @@ class LocalUiAcceptanceTest {
         var previous:android.graphics.Rect?=null
         var stable=0
         while(android.os.SystemClock.uptimeMillis()<deadline){
+            // UIAutomator can report a background button as visible underneath
+            // Gboard. A late IME animation must not turn Create into a keypress.
+            val keyboard=By.pkg(java.util.regex.Pattern.compile("com\\.(google\\.android|android)\\.inputmethod\\.latin"))
+            if(device.hasObject(keyboard)){
+                dismissVisibleKeyboard(device);previous=null;stable=0
+                continue
+            }
             var target=device.findObject(selector)
             while(target!=null&&!target.isClickable)target=target.parent
             if(target!=null&&target.isEnabled){
@@ -120,12 +128,24 @@ class LocalUiAcceptanceTest {
         assertTrue("Visible backup password field",fields.size in 1..2)
         fields.last().click();fields.last().text=password;device.pressBack()
     }
+    private fun setNamedEdit(device:UiDevice,label:String,value:String){
+        scrollTo(device,label)
+        val selector=By.clazz("android.widget.EditText").hasDescendant(By.text(label))
+        assertTrue("Editable field: $label",device.wait(Until.hasObject(selector),10000))
+        val field=device.findObject(selector);assertTrue(field.isEnabled);field.click();field.text=value
+        dismissVisibleKeyboard(device)
+        assertTrue("Exact entered value retained: $label",device.wait(Until.hasObject(By.clazz("android.widget.EditText").text(value)),10000))
+    }
     private fun chooseSavedParty(device:UiDevice){
         val selector=By.desc("Saved party · Enter manually")
         scrollTo(device,selector,"Saved party selector")
         assertTrue("Saved party is an accessible clickable control",device.findObject(selector).isClickable)
         device.findObject(selector).click()
-        assertTrue(device.wait(Until.hasObject(By.text("UI Smoke Buyer")),15000));device.findObject(By.text("UI Smoke Buyer")).click()
+        clickReadyAction(device,"UI Smoke Buyer")
+        // Selection updates the form before the modal finishes dismissing.
+        // Wait for both real arrival states before invoking the next page action.
+        assertTrue("Saved party sheet dismissed",device.wait(Until.gone(By.text("Saved party")),15000))
+        assertTrue("Selected party reflected in retained document",device.wait(Until.hasObject(By.desc("Saved party · UI Smoke Buyer")),15000))
     }
 
     @Test fun signInAndSwitchSyntheticCompanies():Unit=runBlocking {
@@ -194,7 +214,7 @@ class LocalUiAcceptanceTest {
         clickReadyAction(device,"Review purchase order · 1 items")
         assertTrue(device.wait(Until.hasObject(By.text("New Purchase Order")),15000))
         chooseSavedParty(device)
-        device.findObject(By.text("Next: add items")).click()
+        clickReadyAction(device,"Next: add items")
         // Seeded lines open collapsed; expand the real visible card before inspecting its fields.
         assertTrue("Reorder draft shows the selected item card",device.wait(Until.hasObject(By.text("UI Reorder Item")),15000))
         device.findObject(By.text("UI Reorder Item")).click()
@@ -203,21 +223,26 @@ class LocalUiAcceptanceTest {
         scrollTo(device,"Last posted price for this exact party and item.");assertTrue(device.hasObject(By.text("Last posted price for this exact party and item.")))
         clickReadyAction(device,"Apply suggested price & tax basis")
         device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-reorder-price-review.png"))
-        device.findObject(By.desc("Close entry")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("Discard draft")),15000));device.findObject(By.text("Discard draft")).click()
+        clickReadyDescription(device,"Close entry")
+        clickReadyAction(device,"Discard draft")
+        assertTrue("Discard confirmation closes",device.wait(Until.gone(By.text("Discard draft")),15000))
+        assertTrue("Purchase order editor closes after discard",device.wait(Until.gone(By.text("New Purchase Order")),15000))
         clickReadyAction(device,"New invoice")
         assertTrue(device.wait(Until.hasObject(By.text("New Sales Invoice")),15000))
         chooseSavedParty(device)
         clickReadyAction(device,"Check party payment terms")
-        scrollTo(device,"Use suggested due date");assertTrue(device.hasObject(By.text("Use suggested due date")));device.findObject(By.text("Use suggested due date")).click()
+        clickReadyAction(device,"Use suggested due date")
         scrollTo(device,By.desc("Due date · optional · "+java.time.LocalDate.parse(today()).plusDays(30).toString()),"Applied due date")
         assertTrue("Explicit terms Apply sets the suggested date",device.hasObject(By.desc("Due date · optional · "+java.time.LocalDate.parse(today()).plusDays(30).toString())))
         device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-party-terms-review.png"))
-        device.findObject(By.desc("Close entry")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("Keep editing")),15000));device.findObject(By.text("Keep editing")).click()
-        assertTrue("Keep editing retains the invoice editor",device.hasObject(By.text("New Sales Invoice")))
-        device.findObject(By.desc("Close entry")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("Discard draft")),15000));device.findObject(By.text("Discard draft")).click()
+        clickReadyDescription(device,"Close entry")
+        clickReadyAction(device,"Keep editing")
+        assertTrue("Keep editing closes only the confirmation",device.wait(Until.gone(By.text("Keep editing")),15000))
+        assertTrue("Keep editing retains the invoice editor",device.wait(Until.hasObject(By.text("New Sales Invoice")),15000))
+        clickReadyDescription(device,"Close entry")
+        clickReadyAction(device,"Discard draft")
+        assertTrue("Discard confirmation closes",device.wait(Until.gone(By.text("Discard draft")),15000))
+        assertTrue("Discarded invoice editor closes",device.wait(Until.gone(By.text("New Sales Invoice")),15000))
         val afterReview=api.records(companyIds.getValue(target))
         assertEquals("Reviewing suggestions creates no purchase order",0,afterReview.count{it.s("kind")=="purchase_order"})
         assertEquals("Discarded terms review creates no new invoice",1,afterReview.count{it.s("kind")=="sales_invoice"})
@@ -226,10 +251,12 @@ class LocalUiAcceptanceTest {
         assertTrue("Blank document asks for item details instead of claiming an active calculation",device.wait(Until.hasObject(By.text("Add item details")),10000))
         assertTrue(device.wait(Until.hasObject(By.text("New Sales Invoice")),15000))
         chooseSavedParty(device)
-        device.findObject(By.text("Next: add items")).click()
+        clickReadyAction(device,"Next: add items")
         val itemSelector=By.desc("Item / service · Enter a description");scrollTo(device,itemSelector,"Item / service selector");device.findObject(itemSelector).click()
-        assertTrue(device.wait(Until.hasObject(By.text("UI Reorder Item")),15000));device.findObject(By.text("UI Reorder Item")).click()
-        device.findObject(By.text("Review document")).click()
+        clickReadyAction(device,"UI Reorder Item")
+        assertTrue("Item selection sheet closes",device.wait(Until.gone(By.text("Item / service")),15000))
+        assertTrue("Chosen item remains on invoice",device.wait(Until.hasObject(By.desc("Item / service · UI Reorder Item")),15000))
+        clickReadyAction(device,"Review document")
         assertTrue("API preview enables native save",device.wait(Until.hasObject(By.text("Save invoice").enabled(true)),30000))
         device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-invoice-review.png"))
         device.findObject(By.text("Save invoice")).click()
@@ -240,6 +267,45 @@ class LocalUiAcceptanceTest {
         assertEquals("Native-created invoice amount",0,created.decimal("amount").compareTo(java.math.BigDecimal("100")))
         assertEquals("Native-created invoice remains unpaid",0,created.decimal("outstanding").compareTo(java.math.BigDecimal("100")))
         assertEquals("Invoice save does not duplicate collection",1,saved.count{it.s("kind")=="payment_in"})
+        // Inline master creation must leave the same unsaved invoice and its math intact.
+        val inlineParty="UI Inline Customer ${UUID.randomUUID().toString().take(6)}"
+        val inlineItem="UI Inline Service ${UUID.randomUUID().toString().take(6)}"
+        val financialBefore=canonical(api.request(api.company(companyIds.getValue(target),"/reports/financial?from_date=1900-01-01&to_date=${today()}")))
+        clickReadyAction(device,"New invoice")
+        clickReadyAction(device,"Create customer & use")
+        setNamedEdit(device,"Name",inlineParty)
+        clickReadyAction(device,"Create & use")
+        assertTrue("Inline customer dialog closes",device.wait(Until.gone(By.text("Create customer for this invoice")),30000))
+        assertTrue("Returned customer selected on retained invoice",device.wait(Until.hasObject(By.clazz("android.widget.EditText").text(inlineParty)),15000))
+        clickReadyAction(device,"Next: add items")
+        setNamedEdit(device,"Description","Retained draft line")
+        setNamedEdit(device,"Quantity","3");setNamedEdit(device,"Rate (₹)","100")
+        clickReadyDescription(device,"Line discount · Percentage (%)")
+        clickReadyAction(device,"Fixed amount (₹)")
+        assertTrue("Discount mode sheet closes",device.wait(Until.gone(By.text("Line discount")),15000))
+        assertTrue("Fixed discount mode selected",device.wait(Until.hasObject(By.desc("Line discount · Fixed amount (₹)")),15000))
+        setNamedEdit(device,"Discount (₹)","10")
+        clickReadyAction(device,"Create item & use")
+        setNamedEdit(device,"Name",inlineItem)
+        clickReadyDescription(device,"Type · Goods");clickReadyAction(device,"Services")
+        assertTrue("Item type sheet closes",device.wait(Until.gone(By.text("Type")),15000))
+        assertTrue("Service type selected",device.wait(Until.hasObject(By.desc("Type · Services")),15000))
+        setNamedEdit(device,"Sale price (₹)","25")
+        clickReadyAction(device,"Create & use")
+        assertTrue("Inline item dialog closes",device.wait(Until.gone(By.text("Create item for this invoice")),30000))
+        clickReadyAction(device,"Review document")
+        scrollTo(device,"Retained draft line × 3");scrollTo(device,"$inlineItem × 1")
+        assertTrue("Retained quantity/fixed discount plus new service preview totals315",device.wait(Until.hasObject(By.text(money("315"))),30000))
+        val inlineRows=api.records(companyIds.getValue(target))
+        assertEquals(1,inlineRows.count{it.s("kind")=="party"&&it.s("name")==inlineParty})
+        val service=inlineRows.single{it.s("kind")=="item"&&it.s("name")==inlineItem}
+        assertEquals("services",service.o("data").s("item_type"));assertFalse(service.o("data").optBoolean("track_stock"))
+        assertEquals("Inline masters alone post no invoice",2,inlineRows.count{it.s("kind")=="sales_invoice"})
+        assertEquals("Inline masters do not change financial reports",financialBefore,canonical(api.request(api.company(companyIds.getValue(target),"/reports/financial?from_date=1900-01-01&to_date=${today()}"))))
+        device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-inline-master-review.png"))
+        clickReadyDescription(device,"Close entry");clickReadyAction(device,"Discard draft")
+        assertTrue("Original invoice editor closes only on explicit discard",device.wait(Until.gone(By.text("New Sales Invoice")),15000))
+        assertEquals("Discarding inline review posts no invoice",2,api.records(companyIds.getValue(target)).count{it.s("kind")=="sales_invoice"})
         // Actual receipt controls + system picker. No API-upload shortcut is used.
         val receiptName="apex-ui-receipt-${UUID.randomUUID()}.pdf"
         val receiptBytes="%PDF-1.4\n% Synthetic Android UI receipt\n%%EOF\n".toByteArray()

@@ -1,6 +1,6 @@
 // Keep the exact operation (including its idempotency key and serialized body)
 // when a response is uncertain. Never turn an interrupted POST into a new POST.
-export function createPostingRequest({ definitiveRetryStatuses = [] } = {}) {
+export function createPostingRequest({ definitiveRetryStatuses = [], isDefinitiveRetryError = () => false } = {}) {
   let active = false;
   let pending = null;
   return {
@@ -20,7 +20,7 @@ export function createPostingRequest({ definitiveRetryStatuses = [] } = {}) {
         // uncertain operation must not unlock editing if its outcome is unknown.
         // A caller may opt into a documented, route-specific no-commit status
         // only when server replay lookup precedes that response (recurring 409).
-        if ((!retrying || definitiveRetryStatuses.includes(error.status)) && error.status >= 400 && error.status < 500 && error.status !== 408) pending = null;
+        if ((!retrying || definitiveRetryStatuses.includes(error.status) || isDefinitiveRetryError(error)) && error.status >= 400 && error.status < 500 && error.status !== 408) pending = null;
         throw error;
       } finally {
         active = false;
