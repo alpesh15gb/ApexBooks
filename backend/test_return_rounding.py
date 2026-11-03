@@ -219,7 +219,7 @@ class ReturnRoundingTest(unittest.TestCase):
         fixture=self.fixture();c,h,b,cid,sid,ids,note_kind,note_data=fixture
         payload=self.final_payload(fixture);payload['data']['lines'][0]['rate']='100.06'
         preview=c.post(b+'/documents/preview',headers=h,json=payload)
-        self.assertEqual(preview.status_code,200,preview.text);self.assertNotIn('return_rounding',preview.json()['data'])
+        self.assertEqual(preview.status_code,422,preview.text);self.assertIn('original document',preview.json()['detail'])
         self.assertEqual(c.post(b+'/records',headers=h,json=payload).status_code,422)
         other,oh,ob=self.context('regular')
         self.assertEqual(other.post(ob+'/documents/preview',headers=oh,json=self.final_payload(fixture)).status_code,422)

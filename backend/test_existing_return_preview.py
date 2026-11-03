@@ -53,9 +53,8 @@ class ExistingReturnPreviewTest(unittest.TestCase):
         changed=copy.deepcopy(payload);changed['name']='Preview';changed['date']='2026-04-05'
         changed['data']['preview_record_id']=saved['id'];changed['data']['lines'][0]['description']='Changed display'
         preview=c.post(b+'/documents/preview',headers=h,json=changed)
-        self.assertEqual(preview.status_code,200,preview.text)
-        self.assertNotIn('return_rounding',preview.json()['data'])
-        self.assertNotEqual(preview.json()['amount'],saved['amount'])
+        self.assertEqual(preview.status_code,422,preview.text)
+        self.assertIn('original document',preview.json()['detail'])
 
     def test_changed_financial_inputs_do_not_take_preserved_preview_path(self):
         for kind in ('sales_invoice','purchase_bill'):
@@ -68,9 +67,12 @@ class ExistingReturnPreviewTest(unittest.TestCase):
                 changed['data']['lines'][0]['description']='Changed display'
                 (changed['data']['lines'][0] if section=='line' else changed['data'])[key]=value
                 response=c.post(b+'/documents/preview',headers=h,json=changed)
-                self.assertEqual(response.status_code,200,response.text)
-                self.assertNotIn('return_rounding',response.json()['data'],key)
-                self.assertEqual(response.json()['data']['lines'][0]['description'],'Changed display')
+                valid=key in {'gst_rate','price_includes_tax','document_discount_percent'}
+                self.assertEqual(response.status_code,200 if valid else 422,(key,response.text))
+                if valid:
+                    self.assertNotIn('return_rounding',response.json()['data'],key)
+                    self.assertEqual(response.json()['data']['lines'][0]['description'],'Changed display')
+                else:self.assertIn('original document',response.json()['detail'])
 
     def test_tracked_names_and_line_validation_remain_enforced(self):
         fixture,payload,saved=self.existing(tracked=True);c,h,b,*_=fixture
@@ -83,11 +85,12 @@ class ExistingReturnPreviewTest(unittest.TestCase):
         fixture,payload,saved=self.existing();c,h,b,*_=fixture
         fresh=copy.deepcopy(payload);fresh['data']['lines'][0]['description']='Different service'
         preview=c.post(b+'/documents/preview',headers=h,json=fresh)
-        self.assertEqual(preview.status_code,200,preview.text);self.assertNotIn('return_rounding',preview.json()['data'])
+        self.assertEqual(preview.status_code,422,preview.text);self.assertIn('original document',preview.json()['detail'])
         other,oh,ob=self.context('regular')
         preview_body={**payload,'data':{**payload['data'],'preview_record_id':saved['id']}}
         self.assertEqual(other.post(ob+'/documents/preview',headers=oh,json=preview_body).status_code,422)
-        # A marker supplied by the client cannot activate preservation.
+        # A client marker cannot replace stored metadata. Verified unchanged
+        # posted inputs preserve saved values even without a rounding marker.
         with Session(main.engine) as session:
             row=session.get(main.Record,saved['id'])
             row.data={key:value for key,value in row.data.items() if key!='return_rounding'}
@@ -98,13 +101,13 @@ class ExistingReturnPreviewTest(unittest.TestCase):
         response=c.post(b+'/documents/preview',headers=h,json=forged)
         self.assertEqual(response.status_code,200,response.text)
         self.assertNotIn('return_rounding',response.json()['data'])
-        self.assertNotEqual(response.json()['amount'],saved['amount'])
+        self.assertEqual(response.json()['amount'],saved['amount'])
         fresh_fixture=self.fixture();fc,fh,fb,*_=fresh_fixture
         changed_new=self.final_payload(fresh_fixture)
         changed_new['data']['lines'][0]['description']='Different service'
         preview=fc.post(fb+'/documents/preview',headers=fh,json=changed_new)
-        self.assertEqual(preview.status_code,200,preview.text)
-        self.assertNotIn('return_rounding',preview.json()['data'])
+        self.assertEqual(preview.status_code,422,preview.text)
+        self.assertIn('original document',preview.json()['detail'])
         self.assertEqual(fc.post(fb+'/records',headers=fh,json=changed_new).status_code,422)
         with Session(main.engine) as session:
             session.execute(delete(main.RecordPosting).where(main.RecordPosting.record_id==saved['id']));session.commit()
