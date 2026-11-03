@@ -1,5 +1,9 @@
 package com.apexbooks.accounting
 
+import android.content.ContentValues
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.content.Intent
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -159,11 +163,21 @@ class LocalUiAcceptanceTest {
         assertEquals("Invoice save does not duplicate collection",1,saved.count{it.s("kind")=="payment_in"})
         // Actual receipt controls + system picker. No API-upload shortcut is used.
         val receiptName="apex-ui-receipt-${UUID.randomUUID()}.pdf"
-        val receiptPath="/sdcard/Download/$receiptName"
         val receiptBytes="%PDF-1.4\n% Synthetic Android UI receipt\n%%EOF\n".toByteArray()
-        val encoded=android.util.Base64.encodeToString(receiptBytes,android.util.Base64.NO_WRAP)
-        device.executeShellCommand("mkdir -p /sdcard/Download; printf '%s' '$encoded' | base64 -d > '$receiptPath'")
+        require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { "Local receipt UI fixture requires the API 29+ test device." }
+        // Publish a real Downloads document. A raw adb file is not registered with
+        // Android's Downloads provider and can be absent from the system picker.
+        val resolver=context.contentResolver
+        val receiptUri=requireNotNull(resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME,receiptName)
+            put(MediaStore.MediaColumns.MIME_TYPE,"application/pdf")
+            put(MediaStore.MediaColumns.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS)
+            put(MediaStore.MediaColumns.IS_PENDING,1)
+        })) { "Create synthetic Downloads fixture" }
         try {
+            requireNotNull(resolver.openOutputStream(receiptUri)).use { it.write(receiptBytes) }
+            assertEquals("Publish synthetic receipt to Downloads",1,resolver.update(receiptUri,ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING,0) },null,null))
+            requireNotNull(resolver.openInputStream(receiptUri)).use { assertArrayEquals("Published fixture bytes",receiptBytes,it.readBytes()) }
             device.findObject(By.text("More")).click();scrollTo(device,"Purchase bills");device.findObject(By.text("Purchase bills")).click()
             assertTrue(device.wait(Until.hasObject(By.text("UI Smoke Buyer")),30000));device.findObject(By.text("UI Smoke Buyer")).click()
             scrollTo(device,"Retained receipts & attachments");device.findObject(By.text("Retained receipts & attachments")).click()
@@ -183,7 +197,7 @@ class LocalUiAcceptanceTest {
             scrollTo(device,"Download backup");device.findObject(By.text("Download backup")).click()
             assertTrue("Complete-backup entry is capability gated and visible",device.wait(Until.hasObject(By.text("Complete company backup")),15000));assertTrue(device.hasObject(By.text("Encrypt saved backup")))
             device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-complete-backup-entry.png"));device.findObject(By.desc("Close")).click()
-        } finally { device.executeShellCommand("rm -f '$receiptPath'") }
+        } finally { resolver.delete(receiptUri,null,null) }
         api.logout()
     }
 }
