@@ -9,7 +9,7 @@ import TransactionDetail from "./TransactionDetail.jsx";
 import { relatedRecordActions, settlementLabel } from "./recordLifecycle.js";
 import { createRequestScope } from "./requestScope.js";
 import RegisterControls from "./RegisterControls.jsx";
-import { compareRegisterRecords } from "./registerOrder.js";
+import { useRegisterRecords } from "./registerSelection.js";
 import SettingsWorkspace from "./SettingsWorkspace.jsx";
 import CommerceWorkspace from "./CommerceWorkspace.jsx";
 import RegisterOverview from "./RegisterOverview.jsx";
@@ -27,7 +27,7 @@ import ReorderWorkspace from "./ReorderWorkspace.jsx";
 import RecordEditor from "./RecordEditor.jsx";
 import BackupRestore from "./BackupRestore.jsx";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 const CompleteBackup = React.lazy(() => import("./CompleteBackup.jsx"));
 import { createRoot } from "react-dom/client";
 import {
@@ -606,40 +606,9 @@ function App() {
     registerQuery.page === page
       ? registerQuery
       : { period: "all", from: "", to: "", party: "", sort: "newest" };
-  const scopedRecords = records.filter(
-    (r) =>
-      r.kind === page &&
-      (!transactionRegister ||
-        ((!query.from || r.date >= query.from) &&
-          (!query.to || r.date <= query.to) &&
-          (!query.party || r.name === query.party))),
-  );
-  const filtered = scopedRecords
-    .filter(
-      (r) =>
-        `${r.name} ${r.number} ${r.date}`
-          .toLowerCase()
-          .includes(search.toLowerCase()) &&
-        (activeRegisterFilter === "all" ||
-          (activeRegisterFilter === "active" && isActiveMaster(r)) ||
-          (activeRegisterFilter === "inactive" && !isActiveMaster(r)) ||
-          (activeRegisterFilter === "unpaid" &&
-            r.posted &&
-            Number(r.outstanding) > 0) ||
-          (activeRegisterFilter === "paid" &&
-            r.posted &&
-            Number(r.outstanding) === 0) ||
-          (activeRegisterFilter === "overdue" &&
-            r.posted &&
-            Number(r.outstanding) > 0 &&
-            r.data?.due_date &&
-            r.data.due_date < today()) ||
-          (activeRegisterFilter === "draft" && !r.converted_to) ||
-          (activeRegisterFilter === "converted" && !!r.converted_to) ||
-          (activeRegisterFilter === "posted" && r.posted) ||
-          (activeRegisterFilter === "unposted" && r.posted === false)),
-    )
-    .sort((a, b) => compareRegisterRecords(a, b, query.sort));
+  const { scopedRecords, filtered } = useRegisterRecords({
+    companyId, records, page, query, search, activeRegisterFilter, asOf: today(),
+  });
   useEffect(
     () => setRegisterPage(1),
     [page, companyId, search, activeRegisterFilter, registerQuery],
