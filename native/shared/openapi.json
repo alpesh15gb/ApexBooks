@@ -8169,7 +8169,8 @@
           "data": {
             "additionalProperties": true,
             "type": "object",
-            "title": "Data"
+            "title": "Data",
+            "description": "Document inputs. A new conversion with source_document_id requires source_document_version: the nonnegative integer version captured when the source was reviewed (legacy sources default to 0). Missing or stale conversion versions return 409; malformed versions return 422. Exact successful idempotent retries remain replayable."
           }
         },
         "type": "object",

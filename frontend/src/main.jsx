@@ -1686,6 +1686,8 @@ function App() {
         ) : (
           <RecordEditor
             features={features}
+            capabilities={capabilities}
+            onRetryCapabilities={() => setCapabilityRevision(value => value + 1)}
             key={`${companyId}-${page}-${editorCycle}`}
             api={api}
             Modal={Modal}

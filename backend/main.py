@@ -351,7 +351,7 @@ class RecordInput(BaseModel):
     number: str = ''
     date: DateType = Field(default_factory=business_today)
     amount: Decimal = Field(default=Decimal('0'), max_digits=15, decimal_places=2, allow_inf_nan=False)
-    data: dict = Field(default_factory=dict)
+    data: dict = Field(default_factory=dict, description='Document inputs. A new conversion with source_document_id requires source_document_version: the nonnegative integer version captured when the source was reviewed (legacy sources default to 0). Missing or stale conversion versions return 409; malformed versions return 422. Exact successful idempotent retries remain replayable.')
 class AccountInput(BaseModel):
     code: str = Field(min_length=1, max_length=32, pattern=r'^[A-Za-z0-9_-]+$')
     name: str = Field(min_length=1, max_length=120)
@@ -1561,6 +1561,18 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
         if body.kind not in allowed_sources: raise HTTPException(422, 'This document type cannot be converted')
         conversion_source = session.scalar(select(Record).where(Record.company_id == company_id, Record.id == source_id, Record.kind.in_(allowed_sources[body.kind])))
         if not conversion_source: raise HTTPException(422, 'Choose a matching source document in this company')
+        # Bind a conversion to the source snapshot the user actually reviewed.
+        # Exact successful retries return above, even after this source is consumed.
+        if 'source_document_version' not in data:
+            raise HTTPException(409, 'Conversion source revision required; update the app and reopen the source document before converting')
+        source_version = data['source_document_version']
+        if type(source_version) is not int or source_version < 0:
+            raise HTTPException(422, 'Source document version must be a nonnegative integer')
+        current_source_version = conversion_source.data.get('version', 0)
+        if type(current_source_version) is not int or current_source_version < 0:
+            raise HTTPException(409, 'Source document has an invalid stored version; repair or restore it before converting')
+        if source_version != current_source_version:
+            raise HTTPException(409, 'Conversion source changed; reopen it and review the conversion again')
         if conversion_source.name.strip().casefold() != body.name.strip().casefold(): raise HTTPException(422, 'Conversion party must match the source document')
         if body.date < conversion_source.date: raise HTTPException(422, 'Conversion date cannot precede its source document')
         if conversion_source.data.get('vyapar_converted'): raise HTTPException(409, 'This source document was already converted in Vyapar')

@@ -210,6 +210,7 @@ public sealed class ApexApi : IDisposable
     public Task<JsonNode> SaveRecord(string companyId, JsonObject body, string retryKey, JsonNode? previous = null)
     {
         var kind = body.Text("kind");
+        if(previous is null&&body["data"].Text("source_document_id").Length>0)Capabilities.RequireDocumentConversionSupport();
         var suffix = previous is null ? "/records" : new[] { "estimate", "proforma", "sales_order", "purchase_order" }.Contains(kind) ? "/drafts/" + previous.Text("id") : "/documents/" + previous.Text("id");
         return Send(CompanyPath(companyId, suffix), previous is null ? HttpMethod.Post : HttpMethod.Put, body, retryKey);
     }

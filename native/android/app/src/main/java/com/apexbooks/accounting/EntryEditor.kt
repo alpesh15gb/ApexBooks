@@ -32,6 +32,7 @@ class AllocationState(id:String="",amount:String="") { var documentId by mutable
 
 class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,val conversion:JSONObject?=null) {
     val companyId=vm.companyId;val workspaceStamp=vm.workspaceStamp();val regular=vm.regular
+    private val conversionRevision=conversion?.let{ConversionRevision(it)}
     private val originalVersion=previous?.o("data")?.optInt("version")?:0
     val fields=mutableStateMapOf<String,String>()
     val lines=mutableStateListOf<LineState>()
@@ -149,13 +150,15 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
             if(payment){values.put("is_advance",flag("is_advance"));values.put("advance_supply",get("advance_supply"));values.put("advance_gst_rate",get("advance_gst_rate"));values.put("allocations",JSONArray(if(flag("is_advance"))emptyList<JSONObject>()else allocations.map{JSONObject().put("document_id",it.documentId).put("amount",it.amount)}))}
         }
         if(master)ApiCapabilities.filterMaster(values,vm.supportedFeatures)
-        if(previous!=null)values.put("version",originalVersion);if(conversion!=null)values.put("source_document_id",conversion.s("id"))
+        if(previous!=null)values.put("version",originalVersion);conversionRevision?.applyTo(values)
         return JSONObject().put("kind",kind).put("name",get("name")).put("number",get("number")).put("date",get("date")).put("amount",if(document||master)"0"else get("amount")).put("data",values)
     }
+    val conversionSupported get()=protectedConversionAllowed(conversionRevision!=null,vm.supportedFeatures)
     val masterEditSupported get()=protectedMasterEditAllowed(master&&previous!=null,vm.supportedFeatures)
     fun save(keepOpen:Boolean=false){
         if(saving||scanning||sourceLoading||inlineMaster!=null||!vm.inWorkspace(companyId,workspaceStamp))return
         if(!masterEditSupported){vm.error="Protected master editing is unavailable. ${vm.capabilityHint}";return}
+        if(!conversionSupported){vm.error="Protected draft conversion is unavailable. ${vm.capabilityHint}";return}
         saving=true
         vm.task{try{
             if(!retryPending){
@@ -174,7 +177,9 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
                 // Master revision conflicts are definitive rejection of this attempt,
                 // unlike a financial request that may still be in progress.
                 val masterConflict=master&&previous!=null&&e is ApiFailure&&e.status==409
-                submission.failed(e,definitiveConflict=masterConflict);ownRetryPending=submission.unresolved
+                val conversionConflict=definitiveConversionConflict(conversionRevision!=null,e)
+                submission.failed(e,definitiveConflict=masterConflict||conversionConflict);ownRetryPending=submission.unresolved
+                if(conversionConflict)throw ApiFailure(409,"${e.message} Your entered values remain here. Copy any needed changes, then close, refresh and reopen the source to compare before converting again. An earlier interrupted attempt may already have saved.")
                 if(masterConflict)throw ApiFailure(409,"${e.message ?: "The server rejected this master revision."} Your entered values remain here. Close the editor, refresh company data, and reopen to compare before saving again. An earlier interrupted attempt may already have saved.")
                 throw e
             }

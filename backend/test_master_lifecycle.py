@@ -58,7 +58,7 @@ class MasterLifecycleTest(unittest.TestCase):
         self.assertEqual(r.status_code,200,r.text)
         r=c.put(b+'/drafts/'+draft['id'],headers=h,json={**edit,'kind':'estimate','number':draft['number'],'data':{'version':1,'lines':[{**line,'item_id':other['id'],'description':other['name']}]}})
         self.assertEqual(r.status_code,422,r.text)
-        conversion=c.post(b+'/records',headers=h,json={'kind':'sales_order','name':p['name'],'date':'2026-04-02','data':{'source_document_id':draft['id'],'lines':[line]}})
+        conversion=c.post(b+'/records',headers=h,json={'kind':'sales_order','name':p['name'],'date':'2026-04-02','data':{'source_document_id':draft['id'],'source_document_version':draft['data'].get('version',0),'lines':[line]}})
         self.assertEqual(conversion.status_code,422,conversion.text)
         payment=c.post(b+'/records',headers=h,json={'kind':'payment_in','name':p['name'],'amount':20,'date':'2026-04-02','data':{'applied_to':invoice['id']}})
         self.assertEqual(payment.status_code,200,payment.text)
