@@ -197,6 +197,15 @@ Check(InlineMasterSubmission.CanAppend(99)&&!InlineMasterSubmission.CanAppend(10
 Check(InlineMasterSubmission.CanReusePlaceholder(1,true,"original","original")&&!InlineMasterSubmission.CanReusePlaceholder(1,false,"original","original")&&!InlineMasterSubmission.CanReusePlaceholder(2,true,"original","original"),"inline item reuses only the original sole placeholder instance");
 Check(!InlineMasterSubmission.CanReusePlaceholder(1,true,"quantity=2;discount_amount=10","quantity=1;discount_percent=0"),"edited quantity or fixed discount cannot be overwritten by inline item");
 
+foreach(var noteKind in new[]{"credit_note","debit_note"}){
+ var postedBody=JsonNode.Parse("{\"kind\":\""+noteKind+"\",\"name\":\"Original party\",\"data\":{\"applied_to\":\"source-invoice\",\"lines\":[{\"quantity\":\"2\",\"discount_amount\":\"10\",\"itc_treatment\":\"ineligible\"}]}}")!.AsObject();var beforePreview=postedBody.ToJsonString();
+ var previewBody=WorkflowMasterValues.DocumentPreview(postedBody,"previous-note");
+ Check(previewBody["data"].Text("preview_record_id")=="previous-note"&&previewBody["data"].Text("applied_to")=="source-invoice","editing "+noteKind+" preview excludes its own previous allocation and retains source");
+ Check(postedBody.ToJsonString()==beforePreview&&previewBody["data"]!["lines"]![0].Text("itc_treatment")=="ineligible"&&previewBody["data"]!["lines"]![0].Text("discount_amount")=="10","preview clone preserves ITC/fixed discount without leaking hint into posted body");
+ Check(!WorkflowMasterValues.DocumentPreview(postedBody,null)["data"].Object().ContainsKey("preview_record_id"),"new "+noteKind+" preview does not exclude another note");
+}
+Check(!WorkflowMasterValues.DocumentPreview(new JsonObject{["kind"]="sales_invoice",["data"]=new JsonObject()},"invoice-id")["data"].Object().ContainsKey("preview_record_id"),"non-return amendment never receives return preview exclusion");
+
 var paging=new PagingTransport();using var pagingApi=new ApexApi("https://synthetic-paging.invalid",paging);
 var timer=System.Diagnostics.Stopwatch.StartNew();for(var offset=0;offset<1250;offset+=100)await pagingApi.Send(pagingApi.CompanyPath("test",$"/records?compact=true&limit=100&offset={offset}"));var baselineMs=timer.ElapsedMilliseconds;
 Check(paging.Calls==13,"baseline 1250 records uses 13 small-page requests");paging.Calls=0;timer.Restart();var allRows=await pagingApi.Records("test");var improvedMs=timer.ElapsedMilliseconds;

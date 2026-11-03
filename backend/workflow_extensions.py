@@ -78,7 +78,40 @@ def install(app,m):
         company=m.company_for(company_id,user,session)
         if body.kind not in m.DOCUMENTS:raise HTTPException(422,'Choose a document type')
         profile=session.get(m.CompanyTaxProfile,company_id)
-        data,amount=m.calculate(body.data,company,profile.mode if profile else 'regular',body.kind,session)
+        mode=profile.mode if profile else 'regular'
+        from document_inputs import editable_inputs,financial_signature,metadata_fields,merge_display_lines
+        existing=None
+        submitted={key:value for key,value in body.data.items() if key in editable_inputs(body.kind)}
+        proposed=body.data
+        preview_id=body.data.get('preview_record_id')
+        if body.kind in {'credit_note','debit_note'} and preview_id is not None:
+            if not isinstance(preview_id,str) or not preview_id:raise HTTPException(422,'Invalid return preview record')
+            existing=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==preview_id,m.Record.kind==body.kind))
+            if not existing or not session.scalar(select(m.RecordPosting.id).where(m.RecordPosting.company_id==company_id,m.RecordPosting.record_id==existing.id)):
+                raise HTTPException(422,'Choose an existing posted return in this company')
+            proposed={**existing.data,**submitted}
+            if proposed.get('applied_to')!=existing.data.get('applied_to'):
+                raise HTTPException(422,'Choose an existing return for the selected source')
+        # Still validate line lengths, MRP, tracked-item identity and numeric input,
+        # even when a nonfinancial edit will retain the stored posting values.
+        data,amount=m.calculate(proposed,company,mode,body.kind,session)
+        if body.kind in {'credit_note','debit_note'} and data.get('applied_to'):
+            target=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==data['applied_to'],m.Record.kind.in_(['sales_invoice','pos'] if body.kind=='credit_note' else ['purchase_bill'])))
+            if not target:raise HTTPException(422,'Choose a source document in this company')
+            previous=list(session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind==body.kind)))
+            previous=[note for note in previous if note.data.get('applied_to')==target.id]
+            if existing:
+                previous=[note for note in previous if note.id!=existing.id]
+                marker=existing.data.get('return_rounding')
+                party=existing.name if body.name.strip().casefold()=='preview' else body.name
+                old_signature=financial_signature(body.kind,company.state_code,mode,m.DOCUMENTS,existing.data,existing.amount,existing.name,existing.date)
+                new_signature=financial_signature(body.kind,company.state_code,mode,m.DOCUMENTS,proposed,existing.amount,party,body.date)
+                if isinstance(marker,dict) and marker.get('method')=='source_remaining_single_line' and marker.get('source_document_id')==target.id and old_signature==new_signature:
+                    preserved={**existing.data,**{key:value for key,value in submitted.items() if key in metadata_fields(body.kind)}}
+                    if 'lines' in submitted:preserved['lines']=merge_display_lines(existing.data.get('lines',[]),submitted['lines'])
+                    return {'data':preserved,'amount':str(existing.amount)}
+            from return_rounding import reconcile
+            data,amount=reconcile(m,company,body.kind,data,amount,target,previous,mode,session)
         return {'data':data,'amount':str(amount)}
 
     @app.put('/api/companies/{company_id}/drafts/{record_id}')
