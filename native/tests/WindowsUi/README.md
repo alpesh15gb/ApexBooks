@@ -148,3 +148,16 @@ viewport. Focus alone did not reveal it. The test now uses ScrollItem when
 available or the button's nearest vertical ScrollPattern ancestor (bounded40
 small steps), then still requires a visible enabled button before invocation.
 It never scrolls the desktop or invokes the hidden action. Runtime recheck pending.
+
+### Picker discovery diagnostics
+
+On a failed synthetic run, `picker-diagnostics.json` records the launched app's
+HWND/PID, matching top-level `Open`/`Save As` UIA and native window metadata, and
+bounded native owner chains. It captures at most 16 candidates per source and
+32 owner nodes per candidate; it reads no filename fields or document contents.
+Native enumeration is diagnostic only. Picker selection still requires the
+existing app subtree or verified native ownership chain, with visible/enabled
+controls. No extra picker activation, upload or action retry is performed.
+
+This diagnostic addition passed local diff/source checks; compilation and runtime
+capture require the Windows CI runner because the local .NET SDK is unavailable.
