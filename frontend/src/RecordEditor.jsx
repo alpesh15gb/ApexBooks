@@ -1,3 +1,4 @@
+import { sourceInputTaxSummary } from "./purchaseReturnGuidance.js";
 import { captureConversionSource, conversionBlockReason, isDefiniteConversionConflict } from "./conversionRevision.js";
 import InlineItemForm from "./InlineItemForm.jsx";
 import InlinePartyForm from "./InlinePartyForm.jsx";
@@ -220,6 +221,7 @@ export default function RecordEditor({
     [error, setError] = useState(""),
     [scanning, setScanning] = useState(false);
   const [reviewedReturnDiscounts, setReviewedReturnDiscounts] = useState("");
+  const [sourceInputTax, setSourceInputTax] = useState(() => !edit && kind === "debit_note" ? sourceInputTaxSummary(initial?.data?.lines) : "");
   const requiresDiscountReview = !edit && ["credit_note", "debit_note"].includes(kind) && !!form.applied_to && lines.some(line => lineDiscountMode(line) === "amount" && Number(line.discount_amount) > 0);
   const returnDiscountReviewKey = JSON.stringify([form.applied_to, lines.map(line => [line.item_id, line.description, line.quantity, line.rate, line.discount_amount, line.discount_percent])]);
   const [bankAccounts, setBankAccounts] = useState([
@@ -412,6 +414,7 @@ export default function RecordEditor({
     setError("");
     setForm((current) => ({ ...current, applied_to: id, name: "" }));
     setLines([emptyLine()]);
+    setSourceInputTax("");
     if (!id) {
       setLoadingSource(false);
       return;
@@ -420,6 +423,7 @@ export default function RecordEditor({
     try {
       const target = await api(`/companies/${companyId}/records/${id}`);
       if (request !== sourceRequest.current) return;
+      setSourceInputTax(sourceInputTaxSummary(target.data?.lines));
       setForm((current) => ({
         ...current,
         applied_to: id,
@@ -866,6 +870,7 @@ export default function RecordEditor({
                     <option key={r.id} value={r.name} />
                   ))}
               </datalist>
+              {!edit && kind === "debit_note" && company.tax_mode === "regular" && form.applied_to && <section className="info-box full" aria-label="Purchase return input-tax guidance"><strong>Keep the original bill’s input-tax classification</strong>{sourceInputTax && <p>Source bill: {sourceInputTax}.</p>}<p>Review each line’s tax options: input GST pending review or GST included in cost (ineligible). Earlier returns reduce the amount available in each classification. Pending review does not mean credit has been claimed.</p></section>}
               {!edit && (source || relatedSource || form.applied_to) && lines.some(line => lineDiscountMode(line) === "amount") && <p className="info-box full">Fixed rupee discounts were copied unchanged from the source. They are not automatically prorated when you change quantities. Review each discount against the quantities being converted or returned before saving.</p>}
               {requiresDiscountReview && <label className="checkbox full"><input type="checkbox" required checked={reviewedReturnDiscounts === returnDiscountReviewKey} onChange={event => setReviewedReturnDiscounts(event.target.checked ? returnDiscountReviewKey : "")} />I reviewed the copied fixed discounts for these returned quantities.</label>}
               {kind === "sales_invoice" && !edit && !source && !relatedSource && createItem && <div className="full">

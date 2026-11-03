@@ -102,16 +102,20 @@ def install(app,m):
             previous=[note for note in previous if note.data.get('applied_to')==target.id]
             if existing:
                 previous=[note for note in previous if note.id!=existing.id]
-                marker=existing.data.get('return_rounding')
                 party=existing.name if body.name.strip().casefold()=='preview' else body.name
                 old_signature=financial_signature(body.kind,company.state_code,mode,m.DOCUMENTS,existing.data,existing.amount,existing.name,existing.date)
                 new_signature=financial_signature(body.kind,company.state_code,mode,m.DOCUMENTS,proposed,existing.amount,party,body.date)
-                if isinstance(marker,dict) and marker.get('method')=='source_remaining_single_line' and marker.get('source_document_id')==target.id and old_signature==new_signature:
+                # PUT preserves every unchanged posted financial signature,
+                # including legacy classification and rounding. Preview must
+                # not reinterpret that history as a newly posted return.
+                if old_signature==new_signature:
                     preserved={**existing.data,**{key:value for key,value in submitted.items() if key in metadata_fields(body.kind)}}
                     if 'lines' in submitted:preserved['lines']=merge_display_lines(existing.data.get('lines',[]),submitted['lines'])
                     return {'data':preserved,'amount':str(existing.amount)}
             from return_rounding import reconcile
             data,amount=reconcile(m,company,body.kind,data,amount,target,previous,mode,session)
+            from return_budgets import validate_return_budgets
+            validate_return_budgets(body.kind,data,amount,target,previous,mode)
         return {'data':data,'amount':str(amount)}
 
     @app.put('/api/companies/{company_id}/drafts/{record_id}')
