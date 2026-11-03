@@ -48,7 +48,7 @@ import com.apexbooks.accounting.data.*
                         }
                     } }, actions = {
                         IconButton(onClick = { searchOpen = true }, enabled = vm.companyId.isNotBlank()) { Icon(Icons.Outlined.Search, "Search workspace") }
-                        IconButton(onClick = { vm.task { vm.refresh() } }, enabled = vm.busy == 0 && vm.companyId.isNotBlank()) { Icon(Icons.Outlined.Refresh, "Refresh") }
+                        IconButton(onClick = { if(vm.canManuallyRefresh)vm.task { vm.refresh() } }, enabled = vm.canManuallyRefresh && vm.companyId.isNotBlank()) { Icon(Icons.Outlined.Refresh, "Refresh") }
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
                     if (vm.busy > 0) LinearProgressIndicator(Modifier.fillMaxWidth())
                 } },
@@ -63,6 +63,7 @@ import com.apexbooks.accounting.data.*
             ) { padding -> Column(Modifier.padding(padding).fillMaxSize()) {
                 if(BuildConfig.DEBUG)Text("Test workspace · ${java.net.URI(BuildConfig.API_ORIGIN).host}",Modifier.padding(horizontal=16.dp),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 if(vm.capabilityRetryable)Row(Modifier.padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically){Text(vm.capabilityHint,Modifier.weight(1f),style=MaterialTheme.typography.bodySmall);TextButton(enabled=!vm.capabilityChecking,onClick={vm.retryCapabilities()}){Text("Retry features")}}
+                if(vm.companyId.isNotBlank()&&(vm.recordsReady||vm.historySnapshot.refreshFailed))Text(vm.historySnapshot.label(),Modifier.padding(horizontal=16.dp,vertical=4.dp),style=MaterialTheme.typography.bodySmall,color=if(vm.historySnapshot.refreshFailed)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                 if (vm.error.isNotBlank()) Box(Modifier.padding(16.dp, 6.dp)) { Message(vm.error, true) { vm.error = "" } }
                 if (vm.notice.isNotBlank()) Box(Modifier.padding(16.dp, 6.dp)) { Message(vm.notice) { vm.notice = "" } }
                 if (vm.companyId.isBlank()) Column(Modifier.padding(24.dp)) {

@@ -9,4 +9,5 @@
   <ItemGroup><Compile Include="../../windows/Services/ExactBankUnmatch.cs" Link="ExactBankUnmatch.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../../windows/Services/JournalSubmission.cs" Link="JournalSubmission.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../../windows/Services/MasterEditSubmission.cs" Link="MasterEditSubmission.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../windows/Services/HistorySnapshotStatus.cs" Link="HistorySnapshotStatus.cs" /></ItemGroup>
 </Project>

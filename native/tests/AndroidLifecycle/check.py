@@ -23,6 +23,7 @@ json_version="20250517"
 json_jars=sorted((cache/"caches/modules-2/files-2.1/org.json/json"/json_version).glob("*/json-*.jar"))
 if not json_jars:raise SystemExit("Run the existing Android unit-test build first: its cached org.json:json:20250517 dependency is required; no download is performed.")
 json_jar=json_jars[0]
+history_snapshot=root/'native/android/app/src/main/java/com/apexbooks/accounting/HistorySnapshot.kt'
 company_reads=root/'native/android/app/src/main/java/com/apexbooks/accounting/data/CompanyReads.kt'
 api_source=(root/'native/android/app/src/main/java/com/apexbooks/accounting/data/ApexApi.kt').read_text()
 api_failure=next(line for line in api_source.splitlines() if line.startswith('class ApiFailure('))
@@ -32,16 +33,34 @@ assert 'vm.task{' in open_action and 'onClick={act{' not in open_action, "Restor
 s=(root/'native/android/app/src/main/java/com/apexbooks/accounting/AppModel.kt').read_text()
 choose=next(x.strip() for x in s.splitlines() if x.strip().startswith('suspend fun chooseCompany('))
 task=next(x.strip() for x in s.splitlines() if x.strip().startswith('fun task('))
+# Keep freshness metadata scoped to the same fully validated publication boundary.
+refresh=next(x.strip() for x in s.splitlines() if x.strip().startswith('suspend fun refresh('))
+navigate=next(x.strip() for x in s.splitlines() if x.strip().startswith('fun navigate('))
+logout=next(x.strip() for x in s.splitlines() if x.strip().startswith('fun endLocalSession('))
+assert 'historySnapshot=HistorySnapshot()' in choose and 'historySnapshot=HistorySnapshot()' in logout
+assert choose.index('val loadedBanks=accounts.await()') < choose.index('historySnapshot.completed(')
+assert refresh.index('val loadedBanks=accounts.await()') < refresh.index('historySnapshot.completed(')
+assert 'if(stamp==generation&&request==refreshSequence)' in refresh
+assert 'historySnapshot.failed(stamp==generation&&request==refreshSequence)' in refresh
+assert 'historySnapshot' not in navigate, 'Page navigation must not clear a failed history refresh'
+manual=next(x.strip() for x in s.splitlines() if x.strip().startswith('val canManuallyRefresh '))
+assert all(guard in manual for guard in ('busy==0','editor==null','tool.isBlank()','!toolDrafts.hasUnresolved','posDrafts.values.none','recurringCommands.values.none','backupDrafts.values.none','attachmentDrafts.values.none'))
+shell=(root/'native/android/app/src/main/java/com/apexbooks/accounting/WorkspaceShell.kt').read_text()
+assert 'if(vm.canManuallyRefresh)vm.task { vm.refresh() }' in shell
+assert 'enabled = vm.canManuallyRefresh && vm.companyId.isNotBlank()' in shell
+
+
 temporary=tempfile.TemporaryDirectory(prefix='apex navigation proof ');p=Path(temporary.name)
 fixture='''import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.json.JSONArray
 import com.apexbooks.accounting.data.companyRows
+import com.apexbooks.accounting.HistorySnapshot
 fun JSONObject.s(key:String)=optString(key,"")
 class Api(val release:CompletableDeferred<Unit>){suspend fun records(id:String):List<JSONObject>{release.await();return listOf(JSONObject().put("id","record-$id"))};fun company(id:String,path:String)=id; suspend fun request(path:String):Any{release.await();return JSONArray().put(JSONObject().put("id","bank"))}}
 class Model(val viewModelScope:CoroutineScope,val changed:CompletableDeferred<Unit>,val release:CompletableDeferred<Unit>){
  val api=Api(release);var generation=0;var refreshSequence=0;var company=JSONObject();set(value){field=value;changed.complete(Unit)}
- var companyForm=false;var tool="restore";var toolData:Any?=null;var records=emptyList<JSONObject>();var banks=emptyList<JSONObject>();var recordsReady=false
+ var companyForm=false;var tool="restore";var toolData:Any?=null;var records=emptyList<JSONObject>();var banks=emptyList<JSONObject>();var recordsReady=false;var historySnapshot=HistorySnapshot()
  var editor:Any?=null;var detail:Any?=null;var pdf:Any?=null;var statement:Any?=null;var busy=0;var error="";var notice=""
  fun failure(e:Exception){if(e is CancellationException)throw e;throw AssertionError(e)}
 '''+choose+'\n'+task+'''
@@ -75,7 +94,7 @@ def run_java(name, arguments):
     subprocess.run(['java','@'+str(argument_file)],check=True)
 
 try:
-    run_java('compile',['-cp',cp,'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler','-no-stdlib','-no-reflect','-classpath',cp,'-d',p/'proof.jar',p/'Proof.kt',p/'ApiFailure.kt',company_reads])
+    run_java('compile',['-cp',cp,'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler','-no-stdlib','-no-reflect','-classpath',cp,'-d',p/'proof.jar',p/'Proof.kt',p/'ApiFailure.kt',company_reads,history_snapshot])
     run_java('run',['-cp',str(p/'proof.jar')+os.pathsep+cp,'ProofKt'])
 finally:
     temporary.cleanup()

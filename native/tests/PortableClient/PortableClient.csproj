@@ -20,4 +20,6 @@
   <ItemGroup><Compile Include="../WindowsClient/RecordEditRecoveryTests.cs" Link="RecordEditRecoveryTests.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../../windows/Services/MasterEditSubmission.cs" Link="MasterEditSubmission.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../WindowsClient/MasterEditSubmissionTests.cs" Link="MasterEditSubmissionTests.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../windows/Services/HistorySnapshotStatus.cs" Link="HistorySnapshotStatus.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../WindowsClient/HistorySnapshotStatusTests.cs" Link="HistorySnapshotStatusTests.cs" /></ItemGroup>
 </Project>
