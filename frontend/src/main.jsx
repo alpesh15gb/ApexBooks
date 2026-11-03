@@ -1,3 +1,4 @@
+import { currentPostingSession, assertPostingSession } from "./postingSession.js";
 import { journalPostingBlockReason, captureJournalRequest, sendJournalRequest, isDefiniteJournalConflict, journalReconciliationWarning } from "./journalPosting.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import { inlineItemCreator } from "./inlineItem.js";
@@ -144,29 +145,41 @@ const today = () => businessDate();
 const api = async (path, options = {}) => {
   const { rawResponse = false, ...fetchOptions } = options;
   const mutation = options.method && !["GET", "HEAD"].includes(options.method);
+  const requestSession = currentPostingSession();
   let response;
   try { response = await fetch("/api" + path, {
     ...fetchOptions,
     headers: {
       "Content-Type": "application/json",
-      ...(localStorage.token
-        ? { Authorization: `Bearer ${localStorage.token}` }
+      ...(requestSession
+        ? { Authorization: `Bearer ${requestSession}` }
         : {}),
       ...options.headers,
     },
   }); } catch (failure) {
+    assertPostingSession(requestSession, "response");
     if (failure.name === "AbortError") throw failure;
     const error = new Error(apiErrorMessage(0, {}, mutation));
     error.status = 0;
     throw error;
   }
+  assertPostingSession(requestSession, "response");
   if (!response.ok) {
     let e = await response.json().catch(() => ({}));
+    assertPostingSession(requestSession, "response");
     const error = new Error(apiErrorMessage(response.status, e, mutation));
     error.status = response.status;
     throw error;
   }
-  return rawResponse ? response : response.json();
+  if (rawResponse) return response;
+  try {
+    const data = await response.json();
+    assertPostingSession(requestSession, "response");
+    return data;
+  } catch (error) {
+    assertPostingSession(requestSession, "response");
+    throw error;
+  }
 };
 
 function Auth({ onLogin }) {
