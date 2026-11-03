@@ -75,8 +75,7 @@ public sealed partial class MainPage
 
     private UIElement MonthChart(DateTime start,DateTime end)
     {
-        var rows=new List<(DateTime Month,decimal Sales,decimal Purchases)>();
-        for(var m=new DateTime(start.Year,start.Month,1);m<=end&&rows.Count<13;m=m.AddMonths(1)){var key=m.ToString("yyyy-MM");var records=Records.OfType<JsonObject>().Where(r=>r.Flag("posted")&&r.Text("date").StartsWith(key)&&string.CompareOrdinal(r.Text("date"),start.ToString("yyyy-MM-dd"))>=0&&string.CompareOrdinal(r.Text("date"),end.ToString("yyyy-MM-dd"))<=0).ToArray();rows.Add((m,records.Sum(r=>r.Text("kind") is "sales_invoice" or "pos"?r.Number("amount"):r.Text("kind")=="credit_note"?-r.Number("amount"):0),records.Sum(r=>r.Text("kind")=="purchase_bill"?r.Number("amount"):r.Text("kind")=="debit_note"?-r.Number("amount"):0)));}
+        var rows=MonthChartAggregation.Aggregate(Records,start,end);
         var values=rows.SelectMany(r=>new[]{r.Sales,r.Purchases}).ToArray();var max=Math.Max(0,values.DefaultIfEmpty().Max());var min=Math.Min(0,values.DefaultIfEmpty().Min());var span=max-min;
         if(span==0){var empty=Text("No net movement in this period.\nPosted sales and purchases will appear here.",14);empty.Margin=new Thickness(0,50,0,50);empty.Foreground=Muted;return empty;}
         var grid=new Grid{ColumnSpacing=6};var baseline=140*(double)(max/span);

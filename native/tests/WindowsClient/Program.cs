@@ -206,6 +206,8 @@ foreach(var noteKind in new[]{"credit_note","debit_note"}){
 }
 Check(!WorkflowMasterValues.DocumentPreview(new JsonObject{["kind"]="sales_invoice",["data"]=new JsonObject()},"invoice-id")["data"].Object().ContainsKey("preview_record_id"),"non-return amendment never receives return preview exclusion");
 
+MonthChartAggregationTests.Run(Check);
+
 var paging=new PagingTransport();using var pagingApi=new ApexApi("https://synthetic-paging.invalid",paging);
 var timer=System.Diagnostics.Stopwatch.StartNew();for(var offset=0;offset<1250;offset+=100)await pagingApi.Send(pagingApi.CompanyPath("test",$"/records?compact=true&limit=100&offset={offset}"));var baselineMs=timer.ElapsedMilliseconds;
 Check(paging.Calls==13,"baseline 1250 records uses 13 small-page requests");paging.Calls=0;timer.Restart();var allRows=await pagingApi.Records("test");var improvedMs=timer.ElapsedMilliseconds;
