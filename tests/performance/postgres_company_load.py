@@ -1,14 +1,16 @@
-"""Disposable loopback PostgreSQL company-load baseline. No optimization or test_api.
+"""Disposable PostgreSQL page-projection comparison. No production changes or test_api.
 
 One fixture per fresh database; see POSTGRES_COMPANY_LOAD.md. This script writes
 synthetic fixtures, then measures read-only API calls and captured SELECT plans.
 """
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
 from pathlib import Path
 import random
+import re
 import statistics
 import sys
 import time
@@ -97,9 +99,103 @@ def fixture(m, client, size, date_shape, json_shape):
     return headers, '/api/companies/' + cid, logical_bytes
 
 
+def page_candidate(m, statement):
+    """Match only the endpoint's exact compact page SELECT; never rewrite writes."""
+    from sqlalchemy import Select, func, select
+    if not isinstance(statement, Select): return None
+    columns = list(statement.selected_columns)
+    expected = [m.Record.id, m.Record.kind, m.Record.name, m.Record.number,
+                m.Record.date, m.Record.amount, m.compact_record_data('postgresql').label('data')]
+    if len(columns) != 7 or not all(a.compare(b.__clause_element__() if hasattr(b, '__clause_element__') else b) for a, b in zip(columns, expected)):
+        return None
+    created = func.coalesce(m.Record.data['created_at'].as_string(), '')
+    ordering = [m.Record.date.desc(), created.desc(), m.Record.id.desc()]
+    if len(statement._order_by_clauses) != 3 or not all(a.compare(b) for a, b in zip(statement._order_by_clauses, ordering)):
+        return None
+    criteria = list(statement._where_criteria)
+    if len(criteria) not in (2, 3): return None
+    company = criteria[0].right.value if hasattr(criteria[0], 'right') and hasattr(criteria[0].right, 'value') else None
+    if not isinstance(company, str) or not criteria[0].compare(m.Record.company_id == company): return None
+    hidden = m.Record.kind.not_in(['vyapar_backup_archive', 'document_branding', 'restore_marker', 'recurring_template'])
+    if not criteria[1].compare(hidden): return None
+    if len(criteria) == 3:
+        kind = criteria[2].right.value if hasattr(criteria[2], 'right') and hasattr(criteria[2].right, 'value') else None
+        if not isinstance(kind, str) or not criteria[2].compare(m.Record.kind == kind): return None
+    if statement._offset_clause is None or statement._distinct or statement._group_by_clauses:
+        return None
+    captured_created = statement._order_by_clauses[1].element
+    page = statement.with_only_columns(m.Record.id.label('page_id'), m.Record.date.label('page_date'),
+                                       captured_created.label('page_created_at')).subquery('profile_page')
+    # Preserve all filters twice defensively. No raw data is carried by the page.
+    return (select(*columns).join(page, m.Record.id == page.c.page_id)
+            .where(*criteria).order_by(page.c.page_date.desc(), page.c.page_created_at.desc(), page.c.page_id.desc()))
+
+
+@contextmanager
+def comparison(m, enabled):
+    from sqlalchemy.orm import Session
+    from unittest.mock import patch
+    original = Session.execute
+    counts = {'matched': 0, 'rewritten': 0, 'other_execute_calls': 0}
+    def execute(session, statement, *args, **kwargs):
+        candidate = page_candidate(m, statement)
+        if candidate is None:
+            counts['other_execute_calls'] += 1
+        else:
+            counts['matched'] += 1
+            if enabled:
+                statement = candidate
+                counts['rewritten'] += 1
+        return original(session, statement, *args, **kwargs)
+    with patch.object(Session, 'execute', execute):
+        yield counts
+    assert Session.execute is original
+
+
+def explain(m, captured):
+    assert len(captured) == 1, 'Expected one captured record ordering SELECT'
+    sql, params, _ = captured[0]
+    assert sql.lstrip().upper().startswith('SELECT ')
+    with m.engine.connect() as cn:
+        with cn.begin():
+            cn.exec_driver_sql('SET TRANSACTION READ ONLY')
+            cn.exec_driver_sql("SET LOCAL statement_timeout = '120s'")
+            return cn.exec_driver_sql('EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON) ' + sql, params).scalar_one()
+
+
+def narrow_page_limits(plan):
+    """Recognize only the observed PG narrow keys, allowing exact duplicates."""
+    result = []
+    def walk(node):
+        values = node.get('Output', [])
+        if node['Node Type'] == 'Limit' and node.get('Actual Rows') == 500 and node.get('Actual Loops') == 1:
+            distinct = set(values)
+            aliases = [match.group(1) for value in distinct
+                       if (match := re.fullmatch(r'(records(?:_[0-9]+)?)\.id', value))]
+            if len(aliases) == 1:
+                alias = aliases[0]
+                expected = {alias + '.id', alias + '.date',
+                    f"(COALESCE((({alias}.data ->> 'created_at'::text))::character varying, ''::character varying))"}
+                if distinct == expected:
+                    result.append(node)
+        for child in node.get('Plans', []): walk(child)
+    walk(plan[0]['Plan'])
+    return result
+
+
+def projection_nodes(plan):
+    result = []
+    def walk(node):
+        if any('jsonb_set' in value for value in node.get('Output', [])):
+            result.append({'node': node['Node Type'], 'rows': node['Actual Rows'], 'loops': node['Actual Loops']})
+        for child in node.get('Plans', []): walk(child)
+    walk(plan[0]['Plan'])
+    return result
+
+
 def measure(m, client, headers, base, mode, size):
     from sqlalchemy import event
-    queries = []; rows = []; payload_bytes = 0; requests = 0
+    queries = []; rows = []; raw = []; payload_bytes = 0; requests = 0
     def before(cn, cur, sql, params, ctx, many): ctx.profile_start = time.perf_counter()
     def after(cn, cur, sql, params, ctx, many):
         queries.append((sql, params, (time.perf_counter() - ctx.profile_start) * 1000))
@@ -114,7 +210,7 @@ def measure(m, client, headers, base, mode, size):
                                   params={} if mode == 'banks' else params)
             response.raise_for_status(); batch = response.json()
             assert isinstance(batch, list)
-            rows.extend(batch); payload_bytes += len(response.content); requests += 1
+            rows.extend(batch); raw.append(response.content); payload_bytes += len(response.content); requests += 1
             if mode == 'full' and len(batch) < 500: break
     finally:
         event.remove(m.engine, 'before_cursor_execute', before)
@@ -130,7 +226,68 @@ def measure(m, client, headers, base, mode, size):
              'requests': requests, 'sql_queries': len(queries), 'payload_bytes': payload_bytes, 'rows': len(rows)}
     # No authentication SQL/parameters or response bodies are emitted.
     ordering = [q for q in queries if 'FROM records' in q[0] and 'ORDER BY records.date' in q[0]]
-    return rows, stats, ordering
+    return rows, raw, stats, ordering
+
+
+def edge_checks(m, client, headers, base, size):
+    """Untimed parity checks, with extra records confined to a separate company."""
+    from sqlalchemy.orm import Session
+    other = client.post('/api/companies', headers=headers, json={'name': 'Synthetic edge isolation', 'tax_mode': 'unregistered'})
+    other.raise_for_status(); cid = other.json()['id']; edge_base = '/api/companies/' + cid
+    cases = [
+        (base, {'compact': True, 'limit': 17, 'offset': 499}, 200, 1),
+        (base, {'compact': True, 'offset': size - 5}, 200, 1),
+        (base, {'compact': True, 'limit': 13, 'offset': 31, 'kind': 'payment_in'}, 200, 1),
+        (base, {'compact': True, 'limit': 5, 'offset': size + 5}, 200, 1),
+        (base, {'compact': False, 'limit': 3, 'offset': 7}, 200, 0),
+        (edge_base, {'compact': True, 'limit': 500}, 200, 1),
+    ]
+    results = []
+    def check(path, params, auth, status, matches):
+        responses = []
+        for enabled in (False, True):
+            with comparison(m, enabled) as counts:
+                response = client.get(path + '/records', headers=auth, params=params)
+            assert response.status_code == status
+            assert counts['matched'] == matches and counts['rewritten'] == (matches if enabled else 0), counts
+            responses.append(response)
+        assert responses[0].content == responses[1].content
+        results.append({'status': status, 'parameters': params, 'bytes': len(responses[0].content), 'matched_selects': matches})
+        return responses[0].json()
+    for path, params, status, matches in cases:
+        rows = check(path, params, headers, status, matches)
+        if path == edge_base: assert rows == []
+    with Session(m.engine) as session:
+        for kind in ('vyapar_backup_archive', 'document_branding', 'restore_marker', 'recurring_template', 'party', 'item'):
+            session.add(m.Record(company_id=cid, kind=kind, name='Synthetic ' + kind, date=date(2026, 4, 2), amount=0,
+                data={'created_at': 'same', 'version': 3, 'is_active': False, 'lines': [{'description': 'Master retained field'}]}))
+        session.commit()
+    rows = check(edge_base, {'compact': True, 'limit': 500}, headers, 200, 1)
+    assert {r['kind'] for r in rows} == {'party', 'item'}
+    assert all(r['data']['is_active'] is False and r['data']['lines'] for r in rows)
+    assert check(edge_base, {'compact': True, 'kind': 'restore_marker', 'offset': 0}, headers, 200, 1) == []
+    credentials = {'email': uuid4().hex + '@pg-profile.invalid', 'password': 'Synthetic-only-profile-password'}
+    client.post('/api/auth/register', json=credentials).raise_for_status()
+    login = client.post('/api/auth/login', json=credentials); login.raise_for_status()
+    outsider = {'Authorization': 'Bearer ' + login.json()['token']}
+    check(base, {'compact': True, 'limit': 5}, outsider, 404, 0)
+    client.post(base + '/members', headers=headers, json={'email': credentials['email'], 'role': 'viewer'}).raise_for_status()
+    viewer_rows = check(base, {'compact': True, 'limit': 5}, outsider, 200, 1)
+    owner_rows = check(base, {'compact': True, 'limit': 5}, headers, 200, 1)
+    assert viewer_rows == owner_rows
+    return results
+
+
+def write_artifact(path, output):
+    """Preserve bounded pure JSON diagnostics before a later assertion can fail."""
+    encoded = json.dumps(output, indent=2, allow_nan=False) + '\n'
+    assert len(encoded.encode('utf-8')) <= 1_000_000, 'Unexpectedly large profiling output'
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(encoded, encoding='utf-8')
+    elif output.get('completed') is True:
+        print(encoded, end='')
+    return encoded
 
 
 def main():
@@ -168,42 +325,60 @@ def main():
                 cn.exec_driver_sql('ANALYZE ' + table)
             storage = dict(cn.execute(text("SELECT pg_relation_size('records') AS heap_bytes, pg_total_relation_size('records') AS total_bytes, sum(pg_column_size(data)) AS stored_data_bytes FROM records")).mappings().one())
             version = cn.exec_driver_sql('SHOW server_version').scalar_one()
-        results = {}; snapshots = {}; plans = {}
-        for mode in ('first', 'deep', 'full', 'banks'):
-            print('Measuring ' + mode, file=sys.stderr, flush=True)
-            samples = []; reference = None; queries = []
-            for attempt in range(4):
-                rows, stats, queries = measure(m, client, headers, base, mode, args.size)
-                if reference is None: reference = rows
-                else: assert rows == reference, 'Repeated read changed values or ordering'
-                if attempt: samples.append(stats)
-            snapshots[mode] = reference
-            results[mode] = {'samples': samples, 'median_wall_ms': round(statistics.median(x['wall_ms'] for x in samples), 3),
-                             'median_cursor_ms': round(statistics.median(x['cursor_ms'] for x in samples), 3),
-                             'response_sha256': hashlib.sha256(json.dumps(reference, sort_keys=True).encode()).hexdigest()}
-            if mode in ('first', 'deep'):
-                assert len(queries) == 1, 'Expected one captured record ordering SELECT'
-                sql, params, _ = queries[0]
-                assert sql.lstrip().upper().startswith('SELECT ')
-                with m.engine.connect() as cn:
-                    with cn.begin():
-                        cn.exec_driver_sql('SET TRANSACTION READ ONLY')
-                        cn.exec_driver_sql("SET LOCAL statement_timeout = '120s'")
-                        plans[mode] = cn.exec_driver_sql('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' + sql, params).scalar_one()
-        assert snapshots['first'] == snapshots['full'][:500]
-        assert snapshots['deep'] == snapshots['full'][-500:]
-        output = {'scope': 'Synthetic loopback PostgreSQL; warm in-process TestClient, analyzed fixture; no network/native startup claim',
+        results = {}; snapshots = {}; plans = {}; projections = {}
+        output = {'completed': False, 'phase': 'fixture_ready',
+                  'candidate_variant': 'shared_original_created_order_expression_v2',
+                  'scope': 'Synthetic loopback PostgreSQL; warm in-process TestClient, analyzed fixture; no network/native startup claim',
                   'postgres_version': version, 'size': args.size, 'date_shape': args.date_shape, 'json_shape': args.json_shape,
                   'fixture': {'records': args.size, 'journals': args.size, 'journal_lines': 2 * args.size,
                               'allocations': args.size // 3, 'named_banks': 20, 'logical_json_bytes': logical_bytes,
-                              'setup_ms': round(setup_ms, 3), **storage}, 'measurements': results, 'plans': plans}
-        encoded = json.dumps(output, indent=2)
-        assert len(encoded.encode()) <= 1_000_000, 'Unexpectedly large profiling output'
-        if args.output:
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(encoded + '\n', encoding='utf-8')
-        else:
-            print(encoded)
+                              'setup_ms': round(setup_ms, 3), **storage},
+                  'measurements': results, 'plans': plans, 'projection_nodes': projections, 'edge_checks': []}
+        write_artifact(args.output, output)
+        for mode in ('first', 'deep', 'full', 'banks'):
+            print('Comparing ' + mode, file=sys.stderr, flush=True)
+            samples = {'baseline': [], 'candidate': []}; reference = None; captured = {}
+            # Alternate order to reduce a consistent warm-cache advantage.
+            for attempt in range(4):
+                for variant in (('baseline', 'candidate') if attempt % 2 == 0 else ('candidate', 'baseline')):
+                    with comparison(m, variant == 'candidate') as counts:
+                        rows, raw, stats, queries = measure(m, client, headers, base, mode, args.size)
+                    expected = 0 if mode == 'banks' else stats['requests']
+                    assert counts['matched'] == expected, (mode, counts)
+                    assert counts['rewritten'] == (expected if variant == 'candidate' else 0)
+                    stats['interceptor'] = counts
+                    if reference is None: reference = (rows, raw)
+                    else: assert (rows, raw) == reference, 'Comparison changed exact response bytes, values or ordering'
+                    if attempt: samples[variant].append(stats)
+                    captured[variant] = queries
+            snapshots[mode] = reference[0]
+            results[mode] = {variant: {'samples': data,
+                'median_wall_ms': round(statistics.median(x['wall_ms'] for x in data), 3),
+                'median_cursor_ms': round(statistics.median(x['cursor_ms'] for x in data), 3),
+                'response_sha256': hashlib.sha256(b''.join(reference[1])).hexdigest()}
+                for variant, data in samples.items()}
+            output['phase'] = mode + ':measurements_complete'
+            write_artifact(args.output, output)
+            if mode in ('first', 'deep'):
+                plans[mode] = {variant: explain(m, query) for variant, query in captured.items()}
+                projections[mode] = {variant: projection_nodes(plan) for variant, plan in plans[mode].items()}
+                output['phase'] = mode + ':plan_validation_pending'
+                write_artifact(args.output, output)
+                boundaries = narrow_page_limits(plans[mode]['candidate'])
+                assert boundaries, 'Missing narrow page boundary below projection'
+                assert projections[mode]['candidate'], 'VERBOSE plan did not identify compact projection'
+                assert all(node['rows'] * node['loops'] <= 500 for node in projections[mode]['candidate']), 'Candidate projected skipped rows'
+        output['phase'] = 'snapshot_validation_pending'
+        write_artifact(args.output, output)
+        assert snapshots['first'] == snapshots['full'][:500]
+        assert snapshots['deep'] == snapshots['full'][-500:]
+        output['phase'] = 'edge_validation_pending'
+        write_artifact(args.output, output)
+        output['edge_checks'] = edge_checks(m, client, headers, base, args.size)
+        output['completed'] = True
+        output['phase'] = 'complete'
+        write_artifact(args.output, output)
+
 
 
 if __name__ == '__main__':
