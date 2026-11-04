@@ -58,6 +58,7 @@ import "./style.css";
 import "./capabilities.css";
 import "./workspace.css";
 import "./flows.css";
+import "./ledger.css";
 import ReportsV2 from "./Reports.jsx";
 import MasterImport from "./MasterImport.jsx";
 import VyaparImport from "./VyaparImport.jsx";

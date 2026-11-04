@@ -47,6 +47,6 @@ public sealed class RecordRow(JsonObject source)
             return "Posted";
         }
     }
-    public Microsoft.UI.Xaml.Media.SolidColorBrush StatusBrush => new(Status switch { "Unpaid"=>Windows.UI.Color.FromArgb(255,166,100,24),"Part settled"=>Windows.UI.Color.FromArgb(255,50,104,161),"Draft"=>Windows.UI.Color.FromArgb(255,103,123,134),_=>Windows.UI.Color.FromArgb(255,18,124,102) });
+    public Microsoft.UI.Xaml.Media.SolidColorBrush StatusBrush => new(Status switch { "Unpaid"=>Windows.UI.Color.FromArgb(255,166,100,24),"Part settled"=>Windows.UI.Color.FromArgb(255,31,95,191),"Draft"=>Windows.UI.Color.FromArgb(255,91,107,133),"Cancelled"=>Windows.UI.Color.FromArgb(255,179,38,30),_=>Windows.UI.Color.FromArgb(255,30,122,79) });
     public override string ToString()=>$"{Name}, {Reference}, {Category}, {Date}, {Amount}, {Status}, {Balance}";
 }

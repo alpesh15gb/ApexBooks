@@ -119,7 +119,7 @@ try{
     var emailBox=Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Edit)).Cast<AutomationElement>().FirstOrDefault(x=>!x.Current.IsPassword),"email input");
     var passwordBox=Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Edit)).Cast<AutomationElement>().FirstOrDefault(x=>x.Current.IsPassword),"password input");
     Set(emailBox,email);Set(passwordBox,password);Invoke(Wait(()=>Find("Sign in",ControlType.Button),"Sign in"));
-    Wait(()=>Find("Business overview"),"dashboard");Check("signed in");Snapshot("01-dashboard");
+    Wait(()=>Find("Business overview"),"dashboard");Check("signed in");Snapshot("01-dashboard");Thread.Sleep(4000); // optional server capabilities load in the background after sign-in
     Invoke(Wait(()=>Find("Sales & collections  ↗",ControlType.Button),"sales register shortcut"));
 
     // 1. Received now through the real form

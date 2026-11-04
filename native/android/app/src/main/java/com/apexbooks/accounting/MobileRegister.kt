@@ -89,7 +89,7 @@ import java.math.BigDecimal
 }
 
 @Composable fun StatusPill(status: String) {
-    val color = when (status) { "Unpaid" -> Color(0xFFAC650D); "Part settled" -> Color(0xFF6854BA); "Draft" -> Color(0xFF64748B); else -> Color(0xFF147D64) }
+    val color = when (status) { "Unpaid" -> Color(0xFFAC650D); "Part settled" -> Color(0xFF1F5FBF); "Draft" -> Color(0xFF5B6B85); "Cancelled" -> Color(0xFFB3261E); else -> Color(0xFF1E7A4F) }
     Surface(color = color.copy(alpha = .09f), shape = RoundedCornerShape(8.dp)) { Text(status, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = color, fontWeight = FontWeight.SemiBold) }
 }
 

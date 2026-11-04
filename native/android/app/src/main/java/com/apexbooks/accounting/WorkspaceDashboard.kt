@@ -60,7 +60,7 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
     val issued=invoices.fold(BigDecimal.ZERO){sum,r->sum+r.decimal("amount")}
     val outstanding=invoices.fold(BigDecimal.ZERO){sum,r->sum+r.decimal("outstanding")}
     val settled=(issued-outstanding).max(BigDecimal.ZERO)
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
+    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=18.dp,top=18.dp,end=18.dp,bottom=104.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
         item{Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
             Text("AT A GLANCE",style=MaterialTheme.typography.labelSmall,color=ApexGreen,fontWeight=FontWeight.Bold,letterSpacing=1.sp)
             Heading("Business overview","${start.format(DateTimeFormatter.ofPattern("d MMM yyyy"))} – ${end.format(DateTimeFormatter.ofPattern("d MMM yyyy"))}")
@@ -82,11 +82,11 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
             overdue.take(3).forEach{row->TextButton(onClick={vm.detail=row},modifier=Modifier.fillMaxWidth()){Text("${row.s("number")} · ${row.s("name")} · ${money(row.s("outstanding"))} due")}}
             if(overdue.size>3)TextButton(onClick={vm.navigate("sales_invoice")}){Text("View all sales invoices →")}
         }}
-        item{Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF145FC4),Color(0xFF3083E8))),RoundedCornerShape(24.dp)).padding(20.dp)){
+        item{Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF0D2142),Color(0xFF25508F))),RoundedCornerShape(24.dp)).padding(20.dp)){
             Column(verticalArrangement=Arrangement.spacedBy(12.dp)){
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("Net sales",color=Color(0xFFDDEBFF),style=MaterialTheme.typography.labelLarge,fontWeight=FontWeight.Medium);Icon(Icons.Outlined.TrendingUp,null,tint=Color(0xFFBFE5FF))}
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("Net sales",color=Color(0xFFC3D1EC),style=MaterialTheme.typography.labelLarge,fontWeight=FontWeight.Medium);Icon(Icons.Outlined.TrendingUp,null,tint=Color(0xFFBFE5FF))}
                 Text(summary?.let{money(it.s("sales"))}?:"—",color=Color.White,fontSize=30.sp,fontWeight=FontWeight.Bold)
-                Text("Posted sales, after credit notes",color=Color(0xFFDDEBFF),style=MaterialTheme.typography.bodySmall)
+                Text("Posted sales, after credit notes",color=Color(0xFFC3D1EC),style=MaterialTheme.typography.bodySmall)
             }
         }}
         item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Metric("Net profit",financial?.let{money(it.s("net_profit"))}?:"—",Modifier.weight(1f));Metric("To collect · to date",summary?.let{money(it.s("receivables"))}?:"—",Modifier.weight(1f))}}
@@ -142,7 +142,7 @@ private data class MonthMovement(val label:String,val sales:BigDecimal,val purch
     Column{
         Canvas(Modifier.fillMaxWidth().height(150.dp).semantics{contentDescription=description}){
             val top=10.dp.toPx();val height=size.height-16.dp.toPx();fun y(value:Float)=top+(max-value)/span*height
-            for(value in listOf(max,(max+min)/2,min))drawLine(Color(0xFFE5ECEF),Offset(0f,y(value)),Offset(size.width,y(value)),1.dp.toPx())
+            for(value in listOf(max,(max+min)/2,min))drawLine(Color(0xFFE1E7F1),Offset(0f,y(value)),Offset(size.width,y(value)),1.dp.toPx())
             val base=y(0f);val step=size.width/movements.size;val width=minOf(18.dp.toPx(),step*.27f)
             movements.forEachIndexed{i,row->for((value,color,shift)in listOf(Triple(row.sales.toFloat(),ApexGreen,-width-2.dp.toPx()),Triple(row.purchases.toFloat(),Color(0xFF86ABC0),2.dp.toPx()))){val at=y(value);drawRect(color,Offset(i*step+step/2+shift,minOf(at,base)),Size(width,kotlin.math.abs(base-at)))}}
         }

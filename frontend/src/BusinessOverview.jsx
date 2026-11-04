@@ -138,7 +138,7 @@ function SalesChart({ records, start, end }) {
                     x2={chartWidth - 10}
                     y1={y(n)}
                     y2={y(n)}
-                    stroke="#e7edf0"
+                    stroke="#e7eaf0"
                     strokeDasharray="4 5"
                   />
                   <text
@@ -157,7 +157,7 @@ function SalesChart({ records, start, end }) {
                 x2={chartWidth - 10}
                 y1={base}
                 y2={base}
-                stroke="#bac8cd"
+                stroke="#bac1cd"
               />
               {series.map((row, index) => (
                 <g key={row.key}>
@@ -171,7 +171,7 @@ function SalesChart({ records, start, end }) {
                     width={bw}
                     height={Math.abs(base - y(row.sales))}
                     rx="4"
-                    fill="#168670"
+                    fill="#1f427d"
                   />
                   <rect
                     x={53 + index * space + space / 2 + 3}
@@ -179,7 +179,7 @@ function SalesChart({ records, start, end }) {
                     width={bw}
                     height={Math.abs(base - y(row.purchases))}
                     rx="4"
-                    fill="#a8cbd4"
+                    fill="#a8b8d4"
                   />
                   <text
                     x={53 + index * space + space / 2}

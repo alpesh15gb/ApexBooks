@@ -1,0 +1,163 @@
+/* Ledger Navy: shared design tokens and the refinement layer. Imported last so it wins over legacy rules.
+   Keep these token values in sync with native/shared/design-tokens.json (Android and Windows read the same set). */
+:root {
+  --ln-navy-950: #071a33;
+  --ln-navy-900: #0d2142;
+  --ln-navy-800: #132c57;
+  --ln-navy-700: #1b3c73;
+  --ln-navy-600: #25508f;
+  --ln-navy-500: #3567b5;
+  --ln-navy-200: #c3d1ec;
+  --ln-navy-100: #dce5f5;
+  --ln-navy-50: #eef2fa;
+  --ln-bg: #f4f6fa;
+  --ln-surface: #ffffff;
+  --ln-line: #dde3ee;
+  --ln-line-strong: #c4cee0;
+  --ln-ink: #0f1d36;
+  --ln-ink-2: #34445f;
+  --ln-muted: #5b6b85;
+  --ln-brass: #c79a3b;
+  --ln-ok: #1e7a4f;
+  --ln-ok-bg: #e6f4ec;
+  --ln-warn: #9a5b00;
+  --ln-warn-bg: #fdf1dc;
+  --ln-danger: #b3261e;
+  --ln-danger-bg: #fbeceb;
+  --ln-info: #1f5fbf;
+  --ln-info-bg: #e7effb;
+  --ln-radius: 12px;
+  --ln-radius-sm: 8px;
+  --ln-shadow: 0 1px 2px rgba(13, 33, 66, 0.06), 0 4px 14px rgba(13, 33, 66, 0.05);
+  --ln-focus: 0 0 0 3px rgba(53, 103, 181, 0.35);
+  color-scheme: light;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+body { background: var(--ln-bg); color: var(--ln-ink); font-feature-settings: "tnum" 1, "lnum" 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+:root { font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: var(--ln-ink); background: var(--ln-bg); }
+h1, h2, h3 { color: var(--ln-ink); letter-spacing: -0.015em; }
+h1 { font-weight: 700; }
+p { color: var(--ln-muted); }
+small { color: var(--ln-muted); }
+
+/* Money and quantities line up in columns. */
+td, th, .amount, .summary-card > strong, .detail-money strong, .report-line strong, .statement td.right, .metric strong, strong { font-variant-numeric: tabular-nums; }
+td.right, th.right, .right { text-align: right; }
+
+/* Keyboard focus is always visible. */
+:focus-visible { outline: 2px solid var(--ln-navy-500); outline-offset: 2px; border-radius: 6px; }
+input:focus, select:focus, textarea:focus { border-color: var(--ln-navy-500) !important; box-shadow: var(--ln-focus) !important; outline: none; }
+
+/* Sidebar: deep navy with a brass marker on the active page, thin scrollbars. */
+.sidebar { background: linear-gradient(180deg, var(--ln-navy-900) 0%, var(--ln-navy-950) 100%); border-right: 0; }
+.sidebar nav, .sidebar .nav { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.22) transparent; }
+.sidebar *::-webkit-scrollbar { width: 8px; }
+.sidebar *::-webkit-scrollbar-track { background: transparent; }
+.sidebar *::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 8px; }
+.nav-item { color: #b7c4de; border-radius: 8px; transition: background 0.15s ease, color 0.15s ease; position: relative; }
+.nav-item:hover { background: rgba(255, 255, 255, 0.07); color: #fff; }
+.nav-item.active, .subnav button.active { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.nav-item.active::before { content: ''; position: absolute; left: -16px; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0; background: var(--ln-brass); }
+.subnav { border-left-color: rgba(255, 255, 255, 0.14); }
+.subnav button { color: #a9b8d4; }
+.subnav button:hover { background: rgba(255, 255, 255, 0.07); color: #fff; }
+.nav-label, .sidebar .eyebrow { color: #7f93b8; }
+.sidebar-bottom { border-top-color: rgba(255, 255, 255, 0.12); }
+.sidebar-bottom button { color: #b7c4de; }
+.sidebar-bottom button:hover { color: #fff; }
+.company-switch { background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.14); }
+.company-text, .company-text select, .company-text small { color: #e8eefb; }
+.company-text small { color: #9fb2d6; }
+
+/* Top bar and page chrome. */
+.topbar { background: var(--ln-surface); border-bottom: 1px solid var(--ln-line); }
+.content { padding-top: 28px; }
+.page-heading h1 { font-size: 26px; }
+.page-heading .eyebrow, .workspace-kicker { color: var(--ln-navy-600); letter-spacing: 0.12em; }
+
+/* Surfaces. */
+.panel, .summary-card, .modal { border-color: var(--ln-line); border-radius: var(--ln-radius); box-shadow: var(--ln-shadow); background: var(--ln-surface); }
+.summary-card { padding: 18px 20px; }
+.summary-card > strong { font-size: 24px; letter-spacing: -0.02em; margin: 12px 0 6px; }
+.info-box { background: var(--ln-navy-50); color: var(--ln-ink-2); border: 1px solid var(--ln-navy-100); border-radius: var(--ln-radius-sm); }
+.error, .error.banner { color: var(--ln-danger); background: var(--ln-danger-bg); border: 1px solid #f1c6c3; }
+
+/* Buttons: one clear primary, calm secondary, visible danger. */
+.button { height: 40px; border-radius: 9px; font-weight: 600; letter-spacing: 0; transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease; }
+.button.primary, .primary { background: var(--ln-navy-700); color: #fff; border-color: var(--ln-navy-700); }
+.button.primary:hover:not(:disabled), .primary:hover:not(:disabled) { background: var(--ln-navy-800); border-color: var(--ln-navy-800); box-shadow: 0 2px 8px rgba(13, 33, 66, 0.25); }
+.button.secondary, .secondary { background: var(--ln-surface); color: var(--ln-navy-700); border: 1px solid var(--ln-line-strong); }
+.button.secondary:hover:not(:disabled), .secondary:hover:not(:disabled) { background: var(--ln-navy-50); border-color: var(--ln-navy-500); }
+.button.danger { background: var(--ln-danger); border-color: var(--ln-danger); color: #fff; }
+.button.danger-outline { color: var(--ln-danger); border-color: #e3aaa6; background: var(--ln-surface); }
+.button:disabled, button:disabled { opacity: 0.5; }
+.link, .text-button { color: var(--ln-navy-600); font-weight: 600; }
+.link:hover, .text-button:hover { color: var(--ln-navy-800); text-decoration: underline; }
+
+/* Forms. */
+label { color: var(--ln-ink-2); font-weight: 600; }
+input, .form-select, select, textarea { border: 1px solid var(--ln-line-strong); border-radius: var(--ln-radius-sm); background: #fff; color: var(--ln-ink); }
+input::placeholder { color: #8493ac; }
+input:disabled, select:disabled { background: var(--ln-navy-50); color: var(--ln-muted); }
+
+/* Tables: quiet header, readable rows, clear hover. */
+.table-wrap { border-radius: var(--ln-radius); }
+th { background: var(--ln-navy-50); color: var(--ln-ink-2); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; border-bottom: 1px solid var(--ln-line); }
+td { color: var(--ln-ink-2); border-top: 1px solid #edf0f6; font-size: 13px; }
+tbody tr { transition: background 0.12s ease; }
+tbody tr:hover { background: #f7f9fd; }
+td .amount, td strong { color: var(--ln-ink); }
+
+/* Status chips: consistent semantics across every register. */
+.status-badge, .pill { font-size: 11px; font-weight: 600; letter-spacing: 0.01em; padding: 4px 9px; border-radius: 999px; }
+.status-badge.posted { background: var(--ln-ok-bg); color: var(--ln-ok); }
+.status-badge.draft { background: var(--ln-warn-bg); color: var(--ln-warn); }
+.status-badge.converted { background: var(--ln-info-bg); color: var(--ln-info); }
+.status-badge.cancelled, .pill.cancelled-pill { background: var(--ln-danger-bg); color: var(--ln-danger); }
+.pill { background: var(--ln-navy-50); color: var(--ln-navy-700); }
+.legacy-pill { background: var(--ln-warn-bg); color: var(--ln-warn); }
+.statement-check.ok { background: var(--ln-ok-bg); color: var(--ln-ok); }
+.statement-check.bad { background: var(--ln-danger-bg); color: var(--ln-danger); }
+.statement-row.grand td { border-color: var(--ln-navy-700); }
+.statement-row.section td { color: var(--ln-navy-600); }
+
+/* Document and statement figures read like a ledger: ruled lines, brass underline on grand totals. */
+.statement-row.grand td { border-bottom: 3px double var(--ln-brass); }
+.editor-footer-total strong, .detail-money strong { color: var(--ln-navy-800); }
+
+/* Modals and overlays. */
+.overlay { background: rgba(7, 26, 51, 0.55); backdrop-filter: blur(2px); }
+.modal { box-shadow: 0 24px 80px rgba(7, 26, 51, 0.35); }
+
+/* Pay-now and cancel panels adopt the palette. */
+.pay-now { background: var(--ln-navy-50); border-color: var(--ln-navy-100); }
+.cancel-panel { background: #fff8f7; border-color: #f1c6c3; }
+.cancel-panel h3 { color: var(--ln-danger); }
+
+/* Small screens: larger touch targets, no cramped chips. */
+@media (max-width: 700px) {
+  .button, input, .form-select, select { min-height: 44px; }
+  .nav-item { min-height: 44px; }
+  .content { padding: 20px 16px; }
+  .summary-card > strong { font-size: 21px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+
+@media print {
+  .sidebar, .topbar, .overlay { display: none !important; }
+  .content { padding: 0; }
+  body { background: #fff; }
+}
+
+/* Registers: document numbers never wrap mid-reference. */
+td > button, td .row-name strong, td .link { white-space: nowrap; }
+td > button { color: var(--ln-navy-700); font-weight: 600; }
+td > button:hover { color: var(--ln-navy-500); text-decoration: underline; }
+
+/* Metric card icons share the palette instead of a rainbow. */
+.summary-icon.green, .summary-icon.orange, .summary-icon.blue, .summary-icon.purple, .quick-icon { background: var(--ln-navy-50); color: var(--ln-navy-600); }
+.metric-icon, .overview-metrics svg { color: var(--ln-navy-600); }

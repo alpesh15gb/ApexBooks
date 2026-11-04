@@ -1,0 +1,16 @@
+{
+  "name": "Ledger Navy",
+  "version": 1,
+  "note": "Single reference for the palette. Web reads these as CSS variables in frontend/src/ledger.css; Android in UiKit.kt (ApexGreen is the primary); Windows in Views/NativeUi.cs and App.xaml. Change here first, then mirror.",
+  "color": {
+    "navy-950": "#071A33", "navy-900": "#0D2142", "navy-800": "#132C57", "navy-700": "#1B3C73",
+    "navy-600": "#25508F", "navy-500": "#3567B5", "navy-200": "#C3D1EC", "navy-100": "#DCE5F5", "navy-50": "#EEF2FA",
+    "background": "#F4F6FA", "surface": "#FFFFFF", "line": "#DDE3EE", "line-strong": "#C4CEE0",
+    "ink": "#0F1D36", "ink-2": "#34445F", "muted": "#5B6B85", "brass": "#C79A3B",
+    "success": "#1E7A4F", "success-bg": "#E6F4EC", "warning": "#9A5B00", "warning-bg": "#FDF1DC",
+    "danger": "#B3261E", "danger-bg": "#FBECEB", "info": "#1F5FBF", "info-bg": "#E7EFFB"
+  },
+  "radius": {"small": 8, "medium": 12, "large": 16},
+  "typography": {"web": "IBM Plex Sans", "native": "DM Sans (bundled)", "numerals": "tabular"},
+  "status": {"posted": "success", "settled": "success", "draft": "warning", "unpaid": "warning", "part-settled": "info", "converted": "info", "cancelled": "danger"}
+}

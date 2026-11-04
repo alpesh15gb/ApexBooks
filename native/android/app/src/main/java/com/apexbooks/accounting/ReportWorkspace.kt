@@ -28,7 +28,7 @@ import org.json.JSONObject
     val feature=selected
     if(feature==null){
         val reports=vm.reports.filter{(it.key!="statements"||vm.supports("financial_statements"))&&(group=="all"||it.group==group)&&(it.title+" "+it.description+" "+it.group).contains(search.trim(),true)}
-        LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
+        LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=20.dp,top=20.dp,end=20.dp,bottom=104.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
             item{Heading("Know your numbers","Financial statements, GST and business insights.")}
             item{SearchBarField("Search reports",search){search=it}}
             item{Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){(listOf("all" to "All reports")+vm.reports.map{it.group}.distinct().map{it to it}).forEach{(key,label)->FilterChip(selected=group==key,onClick={group=key},label={Text(label)})}}}
@@ -59,7 +59,7 @@ import org.json.JSONObject
     }
     fun export(format:String){if(ready.isBlank()||ready!=wanted)return;val url=ready;val name=filename;vm.task{val bytes=vm.api.bytes(url.substringBefore('?')+".$format?"+url.substringAfter('?'));if(vm.companyId!=cid||vm.page!="reports")return@task;if(format=="pdf")vm.pdf=PdfView(bytes,"$name.pdf")else vm.files.save(bytes,"$name.$format")}}
     val exportReady=ready.isNotBlank()&&ready==wanted&&!loading&&vm.busy==0
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(15.dp)){
+    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=16.dp,top=16.dp,end=16.dp,bottom=104.dp),verticalArrangement=Arrangement.spacedBy(15.dp)){
         item{TextButton(onClick={selected=null}){Icon(Icons.Outlined.ArrowBack,null);Text("Report library")};Heading(feature.title,feature.description)}
         item{Section("Report period"){
             if(gst){Choice("GST period",mode,listOf("month" to "Full month","quarter" to "Full quarter","custom" to "Custom dates"),{mode=it});if(mode!="custom")DateField("Choose any date in the month / quarter",anchor,{anchor=it})}
