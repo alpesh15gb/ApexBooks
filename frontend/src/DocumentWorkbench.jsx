@@ -64,9 +64,12 @@ export function DocumentIdentity({
   company,
   targets,
   onSelectSource,
+  onQuickAddParty,
+  quickAdding,
 }) {
   const update = (key, value) =>
     setForm((current) => ({ ...current, [key]: value }));
+  const typedName = form.name.trim();
   return (
     <section className="document-identity full">
       <div className="editor-section-heading">
@@ -112,6 +115,20 @@ export function DocumentIdentity({
               placeholder="Search or enter party name"
             />
           </label>
+          {onQuickAddParty && typedName && !form.party_id && (
+            <button
+              type="button"
+              className="quick-add"
+              disabled={!!quickAdding}
+              onClick={onQuickAddParty}
+            >
+              <Plus size={14} aria-hidden="true" />
+              {quickAdding === "party"
+                ? "Adding…"
+                : `Add “${typedName}” as a new ${purchase ? "supplier" : "customer"}`}
+            </button>
+          )}
+          {form.party_id && <small className="quick-add-linked">Saved party · balance and reminders tracked</small>}
           <div className="customer-inline">
             <label>
               Phone
@@ -227,6 +244,8 @@ export function DocumentIdentity({
 
 export function DocumentItems({
   onPriceHistory,
+  onQuickAddItem,
+  quickAdding,
   lines,
   setLines,
   changeLine,
@@ -287,6 +306,12 @@ export function DocumentItems({
               <small>
                 #{index + 1}
                 {line.item_id ? " · linked to item" : " · custom line"}
+                {!line.item_id && onQuickAddItem && line.description.trim() && (
+                  <button type="button" className="quick-add inline" disabled={!!quickAdding} onClick={() => onQuickAddItem(index)}>
+                    <Plus size={12} aria-hidden="true" />
+                    {quickAdding === `item-${index}` ? "Saving…" : "Save as item"}
+                  </button>
+                )}
                 {line.item_id && onPriceHistory && <button type="button" className="button secondary price-history-trigger" onClick={() => onPriceHistory(index)}>Previous prices</button>}
               </small>
             </label>

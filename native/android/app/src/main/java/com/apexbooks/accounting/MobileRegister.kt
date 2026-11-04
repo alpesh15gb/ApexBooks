@@ -37,6 +37,11 @@ import java.math.BigDecimal
     val filtered=search.isNotBlank()||period!="all"||party!="all"||status!="all"
     val rows = filterRegister(vm.records, vm.page, search, from, to, party, status, sort)
     LaunchedEffect(search, period, start, end, party, status, sort) { count = 50 }
+    var balances by remember(vm.companyId, vm.page) { mutableStateOf<JSONObject?>(null) }
+    LaunchedEffect(vm.companyId, vm.page, vm.records) {
+        balances = if (vm.page == "party" && vm.supports("party_balances")) runCatching { vm.api.request(vm.api.company(vm.companyId, "/parties/balances")) as JSONObject }.getOrNull() else null
+    }
+    val partyNet = remember(balances) { balances?.optJSONArray("rows")?.let { rows -> (0 until rows.length()).associate { rows.getJSONObject(it).let { row -> row.s("party_id") to row.decimal("net") } } } }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 100.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (transaction) item {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -61,7 +66,20 @@ import java.math.BigDecimal
                 Column { Text("${rows.size} ${if (rows.size == 1) "transaction" else "transactions"}", style = MaterialTheme.typography.labelMedium); Text(money(total), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = ApexGreen) }
                 if (vm.page in setOf("sales_invoice", "purchase_bill")) Column(horizontalAlignment = Alignment.End) { Text("Outstanding", style = MaterialTheme.typography.labelMedium); Text(money(rows.fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("outstanding") }), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
             } }
-        } else item { Text("${rows.size} ${if (vm.page == "party") "parties · tap for statement" else "items"}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        } else item {
+            val totals = balances?.optJSONObject("totals")
+            if (totals != null) Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(14.dp)) { Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column { Text("You'll get", style = MaterialTheme.typography.labelMedium); Text(money(totals.s("to_receive")), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF1E7A4F)) }
+                Column(horizontalAlignment = Alignment.End) { Text("You'll pay", style = MaterialTheme.typography.labelMedium); Text(money(totals.s("to_pay")), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFFB3261E)) }
+            } }
+            if (vm.page == "party") {
+                val overdue = remember(vm.records) { WhatsAppShare.overdueByParty(vm.records) }
+                var showOverdue by remember { mutableStateOf(false) }
+                if (overdue.isNotEmpty()) FilledTonalButton(onClick = { showOverdue = true }, modifier = Modifier.padding(top = 8.dp)) { Icon(Icons.Outlined.NotificationsActive, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Remind overdue (${overdue.size})") }
+                if (showOverdue) OverdueReminders(vm, overdue) { showOverdue = false }
+            }
+            Text("${rows.size} ${if (vm.page == "party") "parties · tap for statement" else "items"}", Modifier.padding(top = if (totals != null) 6.dp else 0.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         if (vm.page == "item" && vm.canWrite) item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { AssistChip(onClick = { vm.tool = "stock_opening" }, label = { Text("Opening stock") }); AssistChip(onClick = { vm.tool = "stock_adjust" }, label = { Text("Adjust stock") }) } }
         if (vm.canWrite && vm.page in setOf("payment_in", "payment_out", "credit_note", "debit_note")) item { AssistChip(onClick = { vm.tool = if (vm.page in setOf("credit_note", "debit_note")) "settle_credit" else "settle_advance" }, label = { Text("Apply / refund balance") }) }
         if (rows.isEmpty()) item { Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -70,7 +88,7 @@ import java.math.BigDecimal
             Text(if(!vm.canWrite)"You have read-only access. Adjust filters or ask an owner to add records."else if(filtered)"Clear or adjust filters to see your records."else"Create your first record to start this register.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             if (vm.canWrite) Button(onClick = { vm.add(vm.page) }) { Text("Add ${if (vm.page == "party") "party" else if (vm.page == "item") "item" else "transaction"}") }
         } }
-        items(rows.take(count), key = { it.s("id") }) { RecordCard(vm, it) }
+        items(rows.take(count), key = { it.s("id") }) { RecordCard(vm, it, partyNet?.get(it.s("id")) ?: partyNet?.let { BigDecimal.ZERO }) }
         if (rows.size > count) item { OutlinedButton(onClick = { count += 50 }, modifier = Modifier.fillMaxWidth()) { Text("Show more · ${count} of ${rows.size}") } }
     }
     if (filters) ModalBottomSheet(onDismissRequest = { filters = false }) { Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -93,7 +111,7 @@ import java.math.BigDecimal
     Surface(color = color.copy(alpha = .09f), shape = RoundedCornerShape(6.dp)) { Text(status, Modifier.padding(horizontal = 7.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.SemiBold) }
 }
 
-@Composable fun RecordCard(vm: AppModel, row: JSONObject) {
+@Composable fun RecordCard(vm: AppModel, row: JSONObject, partyBalance: BigDecimal? = null) {
     val kind = row.s("kind"); val master = kind in setOf("party", "item")
     Card(onClick = { when { kind == "party" -> vm.statement = row; kind == "item" && vm.canWrite -> vm.edit(row); else -> vm.detail = row } }, shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -105,10 +123,38 @@ import java.math.BigDecimal
                 }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 if (!master || kind == "item") Text(money(if (kind == "item") row.o("data").s("sale_rate") else row.s("amount")), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                else if (partyBalance != null) {
+                    Text(money(partyBalance.abs()), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (partyBalance.signum() > 0) Color(0xFF1E7A4F) else if (partyBalance.signum() < 0) Color(0xFFB3261E) else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (partyBalance.signum() > 0) "You'll get" else if (partyBalance.signum() < 0) "You'll pay" else "Settled", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 else Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                StatusPill(registerStatus(row))
+                if (partyBalance == null) StatusPill(registerStatus(row))
                 if (!master && row.has("outstanding") && !row.isNull("outstanding") && row.decimal("outstanding").signum() > 0) Text("Due ${money(row.s("outstanding"))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
+}
+
+
+/** "Remind all overdue": WhatsApp opens one customer at a time; nothing is sent until you press send there. */
+@Composable fun OverdueReminders(vm: AppModel, groups: List<WhatsAppShare.OverdueGroup>, close: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var upi by remember { mutableStateOf("") }
+    val opened = remember { mutableStateListOf<String>() }
+    LaunchedEffect(vm.companyId) { upi = runCatching { (vm.api.request(vm.api.company(vm.companyId, "/document-branding")) as JSONObject).s("upi_id") }.getOrDefault("") }
+    AlertDialog(onDismissRequest = close, confirmButton = { TextButton(onClick = close) { Text("Done") } },
+        title = { Text("Remind overdue customers") },
+        text = { LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item { Text("${groups.size} ${if (groups.size == 1) "customer" else "customers"} · ${money(groups.fold(BigDecimal.ZERO) { s, g -> s + g.total })} overdue", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            items(groups, key = { it.name.trim().lowercase() }) { group ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(group.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(money(group.total) + " · " + group.invoices.joinToString(", ") { it.s("number") }, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    val key = group.name.trim().lowercase()
+                    TextButton(onClick = { WhatsAppShare.open(context, group.phone, WhatsAppShare.partyReminderMessage(group, vm.company.s("name"), upi)); if (key !in opened) opened += key }) { Text(if (key in opened) "Opened ✓" else "Remind") }
+                }
+            }
+        } })
 }

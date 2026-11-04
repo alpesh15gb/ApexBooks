@@ -60,6 +60,14 @@ import org.json.JSONObject
             Scaffold(topBar = { TopAppBar(title = { Text(friendly(row.s("kind"))) }, navigationIcon = { IconButton(onClick = { vm.detail = null }) { Icon(Icons.Outlined.Close, "Close transaction") } }) }, bottomBar = {
                 Surface(shadowElevation = 8.dp) { Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (printable) OutlinedButton(onClick = { vm.documentPdf(row) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.PictureAsPdf, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("PDF / share") }
+                    if (printable && vm.supports("thermal_receipts") && row.s("kind") in setOf("sales_invoice", "pos", "payment_in", "estimate", "proforma", "sales_order", "credit_note")) Box(Modifier.weight(1f)) {
+                        var rolls by remember { mutableStateOf(false) }
+                        OutlinedButton(onClick = { rolls = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Print, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Receipt") }
+                        DropdownMenu(expanded = rolls, onDismissRequest = { rolls = false }) {
+                            DropdownMenuItem(text = { Text("80 mm roll") }, onClick = { rolls = false; vm.documentPdf(row, "thermal_80") })
+                            DropdownMenuItem(text = { Text("58 mm roll") }, onClick = { rolls = false; vm.documentPdf(row, "thermal_58") })
+                        }
+                    }
                     if (editable) Button(onClick = { vm.detail = null; vm.edit(row) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Edit") }
                 } }
             }) { padding -> LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -90,6 +98,20 @@ import org.json.JSONObject
                         vm.detail = null; vm.add(kind)
                         vm.editor?.let { entry -> entry.chooseAllocation(entry.allocations.first(), 0, row.s("id")) }
                     }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Payments, null); Spacer(Modifier.width(8.dp)); Text(if (row.s("kind") == "sales_invoice") "Record payment received" else "Record supplier payment") }
+                }
+                if (!cancelled && record != null && (WhatsAppShare.shareable(row.s("kind")) || WhatsAppShare.canRemind(row))) item {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    fun share(reminder: Boolean) = vm.task {
+                        val upi = runCatching { (vm.api.request(vm.api.company(vm.companyId, "/document-branding")) as JSONObject).s("upi_id") }.getOrDefault("")
+                        val party = vm.records.firstOrNull { it.s("kind") == "party" && (it.s("id") == row.o("data").s("party_id") || it.s("name").trim().equals(row.s("name").trim(), true)) }
+                        val phone = party?.o("data")?.s("phone")?.ifBlank { null } ?: row.o("data").s("phone")
+                        val company = vm.company.s("name")
+                        WhatsAppShare.open(context, phone, if (reminder) WhatsAppShare.reminderMessage(row, company, upi) else WhatsAppShare.documentMessage(row, company, upi))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (WhatsAppShare.shareable(row.s("kind"))) OutlinedButton(onClick = { share(false) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("WhatsApp") }
+                        if (WhatsAppShare.canRemind(row)) OutlinedButton(onClick = { share(true) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.NotificationsActive, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Send reminder") }
+                    }
                 }
                 if (cancelled) item { Message("Cancelled" + data.o("cancelled").s("reason").takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty() + ". The number stays in your records; its ledger, stock and balance effects were reversed.", true) }
                 if (cancellable) item { OutlinedButton(onClick = { cancelError = ""; cancelReason = ""; confirmCancel = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Close, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Cancel this document") } }

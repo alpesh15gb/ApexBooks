@@ -54,6 +54,7 @@ import {
   Building2,
   ReceiptIndianRupee,
   MoreHorizontal,
+  BookOpen,
 } from "lucide-react";
 import "./style.css";
 import "./capabilities.css";
@@ -62,6 +63,8 @@ import "./flows.css";
 import "./ledger.css";
 import "./quickbooks.css";
 import ReportsV2 from "./Reports.jsx";
+import DayBook from "./DayBook.jsx";
+import OverdueReminders, { overdueCount } from "./OverdueReminders.jsx";
 import MasterImport from "./MasterImport.jsx";
 import VyaparImport from "./VyaparImport.jsx";
 import DocumentBranding from "./DocumentBranding.jsx";
@@ -107,6 +110,7 @@ const sections = [
     ],
   },
   { label: "Cash & bank", icon: Wallet, key: "bank_account" },
+  { label: "Day book", icon: BookOpen, key: "day_book" },
   { label: "Ledger", icon: FileText, key: "ledger" },
   { label: "Reports", icon: BarChart3, key: "reports" },
   { label: "Recurring drafts", icon: CalendarDays, key: "recurring" },
@@ -462,6 +466,8 @@ function App() {
     [recordsLoading, setRecordsLoading] = useState(false),
     [recordsProgress, setRecordsProgress] = useState(0),
     [booksRevision, setBooksRevision] = useState(0),
+    [partyBalances, setPartyBalances] = useState(null),
+    [remindOverdue, setRemindOverdue] = useState(false),
     [editorReturn, setEditorReturn] = useState(null),
     [editingMaster, setEditingMaster] = useState(null),
     [editingDraft, setEditingDraft] = useState(null),
@@ -510,6 +516,14 @@ function App() {
       } else setError(e.message);
     }
   }
+  useEffect(() => {
+    if (page !== "party" || !companyId || !features.includes("party_balances")) return;
+    let active = true;
+    api(`/companies/${companyId}/parties/balances`)
+      .then((result) => { if (active) setPartyBalances({ companyId, ...result, byId: Object.fromEntries(result.rows.map((row) => [row.party_id, row])) }); })
+      .catch(() => { if (active) setPartyBalances(null); });
+    return () => { active = false; };
+  }, [page, companyId, booksRevision, features.join(",")]);
   async function loadRecords(id = companyId, { refreshReports = true } = {}) {
     if (!id || activeCompany.current !== id) return;
     recordsAbort.current?.abort();
@@ -661,16 +675,23 @@ function App() {
     setCompanyId(c.id);
     setModal("");
   }
+  const [openAfterSave, setOpenAfterSave] = useState(null);
+  useEffect(() => {
+    if (!openAfterSave) return;
+    setOpenAfterSave(null);
+    beginDetail(openAfterSave);
+  }, [openAfterSave]);
   async function saveRecord(body, key, { keepOpen = false } = {}) {
     const isCurrent = workspaceScope.current.capture();
+    let saved;
     if (body.pay_now && !editingDraft) {
       const { pay_now, ...document } = body;
-      await api(`/companies/${companyId}/records/with-payment`, {
+      saved = await api(`/companies/${companyId}/records/with-payment`, {
         method: "POST",
         headers: { "Idempotency-Key": key },
         body: JSON.stringify({ document, payment: pay_now }),
       });
-    } else await api(
+    } else saved = await api(
       editingDraft
         ? ["estimate", "proforma", "sales_order", "purchase_order"].includes(editingDraft.kind)
           ? `/companies/${companyId}/drafts/${editingDraft.id}`
@@ -690,6 +711,13 @@ function App() {
       return;
     }
     closeRecord(refreshed);
+    // Like Vyapar / Swipe: a newly saved customer document opens ready to share, print or collect.
+    const savedId = saved?.document?.id || saved?.id;
+    if (!editingDraft && !editorReturn && savedId && ["sales_invoice", "estimate", "proforma", "sales_order", "credit_note"].includes(body.kind)) {
+      const fresh = Array.isArray(refreshed) && refreshed.find((row) => row.id === savedId);
+      // Opened after the editor unmounts: its save is still "in flight" until this function returns.
+      if (fresh) setOpenAfterSave(fresh);
+    }
   }
   async function saveMaster(body) {
     const isCurrent = workspaceScope.current.capture();
@@ -839,18 +867,23 @@ function App() {
       if (isCurrent()) setError(reason.message);
     }
   }
-  async function downloadDocument(record) {
+  async function downloadDocument(record, layout = "") {
+    // A thermal receipt opens in the browser's PDF viewer, ready for the roll printer.
+    const template = typeof layout === "string" ? layout : "";
+    const tab = template.startsWith("thermal") ? window.open("about:blank", "_blank") : null;
     try {
       const res = await fetch(
-        `/api/companies/${companyId}/documents/${record.id}.pdf`,
+        `/api/companies/${companyId}/documents/${record.id}.pdf${template ? `?template=${encodeURIComponent(template)}` : ""}`,
         { headers: { Authorization: `Bearer ${localStorage.token}` } },
       );
       if (!res.ok) throw Error("Document export failed");
+      if (tab) { tab.location.href = URL.createObjectURL(await res.blob()); return; }
       downloadBlob(
         await res.blob(),
         `${record.kind}-${record.number || record.id.slice(0, 8)}.pdf`,
       );
     } catch (e) {
+      tab?.close();
       setError(e.message);
     }
   }
@@ -1114,6 +1147,8 @@ function App() {
               role={company?.role}
               onSaved={() => loadRecords()}
             />
+          ) : page === "day_book" ? (
+            <DayBook key={companyId} companyId={companyId} records={records} api={api} labels={labels} onOpen={beginDetail} />
           ) : page === "reports" ? (
             <ReportsV2 companyId={companyId} records={records} />
           ) : page === "dashboard" ? (
@@ -1543,6 +1578,14 @@ function App() {
                         />
                       </div>
                     </div>
+                    {page === "party" && partyBalances?.companyId === companyId && (
+                      <div className="party-balance-strip">
+                        <div className="receive"><small>You'll get</small><strong>{money(partyBalances.totals.to_receive)}</strong></div>
+                        <div className="pay"><small>You'll pay</small><strong>{money(partyBalances.totals.to_pay)}</strong></div>
+                        <span>Closing balances as of {partyBalances.as_of}</span>
+                        {overdueCount(records) > 0 && <button type="button" className="button secondary whatsapp" onClick={() => setRemindOverdue(true)}>Remind overdue ({overdueCount(records)})</button>}
+                      </div>
+                    )}
                     <div className="table-wrap">
                       <table>
                         <thead>
@@ -1561,6 +1604,7 @@ function App() {
                                 <th>NAME</th>
                                 <th>DETAILS</th>
                                 <th>TYPE</th>
+                                {page === "party" && partyBalances?.companyId === companyId && <th className="right">BALANCE</th>}
                                 <th className="right">ACTIONS</th>
                               </>
                             )}
@@ -1573,6 +1617,7 @@ function App() {
                               r={r}
                               records={records}
                               onParty={setActiveParty}
+                              balance={page === "party" && partyBalances?.companyId === companyId ? partyBalances.byId[r.id] || { net: "0" } : undefined}
                               onPdf={downloadDocument}
                               onOpen={beginDetail}
                               onConvert={["owner", "editor"].includes(company?.role) ? beginConversion : null}
@@ -1675,6 +1720,7 @@ function App() {
       {detail && <TransactionDetail api={api} features={features} record={detail} records={records} company={company} labels={labels}
         loading={detailLoading} error={detailError} onClose={closeDetail} onRetry={() => beginDetail(detail)}
         onEdit={beginEdit} onRelated={beginRelated} onConvert={beginConversion} onPdf={downloadDocument} onOpen={beginDetail} onCancelDocument={cancelDocument} />}
+      {remindOverdue && company && <OverdueReminders records={records} company={company} onClose={() => setRemindOverdue(false)} />}
       {activeParty && (
         <PartyStatement
           features={features}
@@ -2533,7 +2579,7 @@ function RecordActions({ r, onEdit, onPdf, onConvert, onRelated }) {
     </div>
   );
 }
-function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, records, onParty }) {
+function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, records, onParty, balance }) {
   if (!["party", "item"].includes(r.kind)) {
     const invoice = ["sales_invoice", "purchase_bill", "pos"].includes(r.kind);
     const balance = Number(r.outstanding || 0);
@@ -2718,6 +2764,12 @@ function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, records, on
             <span className="pill legacy-pill">Legacy · unposted</span>
           )}
       </td>
+      {balance && (
+        <td className={`right party-balance ${Number(balance.net) > 0 ? "receive" : Number(balance.net) < 0 ? "pay" : ""}`}>
+          <strong>{money(Math.abs(Number(balance.net)))}</strong>
+          <small>{Number(balance.net) > 0 ? "You'll get" : Number(balance.net) < 0 ? "You'll pay" : "Settled"}</small>
+        </td>
+      )}
       <td className="right amount">
         {!["party", "item"].includes(r.kind) && money(r.amount)}
         <RecordActions

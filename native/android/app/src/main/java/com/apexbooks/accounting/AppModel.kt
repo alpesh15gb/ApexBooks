@@ -73,6 +73,8 @@ class AppModel(application:Application):AndroidViewModel(application) {
     private var refreshSequence=0
     fun workspaceStamp()=generation
     fun inWorkspace(id:String,stamp:Int)=signedIn&&companyId==id&&generation==stamp
+    /** Keeps a party or item created from inside an editor (quick-add) selectable until the next refresh. */
+    fun rememberMaster(row:JSONObject){if(records.none{it.s("id")==row.s("id")})records=records+row}
     val companyId get()=company.s("id")
     val canWrite get()=company.s("role") in setOf("owner","editor")
     val isOwner get()=company.s("role")=="owner"

@@ -1,6 +1,6 @@
 export const CORE_ENHANCEMENTS = ['low_stock_reorder','party_price_history','party_payment_terms','master_lifecycle','party_shipping_address','party_credit_limits','recurring_drafts','company_book_labels'];
 export const supportsFeature = (features, name) => Array.isArray(features) && features.includes(name);
-export const routeFeature = { reorder: 'low_stock_reorder', recurring: 'recurring_drafts' };
+export const routeFeature = { reorder: 'low_stock_reorder', recurring: 'recurring_drafts', day_book: 'day_book' };
 export function capabilityFeatures(response) {
   return response?.capabilities_version === 1 && Array.isArray(response.supported_features)
     ? response.supported_features.filter(value => typeof value === 'string') : [];

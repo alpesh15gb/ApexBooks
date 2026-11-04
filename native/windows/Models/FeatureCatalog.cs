@@ -34,7 +34,9 @@ public sealed class RecordRow(JsonObject source)
     public string Category => FeatureCatalog.Title(Kind);
     public string Amount => Kind == "party" ? Source["data"].Text("phone") : Kind == "item" ? J.Money(Source["data"].Number("sale_rate")) : J.Money(Source.Number("amount"));
     public string Balance => Source["outstanding"] is not null ? "Due " + J.Money(Source.Number("outstanding")) : Source["credit_remaining"] is not null ? "Credit " + J.Money(Source.Number("credit_remaining")) : Source["advance_remaining"] is not null ? "Advance " + J.Money(Source.Number("advance_remaining")) : "";
-    public string BalanceValue=>Source["outstanding"] is not null?J.Money(Source.Number("outstanding")):Balance;
+    /// <summary>Closing party balance from /parties/balances, shown as "You'll get" / "You'll pay".</summary>
+    public string? PartyBalance { get; set; }
+    public string BalanceValue=>PartyBalance??(Source["outstanding"] is not null?J.Money(Source.Number("outstanding")):Balance);
     public string Status {
         get {
             if(Kind is "party" or "item")return WorkflowMasterValues.IsActive(Source)?"Active":"Archived";

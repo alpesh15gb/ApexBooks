@@ -114,6 +114,10 @@ import org.json.JSONObject
                             Choice("Saved party", editor.get("party_id"), listOf("" to "Enter manually") + editor.parties().map { it.s("id") to it.s("name") }, editor::chooseParty)
                             Field(if (editor.kind == "expense") "Supplier / expense description" else if (editor.purchase) "Supplier name" else "Customer name", editor.get("name"), editor::changePartyName, maximum = 120)
                             if (editor.document) Field("Phone · optional", editor.get("party_phone"), { change("party_phone", it) }, maximum = 32)
+                            if (editor.canQuickAdd && editor.get("name").isNotBlank() && editor.get("party_id").isBlank())
+                                OutlinedButton(enabled = idle && editor.quickAdding.isBlank(), onClick = editor::quickAddParty) { Icon(Icons.Outlined.PersonAdd, null, Modifier.size(18.dp)); Text(if (editor.quickAdding == "party") " Adding…" else " Add “${editor.get("name").trim()}” as a new ${if (editor.purchase) "supplier" else "customer"}") }
+                            else if (editor.document && editor.get("party_id").isNotBlank())
+                                Text("Saved party · balance and reminders tracked", style = MaterialTheme.typography.bodySmall, color = ApexGreen)
                         }
                         Section("Document details") {
                             DateField("Date", editor.get("date"), { change("date", it) })
@@ -230,7 +234,10 @@ val supplyChoices=listOf("taxable" to "Taxable","nil_rated" to "Nil rated","exem
         val products=editor.items(line)
         Choice("Item / service",line.get("item_id"),listOf("" to "Enter a description")+products.map{it.s("id") to it.s("name")},{if(it.isBlank())line.set("item_id","")else editor.chooseItem(line,it)})
         ItemPriceSuggestion(editor,line)
-        if(line.get("item_id").isBlank())Field("Description",line.get("description"),{line.set("description",it)},maximum=200)
+        if(line.get("item_id").isBlank()){
+            Field("Description",line.get("description"),{line.set("description",it)},maximum=200)
+            if(editor.canQuickAdd&&line.get("description").isNotBlank())TextButton(enabled=editor.quickAdding.isBlank()&&!editor.saving,onClick={editor.quickAddItem(line)}){Icon(Icons.Outlined.AddBox,null,Modifier.size(18.dp));Text(if(editor.quickAdding==line.uiKey)" Saving…" else " Save as item")}
+        }
         else Text(if(line.importedFromOcr)"Product linked · scanned rate and GST kept" else "Product selected · ${line.get("unit")}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
             Field("Quantity",line.get("quantity"),{line.set("quantity",it)},Modifier.weight(1f),number=true)

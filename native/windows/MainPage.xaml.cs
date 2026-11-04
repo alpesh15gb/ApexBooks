@@ -22,6 +22,7 @@ public sealed partial class MainPage : Page
     private readonly ContentControl host = new(){HorizontalContentAlignment=HorizontalAlignment.Stretch,VerticalContentAlignment=VerticalAlignment.Stretch};
     private readonly ComboBox companyPicker = new() { PlaceholderText = "Company", HorizontalAlignment = HorizontalAlignment.Stretch };
     internal readonly StackPanel Body = Stack(12);
+    private Dictionary<string,decimal>? partyNet;private (decimal Receive,decimal Pay)? partyTotals;
     private readonly InfoBar notice = new() { IsClosable = true, Margin = new Thickness(24, 8, 24, 0) };
     private readonly ProgressBar progress = new() { IsIndeterminate = true, Height = 3, Visibility = Visibility.Collapsed };
     private bool changingCompanies, shellReady;
@@ -129,7 +130,7 @@ public sealed partial class MainPage : Page
             var parent=expandable?new NavigationViewItem{Content=group.Key,Icon=new SymbolIcon(group.Key=="Sales"?Symbol.Document:Symbol.Shop)}:null;
             if(parent is not null)navigation.MenuItems.Add(parent);else navigation.MenuItems.Add(new NavigationViewItemHeader{Content=group.Key.ToUpperInvariant()});
             foreach(var feature in group){
-            var symbol = feature.Key switch { "dashboard" => Symbol.Home, "party" => Symbol.People, "item" => Symbol.Shop, "reports" => Symbol.Document, "settings" => Symbol.Setting, "bank" => Symbol.World, "ledger" => Symbol.Library, _ => Symbol.Page };
+            var symbol = feature.Key switch { "dashboard" => Symbol.Home, "party" => Symbol.People, "item" => Symbol.Shop, "reports" => Symbol.Document, "settings" => Symbol.Setting, "bank" => Symbol.World, "ledger" => Symbol.Library, "day_book" => Symbol.Calendar, _ => Symbol.Page };
             var item=new NavigationViewItem { Content = feature.Title, Tag = feature.Key, Icon = new SymbolIcon(symbol) };
             if(parent is not null)parent.MenuItems.Add(item);else navigation.MenuItems.Add(item);
             }
@@ -181,6 +182,7 @@ public sealed partial class MainPage : Page
         else if (page == "commerce") await CommercePage();
         else if (page == "bank") await BankPage();
         else if (page == "ledger") await LedgerPage();
+        else if (page == "day_book") await DayBookPage();
         else if (page == "pos") await PosPage();
         else Registers(page);
     }
@@ -196,6 +198,7 @@ public sealed partial class MainPage : Page
         var search = Input("Search name or reference"); search.Width = 340;
         var add = AsyncButton("Add " + FeatureCatalog.Singular(kind), () => NewEntry(kind), Error, true); add.IsEnabled = CanWrite; toolbar.Children.Add(add); toolbar.Children.Add(AsyncButton("Refresh", Refresh, Error)); toolbar.Children.Add(search); Body.Children.Add(toolbar);
         if (kind == "item") { var stock = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 }; var opening = AsyncButton("Opening stock", StockOpening, Error); var adjust = AsyncButton("Adjust stock", StockAdjust, Error); opening.IsEnabled = adjust.IsEnabled = CanWrite; stock.Children.Add(opening); stock.Children.Add(adjust); Body.Children.Add(stock); }
+        if(kind=="party"&&WhatsAppShare.OverdueByParty(Records,J.Today) is {Count:>0} overdue)toolbar.Children.Add(AsyncButton($"Remind overdue ({overdue.Count})",()=>RemindOverdue(overdue),Error));
         if(CanWrite && kind is "payment_in" or "payment_out" or "credit_note" or "debit_note")Body.Children.Add(AsyncButton(kind is "payment_in" or "payment_out"?"Apply / refund advance":"Apply / refund note credit",()=>SettleBalance(kind is "credit_note" or "debit_note"),Error));
         var master=kind is "party" or "item";var masterStatus=Select("Master status",[("all","All masters"),("active","Active"),("archived","Archived")]);var page=0;const int size=50;
         var period=Select("Period",[("all","All dates"),("month","This month"),("fy","This financial year"),("custom","Custom dates")]);var from=new DateInput("From",J.FinancialStart);var to=new DateInput("To",J.Today);
@@ -207,9 +210,12 @@ public sealed partial class MainPage : Page
         void Draw(bool reset=true){if(reset)page=0;holder.Children.Clear();metrics.Children.Clear();var range=Value(period);from.View.Visibility=to.View.Visibility=!master&&range=="custom"?Visibility.Visible:Visibility.Collapsed;var start=range=="fy"?J.FinancialStart:range=="month"?BusinessCalendar.Today.ToString("yyyy-MM-01"):range=="custom"?from.Value:"";var end=range is "month" or "fy"?J.Today:range=="custom"?to.Value:"";
             var source=Records.OfType<JsonObject>().Where(r=>r.Text("kind")==kind&&(!master||Value(masterStatus)=="all"||WorkflowMasterValues.IsActive(r)==(Value(masterStatus)=="active"))&&(r.Text("name")+" "+r.Text("number")+" "+r["data"].Text("phone")+" "+r["data"].Text("barcode")+" "+r["data"].Text("hsn")).Contains(search.Text,StringComparison.OrdinalIgnoreCase)&&(master||((start.Length==0||string.CompareOrdinal(r.Text("date"),start)>=0)&&(end.Length==0||string.CompareOrdinal(r.Text("date"),end)<=0)&&(Value(party)=="all"||r.Text("name")==Value(party))&&(Value(status)=="All statuses"||new RecordRow(r).Status==Value(status)))));
             source=Value(sort) switch{"old"=>source.OrderBy(r=>r.Text("date")).ThenBy(r=>r["data"].Text("created_at")).ThenBy(r=>r.Text("number")),"name"=>source.OrderBy(r=>r.Text("name"),StringComparer.OrdinalIgnoreCase),"amount"=>source.OrderByDescending(r=>r.Number("amount")),_=>source.OrderByDescending(r=>r.Text("date")).ThenByDescending(r=>r["data"].Text("created_at")).ThenByDescending(r=>r.Text("number"))};var all=source.ToArray();page=Math.Clamp(page,0,Math.Max(0,(all.Length-1)/size));
+            if(kind=="party"&&partyTotals is {} owed)AddMetrics(metrics,("You'll get",owed.Receive),("You'll pay",owed.Pay));
             if(master)metrics.Children.Add(Text($"{all.Length} {FeatureCatalog.Title(kind).ToLowerInvariant()}"+(kind=="party"?" · click a party for transactions and balances":""),14,true));else if(kind is "sales_invoice" or "purchase_bill")AddMetrics(metrics,("Posted value",all.Sum(r=>r.Number("amount"))),("Outstanding",all.Sum(r=>r.Number("outstanding"))),("Unpaid documents",all.Count(r=>r.Number("outstanding")>0)),("Settled documents",all.Count(r=>r.Flag("posted")&&r.Number("outstanding")<=0)));else AddMetrics(metrics,("Documents",all.Length),("Total value",all.Sum(r=>r.Number("amount"))));
             if(all.Length==0)holder.Children.Add(Card(Text("No records match these filters.")));else AddRecordList(all.Skip(page*size).Take(size),holder);caption.Text=all.Length==0?"0 records":$"Showing {page*size+1}–{Math.Min((page+1)*size,all.Length)} of {all.Length}";previous.IsEnabled=page>0;next.IsEnabled=(page+1)*size<all.Length;
         }
+        partyNet=null;partyTotals=null;
+        if(kind=="party"&&Api.Capabilities.Supports("party_balances")){var stamp=generation;var cid=CompanyId;_=Run(async()=>{var result=await Api.Send(Api.CompanyPath(cid,"/parties/balances"));if(stamp!=generation||cid!=CompanyId)return;partyNet=result["rows"].Array().ToDictionary(r=>r.Text("party_id"),r=>r.Number("net"));partyTotals=(result["totals"].Number("to_receive"),result["totals"].Number("to_pay"));Draw(false);});}
         previous=Button("Previous",()=>{page--;Draw(false);});next=Button("Next",()=>{page++;Draw(false);});pager.Children.Add(previous);pager.Children.Add(caption);pager.Children.Add(next);search.TextChanged+=(_,_)=>Draw();foreach(var choice in new[]{period,party,status,sort,masterStatus})choice.SelectionChanged+=(_,_)=>Draw();from.Picker.DateChanged+=(_,_)=>Draw();to.Picker.DateChanged+=(_,_)=>Draw();Draw();
     }
 
@@ -218,6 +224,7 @@ public sealed partial class MainPage : Page
         target ??= Body; var rows = records.Select(r => new RecordRow(r)).ToList();
         if (rows.Count == 0) { target.Children.Add(Card(Text("No records here yet. Add an entry to get started."))); return; }
         foreach(var row in rows){
+            if(row.Kind=="party"&&partyNet is not null){var net=partyNet.GetValueOrDefault(row.Id);row.PartyBalance=net>0?"Get "+J.Money(net):net<0?"Pay "+J.Money(-net):"Settled";}
             row.EditCommand=new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(()=>Run(()=>EditRow(row.Source)),()=>Editable(row));
             row.PdfCommand=new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(()=>Run(()=>PreviewDocument(row.Source)),()=>Printable(row));row.PdfVisibility=Printable(row)?Visibility.Visible:Visibility.Collapsed;
             row.OpenCommand=new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(()=>Run(async()=>{if(row.Kind=="party")await PartyStatement(row.Source);else if(row.Kind=="item"&&Editable(row))await EditRow(row.Source);else await TransactionDetails(row.Source);}),()=>true);

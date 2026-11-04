@@ -189,3 +189,67 @@ def render_document(record, supplier, branding, template, title, paid=Decimal('0
     pdf=SimpleDocTemplate(out,pagesize=A4,leftMargin=24,rightMargin=24,topMargin=24,bottomMargin=34,title=title)
     pdf.build(elements,onFirstPage=footer,onLaterPages=footer)
     return out.getvalue()
+
+
+# Roll receipts for thermal printers (Vyapar / MyBillBook POS style). One page as tall as its content.
+THERMAL = {'thermal_80': 80, 'thermal_58': 58}
+
+def render_thermal(record, supplier, branding, template, title, paid=Decimal('0')):
+    from reportlab.lib.units import mm
+    roll = THERMAL[template] * mm; margin = 3 * mm - 6; width = roll - 2 * margin - 12  # the page frame pads 6pt per side
+    small = template == 'thermal_58'
+    size = 7 if small else 8
+    body = ParagraphStyle('t-body', fontName='Helvetica', fontSize=size, leading=size + 2.5)
+    bold = ParagraphStyle('t-bold', parent=body, fontName='Helvetica-Bold')
+    center = ParagraphStyle('t-center', parent=body, alignment=TA_CENTER)
+    center_bold = ParagraphStyle('t-center-bold', parent=bold, alignment=TA_CENTER)
+    shop = ParagraphStyle('t-shop', parent=center_bold, fontSize=size + 4, leading=size + 6)
+    right = ParagraphStyle('t-right', parent=body, alignment=TA_RIGHT)
+    right_bold = ParagraphStyle('t-right-bold', parent=bold, alignment=TA_RIGHT)
+    grand = ParagraphStyle('t-grand', parent=right_bold, fontSize=size + 3, leading=size + 5)
+    def p(value, style=body): return Paragraph(escape(str(value or '')).replace('\n', '<br/>'), style)
+    def pair(label, value, left=body, value_style=right):
+        t = Table([[p(label, left), p(value, value_style)]], colWidths=[width * .58, width * .42])
+        t.setStyle(TableStyle([('LEFTPADDING', (0, 0), (-1, -1), 0), ('RIGHTPADDING', (0, 0), (-1, -1), 0), ('TOPPADDING', (0, 0), (-1, -1), 0), ('BOTTOMPADDING', (0, 0), (-1, -1), 1), ('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+        return t
+    def rule(): return p('-' * (38 if small else 52), center)
+    data = record.data; lines = data.get('lines', [])
+    els = [p(supplier.get('name'), shop)]
+    contact = '\n'.join(x for x in [supplier.get('address', ''), ('GSTIN ' + supplier['gstin']) if supplier.get('gstin') else '', branding.get('phone', '')] if x)
+    if contact: els.append(p(contact, center))
+    els += [Spacer(1, 3), p(title.upper(), center_bold), pair('No. ' + (record.number or record.id[:8]), record.date.strftime('%d-%m-%Y'))]
+    if record.name and record.name.strip().lower() not in {'walk-in', 'walk in', 'cash', 'cash sale'}:
+        els.append(p(record.name + (('\n' + data['party_phone']) if data.get('party_phone') else ''), bold))
+    els.append(rule())
+    for index, line in enumerate(lines, 1):
+        qty, rate, taxable, tax = [Decimal(str(line.get(key, 0))) for key in ('quantity', 'rate', 'taxable', 'tax')]
+        els.append(p(f"{index}. {line.get('description', '')}", bold))
+        detail = f"{qty.normalize():f} {line.get('unit') or ''} x {format_inr(rate)}".replace('  ', ' ')
+        if Decimal(str(line.get('gst_rate', 0))) and tax: detail += f" · GST {Decimal(str(line['gst_rate'])).normalize():f}%"
+        els.append(pair(detail, format_inr(taxable + tax)))
+    els.append(rule())
+    if lines: els.append(pair('Items / Qty', f"{len(lines)} / {sum((Decimal(str(l.get('quantity', 0))) for l in lines), Decimal('0')).normalize():f}"))
+    has_tax = any(Decimal(str(data.get(k, 0))) for k in ('cgst', 'sgst', 'igst'))
+    if has_tax: els.append(pair('Taxable value', format_inr(data.get('taxable', record.amount))))
+    for key in ('cgst', 'sgst', 'igst'):
+        if Decimal(str(data.get(key, 0))): els.append(pair(key.upper(), format_inr(data[key])))
+    if Decimal(str(data.get('round_off', 0))): els.append(pair('Round off', format_inr(data['round_off'])))
+    els.append(pair('TOTAL', 'INR ' + format_inr(record.amount), bold, grand))
+    payable = max(Decimal('0'), record.amount - paid)
+    if record.kind == 'pos' and data.get('payment_account', 'cash') == 'cash':
+        els += [pair('Cash tendered', format_inr(data.get('tender_amount', record.amount))), pair('Change', format_inr(data.get('change_amount', '0')))]
+    elif record.kind == 'pos':
+        els.append(pair('Paid by', 'Bank / UPI / card'))
+    elif paid: els.append(pair('Paid', format_inr(paid)))
+    if record.kind != 'pos' and payable > 0: els.append(pair('Balance due', 'INR ' + format_inr(payable), bold, right_bold))
+    if branding.get('upi_id') and record.kind in {'sales_invoice', 'estimate', 'proforma', 'pos'} and payable > 0:
+        uri = 'upi://pay?' + urlencode({'pa': branding['upi_id'], 'pn': supplier.get('name', ''), 'cu': 'INR', 'am': format(payable, '.2f')})
+        code = QrCodeWidget(uri); x0, y0, x1, y1 = code.getBounds(); side = min(width * .62, 34 * mm)
+        drawing = Drawing(side, side, transform=[side / (x1 - x0), 0, 0, side / (y1 - y0), 0, 0]); drawing.add(code); drawing.hAlign = 'CENTER'
+        els += [Spacer(1, 4), p('Scan to pay with UPI', center_bold), drawing, p(branding['upi_id'], center)]
+    if branding.get('notes'): els += [Spacer(1, 3), p(branding['notes'], center)]
+    els += [Spacer(1, 3), p('Thank you! Visit again.', center_bold)]
+    height = 2 * margin + sum(e.wrap(width, 10_000)[1] + e.getSpaceBefore() + e.getSpaceAfter() for e in els) + 6 * mm
+    out = io.BytesIO()
+    SimpleDocTemplate(out, pagesize=(roll, height), leftMargin=margin, rightMargin=margin, topMargin=margin, bottomMargin=margin, title=title).build(els)
+    return out.getvalue()

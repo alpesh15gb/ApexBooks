@@ -17,6 +17,32 @@ def party_balances(m,company_id,party,from_date,to_date,user,session,*,rows=None
     return account,balances
 
 def install(app,m):
+    @app.get('/api/companies/{company_id}/parties/balances')
+    def balances(company_id:str,as_of:date|None=None,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
+        """Closing receivable/payable per party for list views; same rules as the party report in one pass."""
+        from business_calendar import business_today
+        m.company_for(company_id,user,session);day=as_of or business_today()
+        postings=select(m.RecordPosting.record_id).where(m.RecordPosting.company_id==company_id)
+        kinds={'sales_invoice','credit_note','payment_in','purchase_bill','debit_note','payment_out','advance_application','opening_receivable','opening_payable','credit_application','customer_refund','supplier_refund'}
+        totals={}
+        for r in session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.id.in_(postings),m.Record.kind.in_(kinds),m.Record.date<=day)):
+            if r.data.get('is_advance'):continue
+            key=r.name.strip().casefold();side=totals.setdefault(key,[Decimal('0'),Decimal('0')])
+            unallocated=Decimal(str(r.data.get('unallocated_credit',0)))
+            if r.kind in {'sales_invoice','opening_receivable'}:side[0]+=r.amount
+            elif r.kind in {'credit_note','payment_in'}:side[0]-=r.amount-unallocated
+            elif r.kind in {'purchase_bill','opening_payable'}:side[1]+=r.amount
+            elif r.kind in {'advance_application','credit_application'} and r.data.get('payment_kind')=='payment_in':side[0]-=r.amount
+            elif r.kind in {'advance_application','credit_application'}:side[1]-=r.amount
+            elif r.kind in {'debit_note','payment_out'}:side[1]-=r.amount-unallocated
+        rows=[]
+        for party in session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind=='party')):
+            receivable,payable=totals.get(party.name.strip().casefold(),[Decimal('0'),Decimal('0')])
+            rows.append({'party_id':party.id,'name':party.name,'receivable':str(receivable),'payable':str(payable),'net':str(receivable-payable)})
+        return {'as_of':day.isoformat(),'rows':rows,
+                'totals':{'to_receive':str(sum((Decimal(r['net']) for r in rows if Decimal(r['net'])>0),Decimal('0'))),
+                          'to_pay':str(sum((-Decimal(r['net']) for r in rows if Decimal(r['net'])<0),Decimal('0')))}}
+
     @app.get('/api/companies/{company_id}/parties/{party_id}/statement')
     def statement(company_id:str,party_id:str,from_date:date,to_date:date,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
         m.company_for(company_id,user,session)

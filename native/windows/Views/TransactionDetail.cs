@@ -9,6 +9,15 @@ namespace ApexBooks_Windows;
 
 public sealed partial class MainPage
 {
+    private async Task OpenWhatsApp(JsonObject row,bool reminder)
+    {
+        var upi="";try{upi=(await Api.Send(PathFor("/document-branding"))).Text("upi_id");}catch(Exception){/* the message still works without a UPI ID */}
+        var party=Records.OfType<JsonObject>().FirstOrDefault(r=>r.Text("kind")=="party"&&(r.Text("id")==row["data"].Text("party_id")||string.Equals(r.Text("name").Trim(),row.Text("name").Trim(),StringComparison.OrdinalIgnoreCase)));
+        var phone=party?["data"].Text("phone") is {Length:>0} p?p:row["data"].Text("phone");
+        var text=reminder?WhatsAppShare.ReminderMessage(row,Company.Text("name"),upi,J.Today):WhatsAppShare.DocumentMessage(row,Company.Text("name"),upi);
+        await Windows.System.Launcher.LaunchUriAsync(WhatsAppShare.Url(phone,text));
+    }
+
     private async Task TransactionDetails(JsonObject initial)
     {
         var cid=CompanyId;var stamp=generation;
@@ -32,7 +41,10 @@ public sealed partial class MainPage
         if(kind is "purchase_bill" or "expense"){if(Supports("document_attachments"))Action("Retained receipts","receipts");else panel.Children.Add(CapabilityNotice());}
         var printable=FeatureCatalog.Documents.Contains(kind)||kind is "payment_in" or "payment_out" or "customer_refund" or "supplier_refund" or "advance_refund";
         if(printable)Action("PDF / print / share","pdf");
+        if(printable&&Supports("thermal_receipts")&&kind is "sales_invoice" or "pos" or "payment_in" or "estimate" or "proforma" or "sales_order" or "credit_note"){Action("Receipt 80 mm","thermal_80");Action("Receipt 58 mm","thermal_58");}
         var cancelled=row.Flag("cancelled");
+        if(!cancelled&&WhatsAppShare.Shareable(kind))Action("Share on WhatsApp","whatsapp");
+        if(WhatsAppShare.CanRemind(row))Action("Send reminder","remind");
         if(cancelled)panel.Children.Add(Card(Text("Cancelled"+(data["cancelled"].Text("reason") is {Length:>0} why?" · "+why:"")+". The number stays in your records; its ledger, stock and balance effects were reversed.",13)));
         if(CanWrite&&!cancelled&&row.Text("converted_to").Length==0&&(FeatureCatalog.Documents.Contains(kind)||kind is "payment_in" or "payment_out" or "bank_transfer"))Action("Edit","edit");
         panel.Children.Add(actions);
@@ -61,6 +73,8 @@ public sealed partial class MainPage
             case "receipts":await RetainedReceipts(row);break;
             case "recurring":await RecurringTemplateForm(row);break;
             case "pdf":await PreviewDocument(row);break;
+            case "thermal_80":case "thermal_58":await ShowDocumentPdf(row,action);break;
+            case "whatsapp":case "remind":await OpenWhatsApp(row,action=="remind");break;
             case "edit":await EditRow(row);break;
             case "payment":await EditPayment(kind=="sales_invoice"?"payment_in":"payment_out",document:row);break;
             case "sales_order":await EditDocument("sales_order",conversion:row);break;

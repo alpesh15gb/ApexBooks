@@ -86,6 +86,30 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     fun chooseParty(id:String){if(id.isBlank()){set("party_id","");return};val party=parties().find{it.s("id")==id}?:return;set("name",party.s("name"));set("party_id",id);val data=party.o("data");set("party_address",data.s("address"));set("party_phone",data.s("phone"));set("party_gstin",data.s("gstin"));val shipping=partyShippingAddress(party);fields["shipping_address"]=shippingForPartySelection(get("shipping_address"),lastPartyShipping,shipping);lastPartyShipping=shipping;set(if(purchase)"supplier_state" else "place_of_supply",data.s("gstin").take(2).ifBlank{vm.company.s("state_code")})}
     fun changePartyName(value:String){if(!value.trim().equals(get("name").trim(),true)){for(key in listOf("party_id","party_address","party_gstin","party_phone"))set(key,"");if(get("shipping_address")==lastPartyShipping)fields["shipping_address"]="";lastPartyShipping="";set("place_of_supply",vm.company.s("state_code"));set("supplier_state",vm.company.s("state_code"))};set("name",value)}
     fun chooseItem(line:LineState,id:String){val item=items(line).find{it.s("id")==id}?:return;line.linkProduct(item,purchase,regular)}
+    // Quick-add (Vyapar / MyBillBook style): save the typed customer or line as a master without leaving the document.
+    var quickAdding by mutableStateOf("");private set
+    val canQuickAdd get()=document&&kind !in setOf("credit_note","debit_note","expense")&&vm.company.s("role") in setOf("owner","editor")
+    private suspend fun createMaster(masterKind:String,name:String,data:JSONObject):JSONObject=
+        vm.api.request(vm.api.company(companyId,"/records"),"POST",JSONObject().put("kind",masterKind).put("name",name.trim()).put("date",today()).put("amount","0").put("data",data)) as JSONObject
+    fun quickAddParty(){
+        val name=get("name").trim();if(name.isBlank()||get("party_id").isNotBlank()||quickAdding.isNotBlank())return
+        quickAdding="party"
+        vm.task{try{
+            val created=createMaster("party",name,JSONObject().put("party_type",if(purchase)"supplier" else "customer").put("phone",get("party_phone").trim()).put("gstin",get("party_gstin").trim().uppercase()).put("address",get("party_address")).put("shipping_address",get("shipping_address")))
+            if(!vm.inWorkspace(companyId,workspaceStamp))return@task
+            vm.rememberMaster(created);fields["name"]=created.s("name");fields["party_id"]=created.s("id");vm.notice="Saved ${created.s("name")} as a new ${if(purchase)"supplier" else "customer"}."
+        }finally{quickAdding=""}}
+    }
+    fun quickAddItem(line:LineState){
+        val name=line.get("description").trim();if(name.isBlank()||line.get("item_id").isNotBlank()||quickAdding.isNotBlank())return
+        quickAdding=line.uiKey
+        vm.task{try{
+            fun amount(value:String)=(value.toBigDecimalOrNull()?:BigDecimal.ZERO).setScale(2,java.math.RoundingMode.HALF_UP).toPlainString()
+            val created=createMaster("item",name,JSONObject().put("item_type","goods").put("hsn",line.get("hsn")).put("unit",line.get("unit")).put(if(purchase)"purchase_rate" else "sale_rate",amount(line.get("rate"))).put("gst_rate",amount(line.get("gst_rate"))).put("tax_treatment",line.get("tax_treatment").ifBlank{"taxable"}))
+            if(!vm.inWorkspace(companyId,workspaceStamp))return@task
+            vm.rememberMaster(created);line.set("item_id",created.s("id"));line.set("description",created.s("name"));vm.notice="Saved ${created.s("name")} as a new item."
+        }finally{quickAdding=""}}
+    }
     fun targets():List<JSONObject> = vm.records.filter{r->r.optBoolean("posted")&&when(kind){"payment_in"->r.s("kind")in setOf("sales_invoice","opening_receivable");"payment_out"->r.s("kind")in setOf("purchase_bill","opening_payable");"credit_note"->r.s("kind")in setOf("sales_invoice","pos");"debit_note"->r.s("kind")=="purchase_bill";else->false}&&(!payment||available(r)>BigDecimal.ZERO||originalAllocations.any{it.s("document_id")==r.s("id")})}
     fun available(row:JSONObject)=row.decimal("outstanding")+originalAllocations.filter{it.s("document_id")==row.s("id")}.fold(BigDecimal.ZERO){sum,a->sum+a.decimal("amount")}
     fun chooseAllocation(row:AllocationState,index:Int,id:String) {
@@ -129,14 +153,17 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
             }
             val body=submission.body(body())
             val pay=paymentBody()
+            var savedId=""
             try {
                 if(master&&previous!=null){val flat=copy(body.o("data")).put("name",body.s("name"));vm.api.request(vm.api.company(companyId,"/masters/${previous.s("id")}"),"PUT",flat)}
-                else if(pay!=null)vm.api.saveRecordWithPayment(companyId,body,pay,retryKey)
-                else vm.api.saveRecord(companyId,body,retryKey,previous)
+                else if(pay!=null)savedId=vm.api.saveRecordWithPayment(companyId,body,pay,retryKey).o("document").s("id")
+                else savedId=vm.api.saveRecord(companyId,body,retryKey,previous).s("id")
                 submission.succeeded();retryPending=false
             }catch(e:Exception){submission.failed(e);retryPending=submission.unresolved;throw e}
             if(!vm.inWorkspace(companyId,workspaceStamp))return@task
             if(vm.editor===this)vm.editor=if(keepOpen&&canSaveAndNew)EntryEditor(vm,kind)else null
+            // Like Vyapar / Swipe: a newly saved customer document opens ready to share, print or collect.
+            if(!keepOpen&&previous==null&&conversion==null&&savedId.isNotBlank()&&kind in setOf("sales_invoice","estimate","proforma","sales_order","credit_note"))vm.detail=JSONObject().put("id",savedId)
             // Saving succeeded even if the subsequent list refresh fails. Never resubmit it.
             vm.notice=if(keepOpen&&canSaveAndNew)"Saved. Ready for the next document."else"Saved successfully."
             vm.refresh()

@@ -2696,8 +2696,8 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     if not template:
         preference = session.get(CompanyPreference, company_id)
         template = preference.document_template if preference else 'classic'
-    from document_layouts import LAYOUTS, render_document, line_discount_label
-    if template in LAYOUTS:
+    from document_layouts import LAYOUTS, THERMAL, render_document, render_thermal, line_discount_label
+    if template in LAYOUTS or template in THERMAL:
         data = record.data or {}
         supplier = data.get('company_snapshot') or company_obj(session.get(Company, company_id), session)
         mode = data.get('tax_mode', supplier.get('tax_mode', 'regular'))
@@ -2711,7 +2711,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
             bank=bank_account_for(company_id,str(data.get('bank_account_id') or 'default'),session) if data.get('payment_account')=='bank' else None
             if bank:branding.update(bank_name=bank.name,account_number=bank.account_hint,ifsc='',branch='')
             elif data.get('payment_account','cash')=='cash':branding.update(bank_name='',account_number='',ifsc='',branch='')
-        result = render_document(record, supplier, branding, template, title, paid)
+        result = (render_thermal if template in THERMAL else render_document)(record, supplier, branding, template, title, paid)
         return Response(result, media_type='application/pdf', headers={'Content-Disposition': f'attachment; filename="{record.kind}-{record.id[:8]}.pdf"'})
     if template not in palette: raise HTTPException(404, 'Document layout not found')
     accent, tint, padding, grid = palette[template]
@@ -2881,6 +2881,8 @@ install_gst_returns(app, sys.modules[__name__])
 
 from party_statements import install as install_party_statements
 install_party_statements(app, sys.modules[__name__])
+from day_book import install as install_day_book
+install_day_book(app, sys.modules[__name__])
 
 from commerce import install as install_commerce
 install_commerce(app, sys.modules[__name__])

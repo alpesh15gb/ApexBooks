@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import DocumentAttachments from './DocumentAttachments.jsx';
 import { hasPendingPostings } from './postingRegistry.js';
-import { ArrowRight, CheckCircle2, Clock3, Download, FileText, Pencil, X } from 'lucide-react';
+import { ArrowRight, BellRing, CheckCircle2, Clock3, Download, FileText, MessageCircle, Pencil, Printer, X } from 'lucide-react';
+import { canRemind, documentMessage, partyPhone, reminderMessage, whatsappUrl } from './whatsappShare.js';
 import { relatedRecordActions, settlementLabel } from './recordLifecycle.js';
 const drafts = new Set(['estimate', 'proforma', 'sales_order', 'purchase_order']);
+const receiptKinds = new Set(['sales_invoice', 'pos', 'payment_in', 'estimate', 'proforma', 'sales_order', 'credit_note']);
+const shareable = new Set(['sales_invoice', 'pos', 'estimate', 'proforma', 'sales_order', 'credit_note', 'payment_in', 'purchase_order']);
 const amount = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(Number(value || 0));
 
 export default function TransactionDetail({ record, records, company, labels, loading, error, onClose, onRetry, onEdit, onRelated, onConvert, onPdf, onOpen, onCancelDocument, api, features = [] }) {
@@ -17,6 +20,18 @@ export default function TransactionDetail({ record, records, company, labels, lo
     try { await onCancelDocument(record, cancelReason.trim()); setCancelOpen(false); setCancelReason(''); }
     catch (reason) { setCancelError(reason.message || 'Could not cancel this document'); }
     finally { setCancelBusy(false); }
+  }
+  async function openWhatsApp(reminder) {
+    // Open the tab synchronously so popup blockers allow it, then fill in the message.
+    const tab = window.open('about:blank', '_blank');
+    let upi = '';
+    try {
+      const response = await fetch(`/api/companies/${company.id}/document-branding`, { headers: { Authorization: `Bearer ${localStorage.token}` } });
+      if (response.ok) upi = (await response.json()).upi_id || '';
+    } catch { /* the message still works without a UPI ID */ }
+    const text = reminder ? reminderMessage(record, company?.name || '', upi) : documentMessage(record, company?.name || '', upi);
+    const url = whatsappUrl(partyPhone(record, records), text);
+    if (tab) tab.location.href = url; else window.location.href = url;
   }
   const guarded = callback => (...args) => { if (!hasPendingPostings()) callback?.(...args); };
   onClose = guarded(onClose); onEdit = guarded(onEdit); onRelated = guarded(onRelated); onConvert = guarded(onConvert); onOpen = guarded(onOpen);
@@ -57,6 +72,9 @@ export default function TransactionDetail({ record, records, company, labels, lo
           {draft && !record.converted_to && writable && <button className="button primary" disabled={loading || !!error || attachmentLocked} onClick={() => onConvert(record)}>Convert to {record.kind === 'purchase_order' ? 'bill' : 'invoice'}<ArrowRight size={15} /></button>}
           {writable && cancellable && <button className="button danger-outline" disabled={loading || !!error || attachmentLocked} onClick={() => { setCancelError(''); setCancelOpen(true); }}><X size={15} />Cancel document</button>}
           {pdf && <button className="button secondary" disabled={loading || attachmentLocked} onClick={() => onPdf(record)}><Download size={16} />Download PDF</button>}
+          {pdf && receiptKinds.has(record.kind) && features.includes('thermal_receipts') && <details className="row-menu receipt-menu"><summary className="button secondary" aria-label="Print thermal receipt"><Printer size={15} />Print receipt</summary><div className="row-menu-list">{[['thermal_80', '80 mm roll'], ['thermal_58', '58 mm roll']].map(([template, label]) => <button key={template} type="button" disabled={loading || attachmentLocked} onClick={event => { event.currentTarget.closest('details').open = false; onPdf(record, template); }}>{label}</button>)}</div></details>}
+          {shareable.has(record.kind) && !cancelled && <button className="button secondary whatsapp" disabled={loading || attachmentLocked} onClick={() => openWhatsApp(false)}><MessageCircle size={15} />Share on WhatsApp</button>}
+          {canRemind(record) && <button className="button secondary whatsapp" disabled={loading || attachmentLocked} onClick={() => openWhatsApp(true)}><BellRing size={15} />Send reminder</button>}
           {writable && editable && !record.converted_to && <button className="button secondary" disabled={loading || !!error || attachmentLocked} onClick={() => onEdit(record)}><Pencil size={15} />Edit details</button>}
         </div>
         {cancelled && <div className="info-box cancelled-note" role="status"><strong>Cancelled.</strong> {record.data?.cancelled?.reason || 'No reason recorded'}. The number {record.number} stays in your records; its ledger, stock and balance effects were reversed.</div>}

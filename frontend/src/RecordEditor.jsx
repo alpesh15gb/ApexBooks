@@ -51,8 +51,11 @@ export default function RecordEditor({
   const lastShippingDefault = useRef("");
   const retainedParties = edit || relatedSource ? [initial?.data?.party_id].filter(Boolean) : [];
   const retainedItems = edit || relatedSource ? (initial?.data?.lines || []).map(line => line.item_id).filter(Boolean) : [];
-  const partyChoices = availableMasters(records, "party", ["payment_in", "payment_out"].includes(kind) ? records.filter(record => record.kind === "party").map(record => record.id) : retainedParties);
-  const itemChoices = availableMasters(records, "item", retainedItems);
+  // Parties and items created from inside this editor (quick-add), until the parent list reloads.
+  const [addedMasters, setAddedMasters] = useState([]), [quickAdding, setQuickAdding] = useState("");
+  const masters = addedMasters.length ? [...records, ...addedMasters.filter(added => !records.some(r => r.id === added.id))] : records;
+  const partyChoices = availableMasters(masters, "party", ["payment_in", "payment_out"].includes(kind) ? masters.filter(record => record.kind === "party").map(record => record.id) : retainedParties);
+  const itemChoices = availableMasters(masters, "item", retainedItems);
   const canWrite = ["owner", "editor"].includes(company.role);
   const isPayment = ["payment_in", "payment_out"].includes(kind);
   const [dirty, setDirty] = useState(false),
@@ -350,6 +353,56 @@ export default function RecordEditor({
         return next;
       }),
     );
+  // Quick-add (Vyapar / MyBillBook style): save the typed customer or line as a master without leaving the invoice.
+  async function createMaster(kindToAdd, name, data) {
+    const created = await api(`/companies/${companyId}/records`, {
+      method: "POST",
+      body: JSON.stringify({ kind: kindToAdd, name: name.trim(), date: today(), amount: 0, data }),
+    });
+    setAddedMasters((current) => [...current, created]);
+    return created;
+  }
+  async function quickAddParty() {
+    if (quickAdding || !form.name.trim()) return;
+    setError(""); setQuickAdding("party");
+    try {
+      const created = await createMaster("party", form.name, {
+        party_type: purchase ? "supplier" : "customer",
+        phone: form.party_phone.trim(),
+        gstin: (form.party_gstin || "").trim().toUpperCase(),
+        address: form.party_address || "",
+        shipping_address: form.shipping_address || "",
+      });
+      setDirty(true);
+      setForm((current) => ({ ...current, name: created.name, party_id: created.id }));
+    } catch (err) {
+      setError(`Could not add the party: ${err.message}`);
+    } finally {
+      setQuickAdding("");
+    }
+  }
+  async function quickAddItem(index) {
+    const line = lines[index];
+    if (quickAdding || !line?.description.trim()) return;
+    setError(""); setQuickAdding(`item-${index}`);
+    try {
+      const rate = Number(line.rate || 0);
+      const created = await createMaster("item", line.description, {
+        item_type: "goods",
+        hsn: line.hsn || "",
+        unit: line.unit || "",
+        [purchase ? "purchase_rate" : "sale_rate"]: Number.isFinite(rate) ? rate.toFixed(2) : "0.00",
+        gst_rate: Number(line.gst_rate || 0).toFixed(2),
+        tax_treatment: line.tax_treatment || "taxable",
+      });
+      setDirty(true);
+      setLines((current) => current.map((row, i) => (i === index ? { ...row, description: created.name, item_id: created.id } : row)));
+    } catch (err) {
+      setError(`Could not add the item: ${err.message}`);
+    } finally {
+      setQuickAdding("");
+    }
+  }
   const sourceRequest = useRef(0);
   const [loadingSource, setLoadingSource] = useState(false);
   useEffect(
@@ -777,6 +830,8 @@ export default function RecordEditor({
                 company={company}
                 targets={targets}
                 onSelectSource={selectSource}
+                onQuickAddParty={canWrite && !["credit_note", "debit_note"].includes(kind) ? quickAddParty : null}
+                quickAdding={quickAdding}
               />
               <datalist id="apex-party-options">
                 {partyChoices
@@ -799,6 +854,8 @@ export default function RecordEditor({
                   setLines(next);
                 }}
                 changeLine={changeLine}
+                onQuickAddItem={canWrite && !["credit_note", "debit_note"].includes(kind) ? quickAddItem : null}
+                quickAdding={quickAdding}
                 onPriceHistory={supported("party_price_history") && form.party_id && !source && !relatedSource ? index => setPriceLine({ index, item: { ...lines[index] }, party: { id: form.party_id, name: form.name } }) : null}
                 emptyLine={emptyLine}
                 showTax={showTax}

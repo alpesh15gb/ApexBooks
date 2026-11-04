@@ -75,6 +75,7 @@ import com.apexbooks.accounting.data.*
                         "more" -> MoreScreen(vm)
                         "bank" -> BankScreen(vm)
                         "ledger" -> LedgerScreen(vm)
+                        "day_book" -> DayBookScreen(vm)
                         "settings" -> SettingsScreen(vm)
                         "commerce" -> CommerceScreen(vm)
                         "pos" -> PosScreen(vm)

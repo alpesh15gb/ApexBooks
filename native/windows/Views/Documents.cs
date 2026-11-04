@@ -111,13 +111,38 @@ public sealed partial class MainPage
                     history.Children.Add(Button("Apply suggested rate and tax basis",()=>{if(stamp!=generation||partyId!=selectedParty||line.Data().Text("item_id")!=item||submission.Unresolved)return;line.ApplySuggestedPrice(rate,includes);history.Children.Clear();}));
                 },LocalError));holder.Children.Add(history);
             }
+            if(kind is not ("credit_note" or "debit_note")&&Api.Capabilities.HasCoreAdditions){
+                // Quick-add: save a typed line as a catalogue item without leaving the document.
+                var saveItem=AsyncButton("+ Save as item",async()=>{
+                    var values=line.Data();if(line.Linked)return;
+                    if(values.Text("description").Length==0)throw new Exception("Enter the item name first.");
+                    var inv=System.Globalization.CultureInfo.InvariantCulture;var style=System.Globalization.NumberStyles.Number;
+                    decimal.TryParse(values.Text("rate"),style,inv,out var rate);decimal.TryParse(values.Text("gst_rate"),style,inv,out var gstRate);
+                    var created=(await Api.Send(Api.CompanyPath(cid,"/records"),HttpMethod.Post,new JsonObject{["kind"]="item",["name"]=values.Text("description"),["date"]=J.Today,["amount"]=0,["data"]=new JsonObject{["item_type"]="goods",["hsn"]=values.Text("hsn"),["unit"]=values.Text("unit"),[purchase?"purchase_rate":"sale_rate"]=Math.Round(rate,2).ToString("0.00",inv),["gst_rate"]=Math.Round(gstRate,2).ToString("0.00",inv),["tax_treatment"]=values.Text("tax_treatment")}})).Object();
+                    if(stamp!=generation||cid!=CompanyId)return;
+                    Records.Add(created.DeepClone());line.LinkCreatedItem(created);
+                },LocalError);
+                void ShowSaveItem()=>saveItem.Visibility=!line.Linked&&line.Description.Text.Trim().Length>0?Visibility.Visible:Visibility.Collapsed;
+                line.Changed+=ShowSaveItem;ShowSaveItem();holder.Children.Add(saveItem);
+            }
             holder.Children.Add(Button("Remove this item", () => { lines.Remove(line); linesPanel.Children.Remove(holder); _ = Calculate(); }));
             lines.Add(line); linesPanel.Children.Add(holder); line.Changed += () => _ = Calculate();_ = Calculate();
         }
         void ReplaceLines(JsonArray values, bool preserveImportedValues = false) { lines.Clear(); linesPanel.Children.Clear(); foreach (var value in values.OfType<JsonObject>()) AddLine(value,preserveImportedValues); if (lines.Count == 0) AddLine(); _ = Calculate(); }
 
         panel.Children.Add(SectionHeading("01",purchase?"Supplier & bill details":"Customer & document details","Choose an existing party to fill its saved details."));
-        var identity=Stack(10);identity.Children.Add(party);identity.Children.Add(regular||purchase?Columns(phone,gstin):phone);
+        var identity=Stack(10);identity.Children.Add(party);
+        // Quick-add (Vyapar / MyBillBook style): save the typed name as a party so it gets a balance and WhatsApp number.
+        var partyLinked=Text("",12);partyLinked.Foreground=Green;
+        Button addParty=null!;
+        void ShowAddParty(){var show=kind is not ("credit_note" or "debit_note" or "expense")&&Api.Capabilities.HasCoreAdditions&&party.Text.Trim().Length>0&&partyId.Length==0;addParty.Visibility=show?Visibility.Visible:Visibility.Collapsed;partyLinked.Text=partyId.Length>0?"Saved party · balance and reminders tracked":"";partyLinked.Visibility=partyId.Length>0?Visibility.Visible:Visibility.Collapsed;}
+        addParty=AsyncButton(purchase?"+ Add as a new supplier":"+ Add as a new customer",async()=>{
+            var name=party.Text.Trim();if(name.Length==0||partyId.Length>0)return;
+            var created=(await Api.Send(Api.CompanyPath(cid,"/records"),HttpMethod.Post,new JsonObject{["kind"]="party",["name"]=name,["date"]=J.Today,["amount"]=0,["data"]=new JsonObject{["party_type"]=purchase?"supplier":"customer",["phone"]=phone.Text.Trim(),["gstin"]=gstin.Text.Trim().ToUpperInvariant(),["address"]=address.Text,["shipping_address"]=shipping.Text}})).Object();
+            if(stamp!=generation||cid!=CompanyId)return;
+            Records.Add(created.DeepClone());partyId=created.Text("id");party.Text=created.Text("name");ShowAddParty();_=Calculate();
+        },LocalError);
+        identity.Children.Add(addParty);identity.Children.Add(partyLinked);identity.Children.Add(regular||purchase?Columns(phone,gstin):phone);
         var metadata=Stack(10);metadata.Children.Add(Columns(number,date.View));
         if(kind is "sales_invoice" or "purchase_bill")metadata.Children.Add(regular||purchase?Columns(due.View,supply):due.View);else if(regular||purchase)metadata.Children.Add(supply);
         if(purchase)metadata.Children.Add(supplierState);
@@ -150,6 +175,7 @@ public sealed partial class MainPage
         panel.Children.Add(new Expander { Header = "Party, billing and delivery details", Content = contacts, HorizontalContentAlignment = HorizontalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Stretch });
         party.TextChanged += (sender, args) => { if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput) { partyId = "";address.Text="";if(shipping.Text==lastShippingDefault)shipping.Text="";lastShippingDefault="";gstin.Text="";phone.Text="";supply.Text=Company.Text("state_code");supplierState.Text=Company.Text("state_code");party.ItemsSource = Records.OfType<JsonObject>().Where(r => r.Text("kind") == "party" && WorkflowMasterValues.IsActive(r) && r.Text("name").Contains(party.Text, StringComparison.OrdinalIgnoreCase)).Take(20).Select(r => r.Text("name")).ToArray(); _=Calculate(); } };
         party.SuggestionChosen += (sender, args) => { var selected = Records.OfType<JsonObject>().FirstOrDefault(r => r.Text("kind") == "party" && WorkflowMasterValues.IsActive(r) && r.Text("name") == args.SelectedItem?.ToString()); if (selected is null) return; partyId = selected.Text("id"); var values = selected["data"]; address.Text = values.Text("address"); var delivery=Supports("party_shipping_address")?WorkflowMasterValues.ShippingAddress(values):values.Text("address");if(shipping.Text.Length==0||shipping.Text==lastShippingDefault)shipping.Text=delivery;lastShippingDefault=delivery; gstin.Text = values.Text("gstin"); phone.Text = values.Text("phone"); if (gstin.Text.Length >= 2) { if (purchase) supplierState.Text = gstin.Text[..2]; else supply.Text = gstin.Text[..2]; } _=Calculate(); };
+        party.TextChanged+=(_,_)=>ShowAddParty();party.SuggestionChosen+=(_,_)=>ShowAddParty();ShowAddParty();
         if (kind == "purchase_bill")
         {
             var ocr = AsyncButton("Scan purchase bill", async () =>
@@ -201,7 +227,7 @@ public sealed partial class MainPage
         date.Picker.DateChanged+=(_,_)=>_=Calculate();
         var totals=Stack(6);totals.Children.Add(preview);if(checkCredit)totals.Children.Add(creditInfo);var shortcut=Text("Ctrl + Enter to save · totals calculated by Apex Books",12);shortcut.Foreground=Muted;totals.Children.Add(shortcut);
         discount.TextChanged += (_, _) => _ = Calculate(); supply.TextChanged += (_, _) => _ = Calculate(); supplierState.TextChanged += (_, _) => _ = Calculate(); gstin.TextChanged += (_, _) => {if(purchase&&gstin.Text.Length>=2&&gstin.Text.Take(2).All(char.IsDigit))supplierState.Text=gstin.Text[..2];_=Calculate();}; round.Checked += (_, _) => _ = Calculate(); round.Unchecked += (_, _) => _ = Calculate();
-        var baseline=BodyValue().ToJsonString();var keepNew=false;JsonObject? lastPayment=null;
+        var baseline=BodyValue().ToJsonString();var keepNew=false;JsonObject? lastPayment=null;JsonNode? savedResult=null;
         async Task Save()
         {
             if(sourceLoading)throw new Exception("Wait for the source document to finish loading.");
@@ -214,7 +240,7 @@ public sealed partial class MainPage
             }
             if (kind is "credit_note" or "debit_note" && appliedTo.Length == 0) throw new Exception("Choose the original posted document.");
             var pay = submission.Unresolved ? null : PaymentBody(); var paymentFrozen = pay ?? lastPayment;
-            try{if(paymentFrozen is null)await Api.SaveRecord(cid, submission.Body(BodyValue()), retryKey, previous);else{lastPayment=paymentFrozen;await Api.SaveRecordWithPayment(cid, submission.Body(BodyValue()), paymentFrozen, retryKey);}submission.Succeeded();}
+            try{if(paymentFrozen is null)savedResult=await Api.SaveRecord(cid, submission.Body(BodyValue()), retryKey, previous);else{lastPayment=paymentFrozen;savedResult=await Api.SaveRecordWithPayment(cid, submission.Body(BodyValue()), paymentFrozen, retryKey);}submission.Succeeded();}
             catch(Exception e){submission.Failed(e);NativeUi.SetFormEnabled(panel,!submission.Unresolved);if(submission.Unresolved)throw new Exception("The save outcome is unknown. The original values are locked; press Save again to safely recover the same document.",e);throw;}
         }
         var saved = await Dialog((previous is not null ? "Edit " : "New ") + FeatureCatalog.Singular(kind), panel, Save,
@@ -223,5 +249,9 @@ public sealed partial class MainPage
             saveAndNew:previous is null&&conversion is null?async()=>{await Save();keepNew=true;}:null,stickyFooter:Card(totals));
         previewRequest?.Cancel(); if (saved && cid == CompanyId) await Refresh();
         if(saved&&keepNew&&cid==CompanyId)await EditDocument(kind);
+        // Like Vyapar / Swipe: a newly saved customer document opens ready to share, print or collect.
+        else if(saved&&previous is null&&conversion is null&&cid==CompanyId&&kind is "sales_invoice" or "estimate" or "proforma" or "sales_order" or "credit_note"
+            &&(savedResult?["document"]?.Text("id") is {Length:>0} docId?docId:savedResult.Text("id")) is {Length:>0} savedId)
+            await TransactionDetails(new JsonObject{["id"]=savedId});
     }
 }

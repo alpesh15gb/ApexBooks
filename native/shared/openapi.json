@@ -5296,6 +5296,66 @@
         }
       }
     },
+    "/api/companies/{company_id}/parties/balances": {
+      "get": {
+        "summary": "Balances",
+        "description": "Closing receivable/payable per party for list views; same rules as the party report in one pass.",
+        "operationId": "balances_api_companies__company_id__parties_balances_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/companies/{company_id}/parties/{party_id}/statement": {
       "get": {
         "summary": "Statement",
@@ -5342,6 +5402,65 @@
               "type": "string",
               "format": "date",
               "title": "To Date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/day-book": {
+      "get": {
+        "summary": "Day Book",
+        "operationId": "day_book_api_companies__company_id__day_book_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "day",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Day"
             }
           }
         ],

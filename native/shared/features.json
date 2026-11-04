@@ -95,6 +95,11 @@
       "group": "Accounting"
     },
     {
+      "key": "day_book",
+      "title": "Day book",
+      "group": "Accounting"
+    },
+    {
       "key": "ledger",
       "title": "Ledger",
       "group": "Accounting"

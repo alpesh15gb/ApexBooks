@@ -85,7 +85,13 @@ public sealed class DocumentLine
         treatment.SelectionChanged += (_, _) => { if (Value(treatment) != "taxable") gst.Text = "0"; Changed?.Invoke(); };
         credit.SelectionChanged += (_, _) => Changed?.Invoke(); inclusive.Checked += (_, _) => Changed?.Invoke(); inclusive.Unchecked += (_, _) => Changed?.Invoke();
         View = Card(panel);View.Padding=new Thickness(14);
+        linkCreated=created=>{items.Add(created);itemId=created.Text("id");selector.Text=Description.Text=created.Text("name");Description.IsReadOnly=true;link.Text="Saved as a new item";Changed?.Invoke();};
     }
+
+    private readonly Action<JsonObject> linkCreated;
+    public bool Linked => itemId.Length > 0;
+    /// <summary>Links this line to an item that was just created from it (quick-add), keeping the typed rate and tax.</summary>
+    public void LinkCreatedItem(JsonObject created) => linkCreated(created);
 
     public void ApplySuggestedPrice(string rate,bool includesTax)
     {

@@ -250,3 +250,52 @@ td small { font-size: 11px; }
   .workspace-sync-line { display: none; }
   .register-overview { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ---------- Party balances (Vyapar-style "You'll get / You'll pay") ---------- */
+.party-balance-strip { display: flex; align-items: center; gap: 24px; padding: 8px 16px; border-top: 1px solid var(--ln-line); background: var(--ln-navy-50); }
+.party-balance-strip > div { display: flex; flex-direction: column; }
+.party-balance-strip small { font-size: 11px; color: var(--ln-muted); }
+.party-balance-strip strong { font-size: 16px; }
+.party-balance-strip .receive strong, td.party-balance.receive strong { color: var(--ln-ok); }
+.party-balance-strip .pay strong, td.party-balance.pay strong { color: var(--ln-danger); }
+.party-balance-strip > span { margin-left: auto; font-size: 11px; color: var(--ln-muted); }
+td.party-balance { white-space: nowrap; }
+td.party-balance strong { display: block; font-size: 13px; }
+td.party-balance small { font-size: 11px; color: var(--ln-muted); }
+.button.whatsapp svg { color: #1f9d55; }
+
+/* Quick-add party / item from inside the invoice */
+.quick-add{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;margin-top:6px;padding:5px 10px;border:1px dashed var(--brand,#1c3c72);border-radius:6px;background:transparent;color:var(--brand,#1c3c72);font:600 13px/1.2 inherit;cursor:pointer}
+.quick-add:hover:not(:disabled){background:rgba(31,78,140,.07)}
+.quick-add:disabled{opacity:.6;cursor:progress}
+.quick-add.inline{margin:0 0 0 8px;padding:1px 6px;font-size:12px;border-style:solid;border-width:1px}
+.quick-add-linked{display:block;margin-top:4px;color:#1f7a4d;font-size:12px}
+
+/* Day book */
+.day-book-bar{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.day-book-bar input[type=date]{width:170px;flex:0 0 auto;height:34px;padding:0 10px;border:1px solid #d5dce6;border-radius:6px;font:inherit}
+.day-book-bar .button.icon{width:34px;height:34px;padding:0;display:inline-flex;align-items:center;justify-content:center}
+.day-book-summary{grid-template-columns:repeat(4,minmax(0,1fr))}
+.day-book .positive,.day-book-summary .positive{color:#1f7a4d}
+.day-book .negative,.day-book-summary .negative{color:#b42318}
+.day-book tr.muted td{color:#8a94a6;text-decoration:line-through}
+.day-book tbody tr:hover{background:#f5f8fc}
+@media (max-width:720px){.day-book-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Thermal receipt menu in the transaction view */
+.receipt-menu > summary.button{width:auto;height:auto;min-height:34px;padding:0 12px;gap:6px;border:1px solid var(--ln-line);color:inherit}
+.receipt-menu .row-menu-list{position:absolute;top:calc(100% + 4px);left:0;z-index:30;display:flex;flex-direction:column;min-width:150px;padding:4px;background:#fff;border:1px solid var(--ln-line);border-radius:8px;box-shadow:0 8px 24px rgba(15,30,60,.14)}
+.receipt-menu .row-menu-list button{border:0;background:none;text-align:left;padding:8px 10px;border-radius:6px;font:inherit;cursor:pointer}
+.receipt-menu .row-menu-list button:hover{background:var(--ln-navy-50)}
+
+/* Remind overdue customers */
+.overdue-reminders{max-width:640px;width:calc(100vw - 32px);padding:18px 20px}
+.overdue-reminders .modal-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px}
+.overdue-reminders .modal-header p{margin:2px 0 0;color:var(--ln-muted);font-size:13px}
+.overdue-list{list-style:none;margin:0 0 12px;padding:0;max-height:55vh;overflow:auto;border:1px solid var(--ln-line);border-radius:8px}
+.overdue-list li{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:12px;padding:9px 12px;border-top:1px solid var(--ln-line)}
+.overdue-list li:first-child{border-top:0}
+.overdue-list li div{display:flex;flex-direction:column;min-width:0}
+.overdue-list small{color:var(--ln-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.overdue-list .amount{font-weight:700;color:#b42318}
+.party-balance-strip .button.whatsapp{margin-left:auto}

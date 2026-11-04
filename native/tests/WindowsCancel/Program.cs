@@ -142,6 +142,9 @@ try{
     var rows=await CompanyRecords(cid);var created=rows.OfType<JsonObject>().SingleOrDefault(r=>r["number"]?.ToString()==reference)??throw new Exception("UI invoice missing");
     var receipts=rows.OfType<JsonObject>().Where(r=>r["kind"]?.ToString()=="payment_in"&&r["name"]?.ToString()=="Pay Now Buyer").ToList();
     Check("invoice posted with exactly one linked receipt",receipts.Count==1&&Number(receipts[0],"amount")==100&&Number(created,"amount")==300&&Number(created,"outstanding")==200);
+    // 1b. Like Vyapar / Swipe, a newly saved invoice opens ready to share; close it before continuing.
+    Wait(()=>Find("Share on WhatsApp",ControlType.Button),"saved invoice opens ready to share");Check("saved invoice opens ready to share");Snapshot("03-saved-ready-to-share");
+    Invoke(Wait(()=>ButtonNamed("Done"),"close saved invoice"));Wait(()=>Find("Share on WhatsApp",ControlType.Button) is null?window:null,"saved invoice closed");
 
     // 2. Cancel refused while a payment exists
     Invoke(Wait(()=>Find(paidInvoice["number"]!.GetValue<string>(),ControlType.Button),"paid invoice row"));
