@@ -53,12 +53,14 @@ import {
   CircleHelp,
   Building2,
   ReceiptIndianRupee,
+  MoreHorizontal,
 } from "lucide-react";
 import "./style.css";
 import "./capabilities.css";
 import "./workspace.css";
 import "./flows.css";
 import "./ledger.css";
+import "./quickbooks.css";
 import ReportsV2 from "./Reports.jsx";
 import MasterImport from "./MasterImport.jsx";
 import VyaparImport from "./VyaparImport.jsx";
@@ -1556,8 +1558,8 @@ function App() {
                               </>
                             ) : (
                               <>
-                                <th>NAME / REFERENCE</th>
-                                <th>DATE</th>
+                                <th>NAME</th>
+                                <th>DETAILS</th>
                                 <th>TYPE</th>
                                 <th className="right">ACTIONS</th>
                               </>
@@ -2436,61 +2438,98 @@ function PaymentAllocationSummary({ record, records }) {
   );
 }
 function RecordActions({ r, onEdit, onPdf, onConvert, onRelated }) {
-  return (
-    <div className="record-actions">
-      {onRelated && relatedRecordActions(r, !!onEdit).map(action => (
-        <button className="link" key={action.kind} onClick={() => onRelated(r, action.kind)}>{action.label}</button>
-      ))}
-      {onEdit &&
-        (["party", "item"].includes(r.kind) ||
-          ([
-            "estimate",
-            "sales_order",
-            "proforma",
-            "purchase_order",
-            "sales_invoice",
-            "purchase_bill",
-            "expense",
-            "pos",
-            "credit_note",
-            "debit_note",
-            "payment_in",
-            "payment_out",
-            "bank_transfer",
-          ].includes(r.kind) &&
-            !r.converted_to)) && (
-          <button className="link" onClick={() => onEdit(r)}>
-            Edit
-          </button>
-        )}
-      {[
-        ...documentKinds,
+  const editable =
+    onEdit &&
+    (["party", "item"].includes(r.kind) ||
+      ([
+        "estimate",
+        "sales_order",
+        "proforma",
+        "purchase_order",
+        "sales_invoice",
+        "purchase_bill",
+        "expense",
+        "pos",
+        "credit_note",
+        "debit_note",
         "payment_in",
         "payment_out",
-        "customer_refund",
-        "supplier_refund",
-        "advance_refund",
+        "bank_transfer",
       ].includes(r.kind) &&
-        onPdf && (
-          <button
-            className="row-pdf"
-            onClick={() => onPdf(r)}
-            title="Download PDF"
-            aria-label={`Download ${r.number || r.name} PDF`}
-          >
-            <Download size={14} />
-          </button>
-        )}
-      {onConvert &&
-        ["estimate", "proforma", "sales_order", "purchase_order"].includes(r.kind) && (
-          <button
-            className="link convert-link"
-            disabled={!!r.converted_to}
-            onClick={() => onConvert(r)}
-          >
-            {r.converted_to ? "Converted" : "Convert"}
-          </button>
-        )}
+        !r.converted_to));
+  const downloadable =
+    [
+      ...documentKinds,
+      "payment_in",
+      "payment_out",
+      "customer_refund",
+      "supplier_refund",
+      "advance_refund",
+    ].includes(r.kind) && onPdf;
+  const convertible =
+    onConvert &&
+    ["estimate", "proforma", "sales_order", "purchase_order"].includes(r.kind);
+  // QuickBooks pattern: one primary action in the row, everything else in a menu.
+  const actions = [
+    ...(onRelated ? relatedRecordActions(r, !!onEdit) : []).map((action) => ({
+      key: action.kind,
+      label: action.label,
+      run: () => onRelated(r, action.kind),
+    })),
+    ...(convertible
+      ? [{ key: "convert", label: r.converted_to ? "Converted" : "Convert", disabled: !!r.converted_to, run: () => onConvert(r) }]
+      : []),
+    ...(editable ? [{ key: "edit", label: "Edit", run: () => onEdit(r) }] : []),
+  ];
+  const [primary, ...rest] = actions;
+  return (
+    <div className="record-actions">
+      {primary && (
+        <button
+          className={"link" + (primary.key === "convert" ? " convert-link" : "")}
+          disabled={primary.disabled}
+          onClick={primary.run}
+        >
+          {primary.label}
+        </button>
+      )}
+      {downloadable && (
+        <button
+          className="row-pdf"
+          onClick={() => onPdf(r)}
+          title="Download PDF"
+          aria-label={`Download ${r.number || r.name} PDF`}
+        >
+          <Download size={14} />
+        </button>
+      )}
+      {rest.length > 0 && (
+        <details
+          className="row-menu"
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+          }}
+        >
+          <summary aria-label={`More actions for ${r.number || r.name}`} title="More actions">
+            <MoreHorizontal size={16} />
+          </summary>
+          <div className="row-menu-list">
+            {rest.map((action) => (
+              <button
+                key={action.key}
+                disabled={action.disabled}
+                onClick={(event) => {
+                  const menu = event.currentTarget.closest("details");
+                  if (menu) menu.open = false;
+                  action.run();
+                }}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -2546,7 +2585,7 @@ function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, records, on
         </td>
         <td data-label="Status">
           <span
-            className={`status-badge ${status === "Posted" || status === "Settled" || status === "Converted" ? "posted" : "draft"}`}
+            className={`status-badge ${status === "Cancelled" ? "cancelled" : status === "Posted" || status === "Settled" || status === "Converted" ? "posted" : "draft"}`}
           >
             {status}
           </span>
@@ -2618,18 +2657,26 @@ function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, records, on
           </small>
         )}
       </td>
-      <td>
-        {new Date(r.date + "T00:00:00").toLocaleDateString("en-IN", {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-        })}
+      <td className="master-details">
+        {r.kind === "party"
+          ? [r.data?.gstin, r.data?.phone, r.data?.email].filter(Boolean).join(" · ") || "—"
+          : r.kind === "item"
+            ? [
+                r.data?.hsn ? `HSN ${r.data.hsn}` : "",
+                r.data?.sale_rate ? `${money(r.data.sale_rate)}${r.data?.unit ? ` / ${r.data.unit}` : ""}` : "",
+                r.data?.gst_rate !== undefined && r.data?.gst_rate !== "" ? `GST ${r.data.gst_rate}%` : "",
+              ].filter(Boolean).join(" · ") || "—"
+            : new Date(r.date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
       </td>
       <td>
         <span className="pill">
           {r.kind === "sales_invoice" && r.data?.tax_mode === "composition"
             ? "Bill of supply"
-            : labels[r.kind] || r.kind}
+            : r.kind === "party" && r.data?.party_type
+              ? String(r.data.party_type).replace(/^./, (c) => c.toUpperCase())
+              : r.kind === "item"
+                ? String(r.data?.item_type || "item").replace(/^./, (c) => c.toUpperCase())
+                : labels[r.kind] || r.kind}
         </span>
         {r.posted && ["sales_invoice", "purchase_bill"].includes(r.kind) && (
           <div className="document-row-status">

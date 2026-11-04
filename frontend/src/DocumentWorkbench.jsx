@@ -325,10 +325,10 @@ export function DocumentItems({
                 onChange={(e) => changeLine(index, e)}
               />
             </label>
-            <label>
+            <label className="line-discount">
               <span className="mobile-field-label">Line discount</span>
-              <select name="discount_mode" aria-label={`Item ${index + 1} discount mode`} value={lineDiscountMode(line)} onChange={e => changeLine(index, e)} style={{ minHeight: 44 }}>
-                <option value="percent">Discount %</option><option value="amount">Discount ₹</option>
+              <select name="discount_mode" aria-label={`Item ${index + 1} discount mode`} value={lineDiscountMode(line)} onChange={e => changeLine(index, e)}>
+                <option value="percent">%</option><option value="amount">₹</option>
               </select>
               <input
                 name={lineDiscountMode(line) === "amount" ? "discount_amount" : "discount_percent"}
@@ -339,7 +339,6 @@ export function DocumentItems({
                 aria-label={`Item ${index + 1} discount ${lineDiscountMode(line) === "amount" ? "amount" : "percent"}`}
                 value={lineDiscountMode(line) === "amount" ? line.discount_amount ?? "0" : line.discount_percent ?? "0"}
                 onChange={(e) => changeLine(index, e)}
-                style={{ minHeight: 44 }}
               />
             </label>
             {showTax && (

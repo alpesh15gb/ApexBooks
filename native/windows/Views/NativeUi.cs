@@ -54,7 +54,7 @@ public static class NativeUi
     public static StackPanel Stack(double spacing = 12) => new() { Spacing = spacing };
     public static Button Button(string label, Action click, bool primary = false)
     {
-        var button = new Button { Content = label, MinHeight = 40, CornerRadius = new CornerRadius(8), Padding = new Thickness(16, 8, 16, 8) };
+        var button = new Button { Content = label, MinHeight = 34, CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 5, 14, 5) };
         if (primary) button.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         button.Click += (_, _) => click(); return button;
     }
@@ -80,8 +80,8 @@ public static class NativeUi
         };
         return button;
     }
-    public static Border Card(UIElement child) => new() { Child = child, Background = new SolidColorBrush(Colors.White), BorderBrush = Brush(0xDF, 0xE3, 0xEB), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(18) };
-    public static TextBox Input(string label, string value = "", bool multi = false) => new() { Header = label, Text = value, FontFamily=WorkspaceFont,FontSize=13,MinHeight = 40, AcceptsReturn = multi, TextWrapping = multi ? TextWrapping.Wrap : TextWrapping.NoWrap, MaxLength = multi ? 2000 : 500 };
+    public static Border Card(UIElement child) => new() { Child = child, Background = new SolidColorBrush(Colors.White), BorderBrush = Brush(0xDF, 0xE3, 0xEB), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(14) };
+    public static TextBox Input(string label, string value = "", bool multi = false) => new() { Header = label, Text = value, FontFamily=WorkspaceFont,FontSize=13,MinHeight = 36, AcceptsReturn = multi, TextWrapping = multi ? TextWrapping.Wrap : TextWrapping.NoWrap, MaxLength = multi ? 2000 : 500 };
     public sealed class DateInput
     {
         public StackPanel View { get; } = Stack(6);
@@ -95,7 +95,7 @@ public static class NativeUi
     }
     public static ComboBox Select(string label, IEnumerable<(string Key, string Label)> choices, string selected = "")
     {
-        var box = new ComboBox { Header = label, HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = 38 };
+        var box = new ComboBox { Header = label, HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = 34 };
         foreach (var (key, text) in choices) { var item = new ComboBoxItem { Content = text, Tag = key }; box.Items.Add(item); if (key == selected) box.SelectedItem = item; }
         if (box.SelectedIndex < 0 && box.Items.Count > 0) box.SelectedIndex = 0;
         return box;
@@ -121,7 +121,7 @@ public static class NativeUi
         var layout = new Grid { RowSpacing = 14, MaxWidth=bodyWidth };
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        var bodyScroll=new ScrollViewer { Content = content, MaxWidth=bodyWidth, MaxHeight = Math.Max(180, Math.Min(760, rootHeight - (workbench ? 210 : 260))), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode=ScrollMode.Disabled };
+        var bodyScroll=new ScrollViewer { Content = content, MaxWidth=bodyWidth, MaxHeight = Math.Max(180, Math.Min(1100, rootHeight - (workbench ? 150 : 230))), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode=ScrollMode.Disabled };
         layout.Children.Add(bodyScroll);
         var dialog = new ContentDialog { Title = heading, Content = new ContentControl { Content = layout, HorizontalContentAlignment = HorizontalAlignment.Stretch }, PrimaryButtonText = workbench?"":action, SecondaryButtonText = workbench||saveAndNew is null ? "" : "Save & new", CloseButtonText = workbench||action=="Done"?"":"Cancel", DefaultButton = workbench?ContentDialogButton.None:ContentDialogButton.Primary, XamlRoot = App.Window.Content.XamlRoot };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(dialog,title);
@@ -133,7 +133,7 @@ public static class NativeUi
         discardActions.Children.Add(Button("Keep editing", () => discard.Visibility = Visibility.Collapsed, true));
         discardActions.Children.Add(Button("Discard draft", () => { context.ForcedClose = true; dialog.Hide(); }));
         discard.Children.Add(discardActions); heading.Children.Add(discard);
-        void ResizeBody(){if(workbench)bodyScroll.MaxHeight=Math.Max(140,Math.Min(760,rootHeight-210-error.ActualHeight-discard.ActualHeight));}
+        void ResizeBody(){if(workbench)bodyScroll.MaxHeight=Math.Max(140,Math.Min(1100,rootHeight-150-error.ActualHeight-discard.ActualHeight));}
         error.SizeChanged+=(_,_)=>ResizeBody();discard.SizeChanged+=(_,_)=>ResizeBody();
         dialog.Closing+=(_,args)=>{
             if(context.ForcedClose)return;

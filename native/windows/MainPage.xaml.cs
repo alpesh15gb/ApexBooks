@@ -20,8 +20,8 @@ public sealed partial class MainPage : Page
     internal bool IsOwner => Company.Text("role") == "owner";
     private NavigationView navigation = new();
     private readonly ContentControl host = new(){HorizontalContentAlignment=HorizontalAlignment.Stretch,VerticalContentAlignment=VerticalAlignment.Stretch};
-    private readonly ComboBox companyPicker = new() { Header = "Company", HorizontalAlignment = HorizontalAlignment.Stretch };
-    internal readonly StackPanel Body = Stack(18);
+    private readonly ComboBox companyPicker = new() { PlaceholderText = "Company", HorizontalAlignment = HorizontalAlignment.Stretch };
+    internal readonly StackPanel Body = Stack(12);
     private readonly InfoBar notice = new() { IsClosable = true, Margin = new Thickness(24, 8, 24, 0) };
     private readonly ProgressBar progress = new() { IsIndeterminate = true, Height = 3, Visibility = Visibility.Collapsed };
     private bool changingCompanies, shellReady;
@@ -114,14 +114,14 @@ public sealed partial class MainPage : Page
 
     private void BuildShell()
     {
-        navigation = new NavigationView { IsSettingsVisible = false, RequestedTheme = ElementTheme.Dark, PaneDisplayMode = NavigationViewPaneDisplayMode.Left, OpenPaneLength = 236, IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed };
+        navigation = new NavigationView { IsSettingsVisible = false, RequestedTheme = ElementTheme.Dark, PaneDisplayMode = NavigationViewPaneDisplayMode.Left, OpenPaneLength = 216, IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed };
         navigation.Resources["NavigationViewDefaultPaneBackground"] = Brush(0x18, 0x22, 0x34);
         navigation.Resources["NavigationViewExpandedPaneBackground"] = Brush(0x18, 0x22, 0x34);
-        navigation.Resources["NavigationViewSelectionIndicatorForeground"]=Brush(0x9F, 0xB5, 0xDB);
-        var pane = Stack(18);pane.Margin=new Thickness(8,10,8,18);var brandRow=Stack(10);brandRow.Orientation=Orientation.Horizontal;brandRow.VerticalAlignment=VerticalAlignment.Center;
-        brandRow.Children.Add(AppLogo(196));
+        navigation.Resources["NavigationViewItemOnLeftMinHeight"]=36.0;navigation.Resources["NavigationViewSelectionIndicatorForeground"]=Brush(0x9F, 0xB5, 0xDB);
+        var pane = Stack(8);pane.Margin=new Thickness(4,6,8,10);var brandRow=Stack(10);brandRow.Orientation=Orientation.Horizontal;brandRow.VerticalAlignment=VerticalAlignment.Center;
+        brandRow.Children.Add(AppLogo(150));
         pane.Children.Add(brandRow);
-        companyPicker.Header="Workspace";companyPicker.Background=Brush(0x24, 0x31, 0x47);companyPicker.Foreground=Brush(255,255,255);companyPicker.BorderBrush=Brush(0x38, 0x45, 0x5B);pane.Children.Add(companyPicker);navigation.PaneHeader=pane;
+        companyPicker.HorizontalAlignment=HorizontalAlignment.Stretch;companyPicker.MinHeight=34;companyPicker.Background=Brush(0x24, 0x31, 0x47);companyPicker.Foreground=Brush(255,255,255);companyPicker.BorderBrush=Brush(0x38, 0x45, 0x5B);pane.Children.Add(companyPicker);navigation.PaneHeader=pane;
         companyPicker.SelectionChanged += async (_, _) => { if (!changingCompanies) await Run(ChooseCompany); };
         foreach (var group in FeatureCatalog.Navigation.Where(f=>f.Key!="settings").GroupBy(f=>f.Group))
         {
@@ -144,7 +144,7 @@ public sealed partial class MainPage : Page
             else if (key == "new_company") await CompanyForm();
             else if (key is not null && CompanyId.Length > 0) await Navigate(key);
         });
-        Body.Margin = new Thickness(28,22,28,28);Body.RequestedTheme=ElementTheme.Light;
+        Body.Margin = new Thickness(20,12,20,20);Body.RequestedTheme=ElementTheme.Light;
         var content=new Grid{RequestedTheme=ElementTheme.Light,Background=Brush(0xF3, 0xF6, 0xF8)};content.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});content.RowDefinitions.Add(new RowDefinition());content.Children.Add(BuildWorkspaceHeader());
         var scroll=new ScrollViewer {Content=Body,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};Grid.SetRow(scroll,1);content.Children.Add(scroll);navigation.AlwaysShowHeader=false;navigation.Content=content;host.Content=navigation;shellReady=true;
     }
@@ -170,10 +170,9 @@ public sealed partial class MainPage : Page
         var leave=leavePage;leavePage=null;leave?.Invoke();hasUnsavedPage=null;hasPendingPage=null;
         ++generation;CurrentPage = page; Body.Children.Clear(); notice.IsOpen = false; workspaceCompany.Text = Company.Text("name");
         navigation.SelectedItem=FindNavigation(page);
-        var heading=Stack(6);
-        var kicker=Text(page=="dashboard"?"YOUR BUSINESS, IN FOCUS":"YOUR WORKSPACE",10,true);kicker.Foreground=Green;heading.Children.Add(kicker);
-        heading.Children.Add(Text(page=="dashboard"?"Business overview":FeatureCatalog.Title(page), 28, true));
-        var detail = Text(Company.Text("tax_mode") == "regular" ? "GST registered · " + Company.Text("gstin") : Company.Text("tax_mode") == "composition" ? "Composition company" : "Not GST registered", 12); detail.Foreground = Muted; heading.Children.Add(detail);Body.Children.Add(heading);
+        var heading=new StackPanel{Orientation=Orientation.Horizontal,Spacing=12,VerticalAlignment=VerticalAlignment.Bottom};
+        heading.Children.Add(Text(page=="dashboard"?"Business overview":FeatureCatalog.Title(page), 22, true));
+        var detail = Text(Company.Text("tax_mode") == "regular" ? "GST registered · " + Company.Text("gstin") : Company.Text("tax_mode") == "composition" ? "Composition company" : "Not GST registered", 12); detail.Foreground = Muted; detail.VerticalAlignment=VerticalAlignment.Bottom; detail.Margin=new Thickness(0,0,0,3); heading.Children.Add(detail);Body.Children.Add(heading);
         if(!Api.Capabilities.HasCoreAdditions)Body.Children.Add(CapabilityNotice());
         if(!recordsReady){Body.Children.Add(Text("Loading complete company history…",20,true));Body.Children.Add(Text("Balances and billing become available once all records are ready. No partial totals are shown."));Body.Children.Add(AsyncButton("Retry company data",Refresh,Error));return;}
         if (page == "dashboard") await Dashboard();
@@ -226,7 +225,7 @@ public sealed partial class MainPage : Page
         var list = new ListView { ItemsSource = rows, SelectionMode = ListViewSelectionMode.Single, MaxHeight = 650, IsItemClickEnabled = true, CornerRadius=new CornerRadius(14), BorderBrush=Brush(0xDF, 0xE3, 0xEB),BorderThickness=new Thickness(1), Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White) };
         list.ItemContainerStyle=new Style(typeof(ListViewItem)){Setters={new Setter(Control.HorizontalContentAlignmentProperty,HorizontalAlignment.Stretch),new Setter(Control.PaddingProperty,new Thickness(0)),new Setter(FrameworkElement.MarginProperty,new Thickness(0))}};
         list.ItemTemplate = (DataTemplate)XamlReader.Load("""
-          <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Grid Padding="12,10" ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="82"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="72"/><ColumnDefinition Width="100"/><ColumnDefinition Width="110"/><ColumnDefinition Width="132"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Date}" FontSize="12" VerticalAlignment="Center"/><StackPanel Grid.Column="1"><Button Command="{Binding OpenCommand}" Padding="0" BorderThickness="0" Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" FontSize="12" FontWeight="SemiBold" ToolTipService.ToolTip="{Binding PrimaryText}"><TextBlock Text="{Binding PrimaryText}" TextTrimming="CharacterEllipsis"/></Button><TextBlock Text="{Binding SecondaryText}" FontSize="11" Foreground="#697D8B" TextTrimming="CharacterEllipsis"/></StackPanel><TextBlock Grid.Column="2" Text="{Binding Status}" FontSize="11" VerticalAlignment="Center" Foreground="{Binding StatusBrush}"/><TextBlock Grid.Column="3" Text="{Binding Amount}" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center"/><TextBlock Grid.Column="4" Text="{Binding BalanceValue}" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center"/><StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"><Button Content="Edit" Command="{Binding EditCommand}" FontSize="12" Padding="10,6" CornerRadius="8"/><Button Content="PDF" Command="{Binding PdfCommand}" Visibility="{Binding PdfVisibility}" FontSize="12" Padding="10,6" CornerRadius="8"/></StackPanel></Grid></DataTemplate>
+          <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Grid Padding="12,6" ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="82"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="72"/><ColumnDefinition Width="100"/><ColumnDefinition Width="110"/><ColumnDefinition Width="132"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Date}" FontSize="12" VerticalAlignment="Center"/><StackPanel Grid.Column="1"><Button Command="{Binding OpenCommand}" Padding="0" BorderThickness="0" Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" FontSize="12" FontWeight="SemiBold" ToolTipService.ToolTip="{Binding PrimaryText}"><TextBlock Text="{Binding PrimaryText}" TextTrimming="CharacterEllipsis"/></Button><TextBlock Text="{Binding SecondaryText}" FontSize="11" Foreground="#697D8B" TextTrimming="CharacterEllipsis"/></StackPanel><TextBlock Grid.Column="2" Text="{Binding Status}" FontSize="11" VerticalAlignment="Center" Foreground="{Binding StatusBrush}"/><TextBlock Grid.Column="3" Text="{Binding Amount}" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center"/><TextBlock Grid.Column="4" Text="{Binding BalanceValue}" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center"/><StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"><Button Content="Edit" Command="{Binding EditCommand}" FontSize="12" Padding="10,6" CornerRadius="8"/><Button Content="PDF" Command="{Binding PdfCommand}" Visibility="{Binding PdfVisibility}" FontSize="12" Padding="10,6" CornerRadius="8"/></StackPanel></Grid></DataTemplate>
           """);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         var edit = AsyncButton("Edit selected", async () => { if (list.SelectedItem is RecordRow row) await EditRow(row.Source); }, Error); edit.IsEnabled = false;

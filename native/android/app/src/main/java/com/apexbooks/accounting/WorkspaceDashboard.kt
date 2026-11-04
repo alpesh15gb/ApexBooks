@@ -60,12 +60,10 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
     val issued=invoices.fold(BigDecimal.ZERO){sum,r->sum+r.decimal("amount")}
     val outstanding=invoices.fold(BigDecimal.ZERO){sum,r->sum+r.decimal("outstanding")}
     val settled=(issued-outstanding).max(BigDecimal.ZERO)
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=18.dp,top=18.dp,end=18.dp,bottom=104.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
-        item{Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-            Text("AT A GLANCE",style=MaterialTheme.typography.labelSmall,color=ApexGreen,fontWeight=FontWeight.Bold,letterSpacing=1.sp)
-            Heading("Business overview","${start.format(DateTimeFormatter.ofPattern("d MMM yyyy"))} – ${end.format(DateTimeFormatter.ofPattern("d MMM yyyy"))}")
-            Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                for((key,label)in listOf("year" to "Financial year","month" to "This month","30days" to "30 days"))FilterChip(selected=period==key,onClick={period=key},label={Text(label)})
+    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=14.dp,top=6.dp,end=14.dp,bottom=104.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+        item{Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                for((key,label)in listOf("year" to "Financial year","month" to "This month","30days" to "30 days"))FilterChip(selected=period==key,onClick={period=key},label={Text(label,style=MaterialTheme.typography.labelMedium)})
             }
         }}
         if(!vm.recordsReady)item{Section("Loading transaction history"){Text("Live report totals are shown as they arrive. Collections, charts and billing become available when the full company history is ready.");if(vm.busy==0)OutlinedButton(onClick={vm.task{vm.refresh()}}){Text("Retry company data")}}}
@@ -82,18 +80,17 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
             overdue.take(3).forEach{row->TextButton(onClick={vm.detail=row},modifier=Modifier.fillMaxWidth()){Text("${row.s("number")} · ${row.s("name")} · ${money(row.s("outstanding"))} due")}}
             if(overdue.size>3)TextButton(onClick={vm.navigate("sales_invoice")}){Text("View all sales invoices →")}
         }}
-        item{Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF0D2142),Color(0xFF25508F))),RoundedCornerShape(24.dp)).padding(20.dp)){
-            Column(verticalArrangement=Arrangement.spacedBy(12.dp)){
+        item{Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF0D2142),Color(0xFF25508F))),RoundedCornerShape(16.dp)).padding(horizontal=16.dp,vertical=12.dp)){
+            Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("Net sales",color=Color(0xFFC3D1EC),style=MaterialTheme.typography.labelLarge,fontWeight=FontWeight.Medium);Icon(Icons.Outlined.TrendingUp,null,tint=Color(0xFFBFE5FF))}
-                Text(summary?.let{money(it.s("sales"))}?:"—",color=Color.White,fontSize=30.sp,fontWeight=FontWeight.Bold)
+                Text(summary?.let{money(it.s("sales"))}?:"—",color=Color.White,fontSize=26.sp,fontWeight=FontWeight.Bold)
                 Text("Posted sales, after credit notes",color=Color(0xFFC3D1EC),style=MaterialTheme.typography.bodySmall)
             }
         }}
-        item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Metric("Net profit",financial?.let{money(it.s("net_profit"))}?:"—",Modifier.weight(1f));Metric("To collect · to date",summary?.let{money(it.s("receivables"))}?:"—",Modifier.weight(1f))}}
-        item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Metric("To pay · to date",summary?.let{money(it.s("payables"))}?:"—",Modifier.weight(1f));Metric("Cash & bank",financial?.takeIf{vm.recordsReady}?.let{money(accounts.fold(BigDecimal.ZERO){sum,a->sum+a.decimal("closing_balance")})}?:"—",Modifier.weight(1f))}}
-        if(vm.recordsReady)item{OutlinedButton(onClick={vm.toolData=null;vm.tool="recurring"},modifier=Modifier.fillMaxWidth()){Text("Recurring draft schedules")}}
-        if(vm.recordsReady)item{OutlinedButton(onClick={vm.tool="reorder"},modifier=Modifier.fillMaxWidth()){Text("Low stock & reorder review")}}
-        if(vm.canWrite&&vm.recordsReady)item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Button(onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,14.dp)){Icon(Icons.Outlined.Add,null,Modifier.size(18.dp));Text("New invoice")};OutlinedButton(onClick={vm.add("purchase_bill")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,14.dp)){Icon(Icons.Outlined.DocumentScanner,null,Modifier.size(18.dp));Text("Add purchase")}}}
+        item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Metric("Net profit",financial?.let{money(it.s("net_profit"))}?:"—",Modifier.weight(1f));Metric("To collect · to date",summary?.let{money(it.s("receivables"))}?:"—",Modifier.weight(1f))}}
+        item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Metric("To pay · to date",summary?.let{money(it.s("payables"))}?:"—",Modifier.weight(1f));Metric("Cash & bank",financial?.takeIf{vm.recordsReady}?.let{money(accounts.fold(BigDecimal.ZERO){sum,a->sum+a.decimal("closing_balance")})}?:"—",Modifier.weight(1f))}}
+        if(vm.recordsReady)item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){OutlinedButton(onClick={vm.toolData=null;vm.tool="recurring"},modifier=Modifier.weight(1f),contentPadding=PaddingValues(8.dp,8.dp)){Text("Recurring drafts",style=MaterialTheme.typography.labelLarge)};OutlinedButton(onClick={vm.tool="reorder"},modifier=Modifier.weight(1f),contentPadding=PaddingValues(8.dp,8.dp)){Text("Low stock review",style=MaterialTheme.typography.labelLarge)}}}
+        if(vm.canWrite&&vm.recordsReady)item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Button(onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,10.dp)){Icon(Icons.Outlined.Add,null,Modifier.size(18.dp));Text("New invoice")};OutlinedButton(onClick={vm.add("purchase_bill")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,10.dp)){Icon(Icons.Outlined.DocumentScanner,null,Modifier.size(18.dp));Text("Add purchase")}}}
         if(vm.recordsReady)item{Section("Sales & purchases"){MonthlyPerformance(vm.records,start,end);Text("Posted invoice values, including GST where applicable",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
         if(vm.recordsReady)item{Section("Invoice collections"){
             Text("GET PAID",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)

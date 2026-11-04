@@ -1,0 +1,252 @@
+/* Compact working layout (QuickBooks-style): slim chrome, one-line rows, tight forms, full-width content.
+   Loaded after ledger.css so it wins over the legacy layers. Colours stay in ledger.css tokens. */
+:root {
+  --qb-sidebar: 212px;
+  --qb-topbar: 52px;
+  --qb-gutter: 24px;
+  --qb-control: 34px;
+  --qb-row-pad: 9px;
+}
+
+/* ---------- Shell ---------- */
+.sidebar { width: var(--qb-sidebar); padding: 14px 10px 10px; }
+.main { margin-left: var(--qb-sidebar); width: calc(100% - var(--qb-sidebar)); }
+.sidebar .brand { padding: 0 4px 10px; margin: 0; }
+.sidebar .brand img, .sidebar .brand-mark, .sidebar .brand svg { max-height: 38px; width: auto; }
+.sidebar .brand-logo, .sidebar .logo { max-width: 100%; }
+.company-switch { margin: 4px 0 10px; padding: 7px 8px; gap: 8px; border-radius: 8px; }
+.company-icon { width: 28px; height: 28px; border-radius: 6px; }
+.company-text small { font-size: 9px; letter-spacing: 0.08em; margin-bottom: 1px; }
+.company-text select { font-size: 12px; }
+.nav-label { padding: 0 8px; margin: 4px 0 4px; font-size: 10px; }
+.nav-item { height: 36px; padding: 0 9px; gap: 10px; font-size: 13px; border-radius: 7px; }
+.nav-item.active::before { left: -10px; top: 7px; bottom: 7px; }
+.subnav { margin: 0 0 4px 17px; padding-left: 8px; }
+.subnav button { font-size: 12.5px; padding: 6px 9px; border-radius: 6px; }
+.sidebar-bottom { padding-top: 6px; }
+.sidebar-bottom button { padding: 7px 9px; }
+
+.topbar, .workspace-topbar { height: var(--qb-topbar); padding: 0 var(--qb-gutter); gap: 14px; box-shadow: none; }
+.workspace-search { height: 34px; max-width: 520px; }
+.workspace-search input { height: 32px; font-size: 13px; }
+.workspace-header-actions { gap: 8px; }
+.workspace-location { font-size: 12px; }
+.workspace-location strong { font-size: 12px; color: var(--ln-ink); }
+
+.content { max-width: none; padding: 14px var(--qb-gutter) 28px; }
+.workspace-sync-line { margin: 0 0 6px; min-height: 18px; font-size: 11px; }
+
+/* ---------- Page heading: title + actions on one slim row ---------- */
+.page-heading { margin-bottom: 12px; align-items: center; gap: 12px; }
+.page-heading .eyebrow, .page-heading .workspace-kicker { display: none; }
+.page-heading h1 { font-size: 22px; line-height: 1.2; letter-spacing: -0.01em; }
+.page-heading p { margin-top: 2px; font-size: 12.5px; line-height: 1.4; }
+.heading-actions { gap: 8px; }
+
+/* ---------- Controls ---------- */
+.button { height: var(--qb-control); padding: 0 14px; font-size: 13px; border-radius: 7px; }
+input, .form-select, select, textarea { font-size: 13px; }
+input, .form-select, select { height: var(--qb-control); }
+input { margin-top: 4px; padding: 0 10px; }
+label { font-size: 12px; }
+.form-select { padding: 0 8px; }
+
+/* ---------- Panels ---------- */
+.panel, .summary-card { border-radius: 10px; box-shadow: 0 1px 2px rgba(13, 33, 66, 0.05); }
+.panel-header { padding: 12px 16px; gap: 10px; }
+.panel-header h2 { font-size: 15px; margin: 0; }
+.panel-header p { margin-top: 1px; font-size: 12px; }
+.panel-header .eyebrow, .panel-header .workspace-kicker { display: none; }
+.empty { padding: 28px 16px 32px; }
+
+/* ---------- Registers: filters in one row, summary strip, one-line rows ---------- */
+.register-controls.panel { padding: 8px 12px; margin-bottom: 10px; gap: 10px 14px; align-items: end; }
+.register-controls .period-controls { gap: 10px; }
+.register-controls label { gap: 2px; font-size: 11px; color: var(--ln-muted); font-weight: 600; }
+.register-controls label select, .register-controls label input { height: 32px; margin-top: 0; font-size: 12.5px; }
+.register-controls .reset-filters { height: 32px; }
+
+.register-overview { gap: 10px; margin-bottom: 10px; }
+.register-overview > div { min-height: 0; height: auto; padding: 9px 14px; border-radius: 10px; gap: 10px; align-items: center; }
+.register-overview > div svg, .register-overview .summary-icon { display: none; }
+.register-overview small, .register-overview span { font-size: 11px; }
+.register-overview strong { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
+
+.register-filter-tabs { margin-bottom: 8px; min-height: 0; }
+.register-filter-tabs button { padding: 6px 12px; font-size: 12.5px; }
+
+table { min-width: 0; }
+th { padding: 8px 14px; font-size: 11px; }
+td { padding: var(--qb-row-pad) 14px; font-size: 13px; vertical-align: middle; }
+.register td { font-size: 13px; color: var(--ln-ink-2); }
+.register th { font-size: 11px; color: var(--ln-ink-2); background: var(--ln-navy-50); }
+
+.transaction-register table { min-width: 760px; }
+.transaction-reference { flex-direction: row; align-items: center; flex-wrap: nowrap; gap: 4px 12px; }
+.transaction-reference > .link, .transaction-reference > strong { font-size: 13px; }
+.transaction-reference > span, .transaction-reference .transaction-party { font-size: 13px; font-weight: 500; color: var(--ln-ink-2); }
+.transaction-reference > small { font-size: 11px; color: var(--ln-muted); }
+td .settlement-state { display: inline-block; margin-left: 8px; font-size: 11px; color: var(--ln-muted); }
+.status-badge { font-size: 11px; padding: 3px 8px; }
+.status-badge.cancelled { background: var(--ln-danger-bg); color: var(--ln-danger); }
+td small { font-size: 11px; }
+.register-pagination { padding: 8px 16px; }
+
+/* Row actions: one primary action + overflow menu. */
+.record-actions { gap: 6px; justify-content: flex-end; }
+.record-actions .link { font-size: 12.5px; min-height: 28px; min-width: 0; padding: 0 4px; }
+.record-actions .row-pdf, .row-menu > summary { width: 28px; height: 28px; min-width: 28px; min-height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--ln-muted); padding: 0; margin: 0; }
+.record-actions .row-pdf:hover, .row-menu > summary:hover, .row-menu[open] > summary { background: var(--ln-navy-50); color: var(--ln-navy-700); border-color: var(--ln-line); }
+.row-menu { position: relative; }
+.row-menu > summary { list-style: none; cursor: pointer; }
+.row-menu > summary::-webkit-details-marker { display: none; }
+.row-menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 160px; padding: 4px; background: var(--ln-surface); border: 1px solid var(--ln-line); border-radius: 8px; box-shadow: 0 8px 24px rgba(13, 33, 66, 0.16); display: flex; flex-direction: column; }
+.row-menu-list button { text-align: left; border: 0; background: transparent; padding: 7px 10px; border-radius: 6px; font-size: 13px; color: var(--ln-ink); cursor: pointer; white-space: nowrap; }
+.row-menu-list button:hover:not(:disabled) { background: var(--ln-navy-50); color: var(--ln-navy-700); }
+.table-wrap { overflow-x: auto; overflow-y: visible; }
+
+/* ---------- Dashboard ---------- */
+.summary-grid { gap: 10px; }
+.summary-card { padding: 12px 16px; }
+.summary-card > strong { font-size: 20px; margin: 6px 0 2px; }
+.summary-icon { width: 26px; height: 26px; }
+.dashboard-grid { gap: 12px; margin-top: 12px; }
+.quick { padding: 14px 16px; }
+.quick-list { margin-top: 8px; }
+.quick-list button { padding: 9px 0; }
+
+/* ---------- Modals and forms ---------- */
+.modal { padding: 18px 20px; }
+.modal-heading { margin-bottom: 12px; }
+.form-grid { gap: 10px 12px; }
+.modal-actions { margin-top: 6px; }
+
+@media (max-width: 700px) {
+  :root { --qb-gutter: 14px; --qb-control: 40px; }
+  .sidebar { width: 264px; padding: 14px 12px; }
+  .main { margin-left: 0; width: 100%; }
+  .content { padding: 12px var(--qb-gutter) 24px; }
+  .register-overview > div { padding: 8px 12px; }
+  .transaction-reference { flex-wrap: wrap; }
+  .row-menu-list { right: auto; left: 0; }
+}
+
+.register-stat-icon { display: none; }
+.register-overview > div > div { display: flex; flex-direction: column; gap: 1px; }
+
+/* ---------- Business overview ---------- */
+.overview-heading { min-height: 0; margin-bottom: 4px; }
+.overview-heading .workspace-kicker, .overview-heading .eyebrow { display: none; }
+.overview-heading h1 { font-size: 22px; }
+.overview-tabs { margin: 0 0 12px; }
+.overview-tabs button, .overview-tabs a { padding: 8px 12px; font-size: 13px; }
+.overview-metrics { gap: 10px; margin-bottom: 8px; }
+.overview-metric { padding: 12px 16px; min-height: 0; gap: 2px; border-radius: 10px; }
+.overview-metric strong { font-size: 22px; margin: 4px 0 2px; }
+.overview-metric small, .overview-metric span { font-size: 12px; }
+.attention-strip { padding: 7px 12px; margin-bottom: 10px; }
+.overview-analytics, .overview-secondary, .overview-bottom { gap: 10px; margin-bottom: 10px; }
+.insight-card { padding: 12px 16px; border-radius: 10px; }
+.insight-heading { margin-bottom: 6px; }
+.insight-heading .workspace-kicker, .insight-heading .eyebrow { display: none; }
+.insight-heading h2, .insight-heading h3 { font-size: 15px; }
+.insight-total { font-size: 22px; margin: 4px 0; }
+.chart-container { height: 188px !important; min-height: 0 !important; }
+.collection-content { min-height: 0; }
+.action-insight button { height: 48px; }
+.mini-line, .gst-mini-line { padding: 4px 0; }
+
+/* ---------- Party and item lists ---------- */
+.row-name { gap: 10px; }
+.row-name small, .master-contact { display: none; }
+.row-name strong { font-size: 13px; font-weight: 600; color: var(--ln-ink); }
+.row-icon { width: 28px; height: 28px; border-radius: 6px; background: var(--ln-navy-50); color: var(--ln-navy-600); }
+.master-details { color: var(--ln-muted); }
+.sidebar .brand { display: block; }
+.sidebar .brand img { display: block; max-width: 100%; height: auto; border-radius: 8px; }
+
+/* Keep money, dates, status and actions on one line; the document/party column absorbs the squeeze. */
+.transaction-register td[data-label="Date"],
+.transaction-register td[data-label="Status"],
+.transaction-register td[data-label="Amount"],
+.transaction-register td[data-label="Balance"],
+.transaction-register td[data-label="Actions"] { white-space: nowrap; }
+@media (min-width: 701px) and (max-width: 1180px) {
+  td, th { padding-left: 10px; padding-right: 10px; }
+  .transaction-register table { min-width: 0; }
+  .transaction-reference { flex-wrap: wrap; gap: 0 10px; }
+  td .settlement-state { display: block; margin-left: 0; }
+  .register-controls.panel { padding: 8px 10px; }
+}
+
+/* ---------- Invoice / bill editor: a work sheet, not a wizard ---------- */
+.document-overlay { padding: 0; }
+.document-modal { width: 100%; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+.document-modal > .modal-heading { padding: 10px 20px; }
+.document-modal .modal-heading h2 { font-size: 18px; }
+.document-modal .modal-heading p { margin-top: 1px; font-size: 12px; }
+.document-form .submission-fields, .document-form fieldset { gap: 0; }
+.document-identity { padding: 12px 20px; }
+.editor-section-heading { margin-bottom: 8px; gap: 8px; }
+.editor-section-heading > span { display: none; }
+.editor-section-heading h3 { font-size: 14px; }
+.editor-section-heading p { margin: 1px 0 0; font-size: 12px; }
+.document-header-grid { gap: 20px; }
+.document-items > .editor-section-heading { padding: 10px 20px 0; }
+.document-grid-head, .document-item-row { gap: 8px; padding: 6px 20px; align-items: center; }
+.document-grid-head { padding-top: 6px; padding-bottom: 6px; font-size: 11px; }
+.document-item-row { padding-top: 7px; padding-bottom: 7px; }
+.document-item-row input, .document-item-row select { height: 34px; }
+.document-item-row .line-unit { height: 20px; margin-top: 2px; font-size: 11px; }
+.item-description small { margin-top: 3px; font-size: 11px; }
+.line-amount { padding-top: 0; font-size: 14px; }
+.line-remove { margin-top: 0; }
+.line-discount { display: flex; gap: 4px; align-items: center; }
+.line-discount > select { flex: 1.5 1 0; min-width: 0; padding: 0 4px; }
+.line-discount > input { flex: 1 1 0; min-width: 0; }
+.document-bottom { padding: 12px 20px; gap: 24px; }
+.document-modal .modal-actions { padding: 10px 20px; margin: 0; }
+.pay-now { margin: 0 20px 12px; padding: 8px 12px; }
+.editor-footer-total strong { font-size: 20px; }
+@media (min-width: 901px) {
+  .document-item-row.with-tax, .document-items.with-tax { --item-columns: minmax(200px, 2fr) 90px 100px 150px 72px 110px 30px; }
+  .document-item-row.without-tax, .document-items.without-tax { --item-columns: minmax(200px, 2fr) 90px 100px 150px 110px 30px; }
+}
+.document-modal .document-form input:not([type="checkbox"]):not([type="radio"]),
+.document-modal .document-form select { height: 34px; min-height: 0; }
+.document-modal .document-form label { gap: 3px; font-size: 12px; }
+.line-discount > select { flex: 0 0 52px; }
+
+/* ---------- Report library ---------- */
+.library-search { height: 38px; padding: 0 12px; }
+.library-search input { height: 34px; }
+.report-library-grid { gap: 12px; }
+.report-category-heading { padding: 10px 16px; }
+.report-category-heading p { display: none; }
+.report-choice { padding: 9px 16px; min-height: 0; }
+.report-choice small, .report-choice p { font-size: 12px; margin-top: 1px; }
+.library-count { padding: 5px 12px; }
+
+/* ---------- Statements and report pages ---------- */
+.statement td { padding: 4px 0; font-size: 13px; }
+.statement-row.section td { padding-top: 10px; }
+.statement-row.grand td { padding: 6px 0; font-size: 14px; }
+
+/* Below laptop width the navigation becomes a drawer so the work area keeps its width. */
+@media (max-width: 1100px) {
+  :root { --qb-sidebar: 0px; }
+  .sidebar { visibility: hidden; transform: translateX(-100%); width: 252px; transition: transform 0.2s ease; }
+  .sidebar.open { visibility: visible; transform: translateX(0); }
+  .main { margin-left: 0; width: 100%; }
+  .mobile-menu { display: grid; }
+  .mobile-backdrop { display: block; position: fixed; inset: 0; background: #071a3366; z-index: 35; }
+}
+
+@media (max-width: 700px) {
+  .page-heading { flex-direction: row; align-items: center; justify-content: space-between; }
+  .page-heading > div { text-align: left; min-width: 0; }
+  .page-heading p { display: none; }
+  .page-heading .button, .heading-actions .button { height: 40px; padding: 0 12px; font-size: 13px; }
+  .workspace-sync-line { display: none; }
+  .register-overview { grid-template-columns: repeat(2, 1fr); }
+}

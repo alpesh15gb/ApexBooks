@@ -41,7 +41,7 @@ public sealed class DocumentLine
         var amount=Stack(8);amount.Children.Add(Text("Amount",12));amount.Children.Add(Amount);Amount.Foreground=Green;
         var showTax=regular||purchase;
         var fields=showTax?new FrameworkElement[]{selector,Quantity,unit,Rate,discountControls,gst,amount}:new FrameworkElement[]{selector,Quantity,unit,Rate,discountControls,amount};
-        var cells=new Grid{ColumnSpacing=12,RowSpacing=12};foreach(var field in fields)cells.Children.Add(field);
+        var cells=new Grid{ColumnSpacing=12,RowSpacing=12};foreach(var field in fields){field.VerticalAlignment=VerticalAlignment.Top;cells.Children.Add(field);}
         bool? compactLayout=null;
         void ArrangeFields(double width)
         {

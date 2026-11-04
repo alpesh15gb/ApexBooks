@@ -37,18 +37,18 @@ import java.math.BigDecimal
     val filtered=search.isNotBlank()||period!="all"||party!="all"||status!="all"
     val rows = filterRegister(vm.records, vm.page, search, from, to, party, status, sort)
     LaunchedEffect(search, period, start, end, party, status, sort) { count = 50 }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 100.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 100.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (transaction) item {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 listOf("Sales", "Purchase").forEachIndexed { index, label -> SegmentedButton(selected = (vm.page in MobileNavigation.purchases) == (index == 1), onClick = { vm.navigate(if (index == 0) "sales_invoice" else "purchase_bill") }, shape = SegmentedButtonDefaults.itemShape(index, 2)) { Text(label) } }
             }
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MobileNavigation.group(vm.page).forEach { key -> FilterChip(selected = vm.page == key, onClick = { vm.navigate(key) }, label = { Text(vm.title(key)) }) }
             }
         }
         item { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.weight(1f)) { SearchBarField(if (master) "Search name, phone or barcode" else "Search party or reference", search) { search = it } }
-            FilledTonalIconButton(onClick = { filters = true }, modifier = Modifier.size(52.dp), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Outlined.Tune, "Filter and sort") }
+            FilledTonalIconButton(onClick = { filters = true }, modifier = Modifier.size(48.dp), shape = RoundedCornerShape(12.dp)) { Icon(Icons.Outlined.Tune, "Filter and sort") }
         } }
         if(filtered)item { Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
             Text("Filtered · ${rows.size} results",style=MaterialTheme.typography.labelMedium)
@@ -57,7 +57,7 @@ import java.math.BigDecimal
         if(period=="custom"&&start>end)item{Message("The start date must be on or before the end date.",true)}
         if (!master) item {
             val total = rows.filterNot { it.optBoolean("cancelled") }.fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("amount") }
-            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(20.dp)) { Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(14.dp)) { Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column { Text("${rows.size} ${if (rows.size == 1) "transaction" else "transactions"}", style = MaterialTheme.typography.labelMedium); Text(money(total), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = ApexGreen) }
                 if (vm.page in setOf("sales_invoice", "purchase_bill")) Column(horizontalAlignment = Alignment.End) { Text("Outstanding", style = MaterialTheme.typography.labelMedium); Text(money(rows.fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("outstanding") }), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
             } }
@@ -90,27 +90,24 @@ import java.math.BigDecimal
 
 @Composable fun StatusPill(status: String) {
     val color = when (status) { "Unpaid" -> Color(0xFFAC650D); "Part settled" -> Color(0xFF1F5FBF); "Draft" -> Color(0xFF5B6B85); "Cancelled" -> Color(0xFFB3261E); else -> Color(0xFF1E7A4F) }
-    Surface(color = color.copy(alpha = .09f), shape = RoundedCornerShape(8.dp)) { Text(status, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = color, fontWeight = FontWeight.SemiBold) }
+    Surface(color = color.copy(alpha = .09f), shape = RoundedCornerShape(6.dp)) { Text(status, Modifier.padding(horizontal = 7.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.SemiBold) }
 }
 
 @Composable fun RecordCard(vm: AppModel, row: JSONObject) {
     val kind = row.s("kind"); val master = kind in setOf("party", "item")
-    Card(onClick = { when { kind == "party" -> vm.statement = row; kind == "item" && vm.canWrite -> vm.edit(row); else -> vm.detail = row } }, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (kind == "item") DataImage(row.o("data").s("image_thumbnail"), Modifier.size(48.dp))
-                else Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(14.dp)) { if (kind == "party") Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { Text(row.s("name").take(1).uppercase(), color = ApexGreen, fontWeight = FontWeight.Bold) } else Icon(featureIcon(kind), null, Modifier.padding(12.dp).size(20.dp), tint = ApexGreen) }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Card(onClick = { when { kind == "party" -> vm.statement = row; kind == "item" && vm.canWrite -> vm.edit(row); else -> vm.detail = row } }, shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (kind == "item") DataImage(row.o("data").s("image_thumbnail"), Modifier.size(40.dp))
+                else Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(10.dp)) { if (kind == "party") Box(Modifier.size(38.dp), contentAlignment = Alignment.Center) { Text(row.s("name").take(1).uppercase(), color = ApexGreen, fontWeight = FontWeight.Bold) } else Icon(featureIcon(kind), null, Modifier.padding(9.dp).size(20.dp), tint = ApexGreen) }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(row.s("name"), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
                     Text(if (master) row.o("data").s(if (kind == "party") "phone" else "hsn").ifBlank { if (kind == "party") "View transactions & balances" else "View item details" } else row.s("number") + " · " + row.s("date"), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (!master || kind == "item") Text(money(if (kind == "item") row.o("data").s("sale_rate") else row.s("amount")), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                if (!master || kind == "item") Text(money(if (kind == "item") row.o("data").s("sale_rate") else row.s("amount")), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 else Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if(master)StatusPill(registerStatus(row))
-            if (!master) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 StatusPill(registerStatus(row))
-                if (row.has("outstanding") && !row.isNull("outstanding")) Text("Due ${money(row.s("outstanding"))}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!master && row.has("outstanding") && !row.isNull("outstanding") && row.decimal("outstanding").signum() > 0) Text("Due ${money(row.s("outstanding"))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
