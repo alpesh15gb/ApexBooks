@@ -1,0 +1,14 @@
+{
+  "name": "Apex Books — GST billing & accounting",
+  "short_name": "Apex Books",
+  "description": "GST billing and accounting software for Indian businesses.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7fb",
+  "theme_color": "#0d2142",
+  "lang": "en-IN",
+  "icons": [
+    {"src": "/apexbooks-logo.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png"}
+  ]
+}
