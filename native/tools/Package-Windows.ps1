@@ -19,7 +19,11 @@ New-Item -ItemType Directory -Path $deliverables -Force | Out-Null
 $projectMetadata = [xml](Get-Content -LiteralPath (Join-Path $repository 'native\windows\ApexBooks.Windows.csproj') -Raw)
 $releaseVersion = @($projectMetadata.Project.PropertyGroup.Version | Where-Object { $_ })[0]
 $archive = Join-Path $deliverables "Apex-Books-Windows-$releaseVersion-$Configuration-win-x64.zip"
-Compress-Archive -LiteralPath $output -DestinationPath $archive -Force -CompressionLevel Optimal
+# The per-user installer sits next to the win-x64 folder: extract the zip, run "Install Apex Books".
+$installer = Join-Path $PSScriptRoot 'windows-installer'
+$installerFiles = @('Install Apex Books.cmd','install.ps1','uninstall.ps1') | ForEach-Object { Join-Path $installer $_ }
+foreach ($file in $installerFiles) { if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "The Windows installer is missing $file" } }
+Compress-Archive -LiteralPath (@($output) + $installerFiles) -DestinationPath $archive -Force -CompressionLevel Optimal
 [pscustomobject]@{
     Path = $archive
     Hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash

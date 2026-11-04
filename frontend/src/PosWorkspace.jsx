@@ -224,7 +224,8 @@ export default function PosWorkspace({
                       (r.data?.barcode && r.data.barcode === search) ||
                       r.name.toLowerCase() === search.toLowerCase(),
                   );
-                  if (exact || filtered.length === 1) add(exact || filtered[0]);
+                  // Clear after adding so the next barcode scan starts fresh.
+                  if (exact || filtered.length === 1) { add(exact || filtered[0]); setSearch(""); }
                 }
               }}
             />

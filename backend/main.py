@@ -33,7 +33,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_RIGHT
-from reportlab.platypus import SimpleDocTemplate, Table, LongTable, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, LongTable, TableStyle, Paragraph, Spacer, KeepTogether
 from reportlab.pdfgen import canvas
 from sqlalchemy import JSON, CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, Numeric, String, UniqueConstraint, create_engine, event, select, update, func, or_, case, cast, Text
 from sqlalchemy.exc import IntegrityError
@@ -967,6 +967,22 @@ class DocumentBranding(BaseModel):
 def branding_for(company_id, session):
     row = session.scalar(select(Record).where(Record.company_id == company_id, Record.kind == 'document_branding'))
     return row.data if row else {}
+
+BANK_FIELDS = ('bank_name', 'account_number', 'ifsc', 'branch')
+
+def with_payment_details(company_id, snapshot, current, session):
+    """Bank/UPI details for a customer document. A document saved with bank details keeps them as issued;
+    one saved before any were entered uses today's branding, then the company's own bank account."""
+    result = dict(snapshot)
+    if not any(result.get(key) for key in BANK_FIELDS):
+        if any(current.get(key) for key in BANK_FIELDS):
+            result.update({key: current.get(key, '') for key in BANK_FIELDS})
+        else:
+            bank = session.scalar(select(BankAccount).where(BankAccount.company_id == company_id).order_by(BankAccount.name))
+            if bank: result.update(bank_name=bank.name, account_number=bank.account_hint, ifsc='', branch='')
+    for key in ('upi_id', 'phone', 'email', 'signature', 'notes', 'terms'):
+        if not result.get(key) and current.get(key): result[key] = current[key]
+    return result
 
 @app.get('/api/companies/{company_id}/document-branding')
 def get_branding(company_id: str, user: User = Depends(current_user), session: Session = Depends(db)):
@@ -2666,6 +2682,8 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
             payments += Decimal(str(session.scalar(query)))
         document_data['payments_applied'] = str(payments)
     if 'logo' in current_brand:document_data['document_branding']={**(document_data.get('document_branding') or {}),'logo':current_brand['logo']}
+    if record.kind in {'sales_invoice','pos','estimate','proforma','sales_order','credit_note'}:
+        document_data['document_branding']=with_payment_details(company_id,document_data.get('document_branding') or {},current_brand,session)
     record=SimpleNamespace(id=record.id,kind=record.kind,name=record.name,number=record.number,date=record.date,amount=record.amount,data=document_data)
     voucher=record.kind in {'payment_in','payment_out','customer_refund','supplier_refund','advance_refund'}
     if voucher:
@@ -2779,7 +2797,43 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     totals.append(('Total (INR)', record.amount))
     total_table = Table([[Paragraph(safe(label), styles['ApexSmall']), Paragraph(safe(value), styles['ApexRight'])] for label, value in totals], colWidths=[385, 130], hAlign='RIGHT')
     total_table.setStyle(TableStyle([('LINEABOVE', (0, -1), (-1, -1), 1, accent), ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5)]))
-    elements += [total_table, Spacer(1, 20), Paragraph('Generated from Apex Books. Verify particulars and signature requirements before issue.', styles['ApexSmall'])]
+    elements += [total_table, Spacer(1, 16)]
+    # Bank, UPI, notes and signature: the same payment details the reference layouts print.
+    brand = {**legacy_branding, **{k: data[k] for k in ('notes', 'terms') if data.get(k)}}
+    if voucher: brand = {**brand, 'upi_id': ''}
+    bank_lines = [safe(label) + ': ' + safe(brand[key]) for key, label in [('bank_name', 'Bank'), ('account_number', 'Account #'), ('ifsc', 'IFSC'), ('branch', 'Branch')] if brand.get(key)]
+    if record.kind in {'sales_invoice', 'purchase_bill'}: legacy_paid = applied_total(company_id, record.id, session)
+    elif record.kind in {'pos', 'expense'} or voucher: legacy_paid = record.amount
+    else: legacy_paid = Decimal('0')
+    payable = max(Decimal('0'), record.amount - legacy_paid)
+    qr_cell = ''
+    if brand.get('upi_id') and record.kind in {'sales_invoice', 'estimate', 'proforma', 'pos'} and payable > 0:
+        from urllib.parse import urlencode
+        from reportlab.graphics.barcode.qr import QrCodeWidget
+        from reportlab.graphics.shapes import Drawing
+        code = QrCodeWidget('upi://pay?' + urlencode({'pa': brand['upi_id'], 'pn': supplier.get('name', ''), 'cu': 'INR', 'am': format(payable, '.2f')}))
+        x0, y0, x1, y1 = code.getBounds(); side = 78
+        drawing = Drawing(side, side, transform=[side / (x1 - x0), 0, 0, side / (y1 - y0), 0, 0]); drawing.add(code)
+        qr_cell = [Paragraph('<b>Pay using UPI</b>', styles['ApexBody']), drawing, Paragraph(safe(brand['upi_id']), styles['ApexSmall'])]
+    if record.kind in {'sales_invoice', 'purchase_bill'} and legacy_paid:
+        elements += [Paragraph(f'Amount paid: INR {legacy_paid} · Balance due: INR {payable}', styles['ApexBody']), Spacer(1, 8)]
+    signature_cell = [Paragraph('For ' + safe(supplier.get('name')), styles['ApexBody'])]
+    if brand.get('signature'):
+        from reportlab.platypus import Image as PdfImage
+        try:
+            sign = PdfImage(io.BytesIO(base64.b64decode(brand['signature'].split(',', 1)[1]))); sign._restrictSize(95, 50); signature_cell.append(sign)
+        except Exception: pass
+    signature_cell.append(Paragraph('Authorized signatory', styles['ApexSmall']))
+    bank_cell = [Paragraph('<b>Bank details</b><br/>' + '<br/>'.join(bank_lines), styles['ApexBody'])] if bank_lines else ''
+    if bank_cell or qr_cell:
+        cells = [c for c in (qr_cell, bank_cell) if c] + [signature_cell]
+        widths_by_count = {2: [300, 215], 3: [110, 220, 185]}
+        payment = Table([cells], colWidths=widths_by_count[len(cells)], hAlign='LEFT')
+        payment.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'), ('BACKGROUND', (0, 0), (-1, -1), tint), ('TOPPADDING', (0, 0), (-1, -1), padding), ('BOTTOMPADDING', (0, 0), (-1, -1), padding), ('LEFTPADDING', (0, 0), (-1, -1), padding)]))
+        elements += [KeepTogether(payment), Spacer(1, 12)]
+    for label, key in (('Notes', 'notes'), ('Terms and conditions', 'terms')):
+        if brand.get(key): elements += [Paragraph('<b>' + label + '</b>', styles['ApexBody']), Paragraph(safe(brand[key]).replace('\n', '<br/>'), styles['ApexSmall']), Spacer(1, 8)]
+    elements.append(Paragraph('Generated from Apex Books. Verify particulars and signature requirements before issue.', styles['ApexSmall']))
     pdf.build(elements)
     return Response(out.getvalue(), media_type='application/pdf', headers={'Content-Disposition': f'attachment; filename="{record.kind}-{record.number or record.id[:8]}.pdf"'})
 @app.get('/api/companies/{company_id}/export.{fmt}')

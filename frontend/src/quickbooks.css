@@ -299,3 +299,22 @@ td.party-balance small { font-size: 11px; color: var(--ln-muted); }
 .overdue-list small{color:var(--ln-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .overdue-list .amount{font-weight:700;color:#b42318}
 .party-balance-strip .button.whatsapp{margin-left:auto}
+
+/* Keyboard shortcut help */
+.shortcut-hint{font-weight:700;font-size:14px;width:30px;height:30px}
+.shortcut-help{max-width:440px;width:calc(100vw - 32px);padding:18px 20px}
+.shortcut-help header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.shortcut-help dl{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin:0}
+.shortcut-help dt{white-space:nowrap}
+.shortcut-help dd{margin:0;color:var(--ln-muted)}
+.shortcut-help kbd{display:inline-block;min-width:22px;padding:1px 6px;border:1px solid var(--ln-line);border-bottom-width:2px;border-radius:5px;background:#f7f9fc;font:600 12px/18px ui-monospace,monospace;text-align:center}
+@media (max-width:720px){.shortcut-hint{display:none}}
+
+/* Setup checklist: five compact steps */
+.setup-guide{margin:12px 0}
+.setup-guide-intro{padding:14px 18px}
+.setup-guide-steps{grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding:0 18px 14px}
+.setup-guide-steps article{padding:13px}
+.setup-guide-steps h3{margin:10px 0 4px}
+@media (max-width:1200px){.setup-guide-steps{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:700px){.setup-guide-steps{grid-template-columns:1fr}}

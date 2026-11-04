@@ -12,6 +12,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import { SHORTCUTS, isHelpKey, shortcutFor } from "./shortcuts.js";
 
 export default function WorkspaceHeader({
   company,
@@ -25,7 +26,10 @@ export default function WorkspaceHeader({
   const [query, setQuery] = useState(""),
     [open, setOpen] = useState(false),
     [create, setCreate] = useState(false),
-    [active, setActive] = useState(0);
+    [active, setActive] = useState(0),
+    [help, setHelp] = useState(false);
+  const actions = useRef({});
+  actions.current = { onNavigate, onCreate };
   const input = useRef(null),
     searchBox = useRef(null),
     createBox = useRef(null);
@@ -45,6 +49,18 @@ export default function WorkspaceHeader({
       if (e.key === "Escape") {
         setOpen(false);
         setCreate(false);
+        setHelp(false);
+      }
+      // Alt+N new invoice, Alt+R payment, Alt+D day book … never while an editor or dialog is open.
+      const blocked = !!document.querySelector('[aria-modal="true"], .overlay, .modal');
+      const shortcut = shortcutFor(e, blocked);
+      if (shortcut) {
+        e.preventDefault();
+        if (shortcut.action === "create") actions.current.onCreate?.(shortcut.target);
+        else actions.current.onNavigate?.(shortcut.target);
+      } else if (!blocked && isHelpKey(e)) {
+        e.preventDefault();
+        setHelp((value) => !value);
       }
     }
     function outside(e) {
@@ -269,6 +285,21 @@ export default function WorkspaceHeader({
           <ChevronDown size={13} />
         </button>
       </div>
+      <button type="button" className="icon-button shortcut-hint" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => setHelp(true)}>?</button>
+      {help && (
+        <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) setHelp(false); }}>
+          <section className="modal shortcut-help" role="dialog" aria-modal="true" aria-labelledby="shortcut-title">
+            <header><h2 id="shortcut-title">Keyboard shortcuts</h2><button type="button" className="icon-button" aria-label="Close" onClick={() => setHelp(false)}><X size={18} /></button></header>
+            <dl>
+              {SHORTCUTS.map((s) => <React.Fragment key={s.key}><dt><kbd>Alt</kbd> + <kbd>{s.key.toUpperCase()}</kbd></dt><dd>{s.label}</dd></React.Fragment>)}
+              <dt><kbd>Ctrl</kbd> + <kbd>K</kbd></dt><dd>Search everything</dd>
+              <dt><kbd>Ctrl</kbd> + <kbd>Enter</kbd></dt><dd>Save the open document</dd>
+              <dt><kbd>Esc</kbd></dt><dd>Close menus and dialogs</dd>
+              <dt><kbd>?</kbd></dt><dd>Show this list</dd>
+            </dl>
+          </section>
+        </div>
+      )}
     </header>
   );
 }

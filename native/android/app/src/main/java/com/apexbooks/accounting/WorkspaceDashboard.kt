@@ -54,6 +54,8 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
             summary=report.await();financial=profit.await();gst=tax.await()
         }}catch(e:Exception){currentCoroutineContext().ensureActive();vm.failure(e)}
     }
+    var paymentDetails by remember{mutableStateOf<Boolean?>(null)}
+    LaunchedEffect(vm.companyId,vm.revision){paymentDetails=runCatching{val b=vm.api.request(vm.api.company(vm.companyId,"/document-branding")) as JSONObject;listOf("bank_name","account_number","upi_id").any{b.s(it).isNotBlank()}}.getOrNull()}
     val bankCodes=vm.banks.map{it.s("ledger_code")}.toSet()
     val accounts=financial?.a("accounts")?.objects()?.filter{it.s("code")in setOf("SYS-CASH","SYS-BANK")||it.s("code")in bankCodes}.orEmpty()
     val invoices=vm.records.filter{it.s("kind")=="sales_invoice"&&it.optBoolean("posted")}
@@ -67,6 +69,14 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
             }
         }}
         if(!vm.recordsReady)item{Section("Loading transaction history"){Text("Live report totals are shown as they arrive. Collections, charts and billing become available when the full company history is ready.");if(vm.busy==0)OutlinedButton(onClick={vm.task{vm.refresh()}}){Text("Retry company data")}}}
+        // Setup prompt: invoices only carry bank / UPI and address once these are filled in.
+        val company=vm.company;val registered=company.s("tax_mode") in setOf("regular","composition")
+        val needsBusiness=company.s("address").isBlank()||registered&&company.s("gstin").isBlank()
+        if(vm.canWrite&&(needsBusiness||paymentDetails==false))item{Section("Finish setting up"){
+            if(needsBusiness)Text("• Add your business address"+(if(registered)" and GSTIN" else "")+" so invoices are valid.")
+            if(paymentDetails==false)Text("• Add bank account and UPI ID so they print on invoices and customers can pay you.")
+            FilledTonalButton(onClick={vm.navigate("settings")}){Text("Open settings")}
+        }}
         if(vm.recordsReady&&vm.records.none{it.optBoolean("posted")})item{Section("Start your books"){
             Text("Create your first invoice or purchase. Customers and items can be added now or entered while billing.")
             if(vm.canWrite){

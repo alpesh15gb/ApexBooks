@@ -345,7 +345,7 @@ export default function BusinessOverview({
           </button>
         </div>
       </div>
-      {recordsReady && <SetupChecklist company={company} records={records} onCreate={onCreate} onNavigate={onNavigate} />}
+      {recordsReady && <SetupChecklist company={company} records={records} onCreate={onCreate} onNavigate={onNavigate} api={api} />}
       <nav className="overview-tabs" aria-label="Business shortcuts">
         <span className="selected">Overview</span>
         <button onClick={() => onNavigate("sales_invoice")}>

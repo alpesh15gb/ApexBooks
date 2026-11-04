@@ -147,7 +147,7 @@ public sealed partial class MainPage : Page
         });
         Body.Margin = new Thickness(20,12,20,20);Body.RequestedTheme=ElementTheme.Light;
         var content=new Grid{RequestedTheme=ElementTheme.Light,Background=Brush(0xF3, 0xF6, 0xF8)};content.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});content.RowDefinitions.Add(new RowDefinition());content.Children.Add(BuildWorkspaceHeader());
-        var scroll=new ScrollViewer {Content=Body,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};Grid.SetRow(scroll,1);content.Children.Add(scroll);navigation.AlwaysShowHeader=false;navigation.Content=content;host.Content=navigation;shellReady=true;
+        var scroll=new ScrollViewer {Content=Body,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};Grid.SetRow(scroll,1);content.Children.Add(scroll);navigation.AlwaysShowHeader=false;navigation.Content=content;host.Content=navigation;shellReady=true;InstallShortcuts(navigation);
     }
 
     private async Task ChooseCompany()
