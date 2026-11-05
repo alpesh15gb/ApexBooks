@@ -101,6 +101,31 @@ On a migration or readiness failure, keep writers paused and the old activation/
 
 ## Checks and rollback
 
+### Updates from a Git checkout
+
+`update_from_git.py` supports an existing deployment whose release directory came
+from a source archive and therefore has no `.git` directory. Keep a separate clean
+checkout at `/opt/apexbooks-vps/source`, pull with `git pull --ff-only origin main`,
+and supply the full tested source SHA explicitly:
+
+```bash
+python3 deploy/vps/update_from_git.py stage --source-sha "$APEX_SOURCE_SHA"
+# After pausing all Apex writers, when the operator explicitly waived a backup:
+python3 deploy/vps/update_from_git.py apply --source-sha "$APEX_SOURCE_SHA" --without-backup --writers-paused
+```
+
+Staging exports only tracked public source into a separate versioned directory,
+builds API/web sequentially, records actual image IDs and writes the source
+manifest. Running services continue during builds. Apply retains the existing
+private settings and Nginx routes, changes only `apexbooks-vps` api/web, applies
+versioned migrations and verifies exact local/public readiness. The waiver is
+stored as `backup_policy=operator_waived`, with a null backup reference and false
+restore/rehearsal flags. It never invents backup evidence. The default verified
+backup controller workflow remains supported. If a cutover partially completed,
+use `resume --source-sha "$APEX_SOURCE_SHA" --writers-paused` after reviewing the
+error; this starts the prepared candidate and verifies it without rerunning the
+schema migration. Old code is not automatically restarted against a changed schema.
+
 ```bash
 set -euo pipefail
 python3 deploy/vps/manage.py verify-public

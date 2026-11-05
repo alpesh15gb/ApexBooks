@@ -24,7 +24,7 @@ This is a draft-branch candidate, not a published or deployed release. See [veri
 
 ## Compatibility and rollout
 
-API and web package versions target 1.5.0. Android targets version 1.5.0 (code 10); Windows targets 1.5.0 (package 1.5.0.0). Version changes do not imply signing, distribution or production promotion.
+API and web package versions target 1.5.0. Android targets version 1.5.0 (code 12); Windows targets 1.5.0 (package 1.5.0.0). Version changes do not imply signing, distribution or production promotion.
 
 No schema migration is required for cancellation, payment at entry or statements. **Rollback caution:** a cancelled document keeps its original and reversal journals but loses its posting link, so an older API build shows it as an unposted legacy record; restore from a verified backup rather than downgrading after cancelling documents.
 

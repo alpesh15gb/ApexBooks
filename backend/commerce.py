@@ -164,7 +164,8 @@ class Commerce:
     def available(self, session, cid, item_id, exclude=None):
         return self.book_quantity(session, cid, item_id) - self.reserved(session, cid, item_id, exclude)
     def assert_available(self, cid, item_id, quantity, book_quantity, session):
-        if quantity > book_quantity - self.reserved(session, cid, item_id, OWN_RESERVATION.get()):
+        reserved = self.reserved(session, cid, item_id, OWN_RESERVATION.get())
+        if reserved > 0 and quantity > max(Decimal(0), book_quantity - reserved):
             raise HTTPException(409, 'Stock is reserved for accepted online orders; reduce quantity or release the order reservation')
     def enqueue(self, session, c, command_id, operation, payload):
         if operation not in OPERATIONS: raise HTTPException(422, 'Unsupported commerce action')

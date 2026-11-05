@@ -55,23 +55,23 @@ def install(app, m):
         if blockers:
             raise HTTPException(409, 'Cannot cancel ' + (record.number or record.kind) + ': ' + '; '.join(blockers) + '.')
 
-        # Release stock, then prove no later movement goes negative.
+        # Negative quantities are allowed. Downstream valuation dependencies
+        # still prevent removing the cost basis of already-posted movements.
         movements = list(session.scalars(select(m.StockMovement).where(m.StockMovement.company_id == company_id, m.StockMovement.source_record_id == record.id)))
         item_ids = {row.item_id for row in movements}
+        if item_ids:
+            others = session.scalars(select(m.StockMovement).where(
+                m.StockMovement.company_id == company_id, m.StockMovement.item_id.in_(item_ids),
+                m.StockMovement.source_record_id != record.id, m.StockMovement.date >= record.date))
+            created = record.data.get('created_at')
+            for movement in others:
+                source = session.get(m.Record, movement.source_record_id)
+                if movement.date > record.date or (source.kind != 'stock_opening' and
+                    (not created or not source.data.get('created_at') or source.data['created_at'] >= created)):
+                    raise HTTPException(409, 'Later stock movements depend on this valuation; cancel them first or correct stock through a return.')
         for row in movements:
             session.delete(row)
         session.flush()
-        for item_id in item_ids:
-            item = session.get(m.Record, item_id)
-            if item.data.get('vyapar_stock_migrated'):
-                continue
-            running = Decimal(0)
-            for day, quantity in session.execute(select(m.StockMovement.date, func.sum(m.StockMovement.quantity)).where(
-                    m.StockMovement.company_id == company_id, m.StockMovement.item_id == item_id).group_by(m.StockMovement.date).order_by(m.StockMovement.date)):
-                running += quantity
-                if running < 0:
-                    session.rollback()
-                    raise HTTPException(409, f'Cannot cancel: later sales of {item.name} would exceed stock on {day}')
 
         original = session.get(m.Journal, posting.journal_id)
         lines = list(session.scalars(select(m.JournalLine).where(m.JournalLine.company_id == company_id, m.JournalLine.journal_id == original.id)))

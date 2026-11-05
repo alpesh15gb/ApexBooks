@@ -773,7 +773,7 @@ class ApiTest(unittest.TestCase):
             self.assertIsNone(summary['gst'])
             self.assertEqual(summary['purchases'], '118.00')
 
-    def test_linked_stock_movements_and_negative_stock_guard(self):
+    def test_linked_stock_movements_allow_negative_billing(self):
         with TestClient(app) as client:
             credentials = {'email': 'stock@example.com', 'password': 'strong-password'}
             self.assertEqual(client.post('/api/auth/register', json=credentials).status_code, 200)
@@ -798,21 +798,21 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(sale.status_code, 200, sale.text)
             line['quantity'] = '3'
             self.assertEqual(client.post(base + '/records', headers=headers, json={
-                'kind': 'pos', 'name': 'Walk-in', 'date': '2026-10-30', 'data': {'lines': [line]}}).status_code, 422)
+                'kind': 'pos', 'name': 'Walk-in', 'date': '2026-10-30', 'data': {'lines': [line]}}).status_code, 200)
             line['quantity'] = '1'
             self.assertEqual(client.post(base + '/records', headers=headers, json={
                 'kind': 'sales_invoice', 'name': 'Early customer', 'date': '2026-10-29', 'data': {'lines': [line]}}).status_code, 409)
             report = client.get(base + '/reports/stock?from_date=2026-10-01&to_date=2026-10-31', headers=headers)
             self.assertEqual(report.status_code, 200, report.text)
-            self.assertEqual(report.json()['rows'][0]['closing_quantity'], '2.000')
-            self.assertEqual(report.json()['rows'][0]['sold_quantity'], '3.000')
-            self.assertEqual(report.json()['rows'][0]['closing_value'], '20.00')
+            self.assertEqual(report.json()['rows'][0]['closing_quantity'], '-1.000')
+            self.assertEqual(report.json()['rows'][0]['sold_quantity'], '6.000')
+            self.assertEqual(report.json()['rows'][0]['closing_value'], '-10.00')
             financial = client.get(base + '/reports/financial?from_date=2026-10-01&to_date=2026-10-31', headers=headers).json()
-            self.assertEqual(next(row['closing_balance'] for row in financial['accounts'] if row['code'] == 'SYS-INVENTORY'), '20.00')
-            self.assertEqual(next(row['closing_balance'] for row in financial['accounts'] if row['code'] == 'SYS-COGS'), '30.00')
+            self.assertEqual(next(row['closing_balance'] for row in financial['accounts'] if row['code'] == 'SYS-INVENTORY'), '-10.00')
+            self.assertEqual(next(row['closing_balance'] for row in financial['accounts'] if row['code'] == 'SYS-COGS'), '60.00')
             self.assertEqual(financial['balance_difference'], '0.00')
             self.assertEqual(client.get(base + '/reports/stock.xlsx?from_date=2026-10-01&to_date=2026-10-31', headers=headers).status_code, 200)
-            self.assertEqual(len(client.get(base + '/data-export.json', headers=headers).json()['stock_movements']), 2)
+            self.assertEqual(len(client.get(base + '/data-export.json', headers=headers).json()['stock_movements']), 3)
 
     def test_partial_bank_match_allocations(self):
         with TestClient(app) as client:

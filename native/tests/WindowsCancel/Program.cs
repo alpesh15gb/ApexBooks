@@ -104,6 +104,18 @@ AutomationElement? FindContains(string text)=>window?.FindAll(TreeScope.Descenda
 void Toggle(AutomationElement element){if(!element.TryGetCurrentPattern(TogglePattern.Pattern,out var pattern))throw new Exception("No Toggle pattern: "+element.Current.Name);var toggle=(TogglePattern)pattern;if(toggle.Current.ToggleState!=ToggleState.On)toggle.Toggle();}
 async Task<JsonObject> Record(string cid,string id)=>(JsonObject)(await Get($"/api/companies/{cid}/records/{id}"))!;
 AutomationElement? ButtonNamed(string name)=>window?.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Button)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==name&&e.Current.IsEnabled);
+void LedgerStep(){
+    // 4. Party statement reads as a Tally-style ledger
+    var closeDetail=ButtonNamed("Done");if(closeDetail is not null)Invoke(closeDetail);Thread.Sleep(800);
+    Invoke(Wait(()=>Find("Parties"),"Parties navigation"));
+    Invoke(Wait(()=>Find("Paid Buyer",ControlType.Button)??Find("Paid Buyer"),"party row"));
+    Wait(()=>Find("Closing balance"),"ledger closing balance row");
+    Check("ledger shows Tally columns",new[]{"Particulars","Vch Type","Vch No.","Debit","Credit","Opening balance","Current total"}.All(x=>Find(x) is not null));
+    Check("ledger shows debit and receipt entries",Find("To Sales") is not null&&Find("By Cash") is not null);
+    Check("ledger closes at the party balance",Find("460.00 Dr") is not null);
+    foreach(var scroller in window!.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>().Where(e=>e.TryGetCurrentPattern(ScrollPattern.Pattern,out _))){var pattern=(ScrollPattern)scroller.GetCurrentPattern(ScrollPattern.Pattern);if(pattern.Current.VerticallyScrollable)pattern.SetScrollPercent(ScrollPattern.NoScroll,100);}Thread.Sleep(800);
+    Snapshot("05-party-ledger");
+}
 try{
     if(!Environment.UserInteractive)throw new Exception("No interactive desktop.");
     var email=$"windows-cancel-{Guid.NewGuid():N}@example.invalid";var password="Synthetic-Windows-Ui-Only-42!";
@@ -113,6 +125,7 @@ try{
     var paidInvoice=await Post($"/api/companies/{cid}/records",new(){["kind"]="sales_invoice",["name"]="Paid Buyer",["date"]=date,["data"]=Line("Paid service","500")});
     var receipt=await Post($"/api/companies/{cid}/records",new(){["kind"]="payment_in",["name"]="Paid Buyer",["date"]=date,["amount"]="40",["data"]=new JsonObject{["applied_to"]=paidInvoice["id"]!.GetValue<string>()}});
     var plainInvoice=await Post($"/api/companies/{cid}/records",new(){["kind"]="sales_invoice",["name"]="Plain Buyer",["date"]=date,["data"]=Line("Plain service","150")});
+    await Post($"/api/companies/{cid}/records",new(){["kind"]="party",["name"]="Paid Buyer",["date"]=date,["data"]=new JsonObject()});
     Check("synthetic company, paid invoice and plain invoice seeded");
     var start=new ProcessStartInfo(Path.Combine(publish,"ApexBooks.Windows.exe")){WorkingDirectory=publish,UseShellExecute=false};start.Environment["APEX_BOOKS_API_ORIGIN"]=origin.GetLeftPart(UriPartial.Authority);app=Process.Start(start)??throw new Exception("launch failed");
     window=Wait(()=>AutomationElement.RootElement.FindFirst(TreeScope.Children,new PropertyCondition(AutomationElement.ProcessIdProperty,app.Id)),"app window");
@@ -120,6 +133,8 @@ try{
     var passwordBox=Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Edit)).Cast<AutomationElement>().FirstOrDefault(x=>x.Current.IsPassword),"password input");
     Set(emailBox,email);Set(passwordBox,password);Invoke(Wait(()=>Find("Sign in",ControlType.Button),"Sign in"));
     Wait(()=>Find("Business overview"),"dashboard");Check("signed in");Snapshot("01-dashboard");Thread.Sleep(4000); // optional server capabilities load in the background after sign-in
+    // This path sends no keyboard input, so it cannot type into another window when the app is not in front.
+    if(Environment.GetEnvironmentVariable("APEX_HARNESS_ONLY")=="ledger"){LedgerStep();Dump();await File.WriteAllTextAsync(Path.Combine(evidence,"result.json"),new JsonObject{["passed"]=true,["checks"]=new JsonArray(checks.Select(x=>(JsonNode)JsonValue.Create(x)!).ToArray())}.ToJsonString());return;}
     Invoke(Wait(()=>Find("Sales & collections  ↗",ControlType.Button),"sales register shortcut"));
 
     // 1. Received now through the real form
@@ -168,6 +183,7 @@ try{
     Check("detail offers no Cancel or Edit for a cancelled document",Find("Cancel this document",ControlType.Button) is null&&Find("PDF / print / share",ControlType.Button) is not null);
     var financial=await Get($"/api/companies/{cid}/reports/financial?from_date=2000-01-01&to_date=2100-01-01");
     Check("books still balance",Number(financial,"balance_difference")==0);
+    LedgerStep();
     Dump();
     await File.WriteAllTextAsync(Path.Combine(evidence,"result.json"),new JsonObject{["passed"]=true,["checks"]=new JsonArray(checks.Select(x=>(JsonNode)JsonValue.Create(x)!).ToArray())}.ToJsonString());
 }catch(Exception e){try{Dump();Snapshot("failure-visible-app");}catch{}await File.WriteAllTextAsync(Path.Combine(evidence,"failure.txt"),e.ToString());Console.WriteLine(e);throw;}

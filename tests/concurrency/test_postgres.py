@@ -214,17 +214,17 @@ class ConcurrentPostingTest(unittest.TestCase):
         self.assertEqual(sum(r['kind'] == 'payment_in' for r in rows), 1)
         self.assertEqual(float(next(r for r in rows if r['id'] == invoice['id'])['outstanding']), 0)
 
-    def test_last_stock_unit_can_only_be_sold_once(self):
+    def test_concurrent_sales_can_cross_zero_without_losing_stock_movements(self):
         item = self.create({'kind': 'item', 'name': 'One unit', 'data': {'track_stock': True}})
         opened = self.client.post(self.base + '/stock/opening', headers=self.headers,
             json={'item_id': item['id'], 'date': '2026-04-01', 'quantity': 1, 'unit_cost': 60})
         opened.raise_for_status()
         results = self.race([('/records', self.sale(item=item), uuid4().hex) for _ in range(2)])
-        self.assertEqual(sorted(r.status_code for r in results), [200, 422], [r.text for r in results])
+        self.assertEqual(sorted(r.status_code for r in results), [200, 200], [r.text for r in results])
         report = self.client.get(self.base + '/reports/stock', headers=self.headers,
             params={'from_date': '2026-04-01', 'to_date': '2026-04-30'}).json()
-        self.assertEqual(float(report['rows'][0]['closing_quantity']), 0)
-        self.assertEqual(float(report['rows'][0]['closing_value']), 0)
+        self.assertEqual(float(report['rows'][0]['closing_quantity']), -1)
+        self.assertEqual(float(report['rows'][0]['closing_value']), -60)
 
 
     def test_compact_projection_preserves_fresh_status_and_detail(self):

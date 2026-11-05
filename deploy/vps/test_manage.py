@@ -287,6 +287,32 @@ class UpgradeTests(unittest.TestCase):
         for item in self.patches: self.addCleanup(item.stop)
 
     def save_plan(self): (self.state / 'upgrade-plan.json').write_text(json.dumps(self.plan))
+    def waived_plan(self):
+        self.plan.pop('schema_compatibility_reviewed'); self.plan.pop('recovery_plan_reviewed')
+        self.plan.update(database_backup_reference=None, isolated_restore_verified=False,
+                         production_clone_rehearsed=False, backup_policy='operator_waived',
+                         backup_waiver_reason='Operator explicitly requested no backup at this stage')
+        self.save_plan()
+
+    def test_operator_waiver_is_explicit_truthful_and_still_requires_paused_writers(self):
+        self.waived_plan()
+        self.assertIsNone(m.upgrade_plan()[0]['database_backup_reference'])
+        for key, value in [('writers_paused',False),('isolated_restore_verified',True),
+                           ('production_clone_rehearsed',True),('database_backup_reference','invented'),
+                           ('backup_waiver_reason','automatic')]:
+            previous=self.plan[key];self.plan[key]=value;self.save_plan()
+            with self.subTest(key=key),self.assertRaises(RuntimeError):m.upgrade_plan()
+            self.plan[key]=previous
+
+    def test_waived_upgrade_uses_same_receipt_and_release_verification(self):
+        self.waived_plan();self.prepare()
+        with patch.object(m,'verify_local') as local,patch.object(m,'verify_public') as public:
+            m.finish_upgrade()
+        local.assert_called_once();public.assert_called_once()
+        active=json.loads((self.state/'activated.json').read_text())
+        retained=json.loads((Path(active['upgrade_snapshot'])/'upgrade-plan.json').read_text())
+        self.assertEqual(retained['backup_policy'],'operator_waived')
+        self.assertFalse(retained['isolated_restore_verified'])
     def prepare(self):
         def compose(*args): return SimpleNamespace(stdout=args[-1] if args[:2]==('ps','-q') else '')
         def run(args,**kwargs): return SimpleNamespace(stdout=self.plan['previous_images'][args[-1]] if args[:2]==['docker','inspect'] else '')

@@ -689,7 +689,7 @@ def calculate(data, company, tax_mode, kind, session):
             supply_values[treatment] += base
             if itc_treatment == 'pending_review': pending_input_tax += line_tax
             # Valuation is derived from stock movements, never accepted from a client.
-            line = {key: value for key, value in line.items() if key not in {'inventory_cost', 'legacy_shortage_cost'}}
+            line = {key: value for key, value in line.items() if key not in {'inventory_cost', 'legacy_shortage_cost', 'shortage_cost', 'shortage_quantity', 'stock_cost_provisional', 'return_cost_basis'}}
             cleaned.append({**line, 'description': description, 'hsn': hsn, 'gross': str(gross),
                             'discount_percent': str(discount_percent), 'discount': str(discount),'document_discount':str(document_discount_value),
                             'taxable': str(base), 'tax': str(line_tax), 'itc_treatment': itc_treatment,
@@ -727,6 +727,15 @@ def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session)
     if kind in {'credit_note','debit_note'} and data.get('return_stock') is False:
         return {**data,'lines':[{**line,'inventory_cost':'0'} for line in data.get('lines',[])]}
     states = {}
+    last_unit_costs = {}
+    def receipt_cost(qty, basis, held_qty, held_value):
+        if held_qty >= 0: return basis
+        if held_value > 0: raise HTTPException(409, 'Negative stock has an inconsistent positive value; review its valuation')
+        covered = min(qty, -held_qty)
+        # Retire the negative inventory's carrying cost; price differences go
+        # through the purchase/return posting, never remain on zero units.
+        released = -held_value if covered == -held_qty else money(-held_value * covered / -held_qty)
+        return basis - money(basis * covered / qty) + released
     previous_notes = {}
     if target and kind in {'credit_note', 'debit_note'}:
         posted_notes = select(RecordPosting.record_id).where(RecordPosting.company_id == company_id)
@@ -739,7 +748,7 @@ def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session)
                         raise HTTPException(409, 'Older stock return has no valuation; migrate it before posting')
                     qty, cost = previous_notes.get(item_id, (Decimal('0'), Decimal('0')))
                     previous_notes[item_id] = (qty + Decimal(str(line['quantity'])),
-                                               cost + Decimal(str(line.get('inventory_cost', '0'))))
+                                               cost + Decimal(str(line.get('return_cost_basis', line.get('inventory_cost', '0')))))
     valued = []
     returned_here = {}
     for line in data.get('lines', []):
@@ -757,6 +766,18 @@ def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session)
                 raise HTTPException(409, f'Post tracked stock for {item.name} on or after {movements[-1].date}')
             states[item_id] = [sum((m.quantity for m in movements), Decimal('0')),
                                sum((m.cost_value for m in movements), Decimal('0'))]
+            last_unit_costs[item_id] = Decimal('0')
+            for movement in reversed(movements):
+                if movement.quantity <= 0: continue
+                source = session.get(Record, movement.source_record_id)
+                source_lines = source.data.get('lines', []) if source else []
+                original = source_lines[movement.line_index] if movement.line_index < len(source_lines) else {}
+                basis = Decimal(str(original.get('return_cost_basis', movement.cost_value)))
+                if source and source.kind == 'purchase_bill':
+                    basis += Decimal(str(original.get('shortage_cost', original.get('legacy_shortage_cost', '0'))))
+                if basis > 0:
+                    last_unit_costs[item_id] = basis / movement.quantity
+                    break
         held_qty, held_value = states[item_id]
         qty = Decimal(str(line['quantity']))
         if kind in {'credit_note', 'debit_note'}:
@@ -773,24 +794,30 @@ def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session)
         if kind == 'purchase_bill':
             cost = money(Decimal(str(line['taxable'])) + (Decimal(str(line['tax'])) if tax_mode != 'regular' or line.get('itc_treatment') == 'ineligible' else Decimal('0')))
             if held_qty < 0:
-                # Imported Vyapar shortages carry the verified source value of zero.
-                # Recognize the replenishment cost for previously sold units now;
-                # only units remaining on hand acquire inventory value.
-                if held_value != 0: raise HTTPException(409, 'Negative legacy stock has an inconsistent value; review it before replenishing')
-                shortage_cost = money(cost * min(qty, -held_qty) / qty)
-                line['legacy_shortage_cost'] = str(shortage_cost)
-                cost -= shortage_cost
+                inventory = receipt_cost(qty, cost, held_qty, held_value)
+                line['shortage_cost'] = str(cost - inventory)
+                if item.data.get('vyapar_stock_migrated'): line['legacy_shortage_cost'] = line['shortage_cost']
+                cost = inventory
             held_qty += qty; held_value += cost
         elif kind == 'credit_note':
             source_cost = sum((Decimal(str(original.get('inventory_cost', '0'))) for original in source_lines), Decimal('0'))
             remaining_qty = source_qty - prior_qty - (now_qty - qty)
-            cost = source_cost - prior_cost - sum((Decimal(str(other.get('inventory_cost', '0'))) for other in valued if other.get('item_id') == item_id), Decimal('0')) if qty == remaining_qty else money(source_cost * qty / source_qty)
+            # Keep nominal returned cost separate from inventory absorbed by
+            # another sale's deficit, so partial returns cannot consume it twice.
+            cost = source_cost - prior_cost - sum((Decimal(str(other.get('return_cost_basis', other.get('inventory_cost', '0')))) for other in valued if other.get('item_id') == item_id), Decimal('0')) if qty == remaining_qty else money(source_cost * qty / source_qty)
+            line['return_cost_basis'] = str(cost)
+            cost = receipt_cost(qty, cost, held_qty, held_value)
             held_qty += qty; held_value += cost
         else:
-            if qty > held_qty: raise HTTPException(422, f'Insufficient stock for {item.name}')
+            if kind == 'debit_note' and qty > held_qty: raise HTTPException(422, f'Insufficient stock for {item.name}')
             if hasattr(sys.modules[__name__], 'commerce_assert_available'):
                 commerce_assert_available(company_id, item_id, qty, held_qty, session)
-            cost = held_value if qty == held_qty else money(held_value * qty / held_qty)
+            unit_cost = held_value / held_qty if held_qty != 0 else last_unit_costs[item_id]
+            if unit_cost < 0: raise HTTPException(409, f'Inconsistent stock valuation for {item.name}')
+            cost = held_value if qty == held_qty else money(unit_cost * qty)
+            if kind in {'sales_invoice', 'pos'} and qty > max(held_qty, Decimal('0')):
+                line['shortage_quantity'] = str(qty - max(held_qty, Decimal('0')))
+                line['stock_cost_provisional'] = True
             held_qty -= qty; held_value -= cost
         states[item_id] = [held_qty, held_value]
         line['inventory_cost'] = str(cost)
@@ -1622,19 +1649,8 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
                     session.add(StockMovement(company_id=company_id, item_id=item_id, source_record_id=r.id,
                                               line_index=index, date=body.date, quantity=quantity, cost_value=cost_value))
                 session.flush()
-                tracked_items = {line.get('item_id') for line in data.get('lines', []) if line.get('item_id')}
-                for item_id in tracked_items:
-                    if not session.get(Record, item_id).data.get('track_stock'): continue
-                    dated = session.execute(select(StockMovement.date, func.sum(StockMovement.quantity)).where(
-                        StockMovement.company_id == company_id, StockMovement.item_id == item_id
-                    ).group_by(StockMovement.date).order_by(StockMovement.date))
-                    balance = Decimal('0')
-                    for movement_date, daily_quantity in dated:
-                        balance += daily_quantity
-                        if balance < 0:
-                            item = session.get(Record, item_id)
-                            legacy_replenishment = item.data.get('vyapar_stock_migrated') and (movement_date < body.date or body.kind in {'purchase_bill', 'credit_note'})
-                            if not legacy_replenishment: raise HTTPException(422, f'Insufficient stock for {item.name} on {movement_date}')
+                # Billing may take quantities below zero. value_stock_lines
+                # enforces chronology, source returns and reservation checks.
             for selected, allocated in allocations:
                 allocation_class = PaymentSplitAllocation if body.kind in {'payment_in', 'payment_out'} else PaymentAllocation
                 session.add(allocation_class(company_id=company_id, payment_id=r.id, document_id=selected.id, amount=allocated))

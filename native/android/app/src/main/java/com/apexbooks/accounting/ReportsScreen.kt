@@ -23,6 +23,7 @@ import org.json.JSONObject
     var to by remember { mutableStateOf(today()) }
     var apply by remember { mutableIntStateOf(0) }
     var data by remember { mutableStateOf<JSONObject?>(null) }
+    var ledger by remember { mutableStateOf<JSONObject?>(null) }
     var loadedQuery by remember { mutableStateOf("") }
     var failure by remember { mutableStateOf("") }
     fun query() = "from_date=$from&to_date=$to"
@@ -30,7 +31,10 @@ import org.json.JSONObject
     fun path(extension: String = "", dates: String = current) = vm.api.company(cid, "/parties/${party.s("id")}/statement$extension?$dates")
     LaunchedEffect(cid, apply) {
         data = null; loadedQuery = ""; failure = ""
-        try { require(from <= to) { "The end date must follow the start date." }; val dates = query(); data = vm.api.request(path(dates = dates)) as JSONObject; loadedQuery = dates }
+        try { require(from <= to) { "The end date must follow the start date." }; val dates = query(); data = vm.api.request(path(dates = dates)) as JSONObject
+            // An older server has no ledger; the document list below still works without it.
+            ledger = try { vm.api.request(vm.api.company(cid, "/parties/${party.s("id")}/ledger?$dates")) as? JSONObject } catch (e: Exception) { currentCoroutineContext().ensureActive(); null }
+            loadedQuery = dates }
         catch (e: Exception) { currentCoroutineContext().ensureActive(); failure = e.message ?: "Statement could not be loaded."; if (e is ApiFailure && e.status == 401) vm.failure(e) }
     }
     Dialog(onDismissRequest = { vm.statement = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -53,16 +57,43 @@ import org.json.JSONObject
                     if (loadedQuery.isNotBlank() && loadedQuery != current) item { Text("Apply the selected dates to refresh this statement and its exports.", style = MaterialTheme.typography.bodySmall) }
                     if (failure.isNotBlank()) item { Message(failure, true) }
                     if (data == null && failure.isBlank()) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-                    item { Heading("Transactions") }
                     val transactions = data?.a("transactions")?.objects().orEmpty()
-                    if (data != null && transactions.isEmpty()) item { Section { Text("No transactions in this period.") } }
-                    items(transactions, key = { it.s("id") }) { row ->
+                    @Composable fun DocumentCard(row: JSONObject) {
                         // Close the statement before opening the document sheet so Android back is predictable.
                         Card(onClick = { vm.statement = null; vm.detail = row }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             DetailValue(row.s("number").ifBlank { friendly(row.s("kind")) }, money(row.s("amount")))
                             Text(row.s("date") + " · " + friendly(row.s("kind")), style = MaterialTheme.typography.bodySmall)
                             if (row.has("outstanding")) Text("Outstanding ${money(row.s("outstanding"))}", style = MaterialTheme.typography.labelMedium, color = ApexGreen)
                         } }
+                    }
+                    val book = ledger
+                    if (book != null) {
+                        item { Heading("Ledger") }
+                        item { Section { val opening = book.o("opening"); DetailValue("Opening balance", ledgerBalance(opening.s("amount"), opening.s("side"))) } }
+                        val entries = book.a("rows").objects()
+                        if (entries.isEmpty()) item { Section { Text("No entries in this period.") } }
+                        items(entries, key = { it.s("id") }) { row ->
+                            Card(onClick = { vm.statement = null; vm.detail = row }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                val debit = row.s("debit")
+                                DetailValue(row.s("particulars"), if (debit.isNotBlank()) ledgerBalance(debit, "Dr") else ledgerBalance(row.s("credit"), "Cr"))
+                                Text(ledgerDate(row.s("date")) + " · " + row.s("voucher_type") + " " + row.s("voucher_number"), style = MaterialTheme.typography.bodySmall)
+                                Text("Balance " + ledgerBalance(row.s("balance"), row.s("balance_side")), style = MaterialTheme.typography.labelMedium)
+                            } }
+                        }
+                        item { Section {
+                            val totals = book.o("totals"); val closing = book.o("closing")
+                            DetailValue("Total debit", ledgerAmount(totals.s("debit")))
+                            DetailValue("Total credit", ledgerAmount(totals.s("credit")))
+                            DetailValue("Closing balance", ledgerBalance(closing.s("amount"), closing.s("side")))
+                        } }
+                        item { FoldSection("Documents, drafts and estimates") { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (transactions.isEmpty()) Text("No documents in this period.")
+                            transactions.forEach { DocumentCard(it) }
+                        } } }
+                    } else {
+                        item { Heading("Transactions") }
+                        if (data != null && transactions.isEmpty()) item { Section { Text("No transactions in this period.") } }
+                        items(transactions, key = { it.s("id") }) { row -> DocumentCard(row) }
                     }
                 }
             }

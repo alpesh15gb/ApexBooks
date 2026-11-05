@@ -66,7 +66,7 @@ class CancellationTest(unittest.TestCase):
         sale = self.invoice(client, h, base, item_id=item['id'], description='Cancel stock')
         blocked = client.post(f"{base}/records/{bill['id']}/cancel", headers=h, json={'reason': 'Duplicate bill'})
         self.assertEqual(blocked.status_code, 409, blocked.text)
-        self.assertIn('exceed stock', blocked.text)
+        self.assertIn('depend on this valuation', blocked.text)
         self.assertEqual(client.post(f"{base}/records/{sale['id']}/cancel", headers=h, json={'reason': 'Return to stock'}).status_code, 200)
         self.assertEqual(client.post(f"{base}/records/{bill['id']}/cancel", headers=h, json={'reason': 'Duplicate bill'}).status_code, 200)
         stock = client.get(base + '/reports/stock', headers=h, params={'from_date': '2026-04-01', 'to_date': '2026-04-30'})

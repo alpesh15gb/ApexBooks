@@ -150,6 +150,11 @@ def upgrade_plan():
     required = {'target_release_identity', 'previous_activation_sha256', 'previous_images',
                 'database_backup_reference', 'isolated_restore_verified', 'writers_paused',
                 'schema_compatibility_reviewed', 'recovery_plan_reviewed'}
+    waived = isinstance(value, dict) and value.get('backup_policy') == 'operator_waived'
+    if waived:
+        required = {'target_release_identity', 'previous_activation_sha256', 'previous_images',
+                    'database_backup_reference', 'isolated_restore_verified', 'writers_paused',
+                    'backup_policy', 'backup_waiver_reason', 'production_clone_rehearsed'}
     if not isinstance(value, dict) or set(value) != required or not isinstance(previous, dict):
         raise RuntimeError('Invalid explicit upgrade plan fields')
     if value['target_release_identity'] != release_config():
@@ -158,12 +163,18 @@ def upgrade_plan():
         raise RuntimeError('Existing activation changed since upgrade review')
     if previous.get('release_identity') == release_config():
         raise RuntimeError('Candidate is already active; use verify-public')
-    if any(value[key] is not True for key in ('isolated_restore_verified', 'writers_paused',
-                                             'schema_compatibility_reviewed', 'recovery_plan_reviewed')):
-        raise RuntimeError('Record verified database recovery, paused writers and schema compatibility before upgrading')
-    reference = value['database_backup_reference']
-    if not isinstance(reference, str) or not 8 <= len(reference.strip()) <= 500 or '<' in reference or reference.upper().startswith('REPLACE'):
-        raise RuntimeError('A real nonsecret full-database recovery reference is required')
+    if waived:
+        if value['writers_paused'] is not True or value['database_backup_reference'] is not None or value['isolated_restore_verified'] is not False or value['production_clone_rehearsed'] is not False:
+            raise RuntimeError('A waived plan must retain paused writers and must not claim a backup or restore rehearsal')
+        if value['backup_waiver_reason'] != 'Operator explicitly requested no backup at this stage':
+            raise RuntimeError('Explicit operator backup waiver required')
+    else:
+        if any(value[key] is not True for key in ('isolated_restore_verified', 'writers_paused',
+                                                 'schema_compatibility_reviewed', 'recovery_plan_reviewed')):
+            raise RuntimeError('Record verified database recovery, paused writers and schema compatibility before upgrading')
+        reference = value['database_backup_reference']
+        if not isinstance(reference, str) or not 8 <= len(reference.strip()) <= 500 or '<' in reference or reference.upper().startswith('REPLACE'):
+            raise RuntimeError('A real nonsecret full-database recovery reference is required')
     images = value['previous_images']
     if not isinstance(images, dict) or set(images) != {'api', 'web'} or any(not re.fullmatch(r'sha256:[0-9a-f]{64}', str(v)) for v in images.values()):
         raise RuntimeError('Record immutable previous API/web image IDs in the upgrade plan')

@@ -67,12 +67,19 @@ public sealed partial class MainPage
         {
             var request=++sequence;var asOf=to.Value;var path=Path()+Query();
             async Task<JsonNode?> Credit(){if(!Supports("party_credit_limits"))return null;try{return await Api.Send(Api.CompanyPath(cid,$"/parties/{party.Text("id")}/credit-status?as_of={asOf}&proposed_amount=0"));}catch{return null;}}
-            var creditTask=Credit();var result=await Api.Send(path);var status=await creditTask;
+            async Task<JsonNode?> Ledger(){try{return await Api.Send(Api.CompanyPath(cid,$"/parties/{party.Text("id")}/ledger")+Query());}catch{return null;}}
+            var creditTask=Credit();var ledgerTask=Ledger();var result=await Api.Send(path);var status=await creditTask;var ledger=await ledgerTask;
             if(stamp!=generation||request!=sequence||cid!=CompanyId)return;
             rows.Children.Clear();var balances=result["balances"].Object();AddMetrics(rows,("Receivable",balances.Number("receivable")),("Payable",balances.Number("payable")),("Customer advances",balances.Number("customer_advance")),("Supplier advances",balances.Number("supplier_advance")),("Customer credits",balances.Number("customer_credit")),("Supplier credits",balances.Number("supplier_credit")));
             if(status is not null)rows.Children.Add(new InfoBar{IsOpen=true,IsClosable=false,Severity=status.Flag("exceeded")?InfoBarSeverity.Warning:InfoBarSeverity.Informational,Message=WorkflowMasterValues.CreditStatusText(status,false)});
             else rows.Children.Add(Text(Supports("party_credit_limits")?"Credit status unavailable. Statement balances remain available; this is not credit approval.":Api.Capabilities.Hint,12));
-            Table(rows,result["transactions"].Array(),"Transactions");
+            if(ledger is JsonObject book)
+            {
+                rows.Children.Add(PartyLedgerView.Build(book));
+                var documents=Stack(8);Table(documents,result["transactions"].Array());
+                rows.Children.Add(new Expander{Header="Documents, drafts and estimates",Content=documents,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch});
+            }
+            else Table(rows,result["transactions"].Array(),"Transactions");
         }
         var actions=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};actions.Children.Add(AsyncButton("Apply dates",Load,Error,true));
         foreach(var format in new[]{"pdf","xlsx"})actions.Children.Add(AsyncButton("Export "+format.ToUpperInvariant(),async()=>{var bytes=await Api.Download(Path()+"."+format+Query());if(stamp!=generation||cid!=CompanyId)return;await ApexFiles.Save(bytes,"party-statement."+format);},Error));
