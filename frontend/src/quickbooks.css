@@ -318,3 +318,13 @@ td.party-balance small { font-size: 11px; color: var(--ln-muted); }
 .setup-guide-steps h3{margin:10px 0 4px}
 @media (max-width:1200px){.setup-guide-steps{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:700px){.setup-guide-steps{grid-template-columns:1fr}}
+
+/* Tally-style party ledger */
+.ledger-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ledger-table td:first-child { white-space: nowrap; }
+.ledger-table .ledger-summary td,
+.ledger-table tfoot td { font-weight: 600; }
+.ledger-table tfoot tr:first-child td { border-top: 2px solid var(--line, #d7dee8); }
+.ledger-documents > summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+.modal:has(.ledger-table) { width: min(1040px, calc(100vw - 32px)); max-width: none; }
+.ledger-table td:nth-child(2) { white-space: nowrap; }

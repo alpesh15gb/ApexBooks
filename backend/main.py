@@ -2056,7 +2056,7 @@ def export_table(company_name, title, headers, rows, fmt, filename):
         book = Workbook(); sheet = book.active; sheet.title = re.sub(r'[\\/*?:\[\]]', ' ', title)[:31] or 'Report'
         sheet.append([company_name]); sheet.append([title]); sheet.append(headers)
         if isinstance(company_name, str) and company_name.startswith('='): sheet['A1'].data_type = 's'
-        text_columns = {'Name', 'Description', 'Code', 'HSN', 'HSN / SAC', 'GSTIN', 'Phone', 'Email', 'Number', 'Document', 'Date', 'Type', 'Party', 'Account', 'Unit', 'Bucket', 'Category', 'Item', 'Reference'}
+        text_columns = {'Name', 'Description', 'Code', 'HSN', 'HSN / SAC', 'GSTIN', 'Phone', 'Email', 'Number', 'Document', 'Date', 'Type', 'Party', 'Account', 'Unit', 'Bucket', 'Category', 'Item', 'Reference', 'Particulars', 'Vch Type', 'Vch No.'}
         for row in rows:
             prepared = []
             for header, value in zip(headers, row):
