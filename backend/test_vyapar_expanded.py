@@ -132,7 +132,7 @@ class ExpandedVyaparTests(unittest.TestCase):
         loans=[x for x in r if x['kind']=='loan_opening'];self.assertEqual(len(loans),1);self.assertEqual(Decimal(loans[0]['amount']),2500)
         transfer=next(x for x in r if x['kind']=='bank_transfer');self.assertEqual(transfer['data']['direction'],'bank_to_cash')
         t['loan_accounts'][0]['opening_bal']=2501;self.assertFalse(posting_plan(t)['ready'])
-        t['loan_accounts'][0]['opening_bal']=2500;t['kb_bank_adjustments'][0]['bank_adj_type']=18
+        t['loan_accounts'][0]['opening_bal']=2500;t['kb_bank_adjustments'][0]['bank_adj_type']=99
         self.assertFalse(posting_plan(t)['ready'])
 
     def test_zero_cost_source_adjustment_and_serial_metadata(self):

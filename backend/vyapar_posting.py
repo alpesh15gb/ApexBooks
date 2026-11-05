@@ -235,7 +235,7 @@ def posting_plan(tables):
     from vyapar_financial import financial_events
     events,financial_errors=financial_events(tables,channels);errors.extend(financial_errors)
     for event in events:
-        bank_net[event['debit_channel']]+=D(event['amount'])
+        if 'debit_channel' in event:bank_net[event['debit_channel']]+=D(event['amount'])
         if 'credit_channel' in event:bank_net[event['credit_channel']]-=D(event['amount'])
     openings=[]
     for cid,channel in channels.items():
@@ -247,6 +247,13 @@ def posting_plan(tables):
             openings.append({'channel_id':cid,'date':opened,'amount':str(value)})
             bank_net[cid]+=value
     if any(D(r.get('opening_balance')) for r in tables.get('other_accounts',[])):errors.append('Nonzero source account openings require mapping')
+    applied=[event for event in events if event['kind']=='balance_adjustment']
+    for event in applied:
+        note=f" ({event['description']})" if event['description'] else ''
+        warnings.append(f"{event['label']} {event['source_id']} on {event['date']}{note}: {'added' if event['direction']=='increase' else 'reduced'} ₹{event['amount']} automatically")
+    if applied:
+        closing=', '.join(f"{channel.get('paymentType_name')} ₹{M(bank_net[key])}" for key,channel in channels.items() if channel.get('paymentType_type') in ('CASH','BANK'))
+        warnings.append(f'Closing balances after these adjustments: {closing}. These should match Vyapar')
     if any(D(r['quantity'])<0 for r in stock):warnings.append('Source negative quantities are preserved with their source cost values; no opening stock or missing costs are invented')
     return {'adapter':'vyapar-source-verified-v2','source_company':firm,'tax_mode':tax_mode,'documents':documents,'payments':receipts,'stock':stock,
         'financial_events':events,'stock_adjustments':adjustments,'openings':openings,'banks':list(channels.values()),'bank_movement':{str(k):str(M(v)) for k,v in bank_net.items()},

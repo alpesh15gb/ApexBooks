@@ -84,8 +84,19 @@ def migrate(company, user, session, backup, action, expected_digest):
         for account,debit,credit in lines:
             if debit or credit:session.add(m.JournalLine(company_id=cid,journal_id=journal.id,account_id=account,debit=debit,credit=credit))
         session.add(m.RecordPosting(company_id=cid,record_id=record.id,journal_id=journal.id));posted+=1
-    loan_ledgers={}
+    loan_ledgers={};adjustment_account=None
     for event in plan['financial_events']:
+        if event['kind']=='balance_adjustment':
+            # An owner's balance correction, not trading: the other side stays out of profit and loss.
+            if adjustment_account is None:
+                adjustment_account=m.LedgerAccount(company_id=cid,code='VYP-ADJUST',name='Vyapar cash and bank balance adjustments',category='equity');session.add(adjustment_account);session.flush()
+            bank=banks.get(event['channel']);account=bank.ledger_account_id if bank else m.system_account(cid,'cash',session)
+            value=Decimal(event['amount']);prefix='BANK' if event['source_table']=='kb_bank_adjustments' else 'CASH'
+            record=m.Record(company_id=cid,kind='balance_adjustment',name=event['label']+(': '+event['description'] if event['description'] else ''),number='VYP-ADJ-'+prefix+'-'+str(event['source_id']),date=date.fromisoformat(event['date']),amount=value,
+                data={'vyapar_digest':digest,'vyapar_financial_source_id':event['source_id'],'vyapar_source_table':event['source_table'],'vyapar_source':event['original'],'direction':event['direction'],'payment_account':'bank' if bank else 'cash','bank_account_id':bank.id if bank else None,'notes':event['description']})
+            session.add(record);session.flush()
+            lines=[(account,value,Decimal(0)),(adjustment_account.id,Decimal(0),value)] if event['direction']=='increase' else [(adjustment_account.id,value,Decimal(0)),(account,Decimal(0),value)]
+            persist(record,lines);continue
         debit_bank=banks.get(event['debit_channel']);debit=debit_bank.ledger_account_id if debit_bank else m.system_account(cid,'cash',session)
         data={'vyapar_digest':digest,'vyapar_financial_source_id':event['source_id'],'vyapar_source_table':event['source_table'],'vyapar_source':event['original']}
         if event['kind']=='loan_opening':

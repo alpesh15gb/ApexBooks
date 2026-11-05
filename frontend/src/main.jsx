@@ -122,6 +122,7 @@ const labels = Object.fromEntries(
 );
 labels.reorder = "Low stock & reorder";
 labels.bank_transfer = "Cash/bank transfer";
+labels.balance_adjustment = "Balance adjustment";
 labels.stock_opening = "Opening stock";
 labels.stock_adjustment = "Stock adjustment";
 const EMPTY_RECORDS = [];
