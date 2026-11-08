@@ -69,7 +69,7 @@ import java.math.BigDecimal
         } else item {
             val totals = balances?.optJSONObject("totals")
             if (totals != null) Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(14.dp)) { Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column { Text("You'll get", style = MaterialTheme.typography.labelMedium); Text(money(totals.s("to_receive")), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF1E7A4F)) }
+                Column { Text("You'll get", style = MaterialTheme.typography.labelMedium); Text(money(totals.s("to_receive")), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF24745A)) }
                 Column(horizontalAlignment = Alignment.End) { Text("You'll pay", style = MaterialTheme.typography.labelMedium); Text(money(totals.s("to_pay")), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFFB3261E)) }
             } }
             if (vm.page == "party") {
@@ -107,7 +107,7 @@ import java.math.BigDecimal
 }
 
 @Composable fun StatusPill(status: String) {
-    val color = when (status) { "Unpaid" -> Color(0xFFAC650D); "Part settled" -> Color(0xFF1F5FBF); "Draft" -> Color(0xFF5B6B85); "Cancelled" -> Color(0xFFB3261E); else -> Color(0xFF1E7A4F) }
+    val color = when (status) { "Unpaid" -> Color(0xFFAC650D); "Part settled" -> Color(0xFF866149); "Draft" -> Color(0xFF796C63); "Cancelled" -> Color(0xFFB3261E); else -> Color(0xFF24745A) }
     Surface(color = color.copy(alpha = .09f), shape = RoundedCornerShape(6.dp)) { Text(status, Modifier.padding(horizontal = 7.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.SemiBold) }
 }
 
@@ -124,7 +124,7 @@ import java.math.BigDecimal
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 if (!master || kind == "item") Text(money(if (kind == "item") row.o("data").s("sale_rate") else row.s("amount")), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 else if (partyBalance != null) {
-                    Text(money(partyBalance.abs()), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (partyBalance.signum() > 0) Color(0xFF1E7A4F) else if (partyBalance.signum() < 0) Color(0xFFB3261E) else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(money(partyBalance.abs()), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (partyBalance.signum() > 0) Color(0xFF24745A) else if (partyBalance.signum() < 0) Color(0xFFB3261E) else MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if (partyBalance.signum() > 0) "You'll get" else if (partyBalance.signum() < 0) "You'll pay" else "Settled", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 else Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)

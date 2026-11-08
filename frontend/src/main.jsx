@@ -61,7 +61,7 @@ import "./capabilities.css";
 import "./workspace.css";
 import "./flows.css";
 import "./ledger.css";
-import "./quickbooks.css";
+import "./rich-workspace.css";
 import ReportsV2 from "./Reports.jsx";
 import DayBook from "./DayBook.jsx";
 import OverdueReminders, { overdueCount } from "./OverdueReminders.jsx";

@@ -10,37 +10,37 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
                 <!-- Other merged dictionaries here -->
             </ResourceDictionary.MergedDictionaries>
-            <Color x:Key="SystemAccentColor">#1C3C72</Color>
-            <Color x:Key="SystemAccentColorDark1">#152C53</Color>
-            <Color x:Key="SystemAccentColorLight1">#264882</Color>
-            <Color x:Key="SystemAccentColorLight2">#7292C9</Color>
-            <Color x:Key="SystemAccentColorLight3">#A9BDDF</Color>
-            <Color x:Key="SystemAccentColorDark2">#12274A</Color>
-            <Color x:Key="SystemAccentColorDark3">#0D1C36</Color>
+            <Color x:Key="SystemAccentColor">#B65324</Color>
+            <Color x:Key="SystemAccentColorDark1">#97431B</Color>
+            <Color x:Key="SystemAccentColorLight1">#C9713E</Color>
+            <Color x:Key="SystemAccentColorLight2">#E6A470</Color>
+            <Color x:Key="SystemAccentColorLight3">#F6D7BB</Color>
+            <Color x:Key="SystemAccentColorDark2">#773F24</Color>
+            <Color x:Key="SystemAccentColorDark3">#4A3023</Color>
             <FontFamily x:Key="ContentControlThemeFontFamily">ms-appx:///Assets/Fonts/DMSans.ttf#DM Sans</FontFamily>
             <Style TargetType="TextBox">
-                <Setter Property="FontSize" Value="13" />
-                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="CornerRadius" Value="11" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="BorderBrush" Value="#DFE3EB" />
-                <Setter Property="Background" Value="#F9FBFC" />
-                <Setter Property="Foreground" Value="#192F3B" />
-                <Setter Property="Padding" Value="10,8" />
+                <Setter Property="BorderBrush" Value="#f0e5db" />
+                <Setter Property="Background" Value="#fffcf9" />
+                <Setter Property="Foreground" Value="#352d28" />
+                <Setter Property="Padding" Value="12,10" />
             </Style>
             <Style TargetType="ComboBox">
-                <Setter Property="FontSize" Value="13" />
-                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="CornerRadius" Value="11" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="BorderBrush" Value="#DFE3EB" />
-                <Setter Property="Background" Value="#F9FBFC" />
-                <Setter Property="Foreground" Value="#192F3B" />
+                <Setter Property="BorderBrush" Value="#f0e5db" />
+                <Setter Property="Background" Value="#fffcf9" />
+                <Setter Property="Foreground" Value="#352d28" />
             </Style>
             <Style TargetType="CalendarDatePicker">
-                <Setter Property="FontSize" Value="13" />
-                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="CornerRadius" Value="11" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="BorderBrush" Value="#DFE3EB" />
-                <Setter Property="Background" Value="#F9FBFC" />
+                <Setter Property="BorderBrush" Value="#f0e5db" />
+                <Setter Property="Background" Value="#fffcf9" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>

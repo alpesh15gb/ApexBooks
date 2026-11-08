@@ -232,11 +232,14 @@ with sync_playwright() as p:
             page.set_viewport_size({'width':width,'height':844})
             assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), f'Dashboard overflows at {width}px'
             if width <= 390:
+                page.get_by_role('button', name='Continue setup', exact=True).click()
+                expect(page.locator('.setup-guide-steps article')).to_have_count(5)
                 assert page.locator('.setup-guide-steps article').evaluate_all('''nodes => nodes.every(node => {
                     const icon = node.querySelector('.setup-step-icon').getBoundingClientRect();
                     const title = node.querySelector('h3').getBoundingClientRect();
                     return icon.right <= title.left || icon.bottom <= title.top;
                 })'''), 'Setup icons overlap step titles'
+                page.get_by_role('button', name='Close setup', exact=True).click()
             page.screenshot(path=str(artifacts / f'overview-{width}.png'), full_page=True)
         page.set_viewport_size({'width':390,'height':844})
         page.get_by_role('button', name='New invoice', exact=True).click()

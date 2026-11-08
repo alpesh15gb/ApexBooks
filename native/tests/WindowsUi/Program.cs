@@ -166,6 +166,11 @@ try{
     Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Text)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name.StartsWith("Subtotal ",StringComparison.Ordinal)&&e.Current.Name.Contains("Total ",StringComparison.Ordinal)),"server-calculated invoice preview");
     Snapshot("03-invoice-form");Invoke(Wait(()=>Find("Save invoice",ControlType.Button),"save invoice button"));
     Wait(()=>Find("Save invoice",ControlType.Button) is null?window:null,"invoice form saved and closed");
+    // Saving a new customer document opens its detail automatically. Close the
+    // foreground dialog before invoking a register row through UI Automation.
+    Wait(()=>Find("Transaction details"),"post-save transaction detail");
+    Invoke(Wait(()=>ReadyButton("Done"),"return from post-save detail"));
+    Wait(()=>Find("Transaction details") is null?window:null,"post-save detail closed");
     var createdRows=await CompanyRecords(cid);var created=createdRows.OfType<JsonObject>().SingleOrDefault(r=>r["number"]?.ToString()==reference)??throw new Exception("UI invoice did not appear in canonical records.");
     var createdId=created["id"]!.GetValue<string>();
     Check("invoice was created through the real form exactly once",createdRows.OfType<JsonObject>().Count(r=>r["number"]?.ToString()==reference)==1&&created["name"]?.ToString()==createdBuyer&&Number(created,"amount")==250&&Number(created,"outstanding")==250);

@@ -39,6 +39,7 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
 }
 
 @Composable fun DashboardScreen(vm:AppModel){
+    var setupExpanded by rememberSaveable { mutableStateOf(false) }
     var period by rememberSaveable{mutableStateOf("year")}
     var summary by remember{mutableStateOf<JSONObject?>(null)}
     var financial by remember{mutableStateOf<JSONObject?>(null)}
@@ -62,20 +63,34 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
     val issued=invoices.fold(BigDecimal.ZERO){sum,r->sum+r.decimal("amount")}
     val outstanding=invoices.fold(BigDecimal.ZERO){sum,r->sum+r.decimal("outstanding")}
     val settled=(issued-outstanding).max(BigDecimal.ZERO)
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=14.dp,top=6.dp,end=14.dp,bottom=104.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=14.dp,top=6.dp,end=14.dp,bottom=104.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
         item{Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
                 for((key,label)in listOf("year" to "Financial year","month" to "This month","30days" to "30 days"))FilterChip(selected=period==key,onClick={period=key},label={Text(label,style=MaterialTheme.typography.labelMedium)})
+            }
+        }}
+        item{Surface(shape=RoundedCornerShape(24.dp),color=Color(0xFFFFEEDC),border=BorderStroke(1.dp,Color(0xFFF1D5B8))){
+            Column(Modifier.fillMaxWidth().padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+                Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(9.dp)){Icon(Icons.Outlined.AccountBalance,null,Modifier.size(20.dp),tint=Color(0xFF9A673E));Text("Cash & bank balance",style=MaterialTheme.typography.labelLarge,color=Color(0xFF895F40))}
+                Text(financial?.takeIf{vm.recordsReady}?.let{money(accounts.fold(BigDecimal.ZERO){sum,a->sum+a.decimal("closing_balance")})}?:"—",fontSize=34.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF794727))
+                Text("Posted ledger balance · $end",style=MaterialTheme.typography.bodySmall,color=Color(0xFF886B52))
+                Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                    FilledTonalButton(enabled=vm.canWrite&&vm.recordsReady,onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f)){Text("Create a sale")}
+                    OutlinedButton(onClick={vm.navigate("bank")},modifier=Modifier.weight(1f)){Text("View accounts")}
+                }
             }
         }}
         if(!vm.recordsReady)item{Section("Loading transaction history"){Text("Live report totals are shown as they arrive. Collections, charts and billing become available when the full company history is ready.");if(vm.busy==0)OutlinedButton(onClick={vm.task{vm.refresh()}}){Text("Retry company data")}}}
         // Setup prompt: invoices only carry bank / UPI and address once these are filled in.
         val company=vm.company;val registered=company.s("tax_mode") in setOf("regular","composition")
         val needsBusiness=company.s("address").isBlank()||registered&&company.s("gstin").isBlank()
-        if(vm.canWrite&&(needsBusiness||paymentDetails==false))item{Section("Finish setting up"){
+        if(vm.canWrite&&(needsBusiness||paymentDetails==false))item{Section{
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.Checklist,null,tint=ApexGreen);Text("Make this workspace yours",Modifier.weight(1f).padding(start=10.dp),style=MaterialTheme.typography.titleSmall);TextButton(onClick={setupExpanded=!setupExpanded}){Text(if(setupExpanded)"Less"else"Set up")}}
+            if(setupExpanded){
             if(needsBusiness)Text("• Add your business address"+(if(registered)" and GSTIN" else "")+" so invoices are valid.")
             if(paymentDetails==false)Text("• Add bank account and UPI ID so they print on invoices and customers can pay you.")
             FilledTonalButton(onClick={vm.navigate("settings")}){Text("Open settings")}
+            }
         }}
         if(vm.recordsReady&&vm.records.none{it.optBoolean("posted")})item{Section("Start your books"){
             Text("Create your first invoice or purchase. Customers and items can be added now or entered while billing.")
@@ -90,15 +105,8 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
             overdue.take(3).forEach{row->TextButton(onClick={vm.detail=row},modifier=Modifier.fillMaxWidth()){Text("${row.s("number")} · ${row.s("name")} · ${money(row.s("outstanding"))} due")}}
             if(overdue.size>3)TextButton(onClick={vm.navigate("sales_invoice")}){Text("View all sales invoices →")}
         }}
-        item{Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF0D2142),Color(0xFF25508F))),RoundedCornerShape(16.dp)).padding(horizontal=16.dp,vertical=12.dp)){
-            Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("Net sales",color=Color(0xFFC3D1EC),style=MaterialTheme.typography.labelLarge,fontWeight=FontWeight.Medium);Icon(Icons.Outlined.TrendingUp,null,tint=Color(0xFFBFE5FF))}
-                Text(summary?.let{money(it.s("sales"))}?:"—",color=Color.White,fontSize=26.sp,fontWeight=FontWeight.Bold)
-                Text("Posted sales, after credit notes",color=Color(0xFFC3D1EC),style=MaterialTheme.typography.bodySmall)
-            }
-        }}
-        item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Metric("Net profit",financial?.let{money(it.s("net_profit"))}?:"—",Modifier.weight(1f));Metric("To collect · to date",summary?.let{money(it.s("receivables"))}?:"—",Modifier.weight(1f))}}
-        item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Metric("To pay · to date",summary?.let{money(it.s("payables"))}?:"—",Modifier.weight(1f));Metric("Cash & bank",financial?.takeIf{vm.recordsReady}?.let{money(accounts.fold(BigDecimal.ZERO){sum,a->sum+a.decimal("closing_balance")})}?:"—",Modifier.weight(1f))}}
+        item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Metric("Net sales",summary?.let{money(it.s("sales"))}?:"—",Modifier.weight(1f));Metric("Net profit",financial?.let{money(it.s("net_profit"))}?:"—",Modifier.weight(1f))}}
+        item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Metric("To collect · to date",summary?.let{money(it.s("receivables"))}?:"—",Modifier.weight(1f));Metric("To pay · to date",summary?.let{money(it.s("payables"))}?:"—",Modifier.weight(1f))}}
         if(vm.recordsReady)item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){OutlinedButton(onClick={vm.toolData=null;vm.tool="recurring"},modifier=Modifier.weight(1f),contentPadding=PaddingValues(8.dp,8.dp)){Text("Recurring drafts",style=MaterialTheme.typography.labelLarge)};OutlinedButton(onClick={vm.tool="reorder"},modifier=Modifier.weight(1f),contentPadding=PaddingValues(8.dp,8.dp)){Text("Low stock review",style=MaterialTheme.typography.labelLarge)}}}
         if(vm.canWrite&&vm.recordsReady)item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Button(onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,10.dp)){Icon(Icons.Outlined.Add,null,Modifier.size(18.dp));Text("New invoice")};OutlinedButton(onClick={vm.add("purchase_bill")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,10.dp)){Icon(Icons.Outlined.DocumentScanner,null,Modifier.size(18.dp));Text("Add purchase")}}}
         if(vm.recordsReady)item{Section("Sales & purchases"){MonthlyPerformance(vm.records,start,end);Text("Posted invoice values, including GST where applicable",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
@@ -106,7 +114,7 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
             Text("GET PAID",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             val fraction=if(issued>BigDecimal.ZERO)(settled.toFloat()/issued.toFloat()).coerceIn(0f,1f)else 0f
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(18.dp)){
-                Box(Modifier.size(126.dp),contentAlignment=Alignment.Center){CircularProgressIndicator(progress={fraction},modifier=Modifier.fillMaxSize(),strokeWidth=12.dp,color=ApexGreen,trackColor=Color(0xFFE5EFED));Column(horizontalAlignment=Alignment.CenterHorizontally){Text("${(fraction*100).toInt()}%",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold);Text("settled",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
+                Box(Modifier.size(126.dp),contentAlignment=Alignment.Center){CircularProgressIndicator(progress={fraction},modifier=Modifier.fillMaxSize(),strokeWidth=12.dp,color=ApexGreen,trackColor=Color(0xFFFBE9D6));Column(horizontalAlignment=Alignment.CenterHorizontally){Text("${(fraction*100).toInt()}%",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold);Text("settled",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
                 Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("Settled",style=MaterialTheme.typography.bodySmall);Text(money(settled),fontWeight=FontWeight.SemiBold);Text("Outstanding",style=MaterialTheme.typography.bodySmall);Text(money(outstanding),fontWeight=FontWeight.SemiBold)}
             }
             Text("All posted invoices · payments, advances and credits included.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -142,16 +150,16 @@ private data class MonthMovement(val label:String,val sales:BigDecimal,val purch
             MonthMovement(month.format(DateTimeFormatter.ofPattern("MMM")),rows.fold(BigDecimal.ZERO){sum,r->sum+when(r.s("kind")){"sales_invoice","pos"->r.decimal("amount");"credit_note"->-r.decimal("amount");else->BigDecimal.ZERO}},rows.fold(BigDecimal.ZERO){sum,r->sum+when(r.s("kind")){"purchase_bill"->r.decimal("amount");"debit_note"->-r.decimal("amount");else->BigDecimal.ZERO}})
         }.toList()
     }
-    Row(horizontalArrangement=Arrangement.spacedBy(16.dp)){Text("● Net sales",style=MaterialTheme.typography.labelSmall,color=ApexGreen);Text("● Net purchases",style=MaterialTheme.typography.labelSmall,color=Color(0xFF658CA2))}
+    Row(horizontalArrangement=Arrangement.spacedBy(16.dp)){Text("● Net sales",style=MaterialTheme.typography.labelSmall,color=ApexGreen);Text("● Net purchases",style=MaterialTheme.typography.labelSmall,color=Color(0xFF986B4A))}
     val values=movements.flatMap{listOf(it.sales.toFloat(),it.purchases.toFloat())};val max=maxOf(0f,values.maxOrNull()?:0f);val min=minOf(0f,values.minOrNull()?:0f);val span=max-min
     if(span==0f){Box(Modifier.fillMaxWidth().height(140.dp),contentAlignment=Alignment.Center){Text("No net movement in this period",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)};return}
     val description=movements.joinToString("; "){"${it.label}: net sales ${money(it.sales)}, net purchases ${money(it.purchases)}"}
     Column{
         Canvas(Modifier.fillMaxWidth().height(150.dp).semantics{contentDescription=description}){
             val top=10.dp.toPx();val height=size.height-16.dp.toPx();fun y(value:Float)=top+(max-value)/span*height
-            for(value in listOf(max,(max+min)/2,min))drawLine(Color(0xFFE1E7F1),Offset(0f,y(value)),Offset(size.width,y(value)),1.dp.toPx())
+            for(value in listOf(max,(max+min)/2,min))drawLine(Color(0xFFF0E5DB),Offset(0f,y(value)),Offset(size.width,y(value)),1.dp.toPx())
             val base=y(0f);val step=size.width/movements.size;val width=minOf(18.dp.toPx(),step*.27f)
-            movements.forEachIndexed{i,row->for((value,color,shift)in listOf(Triple(row.sales.toFloat(),ApexGreen,-width-2.dp.toPx()),Triple(row.purchases.toFloat(),Color(0xFF86ABC0),2.dp.toPx()))){val at=y(value);drawRect(color,Offset(i*step+step/2+shift,minOf(at,base)),Size(width,kotlin.math.abs(base-at)))}}
+            movements.forEachIndexed{i,row->for((value,color,shift)in listOf(Triple(row.sales.toFloat(),ApexGreen,-width-2.dp.toPx()),Triple(row.purchases.toFloat(),Color(0xFFE9BA90),2.dp.toPx()))){val at=y(value);drawRect(color,Offset(i*step+step/2+shift,minOf(at,base)),Size(width,kotlin.math.abs(base-at)))}}
         }
         Row(Modifier.fillMaxWidth()){movements.forEach{Box(Modifier.weight(1f),contentAlignment=Alignment.Center){Text(it.label,fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}}}
     }

@@ -1,5 +1,7 @@
 # Apex Books
 
+Light orange and white redesign: [Apex Apricot screens and cross-platform validation](docs/APRICOT_UI_REVIEW.md).
+
 UI and workflow fixes: [8 November 2026 cross-platform review](docs/UI_UX_REVIEW_2026_11.md), including local verification and remaining Windows/device release gates.
 
 Build and rollout commands: [VPS deployment, Windows installer ZIP, and signed Android APK](docs/DEPLOY_AND_BUILD.md).

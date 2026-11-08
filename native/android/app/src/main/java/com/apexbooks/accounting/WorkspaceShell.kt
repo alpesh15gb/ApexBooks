@@ -57,7 +57,7 @@ import com.apexbooks.accounting.data.*
                         destinations.forEach { (key, label) -> NavigationBarItem(selected = currentTab == key, onClick = { navigate(key) }, icon = { Icon(mobileIcon(key), null) }, label = { Text(label, maxLines = 1) }, colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer)) }
                     } }
                 } },
-                floatingActionButton = { if (vm.canWrite && vm.recordsReady && vm.companyId.isNotBlank() && vm.page !in setOf("reports", "settings", "more", "commerce", "pos") && !WindowInsets.isImeVisible) {
+                floatingActionButton = { if (vm.canWrite && vm.recordsReady && vm.companyId.isNotBlank() && vm.page !in setOf("dashboard", "reports", "settings", "more", "commerce", "pos") && !WindowInsets.isImeVisible) {
                     ExtendedFloatingActionButton(onClick = { createOpen = true }, icon = { Icon(Icons.Outlined.Add, null) }, text = { Text("Create") }, containerColor = ApexGreen, contentColor = Color.White)
                 } }
             ) { padding -> Column(Modifier.padding(padding).fillMaxSize()) {

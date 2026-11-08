@@ -39,7 +39,7 @@ public static class PartyLedgerView
     private static Grid Row(string[] cells, bool strong, bool header = false)
     {
         var grid = new Grid { ColumnSpacing = 12, Padding = new Thickness(10), BorderBrush = Brush(0xEC, 0xED, 0xF0), BorderThickness = new Thickness(0, 0, 0, 1) };
-        if (header) grid.Background = Brush(0xF0, 0xF2, 0xF5);
+        if (header) grid.Background = Brush(0xFF, 0xF7, 0xEF);
         foreach (var width in Widths) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(width) });
         for (var i = 0; i < cells.Length; i++)
         {

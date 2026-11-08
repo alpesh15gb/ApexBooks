@@ -171,7 +171,8 @@ function SalesChart({ records, start, end }) {
                     width={bw}
                     height={Math.abs(base - y(row.sales))}
                     rx="4"
-                    fill="#1f427d"
+                    className="chart-sales-bar"
+                    fill="var(--ln-navy-700)"
                   />
                   <rect
                     x={53 + index * space + space / 2 + 3}
@@ -179,7 +180,8 @@ function SalesChart({ records, start, end }) {
                     width={bw}
                     height={Math.abs(base - y(row.purchases))}
                     rx="4"
-                    fill="#a8b8d4"
+                    className="chart-purchases-bar"
+                    fill="var(--ln-brass)"
                   />
                   <text
                     x={53 + index * space + space / 2}
@@ -345,7 +347,22 @@ export default function BusinessOverview({
           </button>
         </div>
       </div>
-      {recordsReady && <SetupChecklist company={company} records={records} onCreate={onCreate} onNavigate={onNavigate} api={api} />}
+      <section className="overview-command" aria-label="Cash balance and quick actions">
+        <div className="command-balance">
+          <span className="command-label"><Landmark size={18} /> Cash & bank balance</span>
+          <strong>{data ? money(cashTotal) : "—"}</strong>
+          <p>Posted ledger balance · {dateText(end)}</p>
+          <button onClick={() => onNavigate("bank_account")}>Manage your accounts <ArrowUpRight size={16} /></button>
+        </div>
+        <div className="command-actions">
+          <span className="command-eyebrow">MAKE YOUR NEXT MOVE</span>
+          <div>
+            <button disabled={!canWrite || !recordsReady} onClick={() => onCreate("sales_invoice")}><span><FileText size={22} /></span><strong>Create a sale</strong><small>Bill your customer</small><ArrowUpRight size={16} /></button>
+            <button disabled={!canWrite || !recordsReady} onClick={() => onCreate("payment_in")}><span><ArrowDownLeft size={22} /></span><strong>Record a receipt</strong><small>Collect a payment</small><ArrowUpRight size={16} /></button>
+            <button onClick={() => onNavigate("reports")}><span><BarChart3 size={22} /></span><strong>Explore reports</strong><small>See the bigger picture</small><ArrowUpRight size={16} /></button>
+          </div>
+        </div>
+      </section>
       <nav className="overview-tabs" aria-label="Business shortcuts">
         <span className="selected">Overview</span>
         <button onClick={() => onNavigate("sales_invoice")}>
@@ -363,6 +380,7 @@ export default function BusinessOverview({
           <CircleCheck size={14} /> {data && recordsReady ? "Books loaded" : error ? "Unable to load books" : "Loading books"}
         </span>
       </nav>
+      {recordsReady && <SetupChecklist company={company} records={records} onCreate={onCreate} onNavigate={onNavigate} api={api} />}
       {error && (
         <div className="error banner">
           {error}

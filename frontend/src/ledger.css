@@ -1,41 +1,42 @@
-/* Ledger Navy: shared design tokens and the refinement layer. Imported last so it wins over legacy rules.
-   Keep these token values in sync with native/shared/design-tokens.json (Android and Windows read the same set). */
+/* Shared tokens, mirrored from native/shared/design-tokens.json.
+   The final Apex Apricot layout and surfaces live in rich-workspace.css.
+   Historical navy token names are retained for existing component references. */
 :root {
-  --ln-navy-950: #071a33;
-  --ln-navy-900: #0d2142;
-  --ln-navy-800: #132c57;
-  --ln-navy-700: #1b3c73;
-  --ln-navy-600: #25508f;
-  --ln-navy-500: #3567b5;
-  --ln-navy-200: #c3d1ec;
-  --ln-navy-100: #dce5f5;
-  --ln-navy-50: #eef2fa;
-  --ln-bg: #f4f6fa;
+  --ln-navy-950: #35231b;
+  --ln-navy-900: #4a3023;
+  --ln-navy-800: #773f24;
+  --ln-navy-700: #b65324;
+  --ln-navy-600: #b35324;
+  --ln-navy-500: #d4713d;
+  --ln-navy-200: #f2c5a3;
+  --ln-navy-100: #fbe3d0;
+  --ln-navy-50: #fff2e8;
+  --ln-bg: #fffaf6;
   --ln-surface: #ffffff;
-  --ln-line: #dde3ee;
-  --ln-line-strong: #c4cee0;
-  --ln-ink: #0f1d36;
-  --ln-ink-2: #34445f;
-  --ln-muted: #5b6b85;
-  --ln-brass: #c79a3b;
-  --ln-ok: #1e7a4f;
-  --ln-ok-bg: #e6f4ec;
-  --ln-warn: #9a5b00;
-  --ln-warn-bg: #fdf1dc;
+  --ln-line: #f0e5db;
+  --ln-line-strong: #dccabe;
+  --ln-ink: #352d28;
+  --ln-ink-2: #5c4e44;
+  --ln-muted: #796c63;
+  --ln-brass: #ef9b5f;
+  --ln-ok: #24745a;
+  --ln-ok-bg: #eaf4ee;
+  --ln-warn: #98631c;
+  --ln-warn-bg: #fbf2e2;
   --ln-danger: #b3261e;
   --ln-danger-bg: #fbeceb;
-  --ln-info: #1f5fbf;
-  --ln-info-bg: #e7effb;
-  --ln-radius: 12px;
-  --ln-radius-sm: 8px;
+  --ln-info: #866149;
+  --ln-info-bg: #faeee3;
+  --ln-radius: 16px;
+  --ln-radius-sm: 10px;
   --ln-shadow: 0 1px 2px rgba(13, 33, 66, 0.06), 0 4px 14px rgba(13, 33, 66, 0.05);
-  --ln-focus: 0 0 0 3px rgba(53, 103, 181, 0.35);
+  --ln-focus: 0 0 0 3px rgba(213, 136, 78, 0.28);
   color-scheme: light;
 }
 
 html { -webkit-text-size-adjust: 100%; }
 body { background: var(--ln-bg); color: var(--ln-ink); font-feature-settings: "tnum" 1, "lnum" 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
-:root { font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: var(--ln-ink); background: var(--ln-bg); }
+:root { font-family: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: var(--ln-ink); background: var(--ln-bg); }
 h1, h2, h3 { color: var(--ln-ink); letter-spacing: -0.015em; }
 h1 { font-weight: 700; }
 p { color: var(--ln-muted); }
