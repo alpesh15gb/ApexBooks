@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import DocumentAttachments from './DocumentAttachments.jsx';
 import { hasPendingPostings } from './postingRegistry.js';
 import { ArrowRight, BellRing, CheckCircle2, Clock3, Download, FileText, MessageCircle, Pencil, Printer, X } from 'lucide-react';
@@ -15,11 +15,15 @@ export default function TransactionDetail({ record, records, company, labels, lo
   const [cancelReason, setCancelReason] = useState('');
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState('');
+  const cancellation = useRef(false);
+  const locked = attachmentLocked || cancelBusy;
   async function confirmCancel() {
+    if (cancellation.current) return;
+    cancellation.current = true;
     setCancelBusy(true); setCancelError('');
     try { await onCancelDocument(record, cancelReason.trim()); setCancelOpen(false); setCancelReason(''); }
     catch (reason) { setCancelError(reason.message || 'Could not cancel this document'); }
-    finally { setCancelBusy(false); }
+    finally { cancellation.current = false; setCancelBusy(false); }
   }
   async function openWhatsApp(reminder) {
     // Open the tab synchronously so popup blockers allow it, then fill in the message.
@@ -33,7 +37,7 @@ export default function TransactionDetail({ record, records, company, labels, lo
     const url = whatsappUrl(partyPhone(record, records), text);
     if (tab) tab.location.href = url; else window.location.href = url;
   }
-  const guarded = callback => (...args) => { if (!hasPendingPostings()) callback?.(...args); };
+  const guarded = callback => (...args) => { if (!locked && !cancellation.current && !hasPendingPostings()) callback?.(...args); };
   onClose = guarded(onClose); onEdit = guarded(onEdit); onRelated = guarded(onRelated); onConvert = guarded(onConvert); onOpen = guarded(onOpen);
   const writable = ['owner', 'editor'].includes(company?.role);
   const draft = drafts.has(record.kind);
@@ -59,29 +63,29 @@ export default function TransactionDetail({ record, records, company, labels, lo
       <header className="detail-heading">
         <div className="detail-type-icon"><FileText size={23} /></div>
         <div><span className="workspace-kicker">{labels[record.kind] || (record.kind || 'transaction').replaceAll('_', ' ')}</span><h2 id="transaction-detail-title">{record.number || 'Transaction details'}</h2><p>{company?.name} · Read-only overview</p></div>
-        <button className="icon-button" aria-label="Close" disabled={attachmentLocked} onClick={onClose}><X size={21} /></button>
+        <button className="icon-button" aria-label="Close" disabled={locked} onClick={onClose}><X size={21} /></button>
       </header>
-      <div className="detail-body" aria-busy={loading}>
+      <div className="detail-body" aria-busy={loading || cancelBusy}>
         <div className="detail-status-line"><span className={`status-badge ${cancelled ? 'cancelled' : record.posted || record.converted_to ? 'posted' : 'draft'}`}>{record.posted ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}{status}</span>{settlementLabel(record) && <span className="detail-settlement">{settlementLabel(record)}</span>}<span>{record.date}</span></div>
         <section className="detail-money"><div><span>Document total</span><strong>{amount(record.amount)}</strong><small>{record.name || 'No party'}</small></div><div><span>{hasBalance ? 'Still outstanding' : available !== undefined ? 'Available balance' : 'Accounting effect'}</span><strong className={hasBalance && Number(record.outstanding) > 0 ? 'due' : ''}>{hasBalance ? amount(record.outstanding) : available !== undefined ? amount(available) : draft ? 'Not posted' : record.posted ? 'Posted' : 'None'}</strong><small>{hasBalance ? record.data?.due_date ? `Due ${record.data.due_date}` : 'No due date set' : draft ? 'No stock, cash or revenue posted' : 'Server-confirmed status'}</small></div></section>
         {loading && <p className="info-box" role="status">Refreshing transaction details…</p>}
         {error && <div className="error banner" role="alert">{error}<button className="link" onClick={onRetry}>Try again</button></div>}
         <div className="detail-action-bar">
-          {actions.map((action, index) => <button key={action.kind} className={`button ${index === 0 && action.kind.startsWith('payment') ? 'primary' : 'secondary'}`} disabled={loading || !!error || attachmentLocked} onClick={() => onRelated(record, action.kind)}>{action.label}<ArrowRight size={15} /></button>)}
-          {['estimate', 'proforma'].includes(record.kind) && !record.converted_to && writable && <button className="button secondary" disabled={loading || !!error || attachmentLocked} onClick={() => onConvert(record, 'sales_order')}>Create sales order<ArrowRight size={15} /></button>}
-          {draft && !record.converted_to && writable && <button className="button primary" disabled={loading || !!error || attachmentLocked} onClick={() => onConvert(record)}>Convert to {record.kind === 'purchase_order' ? 'bill' : 'invoice'}<ArrowRight size={15} /></button>}
-          {writable && cancellable && <button className="button danger-outline" disabled={loading || !!error || attachmentLocked} onClick={() => { setCancelError(''); setCancelOpen(true); }}><X size={15} />Cancel document</button>}
-          {pdf && <button className="button secondary" disabled={loading || attachmentLocked} onClick={() => onPdf(record)}><Download size={16} />Download PDF</button>}
-          {pdf && receiptKinds.has(record.kind) && features.includes('thermal_receipts') && <details className="row-menu receipt-menu"><summary className="button secondary" aria-label="Print thermal receipt"><Printer size={15} />Print receipt</summary><div className="row-menu-list">{[['thermal_80', '80 mm roll'], ['thermal_58', '58 mm roll']].map(([template, label]) => <button key={template} type="button" disabled={loading || attachmentLocked} onClick={event => { event.currentTarget.closest('details').open = false; onPdf(record, template); }}>{label}</button>)}</div></details>}
-          {shareable.has(record.kind) && !cancelled && <button className="button secondary whatsapp" disabled={loading || attachmentLocked} onClick={() => openWhatsApp(false)}><MessageCircle size={15} />Share on WhatsApp</button>}
-          {canRemind(record) && <button className="button secondary whatsapp" disabled={loading || attachmentLocked} onClick={() => openWhatsApp(true)}><BellRing size={15} />Send reminder</button>}
-          {writable && editable && !record.converted_to && <button className="button secondary" disabled={loading || !!error || attachmentLocked} onClick={() => onEdit(record)}><Pencil size={15} />Edit details</button>}
+          {actions.map((action, index) => <button key={action.kind} className={`button ${index === 0 && action.kind.startsWith('payment') ? 'primary' : 'secondary'}`} disabled={loading || !!error || locked} onClick={() => onRelated(record, action.kind)}>{action.label}<ArrowRight size={15} /></button>)}
+          {['estimate', 'proforma'].includes(record.kind) && !record.converted_to && writable && <button className="button secondary" disabled={loading || !!error || locked} onClick={() => onConvert(record, 'sales_order')}>Create sales order<ArrowRight size={15} /></button>}
+          {draft && !record.converted_to && writable && <button className="button primary" disabled={loading || !!error || locked} onClick={() => onConvert(record)}>Convert to {record.kind === 'purchase_order' ? 'bill' : 'invoice'}<ArrowRight size={15} /></button>}
+          {writable && cancellable && <button className="button danger-outline" disabled={loading || !!error || locked} onClick={() => { setCancelError(''); setCancelOpen(true); }}><X size={15} />Cancel document</button>}
+          {pdf && <button className="button secondary" disabled={loading || locked} onClick={() => onPdf(record)}><Download size={16} />Download PDF</button>}
+          {pdf && receiptKinds.has(record.kind) && features.includes('thermal_receipts') && <details className="row-menu receipt-menu"><summary className="button secondary" aria-label="Print thermal receipt"><Printer size={15} />Print receipt</summary><div className="row-menu-list">{[['thermal_80', '80 mm roll'], ['thermal_58', '58 mm roll']].map(([template, label]) => <button key={template} type="button" disabled={loading || locked} onClick={event => { event.currentTarget.closest('details').open = false; onPdf(record, template); }}>{label}</button>)}</div></details>}
+          {shareable.has(record.kind) && !cancelled && <button className="button secondary whatsapp" disabled={loading || locked} onClick={() => openWhatsApp(false)}><MessageCircle size={15} />Share on WhatsApp</button>}
+          {canRemind(record) && <button className="button secondary whatsapp" disabled={loading || locked} onClick={() => openWhatsApp(true)}><BellRing size={15} />Send reminder</button>}
+          {writable && editable && !record.converted_to && <button className="button secondary" disabled={loading || !!error || locked} onClick={() => onEdit(record)}><Pencil size={15} />Edit details</button>}
         </div>
         {cancelled && <div className="info-box cancelled-note" role="status"><strong>Cancelled.</strong> {record.data?.cancelled?.reason || 'No reason recorded'}. The number {record.number} stays in your records; its ledger, stock and balance effects were reversed.</div>}
         {cancelOpen && <section className="cancel-panel" role="alertdialog" aria-labelledby="cancel-title">
           <h3 id="cancel-title">Cancel {record.number}?</h3>
           <p>This reverses its ledger entry{['sales_invoice','purchase_bill','pos','credit_note','debit_note'].includes(record.kind) ? ', returns its stock' : ''} and frees any balance it used. The number is kept and the action is recorded in the activity log. It cannot be undone; create a new document if you need to redo it.</p>
-          <label>Reason (required)<input value={cancelReason} maxLength={200} onChange={event => setCancelReason(event.target.value)} placeholder="e.g. Entered twice" autoFocus /></label>
+          <label>Reason (required)<input disabled={cancelBusy} value={cancelReason} maxLength={200} onChange={event => setCancelReason(event.target.value)} placeholder="e.g. Entered twice" autoFocus /></label>
           {cancelError && <div className="error banner" role="alert">{cancelError}</div>}
           <div className="cancel-actions"><button className="button secondary" disabled={cancelBusy} onClick={() => setCancelOpen(false)}>Keep document</button><button className="button danger" disabled={cancelBusy || cancelReason.trim().length < 3} onClick={confirmCancel}>{cancelBusy ? 'Cancelling…' : 'Cancel document'}</button></div>
         </section>}
@@ -91,7 +95,7 @@ export default function TransactionDetail({ record, records, company, labels, lo
         {features.includes('document_attachments') && api && ['purchase_bill', 'expense'].includes(record.kind) && <DocumentAttachments key={`${company.id}:${record.id}`} companyId={company.id} recordId={record.id} role={company.role} api={api} onLockChange={setAttachmentLocked} />}
         {record.data?.notes && <section className="detail-section"><h3>Notes</h3><p className="detail-notes">{record.data.notes}</p></section>}
       </div>
-      <footer className="detail-footer"><span><CheckCircle2 size={15} />Your original record stays in history</span><button className="button secondary" disabled={attachmentLocked} onClick={onClose}>Back to register</button></footer>
+      <footer className="detail-footer"><span><CheckCircle2 size={15} />Your original record stays in history</span><button className="button secondary" disabled={locked} onClick={onClose}>Back to register</button></footer>
     </section>
   </div>;
 }

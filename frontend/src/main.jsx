@@ -769,7 +769,9 @@ function App() {
       setSearch(editorReturn.search);
       setRegisterFilter(editorReturn.filter);
       setRegisterQuery(editorReturn.query);
-      if (editorReturn.detail) beginDetail((Array.isArray(refreshed) && refreshed.find(row => row.id === editorReturn.detail.id)) || editorReturn.detail);
+      // The originating editor still owns its posting lock while saveRecord is
+      // completing. Reopen details after that editor unmounts, as for new sales.
+      if (editorReturn.detail) setOpenAfterSave((Array.isArray(refreshed) && refreshed.find(row => row.id === editorReturn.detail.id)) || editorReturn.detail);
     }
     setEditorReturn(null);
   }
@@ -1109,6 +1111,11 @@ function App() {
           labels={labels}
           records={records}
           onNavigate={navigateWorkspace}
+          onOpenRecord={record => {
+            if (record.kind === "party") { if (!postingNavigationBlocked()) setActiveParty(record); }
+            else if (record.kind === "item") navigateWorkspace("item", record.name);
+            else beginDetail(record);
+          }}
           onCreate={createWorkspace}
           onMenu={() => setMenu(true)}
         />

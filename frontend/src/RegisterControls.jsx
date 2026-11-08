@@ -9,6 +9,7 @@ export default function RegisterControls({
   onReset,
 }) {
   const [expanded, setExpanded] = useState(false);
+  const extraFilters = Number(!!value.party) + Number(!!value.sort && value.sort !== "newest");
   const parties = [...new Set(records.map((r) => r.name).filter(Boolean))].sort(
     (a, b) => a.localeCompare(b),
   );
@@ -27,6 +28,7 @@ export default function RegisterControls({
       >
         <SlidersHorizontal size={15} />
         {expanded ? "Fewer filters" : "More filters"}
+        {extraFilters > 0 && <span className="filter-count">{extraFilters} active</span>}
       </button>
       <label>
         Party
@@ -55,7 +57,7 @@ export default function RegisterControls({
         </select>
       </label>
       <button
-        className="link reset-filters"
+        className={`link reset-filters ${extraFilters ? "has-active-filters" : ""}`}
         onClick={() =>
           onReset
             ? onReset()

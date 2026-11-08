@@ -12,6 +12,13 @@ object WhatsAppShare {
     fun shareable(kind: String) = kind in titles
     fun canRemind(row: JSONObject) = row.s("kind") in setOf("sales_invoice", "pos") && row.optBoolean("posted") && !row.optBoolean("cancelled") && row.decimal("outstanding").signum() > 0
 
+    fun partyPhone(row: JSONObject, records: List<JSONObject>): String {
+        val id=row.o("data").s("party_id")
+        val party=records.firstOrNull { it.s("kind")=="party" && if(id.isNotBlank()) it.s("id")==id else it.s("name").trim().equals(row.s("name").trim(),true) }
+        return party?.o("data")?.s("phone")?.takeIf { it.isNotBlank() }
+            ?: row.o("data").s("phone").ifBlank { row.o("data").s("party_phone") }
+    }
+
     fun phone(value: String): String {
         val digits = value.filter(Char::isDigit).trimStart('0')
         return if (digits.length == 10) "91$digits" else if (digits.length in 11..15) digits else ""
@@ -39,7 +46,7 @@ object WhatsAppShare {
     class OverdueGroup(val name: String, val phone: String, val invoices: List<JSONObject>, val total: java.math.BigDecimal)
     /** "Remind all overdue": one group per customer, largest overdue balance first. */
     fun overdueByParty(records: List<JSONObject>, today: String = today()): List<OverdueGroup> {
-        fun phoneFor(invoice: JSONObject) = records.firstOrNull { it.s("kind") == "party" && (it.s("id") == invoice.o("data").s("party_id") || it.s("name").trim().equals(invoice.s("name").trim(), true)) }?.o("data")?.s("phone")?.takeIf { it.isNotBlank() } ?: invoice.o("data").s("party_phone")
+        fun phoneFor(invoice: JSONObject) = partyPhone(invoice,records)
         return records.filter { canRemind(it) && it.o("data").s("due_date").let { due -> due.isNotBlank() && due < today } }
             .groupBy { it.s("name").trim().lowercase() }.values
             .map { group -> OverdueGroup(group.first().s("name"), group.map(::phoneFor).firstOrNull { it.isNotBlank() } ?: "", group, group.fold(java.math.BigDecimal.ZERO) { sum, r -> sum + r.decimal("outstanding") }) }

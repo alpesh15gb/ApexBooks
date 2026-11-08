@@ -32,7 +32,7 @@ import org.json.JSONObject
     var discard by remember { mutableStateOf(false) }
     var stepError by remember { mutableStateOf("") }
     val scroll = rememberScrollState()
-    val idle = !editor.saving && !editor.scanning && !editor.sourceLoading
+    val idle = !editor.saving && !editor.scanning && !editor.sourceLoading && editor.quickAdding.isBlank()
     val serialized = if (editor.document) editor.body().toString() else ""
     val previewReady = editor.lines.isNotEmpty() && editor.lines.none { it.get("description").isBlank() || it.get("quantity").isBlank() || it.get("rate").isBlank() }
     val previewStatus = when {
@@ -55,6 +55,7 @@ import org.json.JSONObject
         if (issue != null) stepError = issue else { stepError = ""; step++ }
     }
     fun change(key: String, value: String) = editor.set(key, value)
+    CompositionLocalProvider(LocalFormEnabled provides editor.canEdit) {
     Dialog(onDismissRequest = { if (editor.document && step > 0 && idle) step-- else close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize().safeDrawingPadding().imePadding(), color = MaterialTheme.colorScheme.background) {
             Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { Column {
@@ -105,8 +106,8 @@ import org.json.JSONObject
                         if (editor.kind == "purchase_bill") Section("Scan a supplier bill") {
                             Text("Use a photo to fill the draft, then review it here.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                OutlinedButton(enabled = idle, onClick = { vm.files.pick(arrayOf("image/*"), editor::scan) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)); Text("Upload") }
-                                FilledTonalButton(enabled = idle, onClick = { vm.files.capture(editor::scan) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.PhotoCamera, null, Modifier.size(18.dp)); Text("Camera") }
+                                OutlinedButton(enabled = editor.canEdit, onClick = { vm.files.pick(arrayOf("image/*"), editor::scan) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.UploadFile, null, Modifier.size(18.dp)); Text("Upload") }
+                                FilledTonalButton(enabled = editor.canEdit, onClick = { vm.files.capture(editor::scan) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.PhotoCamera, null, Modifier.size(18.dp)); Text("Camera") }
                             }
                         }
                         Section(if (editor.purchase) "Supplier details" else "Customer details") {
@@ -115,7 +116,7 @@ import org.json.JSONObject
                             Field(if (editor.kind == "expense") "Supplier / expense description" else if (editor.purchase) "Supplier name" else "Customer name", editor.get("name"), editor::changePartyName, maximum = 120)
                             if (editor.document) Field("Phone · optional", editor.get("party_phone"), { change("party_phone", it) }, maximum = 32)
                             if (editor.canQuickAdd && editor.get("name").isNotBlank() && editor.get("party_id").isBlank())
-                                OutlinedButton(enabled = idle && editor.quickAdding.isBlank(), onClick = editor::quickAddParty) { Icon(Icons.Outlined.PersonAdd, null, Modifier.size(18.dp)); Text(if (editor.quickAdding == "party") " Adding…" else " Add “${editor.get("name").trim()}” as a new ${if (editor.purchase) "supplier" else "customer"}") }
+                                OutlinedButton(enabled = editor.canEdit, onClick = editor::quickAddParty) { Icon(Icons.Outlined.PersonAdd, null, Modifier.size(18.dp)); Text(if (editor.quickAdding == "party") " Adding…" else " Add “${editor.get("name").trim()}” as a new ${if (editor.purchase) "supplier" else "customer"}") }
                             else if (editor.document && editor.get("party_id").isNotBlank())
                                 Text("Saved party · balance and reminders tracked", style = MaterialTheme.typography.bodySmall, color = ApexGreen)
                         }
@@ -140,7 +141,7 @@ import org.json.JSONObject
                     if (editor.document && step == 1) {
                         Heading("Items & services", "${editor.lines.size} item lines · tap a line to edit")
                         editor.lines.forEachIndexed { index, line -> key(line.uiKey) { CollapsibleLine(editor, line, index) } }
-                        OutlinedButton(onClick = { if (editor.lines.size < 100) editor.lines.add(LineState(regular = editor.regular)) }, enabled = idle, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Add, null); Text("Add item or service") }
+                        OutlinedButton(onClick = { if (editor.lines.size < 100) editor.lines.add(LineState(regular = editor.regular)) }, enabled = editor.canEdit, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Add, null); Text("Add item or service") }
                     }
                     if (editor.document && step == 2) {
                         Heading("Review & save", "Check the amounts and tax before posting.")
@@ -178,7 +179,7 @@ import org.json.JSONObject
                         if (editor.flag("pay_now")) {
                             Field("Amount (₹)", editor.get("pay_amount"), { change("pay_amount", it) }, number = true)
                             editor.preview?.takeIf { previewReady }?.s("amount")?.takeIf { it.isNotBlank() }?.let { total ->
-                                TextButton(onClick = { change("pay_amount", total) }) { Text("Full amount · ${money(total)}") }
+                                TextButton(enabled = editor.canEdit, onClick = { change("pay_amount", total) }) { Text("Full amount · ${money(total)}") }
                                 val paid = editor.get("pay_amount").toBigDecimalOrNull()
                                 if (paid != null && paid.signum() > 0) Text("Balance after this: ${money((total.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO).subtract(paid).max(java.math.BigDecimal.ZERO))}", style = MaterialTheme.typography.bodySmall)
                             }
@@ -186,7 +187,7 @@ import org.json.JSONObject
                             if (editor.get("pay_account") == "bank") Choice("Bank", editor.get("pay_bank").ifBlank { "default" }, vm.banks.map { it.s("id") to it.s("name") }, { change("pay_bank", it) })
                         }
                     }
-                    if (editor.document && step == 2 && editor.canSaveAndNew) TextButton(enabled = idle && vm.busy == 0 && editor.preview != null, onClick = { editor.save(true) }, modifier = Modifier.fillMaxWidth()) { Text("Save & create another") }
+                    if (editor.document && step == 2 && editor.canSaveAndNew) TextButton(enabled = editor.canEdit && vm.busy == 0 && editor.preview != null, onClick = { editor.save(true) }, modifier = Modifier.fillMaxWidth()) { Text("Save & create another") }
                     if (editor.payment) PaymentFields(editor)
                     if ((!editor.document || step == 2) && editor.kind in setOf("payment_in", "payment_out", "expense", "pos")) Section("Payment account") {
                         Choice("Paid through", editor.get("payment_account"), listOf("cash" to "Cash", "bank" to "Bank / UPI / card"), { change("payment_account", it) })
@@ -197,6 +198,7 @@ import org.json.JSONObject
                 Spacer(Modifier.height(16.dp))
             } }
         }
+    }
     }
     if (discard && !editor.retryPending) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard unsaved changes?") }, text = { Text("This draft has not been saved.") }, confirmButton = { TextButton(onClick = { discard = false; vm.error = ""; vm.notice = ""; vm.editor = null }) { Text("Discard draft") } }, dismissButton = { TextButton(onClick = { discard = false }) { Text("Keep editing") } })
 }
@@ -222,7 +224,7 @@ import org.json.JSONObject
         if(vm.supports("party_credit_limits"))Field("Customer credit limit · optional (₹)",editor.get("credit_limit"),{editor.set("credit_limit",it)},number=true,maximum=18);Text("Blank disables warnings; zero warns for any positive exposure. Warnings never block a sale.",style=MaterialTheme.typography.bodySmall)
         if(vm.supports("party_payment_terms"))Field("Payment terms · days (optional)",editor.get("payment_terms_days"),{editor.set("payment_terms_days",it)},number=true,maximum=4);Text("0 means due on the document date. Blank disables suggestions; saved document dates are never changed automatically.",style=MaterialTheme.typography.bodySmall)
     }else{
-        DataImage(editor.get("image_data_url"),Modifier.fillMaxWidth().height(130.dp));Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){OutlinedButton(onClick={vm.files.pick(arrayOf("image/*")){uri->vm.task{editor.set("image_data_url",vm.files.image(uri));editor.set("image_thumbnail",vm.files.image(uri,140,15000))}}}){Text("Upload item image")};TextButton(onClick={editor.set("image_data_url","");editor.set("image_thumbnail","")}){Text("Remove")}}
+        DataImage(editor.get("image_data_url"),Modifier.fillMaxWidth().height(130.dp));Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){OutlinedButton(enabled=editor.canEdit,onClick={vm.files.pick(arrayOf("image/*")){uri->vm.task{editor.set("image_data_url",vm.files.image(uri));editor.set("image_thumbnail",vm.files.image(uri,140,15000))}}}){Text("Upload item image")};TextButton(enabled=editor.canEdit,onClick={editor.set("image_data_url","");editor.set("image_thumbnail","")}){Text("Remove")}}
         Choice("Type",editor.get("item_type"),listOf("goods" to "Goods","services" to "Services"),{editor.set("item_type",it)});Toggle("Track stock",editor.flag("track_stock"),{editor.set("track_stock",it.toString())},enabled=editor.previous==null);for((key,label)in listOf("hsn" to "HSN / SAC","unit" to "Unit","barcode" to "Barcode","sale_rate" to "Sale price (₹)","purchase_rate" to "Purchase price (₹)","gst_rate" to "GST rate (%)"))Field(label,editor.get(key),{editor.set(key,it)},number=key.endsWith("rate"),maximum=if(key=="barcode")80 else 24);Choice("Supply classification",editor.get("tax_treatment"),supplyChoices,{editor.set("tax_treatment",it)})
         if(vm.supports("low_stock_reorder")&&((editor.flag("track_stock")&&editor.get("item_type")=="goods")||editor.get("low_stock_threshold").isNotBlank())){Field("Low-stock threshold · optional",editor.get("low_stock_threshold"),{editor.set("low_stock_threshold",it)},number=true,maximum=18);Text("Blank disables alerts. Items at or below this quantity appear in Reorder review; no purchase is posted automatically.",style=MaterialTheme.typography.bodySmall)}
     }}}
@@ -236,7 +238,7 @@ val supplyChoices=listOf("taxable" to "Taxable","nil_rated" to "Nil rated","exem
         ItemPriceSuggestion(editor,line)
         if(line.get("item_id").isBlank()){
             Field("Description",line.get("description"),{line.set("description",it)},maximum=200)
-            if(editor.canQuickAdd&&line.get("description").isNotBlank())TextButton(enabled=editor.quickAdding.isBlank()&&!editor.saving,onClick={editor.quickAddItem(line)}){Icon(Icons.Outlined.AddBox,null,Modifier.size(18.dp));Text(if(editor.quickAdding==line.uiKey)" Saving…" else " Save as item")}
+            if(editor.canQuickAdd&&line.get("description").isNotBlank())TextButton(enabled=editor.canEdit,onClick={editor.quickAddItem(line)}){Icon(Icons.Outlined.AddBox,null,Modifier.size(18.dp));Text(if(editor.quickAdding==line.uiKey)" Saving…" else " Save as item")}
         }
         else Text(if(line.importedFromOcr)"Product linked · scanned rate and GST kept" else "Product selected · ${line.get("unit")}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
@@ -259,9 +261,9 @@ val supplyChoices=listOf("taxable" to "Taxable","nil_rated" to "Nil rated","exem
                 if(editor.regular&&editor.purchase)Choice("Supplier GST treatment",line.get("itc_treatment"),listOf("pending_review" to "Input credit pending review","ineligible" to "Ineligible · include GST in cost"),{line.set("itc_treatment",it)})
             }
         }
-        TextButton(onClick={editor.lines.remove(line)}){Icon(Icons.Outlined.DeleteOutline,null);Text("Remove item")}
+        TextButton(enabled=editor.canEdit,onClick={editor.lines.remove(line)}){Icon(Icons.Outlined.DeleteOutline,null);Text("Remove item")}
     }
 }
-@Composable private fun PaymentFields(editor:EntryEditor){Section("Apply this payment"){Toggle("Advance for later allocation",editor.flag("is_advance"),{editor.set("is_advance",it.toString())});if(editor.flag("is_advance")){Text("This stays in the advance account until applied or refunded.");if(editor.kind=="payment_in"&&editor.regular){Choice("Advance relates to",editor.get("advance_supply"),listOf("goods" to "Goods","services" to "Services"),{editor.set("advance_supply",it)});if(editor.get("advance_supply")=="services"){Field("GST rate · included in received amount (%)",editor.get("advance_gst_rate"),{editor.set("advance_gst_rate",it)},number=true);Field("Place of supply · state code",editor.get("place_of_supply"),{editor.set("place_of_supply",it)},maximum=2)}}}else{val targets=editor.targets();editor.allocations.forEachIndexed{index,row->key(row){Choice("Invoice / bill ${index+1}",row.documentId,listOf("" to "Choose document")+targets.filter{target->(index==0||editor.get("name").isBlank()||target.s("name").trim().equals(editor.get("name").trim(),true))&&editor.allocations.none{it!==row&&it.documentId==target.s("id")}}.map{it.s("id") to "${it.s("number")} · ${it.s("name")} · ${money(editor.available(it))} available"},{id->editor.chooseAllocation(row,index,id)});Field("Allocated (₹)",row.amount,{row.amount=it},number=true);TextButton(onClick={editor.allocations.remove(row)}){Text("Remove allocation")}}};OutlinedButton(onClick={editor.allocations.add(AllocationState())}){Text("Add another document")};val total=editor.allocations.fold(java.math.BigDecimal.ZERO){sum,row->sum+(row.amount.toBigDecimalOrNull()?:java.math.BigDecimal.ZERO)};Text("Allocated ${money(total)} of ${money(editor.get("amount"))}")}}}
+@Composable private fun PaymentFields(editor:EntryEditor){Section("Apply this payment"){Toggle("Advance for later allocation",editor.flag("is_advance"),{editor.set("is_advance",it.toString())});if(editor.flag("is_advance")){Text("This stays in the advance account until applied or refunded.");if(editor.kind=="payment_in"&&editor.regular){Choice("Advance relates to",editor.get("advance_supply"),listOf("goods" to "Goods","services" to "Services"),{editor.set("advance_supply",it)});if(editor.get("advance_supply")=="services"){Field("GST rate · included in received amount (%)",editor.get("advance_gst_rate"),{editor.set("advance_gst_rate",it)},number=true);Field("Place of supply · state code",editor.get("place_of_supply"),{editor.set("place_of_supply",it)},maximum=2)}}}else{val targets=editor.targets();editor.allocations.forEachIndexed{index,row->key(row){Choice("Invoice / bill ${index+1}",row.documentId,listOf("" to "Choose document")+targets.filter{target->(index==0||editor.get("name").isBlank()||target.s("name").trim().equals(editor.get("name").trim(),true))&&editor.allocations.none{it!==row&&it.documentId==target.s("id")}}.map{it.s("id") to "${it.s("number")} · ${it.s("name")} · ${money(editor.available(it))} available"},{id->editor.chooseAllocation(row,index,id)});Field("Allocated (₹)",row.amount,{row.amount=it},number=true);TextButton(enabled=editor.canEdit,onClick={editor.allocations.remove(row)}){Text("Remove allocation")}}};OutlinedButton(enabled=editor.canEdit,onClick={editor.allocations.add(AllocationState())}){Text("Add another document")};val total=editor.allocations.fold(java.math.BigDecimal.ZERO){sum,row->sum+(row.amount.toBigDecimalOrNull()?:java.math.BigDecimal.ZERO)};Text("Allocated ${money(total)} of ${money(editor.get("amount"))}")}}}
 
 @Composable fun CompanyDialog(vm:AppModel){val edit=vm.companyEdit;var name by remember{mutableStateOf(if(edit)vm.company.s("name")else"")};var bookLabel by remember{mutableStateOf(if(edit)vm.company.s("book_label")else"")};var mode by remember{mutableStateOf(if(edit)vm.company.s("tax_mode")else"unregistered")};var gstin by remember{mutableStateOf(if(edit)vm.company.s("gstin")else"")};var state by remember{mutableStateOf(if(edit)vm.company.s("state_code")else"")};var address by remember{mutableStateOf(if(edit)vm.company.s("address")else"")};val initial=remember{listOf(name,mode,gstin,state,address,bookLabel)};ActionDialog(if(edit)"Company details"else"Create company",vm,hasChanges={listOf(name,mode,gstin,state,address,bookLabel)!=initial},onDismiss={vm.companyForm=false},onSave={val body=JSONObject().put("name",name.trim()).put("gstin",gstin.trim().uppercase()).put("state_code",state).put("address",address);if(vm.supports("company_book_labels"))body.put("book_label",bookLabel.trim());if(!edit)body.put("tax_mode",mode);val result=vm.api.request(if(edit)vm.api.company(vm.companyId)else"/api/companies",if(edit)"PATCH"else"POST",body)as JSONObject;vm.companyForm=false;vm.loadCompanies(result.s("id"))}){Text("Each company keeps separate books. Choose the tax mode carefully; it cannot be changed here after creation.",style=MaterialTheme.typography.bodySmall);Field("Legal company name",name,{name=it},maximum=120);if(vm.supports("company_book_labels")){Field("Book label · optional",bookLabel,{bookLabel=it},maximum=80);Text("A private workspace label, such as FY 2026–27. Does not change the legal company name on invoices.",style=MaterialTheme.typography.bodySmall)}else FeatureUpgradeHint(vm);Choice("Tax registration",mode,listOf("unregistered" to "Not GST registered","regular" to "GST registered · regular","composition" to "GST registered · composition"),{mode=it},enabled=!edit);Field("GSTIN · required for regular GST",gstin,{gstin=it.uppercase();if(it.length>=2)state=it.take(2)},maximum=15);Field("State code",state,{state=it},maximum=2);Field("Company address",address,{address=it},multiline=true,maximum=500)}}

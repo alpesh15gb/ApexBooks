@@ -22,6 +22,14 @@ using var api=new ApexApi("https://apex-native-client-regression.invalid",transp
 var expired=0;api.SessionExpired+=()=>expired++;
 void Check(bool condition,string name){if(!condition)throw new Exception(name);Console.WriteLine("PASS "+name);}
 async Task Expect401(Task task){try{await task;throw new Exception("Expected unauthorized response");}catch(ApiFailure e)when(e.Status==401){}}
+var shareRow=new JsonObject{["name"]="Same name",["data"]=new JsonObject{["party_id"]="linked",["party_phone"]="9000000003"}};
+var shareParties=new[]{new JsonObject{["kind"]="party",["id"]="other",["name"]="Same name",["data"]=new JsonObject{["phone"]="9000000001"}},new JsonObject{["kind"]="party",["id"]="linked",["name"]="Renamed party",["data"]=new JsonObject{["phone"]="9000000002"}}};
+Check(WhatsAppShare.PartyPhone(shareRow,shareParties)=="9000000002","sharing uses the linked party before a same-name match");
+Check(WhatsAppShare.PartyPhone(shareRow,shareParties.Take(1))=="9000000003","missing linked party falls back to the document phone");
+shareParties[1]["data"]!["phone"]="";
+Check(WhatsAppShare.PartyPhone(shareRow,shareParties)=="9000000003","blank master phone falls back to document snapshot");
+shareRow["data"]!.AsObject().Remove("party_id");
+Check(WhatsAppShare.PartyPhone(shareRow,shareParties)=="9000000001","legacy document may find party by name");
 var submission = new RetrySubmission();
 var original = new JsonObject { ["amount"] = "100" };
 submission.Body(original); original["amount"] = "200";

@@ -45,7 +45,7 @@ public sealed partial class MainPage
         Button? termsSuggestion=null;TextBlock? termsHint=null;
         var fixedReview=new FixedDiscountReview();CheckBox? fixedReviewBox=null;
         var partyId = data.Text("party_id"); var appliedTo = returnSource?.Text("id")??data.Text("applied_to");
-        var canPayNow = previous is null && conversion is null && (kind is "sales_invoice" or "purchase_bill") && Supports("payment_at_entry"); decimal lastTotal = 0;
+        var canPayNow = previous is null && conversion is null && (kind is "sales_invoice" or "purchase_bill") && Supports("payment_at_entry"); decimal lastTotal = 0; string? totalForBody=null; Button? payFull=null;
         var payNow = new CheckBox { Content = kind == "sales_invoice" ? "Received now · record the receipt together with this invoice" : "Paid now · record the payment together with this bill" };
         var payAmount = Input("Amount (₹)", ""); var payMethod = Select("Account", [("cash", "Cash"), ("bank", "Bank / UPI / card")], "cash"); var payBank = BankChoice();
         var retryKey = Guid.NewGuid().ToString();var submission=new RetrySubmission(); CancellationTokenSource? previewRequest = null;var sourceLoading=false;
@@ -65,11 +65,13 @@ public sealed partial class MainPage
         bool NeedsFixedReview()=>FixedDiscountReview.Needed(kind is "credit_note" or "debit_note"&&appliedTo.Length>0,lines.Select(line=>line.Data()));
         void UpdateFixedReview(){if(fixedReviewBox is null)return;fixedReviewBox.Visibility=NeedsFixedReview()?Visibility.Visible:Visibility.Collapsed;if(fixedReviewBox.IsChecked==true&&!fixedReview.IsAcknowledged(FixedSignature()))fixedReviewBox.IsChecked=false;}
         JsonObject BodyValue() => new() { ["kind"] = kind, ["name"] = party.Text.Trim(), ["number"] = number.Text.Trim(), ["date"] = date.Value, ["data"] = DocumentData() };
+        string TotalSignature() => new JsonObject { ["date"]=date.Value, ["lines"]=new JsonArray(lines.Select(line=>(JsonNode)line.Data()).ToArray()), ["discount"]=discount.Text, ["round"]=round.IsChecked==true, ["supply"]=supply.Text, ["supplier_state"]=supplierState.Text, ["gstin"]=gstin.Text }.ToJsonString();
         async Task Calculate()
         {
             UpdateFixedReview();
             if(termsSuggestion is not null)termsSuggestion.IsEnabled=partyId.Length>0&&!submission.Unresolved;if(termsHint is not null)termsHint.Text=partyId.Length>0?"Suggestions use the selected saved party’s terms; applying is always explicit.":"Choose a saved party to use payment terms, or set the due date manually for a freeform name.";
             previewRequest?.Cancel(); var request = new CancellationTokenSource(); previewRequest = request;creditInfo.IsOpen=false;
+            totalForBody=null;lastTotal=0;if(payFull is not null)payFull.IsEnabled=false;
             if(lines.Count==0){preview.Text="Add an item to calculate the total.";return;}
             if(lines.Any(l=>string.IsNullOrWhiteSpace(l.Description.Text)||string.IsNullOrWhiteSpace(l.Rate.Text))){preview.Text="Enter an item description and rate to calculate the total.";foreach(var line in lines)line.Amount.Text="—";return;}
             preview.Text = "Calculating…";
@@ -77,9 +79,10 @@ public sealed partial class MainPage
             try
             {
                 await Task.Delay(350, request.Token);
-                var body = BodyValue(); body["name"] = "Preview"; var result = await Api.Send(Api.CompanyPath(cid, "/documents/preview"), HttpMethod.Post, body, cancellation: request.Token);
+                var body = BodyValue(); var bodySignature=TotalSignature(); body["name"] = "Preview"; var result = await Api.Send(Api.CompanyPath(cid, "/documents/preview"), HttpMethod.Post, body, cancellation: request.Token);
                 if (!request.IsCancellationRequested) {
                     lastTotal=result.Number("amount");
+                    totalForBody=bodySignature;if(payFull is not null)payFull.IsEnabled=!submission.Unresolved;
                     var calculated=result["data"];preview.Text = "Subtotal " + J.Money(calculated.Number("taxable")) + "   ·   GST " + J.Money(calculated.Number("cgst") + calculated.Number("sgst") + calculated.Number("igst") + calculated.Number("supplier_tax")) + "   ·   Total " + J.Money(result.Number("amount"));
                     var values=calculated?["lines"].Array()??new();for(var i=0;i<Math.Min(lines.Count,values.Count);i++)lines[i].Amount.Text=J.Money(values[i].Number("taxable")+values[i].Number("tax"));
                     if(checkCredit&&partyId.Length>0){
@@ -206,7 +209,8 @@ public sealed partial class MainPage
         }
         if (canPayNow)
         {
-            var payFull = Button("Full amount", () => payAmount.Text = lastTotal.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
+            payFull = Button("Full amount", () => { if(totalForBody==TotalSignature())payAmount.Text = lastTotal.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture); });
+            payFull.IsEnabled=totalForBody is not null;
             var payFields = Stack(8);
             payFields.Children.Add(Columns(payAmount, payMethod)); payFields.Children.Add(payBank); payFields.Children.Add(payFull);
             void ShowPay() { payFields.Visibility = payNow.IsChecked == true ? Visibility.Visible : Visibility.Collapsed; payBank.Visibility = Value(payMethod) == "bank" ? Visibility.Visible : Visibility.Collapsed; }
@@ -219,7 +223,7 @@ public sealed partial class MainPage
             if (!canPayNow || payNow.IsChecked != true) return null;
             if (!decimal.TryParse(payAmount.Text.Trim(), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var paid) || paid <= 0)
                 throw new Exception(kind == "sales_invoice" ? "Enter the amount received, or untick Received now." : "Enter the amount paid, or untick Paid now.");
-            if (lastTotal > 0 && paid > lastTotal) throw new Exception("The amount cannot be more than the document total.");
+            if (totalForBody == TotalSignature() && paid > lastTotal) throw new Exception("The amount cannot be more than the document total.");
             var method = Value(payMethod);
             return new JsonObject { ["amount"] = paid.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture), ["payment_account"] = method, ["bank_account_id"] = method == "bank" ? Value(payBank) : "default" };
         }

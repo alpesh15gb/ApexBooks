@@ -1099,7 +1099,9 @@ export default function RecordEditor({
                 ? "Loading document…"
                 : saving
                   ? "Saving…"
-                  : `Save ${saveLabel}`}
+                  : pending
+                    ? "Retry original save"
+                    : `Save ${saveLabel}`}
             </button>
           </div>
         </form>

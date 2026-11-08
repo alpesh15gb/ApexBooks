@@ -18,6 +18,27 @@ test('party phone comes from the saved party first', () => {
   assert.equal(partyPhone({ ...invoice, data: { phone: '9000000002' } }, []), '9000000002');
 });
 
+test('explicit party identity wins over a same-name row and missing links retain snapshot phone', () => {
+  const row = { ...invoice, data: { party_id: 'linked', party_phone: '9000000003' } };
+  const other = { kind: 'party', id: 'other', name: 'Rahul', data: { phone: '9000000001' } };
+  const linked = { kind: 'party', id: 'linked', name: 'Renamed', data: { phone: '9000000002' } };
+  assert.equal(partyPhone(row, [other, linked]), '9000000002');
+  assert.equal(partyPhone(row, [other]), '9000000003');
+  assert.equal(partyPhone(row, [{ ...linked, data: { phone: '' } }]), '9000000003');
+});
+
+test('default reminder and overdue grouping use the India business day', async () => {
+  const RealDate = Date;
+  globalThis.Date = class extends RealDate {
+    constructor(...args) { super(...(args.length ? args : ['2026-11-03T18:30:00Z'])); }
+  };
+  try {
+    assert.match(reminderMessage(invoice, 'Synthetic'), /overdue since 2026-11-03/);
+    const { overdueByParty } = await import('../src/whatsappShare.js');
+    assert.equal(overdueByParty([invoice]).length, 1);
+  } finally { globalThis.Date = RealDate; }
+});
+
 test('invoice message states the balance and UPI ID only while money is due', () => {
   const text = documentMessage(invoice, 'Sharma Traders', 'sharma@upi');
   assert.match(text, /Invoice INV\/1 dated 2026-11-01 for ₹1,180\.00 from Sharma Traders/);

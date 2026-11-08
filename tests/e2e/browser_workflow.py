@@ -88,6 +88,15 @@ with sync_playwright() as p:
     browser = p.chromium.launch(**({'channel': channel} if channel else {}))
     with fresh_page(browser,'desktop',viewport={'width':1280,'height':900},accept_downloads=True) as page:
         register_company(page)
+        create = page.get_by_role('button', name='Create', exact=True)
+        create.focus()
+        create.press('ArrowDown')
+        expect(page.get_by_role('menuitem', name='Sales invoice', exact=True)).to_be_focused()
+        page.keyboard.press('End')
+        expect(page.get_by_role('menuitem', name='New item', exact=True)).to_be_focused()
+        page.keyboard.press('Escape')
+        expect(page.get_by_role('menu')).to_have_count(0)
+        expect(create).to_be_focused()
         page.get_by_role('button', name='New invoice', exact=True).click()
         dialog = page.get_by_role('dialog', name='New sales invoice', exact=True)
         dialog.get_by_role('button', name='Cancel', exact=True).click()
@@ -102,6 +111,11 @@ with sync_playwright() as p:
         progress('invoice inputs retained; posting through visible Save')
         dialog.get_by_role('button', name='Save invoice', exact=True).click()
         expect(dialog).to_be_hidden()
+        # New customer documents open a ready-to-share detail after saving.
+        # Close it before exercising the register underneath.
+        saved_detail = page.get_by_role('dialog', name=re.compile(r'^INV\/'))
+        expect(saved_detail).to_be_visible()
+        saved_detail.get_by_role('button', name='Back to register', exact=True).click()
         invoice_button = page.get_by_role('button', name=re.compile(r'^INV\/'))
         expect(invoice_button).to_be_visible()
         invoice_reference = invoice_button.inner_text()
@@ -142,6 +156,14 @@ with sync_playwright() as p:
         with page.expect_download() as download:
             page.get_by_role('button', name=f'Download {invoice_reference} PDF', exact=True).click()
         download.value.save_as(artifacts / 'synthetic-invoice.pdf')
+        search = page.get_by_role('combobox', name='Search workspace', exact=True)
+        search.fill(invoice_reference)
+        page.get_by_role('option').filter(has_text=invoice_reference).click()
+        expect(detail).to_be_visible()
+        expect(detail).to_contain_text('₹151.00')
+        detail.get_by_role('button', name='Back to register', exact=True).click()
+        expect(search).to_have_value('')
+        progress('workspace search opened the exact document with its current balance')
         page.get_by_role('button', name='Reports', exact=True).click()
         page.get_by_role('button', name='Receivables & payables ageing Outstanding amounts by age', exact=True).click()
         expect(page.get_by_role('row').filter(has_text='Synthetic customer')).to_contain_text('₹151.00')
@@ -162,6 +184,7 @@ with sync_playwright() as p:
         estimate.get_by_role('spinbutton', name='Item 1 rate', exact=True).fill('75')
         estimate.get_by_role('button', name='Save estimate', exact=True).click()
         expect(estimate).to_be_hidden()
+        page.locator('.transaction-detail').get_by_role('button', name='Back to register', exact=True).click()
         page.get_by_role('button', name='Recurring drafts', exact=True).click()
         page.get_by_role('button', name='New template', exact=True).click()
         template = page.get_by_role('dialog', name='New recurring draft template', exact=True)
@@ -174,11 +197,48 @@ with sync_playwright() as p:
             has=page.get_by_role('button', name='Review / edit', exact=True))
         expect(library_row).to_have_count(1)
         progress('recurring template first input retained and saved from reviewed estimate')
+
+        # Cancellation must remain visible and prevent conflicting navigation
+        # until the server has confirmed its ledger reversal.
+        page.get_by_role('button', name='Create', exact=True).click()
+        page.get_by_role('menuitem', name='Sales invoice', exact=True).click()
+        dialog.get_by_role('combobox', name='Customer / description', exact=True).fill('Cancellation synthetic customer')
+        dialog.get_by_role('combobox', name='Item 1 description', exact=True).fill('Synthetic duplicate')
+        dialog.get_by_role('spinbutton', name='Item 1 rate', exact=True).fill('50')
+        dialog.get_by_role('button', name='Save invoice', exact=True).click()
+        cancel_detail = page.locator('.transaction-detail')
+        cancel_detail.get_by_role('button', name='Cancel document', exact=True).click()
+        cancel_panel = page.get_by_role('alertdialog')
+        cancel_panel.get_by_label('Reason (required)', exact=True).fill('Synthetic duplicate entry')
+        held = []
+        page.route('**/api/companies/*/records/*/cancel', lambda route: held.append(route))
+        cancel_panel.get_by_role('button', name='Cancel document', exact=True).click()
+        expect(cancel_detail.get_by_role('button', name='Close', exact=True)).to_be_disabled()
+        expect(cancel_detail.get_by_role('button', name='Edit details', exact=True)).to_be_disabled()
+        expect(cancel_panel.get_by_label('Reason (required)', exact=True)).to_be_disabled()
+        page.keyboard.press('Escape')
+        expect(cancel_detail).to_be_visible()
+        assert len(held) == 1
+        held[0].continue_()
+        expect(cancel_detail.locator('.cancelled-note')).to_contain_text('Synthetic duplicate entry')
+        cancel_detail.get_by_role('button', name='Back to register', exact=True).click()
+        progress('cancellation locks navigation until the reversal is confirmed')
         page.get_by_role('button', name='Sign out', exact=True).click()
         expect(page.get_by_role('button', name='Sign in', exact=True)).to_be_visible()
 
     with fresh_page(browser,'mobile',viewport={'width':390,'height':844},is_mobile=True,has_touch=True) as page:
         register_company(page)
+        for width in (320, 390, 768, 1024):
+            page.set_viewport_size({'width':width,'height':844})
+            assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), f'Dashboard overflows at {width}px'
+            if width <= 390:
+                assert page.locator('.setup-guide-steps article').evaluate_all('''nodes => nodes.every(node => {
+                    const icon = node.querySelector('.setup-step-icon').getBoundingClientRect();
+                    const title = node.querySelector('h3').getBoundingClientRect();
+                    return icon.right <= title.left || icon.bottom <= title.top;
+                })'''), 'Setup icons overlap step titles'
+            page.screenshot(path=str(artifacts / f'overview-{width}.png'), full_page=True)
+        page.set_viewport_size({'width':390,'height':844})
         page.get_by_role('button', name='New invoice', exact=True).click()
         dialog = page.get_by_role('dialog', name='New sales invoice', exact=True)
         expect(dialog).to_be_visible()
@@ -197,5 +257,53 @@ with sync_playwright() as p:
         expect(dialog).to_be_hidden()
         progress('mobile first input retained; empty close and dirty discard verified')
 
+        # Simulate the real failure mode: the API commits, but its reply is lost.
+        page.get_by_role('button', name='Add sales invoice', exact=True).first.click()
+        dialog.get_by_role('combobox', name='Customer / description', exact=True).fill('Mobile retry customer')
+        dialog.get_by_role('combobox', name='Item 1 description', exact=True).fill('Mobile service')
+        dialog.get_by_role('spinbutton', name='Item 1 rate', exact=True).fill('100')
+        def lose_post_response(route):
+            if route.request.method == 'POST':
+                assert route.fetch().ok, 'Synthetic invoice did not reach the local API'
+                route.abort('failed')
+            else:
+                route.continue_()
+        page.route('**/api/companies/*/records', lose_post_response)
+        dialog.get_by_role('button', name='Save invoice', exact=True).click()
+        retry = dialog.get_by_role('button', name='Retry original save', exact=True)
+        expect(retry).to_be_enabled()
+        expect(dialog.get_by_role('combobox', name='Customer / description', exact=True)).to_be_disabled()
+        expect(dialog.get_by_role('button', name='Cancel', exact=True)).to_be_disabled()
+        page.unroute('**/api/companies/*/records', lose_post_response)
+        retry.click()
+        expect(dialog).to_be_hidden()
+        mobile_detail = page.get_by_role('dialog', name=re.compile(r'^INV\/'))
+        expect(mobile_detail).to_contain_text('₹100.00')
+        mobile_detail.get_by_role('button', name='Collect payment', exact=True).click()
+        receipt = page.get_by_role('dialog', name='New payment in', exact=True)
+        receipt.get_by_role('spinbutton', name='Payment amount (₹)', exact=True).fill('40')
+        receipt.get_by_role('spinbutton', name='Allocated amount (₹)', exact=True).fill('40')
+        receipt.get_by_role('button', name='Save receipt', exact=True).click()
+        expect(receipt).to_be_hidden()
+        expect(mobile_detail).to_contain_text('₹60.00')
+        page.screenshot(path=str(artifacts / 'mobile-part-paid-invoice.png'), full_page=True)
+        mobile_detail.get_by_role('button', name='Back to register', exact=True).click()
+        page.get_by_role('button', name='More filters', exact=True).click()
+        page.get_by_role('combobox', name='Party', exact=True).select_option(label='Mobile retry customer')
+        page.get_by_role('combobox', name='Sort by', exact=True).select_option('balance')
+        page.get_by_role('button', name='Fewer filters 2 active', exact=True).click()
+        expect(page.get_by_role('button', name='More filters 2 active', exact=True)).to_be_visible()
+        page.get_by_role('button', name='Reset filters', exact=True).click()
+        expect(page.get_by_role('button', name='More filters', exact=True)).to_be_visible()
+        # Verify the visible recovery did not create a second financial document.
+        rows = page.evaluate('''async () => {
+            const headers = { Authorization: `Bearer ${localStorage.token}` };
+            const companies = await (await fetch('/api/companies', {headers})).json();
+            return await (await fetch(`/api/companies/${companies[0].id}/records`, {headers})).json();
+        }''')
+        assert sum(row['kind'] == 'sales_invoice' for row in rows) == 1
+        assert sum(row['kind'] == 'payment_in' for row in rows) == 1
+        progress('mobile lost-response recovery posted exactly one invoice and one partial receipt')
+
     browser.close()
-print('Browser smoke passed: desktop accounting flow and mobile document dismissal')
+print('Browser smoke passed: desktop accounting/search/keyboard flow, responsive layouts, and mobile retry/collection')

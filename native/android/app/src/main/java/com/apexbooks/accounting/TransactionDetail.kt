@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.apexbooks.accounting
 
 import androidx.compose.foundation.layout.*
@@ -44,7 +44,7 @@ import org.json.JSONObject
         title = { Text("Cancel ${row.s("number").ifBlank { friendly(row.s("kind")) }}?") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("This reverses its ledger entry, returns any stock and frees balances it used. The number is kept and the action is logged. It cannot be undone.")
-            Field("Reason (required)", cancelReason, { cancelReason = it }, maximum = 200)
+            Field("Reason (required)", cancelReason, { cancelReason = it }, readOnly = cancelBusy, maximum = 200)
             if (cancelError.isNotBlank()) Message(cancelError, true)
         } },
         confirmButton = { Button(enabled = !cancelBusy && cancelReason.trim().length >= 3, onClick = {
@@ -58,18 +58,19 @@ import org.json.JSONObject
     Dialog(onDismissRequest = { vm.detail = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize().safeDrawingPadding(), color = MaterialTheme.colorScheme.background) {
             Scaffold(topBar = { TopAppBar(title = { Text(friendly(row.s("kind"))) }, navigationIcon = { IconButton(onClick = { vm.detail = null }) { Icon(Icons.Outlined.Close, "Close transaction") } }) }, bottomBar = {
-                Surface(shadowElevation = 8.dp) { Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (printable) OutlinedButton(onClick = { vm.documentPdf(row) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.PictureAsPdf, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("PDF / share") }
+                Surface(shadowElevation = 8.dp) { BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    FlowRow(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = if (maxWidth >= 480.dp) 3 else 2) {
+                    if (printable) OutlinedButton(onClick = { vm.documentPdf(row) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 12.dp)) { Icon(Icons.Outlined.PictureAsPdf, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("PDF / share", maxLines = 1) }
                     if (printable && vm.supports("thermal_receipts") && row.s("kind") in setOf("sales_invoice", "pos", "payment_in", "estimate", "proforma", "sales_order", "credit_note")) Box(Modifier.weight(1f)) {
                         var rolls by remember { mutableStateOf(false) }
-                        OutlinedButton(onClick = { rolls = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Print, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Receipt") }
+                        OutlinedButton(onClick = { rolls = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 12.dp)) { Icon(Icons.Outlined.Print, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Receipt", maxLines = 1) }
                         DropdownMenu(expanded = rolls, onDismissRequest = { rolls = false }) {
                             DropdownMenuItem(text = { Text("80 mm roll") }, onClick = { rolls = false; vm.documentPdf(row, "thermal_80") })
                             DropdownMenuItem(text = { Text("58 mm roll") }, onClick = { rolls = false; vm.documentPdf(row, "thermal_58") })
                         }
                     }
-                    if (editable) Button(onClick = { vm.detail = null; vm.edit(row) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Edit") }
-                } }
+                    if (editable) Button(onClick = { vm.detail = null; vm.edit(row) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Edit", maxLines = 1) }
+                } } }
             }) { padding -> LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 if (record == null && failure.isBlank()) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 if (failure.isNotBlank()) item { Message(failure, true); OutlinedButton(onClick={reload++}) { Text("Retry loading transaction") } }
@@ -103,8 +104,7 @@ import org.json.JSONObject
                     val context = androidx.compose.ui.platform.LocalContext.current
                     fun share(reminder: Boolean) = vm.task {
                         val upi = runCatching { (vm.api.request(vm.api.company(vm.companyId, "/document-branding")) as JSONObject).s("upi_id") }.getOrDefault("")
-                        val party = vm.records.firstOrNull { it.s("kind") == "party" && (it.s("id") == row.o("data").s("party_id") || it.s("name").trim().equals(row.s("name").trim(), true)) }
-                        val phone = party?.o("data")?.s("phone")?.ifBlank { null } ?: row.o("data").s("phone")
+                        val phone = WhatsAppShare.partyPhone(row,vm.records)
                         val company = vm.company.s("name")
                         WhatsAppShare.open(context, phone, if (reminder) WhatsAppShare.reminderMessage(row, company, upi) else WhatsAppShare.documentMessage(row, company, upi))
                     }

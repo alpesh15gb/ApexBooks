@@ -20,6 +20,7 @@ export default function WorkspaceHeader({
   labels,
   records,
   onNavigate,
+  onOpenRecord,
   onCreate,
   onMenu,
 }) {
@@ -34,6 +35,9 @@ export default function WorkspaceHeader({
     searchBox = useRef(null),
     createBox = useRef(null);
   const canWrite = ["owner", "editor"].includes(company?.role);
+  useEffect(() => {
+    if (create) createBox.current?.querySelector('[role="menuitem"]')?.focus();
+  }, [create]);
   useEffect(() => {
     setOpen(false);
     setQuery("");
@@ -97,17 +101,19 @@ export default function WorkspaceHeader({
           .slice(0, 7)
           .map((r) => ({
             key: r.id,
+            record: r,
             kind: r.kind,
-            title: r.name,
+            title: r.number || r.name,
             reference: r.number || r.name,
-            note: `${r.number || ""} · ${labels[r.kind] || r.kind.replaceAll("_", " ")}`,
+            note: `${r.name} · ${labels[r.kind] || r.kind.replaceAll("_", " ")}`,
             icon: r.kind === "party" ? UsersRound : FileText,
           }))
       : [];
     return [...pages, ...rows].slice(0, 9);
   }, [query, records, labels]);
   function select(result) {
-    onNavigate(result.kind, result.reference || "");
+    if (result.record && onOpenRecord) onOpenRecord(result.record);
+    else onNavigate(result.kind, result.reference || "");
     setOpen(false);
     setQuery("");
     input.current?.blur();
@@ -166,7 +172,7 @@ export default function WorkspaceHeader({
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") {
               e.preventDefault();
-              setActive((x) => Math.min(matches.length - 1, x + 1));
+              setActive((x) => Math.max(0, Math.min(matches.length - 1, x + 1)));
             }
             if (e.key === "ArrowUp") {
               e.preventDefault();
@@ -180,6 +186,7 @@ export default function WorkspaceHeader({
             aria-label="Clear workspace search"
             onClick={() => {
               setQuery("");
+              setActive(0);
               input.current?.focus();
             }}
           >
@@ -232,6 +239,12 @@ export default function WorkspaceHeader({
             disabled={!canWrite}
             aria-haspopup="menu"
             aria-expanded={create}
+            onKeyDown={event => {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                setCreate(true);
+              }
+            }}
             onClick={() => setCreate((x) => !x)}
           >
             <Plus size={18} />
@@ -243,6 +256,21 @@ export default function WorkspaceHeader({
               className="create-menu"
               role="menu"
               aria-label="Create a transaction"
+              onKeyDown={event => {
+                const items = [...event.currentTarget.querySelectorAll('[role="menuitem"]')];
+                const index = items.indexOf(document.activeElement);
+                let next;
+                if (event.key === "ArrowDown") next = (index + 1) % items.length;
+                if (event.key === "ArrowUp") next = (index - 1 + items.length) % items.length;
+                if (event.key === "Home") next = 0;
+                if (event.key === "End") next = items.length - 1;
+                if (next !== undefined) { event.preventDefault(); items[next]?.focus(); }
+                if (event.key === "Escape" || event.key === "Tab") {
+                  if (event.key === "Escape") event.preventDefault();
+                  setCreate(false);
+                  createBox.current?.querySelector('.global-create')?.focus();
+                }
+              }}
             >
               <span className="search-heading">NEW IN YOUR WORKSPACE</span>
               <div>
@@ -250,6 +278,7 @@ export default function WorkspaceHeader({
                   <button
                     key={kind}
                     role="menuitem"
+                    tabIndex={-1}
                     onClick={() => {
                       setCreate(false);
                       onCreate(kind);

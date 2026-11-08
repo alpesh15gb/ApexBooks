@@ -10,6 +10,15 @@ class RetrySubmission {
         if (pending == null) pending = candidate.toString()
         return JSONObject(pending!!)
     }
+    /** Freeze the endpoint choice and optional payment together with the document.
+     * Validate before retaining anything; a local validation error was never sent.
+     * On retry, do not re-read or re-validate the mutable editor.
+     */
+    fun recordCommand(record: () -> JSONObject, payment: () -> JSONObject?): JSONObject {
+        if (unresolved) return body(JSONObject())
+        val paid = payment()
+        return body(JSONObject().put("record", record()).put("payment", paid ?: JSONObject.NULL))
+    }
     fun succeeded() { pending = null }
     fun failed(error: Exception) {
         // A timeout, server error, or in-progress conflict may follow a committed write.

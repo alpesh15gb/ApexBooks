@@ -52,6 +52,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     private var initialMasterFields:Map<String,String> = emptyMap()
     val submission=RetrySubmission()
     var retryPending by mutableStateOf(false);private set
+    val canEdit get()=!saving&&!scanning&&!sourceLoading&&!retryPending&&quickAdding.isBlank()
     val canSaveAndNew get()=document&&previous==null&&conversion==null
     val canPayNow get()=previous==null&&conversion==null&&kind in setOf("sales_invoice","purchase_bill")&&vm.supports("payment_at_entry")
     fun paymentBody():JSONObject?{
@@ -141,7 +142,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         return JSONObject().put("kind",kind).put("name",get("name")).put("number",get("number")).put("date",get("date")).put("amount",if(document||master)"0"else get("amount")).put("data",values)
     }
     fun save(keepOpen:Boolean=false){
-        if(saving||scanning||sourceLoading||!vm.inWorkspace(companyId,workspaceStamp))return
+        if(saving||scanning||sourceLoading||quickAdding.isNotBlank()||!vm.inWorkspace(companyId,workspaceStamp))return
         saving=true
         vm.task{try{
             if(!retryPending){
@@ -151,8 +152,9 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
                 if(master)masterPlanningIssue(kind,get("payment_terms_days"),get("low_stock_threshold"),get("credit_limit"))?.let{throw Exception(it)}
                 if(payment&&!flag("is_advance")&&(allocations.isEmpty()||allocations.any{it.documentId.isBlank()}))throw Exception("Allocate the payment or record an advance.")
             }
-            val body=submission.body(body())
-            val pay=paymentBody()
+            val command=submission.recordCommand(::body,::paymentBody)
+            val body=command.getJSONObject("record")
+            val pay=command.optJSONObject("payment")
             var savedId=""
             try {
                 if(master&&previous!=null){val flat=copy(body.o("data")).put("name",body.s("name"));vm.api.request(vm.api.company(companyId,"/masters/${previous.s("id")}"),"PUT",flat)}

@@ -186,7 +186,7 @@ class LocalUiAcceptanceTest {
         // The remaining journeys are review-only: no order or second invoice is posted.
         device.pressBack()
         assertTrue(device.wait(Until.hasObject(By.text("Home")),15000));device.findObject(By.text("Home")).click()
-        clickReadyAction(device,"Low stock & reorder review")
+        clickReadyAction(device,"Low stock review")
         assertTrue("Reorder report loaded",device.wait(Until.hasObject(By.textContains("items at or below threshold")),30000))
         device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-reorder-open.png"))
         scrollTo(device,"UI Reorder Item")
@@ -240,6 +240,9 @@ class LocalUiAcceptanceTest {
         assertEquals("Native-created invoice amount",0,created.decimal("amount").compareTo(java.math.BigDecimal("100")))
         assertEquals("Native-created invoice remains unpaid",0,created.decimal("outstanding").compareTo(java.math.BigDecimal("100")))
         assertEquals("Invoice save does not duplicate collection",1,saved.count{it.s("kind")=="payment_in"})
+        // New customer documents now open their read-only detail after saving.
+        // Return from that foreground dialog before using workspace navigation.
+        clickReadyDescription(device,"Close transaction")
         // Actual receipt controls + system picker. No API-upload shortcut is used.
         val receiptName="apex-ui-receipt-${UUID.randomUUID()}.pdf"
         val receiptBytes="%PDF-1.4\n% Synthetic Android UI receipt\n%%EOF\n".toByteArray()

@@ -20,7 +20,7 @@ body:has(.overlay) {
     padding: 4px 0;
   }
   .register-controls:not(.expanded-controls) > label,
-  .register-controls:not(.expanded-controls) > .reset-filters,
+  .register-controls:not(.expanded-controls) > .reset-filters:not(.has-active-filters),
   .register-controls:not(.expanded-controls)
     .period-controls:not(.custom-period)
     > label:not(:first-of-type) {

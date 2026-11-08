@@ -9,6 +9,15 @@ public static class WhatsAppShare
     public static bool Shareable(string kind)=>Titles.ContainsKey(kind);
     public static bool CanRemind(JsonObject row)=>row.Text("kind") is "sales_invoice" or "pos"&&row.Flag("posted")&&!row.Flag("cancelled")&&row.Number("outstanding")>0;
 
+    public static string PartyPhone(JsonObject row,IEnumerable<JsonObject> records)
+    {
+        var id=row["data"].Text("party_id");
+        var party=records.FirstOrDefault(r=>r.Text("kind")=="party"&&(id.Length>0?r.Text("id")==id:string.Equals(r.Text("name").Trim(),row.Text("name").Trim(),StringComparison.OrdinalIgnoreCase)));
+        var phone=party?["data"].Text("phone")??"";
+        if(!string.IsNullOrWhiteSpace(phone))return phone;
+        return row["data"].Text("phone") is {Length:>0} legacy?legacy:row["data"].Text("party_phone");
+    }
+
     public static string Phone(string value)
     {
         var digits=new string(value.Where(char.IsDigit).ToArray()).TrimStart('0');
@@ -43,7 +52,7 @@ public static class WhatsAppShare
     public static List<OverdueGroup> OverdueByParty(JsonArray records,string today)
     {
         var rows=records.OfType<JsonObject>().ToList();
-        string PhoneFor(JsonObject invoice)=>rows.FirstOrDefault(r=>r.Text("kind")=="party"&&(r.Text("id")==invoice["data"].Text("party_id")||string.Equals(r.Text("name").Trim(),invoice.Text("name").Trim(),StringComparison.OrdinalIgnoreCase)))?["data"].Text("phone") is {Length:>0} p?p:invoice["data"].Text("party_phone");
+        string PhoneFor(JsonObject invoice)=>PartyPhone(invoice,rows);
         return rows.Where(r=>CanRemind(r)&&r["data"].Text("due_date") is {Length:>0} due&&string.CompareOrdinal(due,today)<0)
             .GroupBy(r=>r.Text("name").Trim().ToLowerInvariant())
             .Select(g=>new OverdueGroup(g.First().Text("name"),g.Select(PhoneFor).FirstOrDefault(p=>p.Length>0)??"",g.ToList(),g.Sum(r=>r.Number("outstanding"))))

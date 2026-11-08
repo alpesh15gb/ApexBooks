@@ -1,3 +1,4 @@
+import { businessDate } from "./businessDate.js";
 // WhatsApp share and payment-reminder messages (the Vyapar / MyBillBook / Swipe flow).
 // Text only: nothing is sent until the user presses send in WhatsApp.
 const rupees = (value) =>
@@ -27,8 +28,9 @@ export function partyPhone(record, records = []) {
   const party = records.find(
     (row) =>
       row.kind === "party" &&
-      (row.id === record.data?.party_id ||
-        row.name?.trim().toLowerCase() === record.name?.trim().toLowerCase()),
+      (record.data?.party_id
+        ? row.id === record.data.party_id
+        : row.name?.trim().toLowerCase() === record.name?.trim().toLowerCase()),
   );
   return party?.data?.phone || record.data?.phone || record.data?.party_phone || "";
 }
@@ -48,7 +50,7 @@ export function documentMessage(record, companyName, upiId = "") {
   return lines.join("\n");
 }
 
-export function reminderMessage(record, companyName, upiId = "", today = new Date().toISOString().slice(0, 10)) {
+export function reminderMessage(record, companyName, upiId = "", today = businessDate()) {
   const due = rupees(record.outstanding);
   const overdue = record.data?.due_date && record.data.due_date < today;
   const lines = [
@@ -70,7 +72,7 @@ export function canRemind(record) {
 }
 
 // "Remind all overdue": one message per customer covering every overdue invoice.
-export function overdueByParty(records, today = new Date().toISOString().slice(0, 10)) {
+export function overdueByParty(records, today = businessDate()) {
   const groups = new Map();
   for (const record of records) {
     if (!canRemind(record) || !record.data?.due_date || record.data.due_date >= today) continue;

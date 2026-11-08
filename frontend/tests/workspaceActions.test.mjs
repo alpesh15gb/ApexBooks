@@ -116,6 +116,20 @@ test('cancelling a contextual receipt returns to its source register and filter'
   });
 });
 
+test('saving a contextual receipt reopens source details after its posting lock is released', async () => {
+  await workspace('owner', async ({ click, dom, posts }) => {
+    await click('Sales invoices');
+    await click('INV-1');
+    await click('Collect payment');
+    await act(async () => document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].kind, 'payment_in');
+    assert.equal(posts[0].data.allocations[0].document_id, 'invoice');
+    assert.ok(document.querySelector('.transaction-detail'), 'Return to the source invoice after confirmation');
+    assert.doesNotMatch(document.body.textContent, /Finish or retry the pending save/);
+  });
+});
+
 test('dirty editor protects reload and browser-back dismissal asks before discarding', async () => {
   await workspace('owner', async ({ click, dom }) => {
     await click('Sales invoices');
