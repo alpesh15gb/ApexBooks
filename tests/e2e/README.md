@@ -18,6 +18,12 @@ python -m playwright install chromium
 python tests/e2e/run_local.py --browser --artifacts /path/to/test-artifacts
 ```
 
+Include `--presentation` to run the populated UI acceptance matrix too. It scans
+all entry forms on phone and desktop, all reports and settings categories, six
+dashboard widths from 320 to 1920 px, and keyboard drawer/menu and dialog scrolling
+behaviour. The pinned `axe-core` development dependency checks WCAG A/AA rules;
+screenshots, accessibility JSON and a trace are retained with the accounting evidence.
+
 On Linux, use `python -m playwright install --with-deps chromium` to install its
 system dependencies too. For a focused rerun, `--browser-only` skips the two HTTP
 suites but still creates fresh servers and books. Browser runs compile a fresh

@@ -18,10 +18,10 @@ public sealed partial class MainPage
 
     private UIElement BuildWorkspaceHeader()
     {
-        var grid=new Grid{ColumnSpacing=14,VerticalAlignment=VerticalAlignment.Center};
+        var grid=new Grid{ColumnSpacing=14,RowSpacing=12,VerticalAlignment=VerticalAlignment.Center};
         foreach(var width in new[]{new GridLength(1,GridUnitType.Star),new GridLength(250),GridLength.Auto,GridLength.Auto})grid.ColumnDefinitions.Add(new ColumnDefinition{Width=width});
         var identity=Stack(3);identity.Children.Add(workspaceCompany);var caption=Text("APEX BOOKS  /  "+(new Uri(Api.Origin).IsLoopback?"LOCAL TEST SERVER":"CONNECTED WORKSPACE"),10,true);caption.Foreground=Muted;identity.Children.Add(caption);grid.Children.Add(identity);
-        var search=new AutoSuggestBox{PlaceholderText="Search records or a section",TextMemberPath="Label",QueryIcon=new SymbolIcon(Symbol.Find),MinHeight=40};Grid.SetColumn(search,1);grid.Children.Add(search);
+        var search=new AutoSuggestBox{PlaceholderText="Search records or a section",TextMemberPath="Label",QueryIcon=new SymbolIcon(Symbol.Find),MinHeight=44};Grid.SetColumn(search,1);grid.Children.Add(search);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(search,"Search all records and sections");
         search.TextChanged+=(_,args)=>{if(args.Reason!=AutoSuggestionBoxTextChangeReason.UserInput)return;var q=search.Text.Trim();search.ItemsSource=q.Length==0?Array.Empty<SearchHit>():FeatureCatalog.Navigation.Where(f=>f.Title.Contains(q,StringComparison.OrdinalIgnoreCase)).Select(f=>new SearchHit(f.Title,f.Key)).Concat(Companies.OfType<JsonObject>().Where(c=>ClientCapabilities.CompanyLabel(c).Contains(q,StringComparison.OrdinalIgnoreCase)).Select(c=>new SearchHit(ClientCapabilities.CompanyLabel(c)+" · Company","company",c))).Concat(Records.OfType<JsonObject>().Where(r=>(r.Text("name")+" "+r.Text("number")).Contains(q,StringComparison.OrdinalIgnoreCase)).Select(r=>new SearchHit(r.Text("number")+" · "+r.Text("name"),RecordPage(r.Text("kind")),r))).Take(18).ToArray();};
         search.QuerySubmitted+=async(_,args)=>await Run(async()=>{var hit=args.ChosenSuggestion as SearchHit??(search.ItemsSource as IEnumerable<SearchHit>)?.FirstOrDefault();if(hit is null)return;search.IsSuggestionListOpen=false;search.ItemsSource=null;search.Text="";if(hit.Page=="company"){SelectValue(companyPicker,hit.Record.Text("id"));return;}await Navigate(hit.Page);if(hit.Record is { } row){if(row.Text("kind")=="party")await PartyStatement(row);else if(row.Text("kind")=="item"&&CanWrite)await EditRow(row);else await TransactionDetails(row);}});
@@ -29,6 +29,24 @@ public sealed partial class MainPage
         foreach(var kind in new[]{"sales_invoice","payment_in","estimate","proforma","sales_order","credit_note","purchase_bill","payment_out","expense","purchase_order","debit_note","party","item","pos"}){var key=kind;var item=new MenuFlyoutItem{Text=FeatureCatalog.Title(key)};item.Click+=async(_,_)=>await Run(async()=>{if(!CanWrite)return;if(key=="pos")await Navigate(key);else await NewEntry(key);});flyout.Items.Add(item);}
         flyout.Opening+=(_,_)=>{foreach(MenuFlyoutItem item in flyout.Items)item.IsEnabled=CanWrite&&CompanyId.Length>0;};create.Flyout=flyout;Grid.SetColumn(create,2);grid.Children.Add(create);
         var refresh=AsyncButton("Refresh",Refresh,Error);Grid.SetColumn(refresh,3);grid.Children.Add(refresh);
+        workspaceCompany.MaxLines=1;workspaceCompany.TextWrapping=TextWrapping.NoWrap;workspaceCompany.TextTrimming=TextTrimming.CharacterEllipsis;
+        bool? compact=null;
+        void ArrangeHeader(){
+            var next=grid.ActualWidth<820;if(compact==next)return;compact=next;
+            grid.ColumnDefinitions.Clear();grid.RowDefinitions.Clear();
+            grid.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+            if(next){
+                grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+                grid.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});grid.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
+                grid.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+                Grid.SetColumn(identity,0);Grid.SetRow(identity,0);Grid.SetColumnSpan(identity,1);
+                Grid.SetColumn(create,1);Grid.SetColumn(refresh,2);Grid.SetRow(search,1);Grid.SetColumn(search,0);Grid.SetColumnSpan(search,3);
+            }else{
+                foreach(var width in new[]{new GridLength(1,GridUnitType.Star),new GridLength(250),GridLength.Auto,GridLength.Auto})grid.ColumnDefinitions.Add(new ColumnDefinition{Width=width});
+                Grid.SetColumn(search,1);Grid.SetRow(search,0);Grid.SetColumnSpan(search,1);Grid.SetColumn(create,2);Grid.SetColumn(refresh,3);
+            }
+        }
+        ArrangeHeader();grid.SizeChanged+=(_,_)=>ArrangeHeader();
         return new Border{Child=grid,RequestedTheme=ElementTheme.Light,Background=Brush(255,255,255),Padding=new Thickness(30,18,24,18),BorderBrush=Brush(0xF0, 0xE5, 0xDB),BorderThickness=new Thickness(0,0,0,1)};
     }
     private NavigationViewItem? FindNavigation(string page){foreach(var item in navigation.MenuItems.OfType<NavigationViewItem>()){if(item.Tag?.ToString()==page)return item;foreach(var child in item.MenuItems.OfType<NavigationViewItem>())if(child.Tag?.ToString()==page){item.IsExpanded=true;return child;}}return null;}
@@ -62,10 +80,10 @@ public sealed partial class MainPage
                 setup.Children.Add(AsyncButton("Open settings",()=>Navigate("settings"),Error));Body.Children.Add(new Expander{Header="Make this workspace yours",Content=Card(setup),HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,IsExpanded=false});}
         }
         if(!Records.Any(r=>r.Flag("posted"))){var startHere=Stack(10);startHere.Children.Add(Text("Start your books",15,true));startHere.Children.Add(Text("Create your first invoice or purchase. Customers and items are optional setup steps; you can also enter them while billing.",13));if(CanWrite){var setup=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};setup.Children.Add(AsyncButton("First invoice",()=>NewEntry("sales_invoice"),Error,true));setup.Children.Add(AsyncButton("First purchase",()=>NewEntry("purchase_bill"),Error));setup.Children.Add(AsyncButton("Add party · optional",()=>NewEntry("party"),Error));setup.Children.Add(AsyncButton("Add item · optional",()=>NewEntry("item"),Error));startHere.Children.Add(setup);}else startHere.Children.Add(Text("Read-only access · ask the owner to add records or invite you as an editor.",12));Body.Children.Add(Card(startHere));}
-        var shortcuts=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};shortcuts.Children.Add(Text("Overview",13,true));shortcuts.Children.Add(AsyncButton("Sales & collections  ↗",()=>Navigate("sales_invoice"),Error));shortcuts.Children.Add(AsyncButton("Purchases  ↗",()=>Navigate("purchase_bill"),Error));shortcuts.Children.Add(AsyncButton("Reports & GST  ↗",()=>Navigate("reports"),Error));shortcuts.Children.Add(FeatureButton("Low-stock review  ↗","low_stock_reorder",ReorderReport));shortcuts.Children.Add(FeatureButton("Recurring drafts  ↗","recurring_drafts",RecurringDrafts));Body.Children.Add(shortcuts);
+        var shortcuts=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};shortcuts.Children.Add(Text("Overview",13,true));shortcuts.Children.Add(AsyncButton("Sales & collections  ↗",()=>Navigate("sales_invoice"),Error));shortcuts.Children.Add(AsyncButton("Purchases  ↗",()=>Navigate("purchase_bill"),Error));shortcuts.Children.Add(AsyncButton("Reports & GST  ↗",()=>Navigate("reports"),Error));shortcuts.Children.Add(FeatureButton("Low-stock review  ↗","low_stock_reorder",ReorderReport));shortcuts.Children.Add(FeatureButton("Recurring drafts  ↗","recurring_drafts",RecurringDrafts));Body.Children.Add(new ScrollViewer{Content=shortcuts,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollMode=ScrollMode.Enabled,VerticalScrollBarVisibility=ScrollBarVisibility.Disabled});
         Border MetricCard(string label,decimal value,string note,bool hero=false){var s=Stack(12);var l=Text(label,12,true);l.Foreground=Muted;s.Children.Add(l);var amount=Text(J.Money(value),30,true);amount.Foreground=hero?Green:Brush(0x35,0x2D,0x28);s.Children.Add(amount);var n=Text(note,12);n.Foreground=Muted;s.Children.Add(n);var card=Card(s);if(hero){card.Background=Brush(0xFF,0xF5,0xE9);card.BorderBrush=Brush(0xEF,0xD3,0xB7);}return card;}
         Body.Children.Add(ResponsiveMetrics(MetricCard("Net sales",summary.Number("sales"),"Posted sales, after credit notes",true),MetricCard("Net profit",financial.Number("net_profit"),"Income less recorded costs & expenses"),MetricCard("To collect",summary.Number("receivables"),"Outstanding as of today"),MetricCard("To pay",summary.Number("payables"),"Supplier balances as of today")));
-        void Kicker(Panel parent,string value){var label=Text(value,9,true);label.Foreground=Muted;parent.Children.Add(label);}
+        void Kicker(Panel parent,string value){var label=Text(value,12,true);label.Foreground=Muted;parent.Children.Add(label);}
         var chart=Stack(8);Kicker(chart,"BUSINESS PERFORMANCE");chart.Children.Add(Text("Sales & purchases",15,true));var legend=Text("●  Net sales     ●  Net purchases     ·     Invoice values include GST where applicable",11);legend.Foreground=Muted;chart.Children.Add(legend);chart.Children.Add(MonthChart(start,end));
         var invoices=Records.OfType<JsonObject>().Where(r=>r.Text("kind")=="sales_invoice"&&r.Flag("posted")).ToArray();var issued=invoices.Sum(r=>r.Number("amount"));var due=invoices.Sum(r=>r.Number("outstanding"));var settled=Math.Max(0,issued-due);
         var attention=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};var hint=Text("Needs attention",12);hint.VerticalAlignment=VerticalAlignment.Center;hint.Foreground=Muted;attention.Children.Add(hint);

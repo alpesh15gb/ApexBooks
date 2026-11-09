@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.apexbooks.accounting.data.*
@@ -60,12 +61,12 @@ import org.json.JSONObject
         Surface(Modifier.fillMaxSize().safeDrawingPadding().imePadding(), color = MaterialTheme.colorScheme.background) {
             Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { Column {
                 TopAppBar(title = { Column {
-                    Text(if (editor.previous != null) "Edit ${editor.previous.s("number").ifBlank { editor.previous.s("name") }}" else "New ${friendly(editor.kind)}", maxLines = 1, style = MaterialTheme.typography.titleLarge)
-                    Text(vm.company.s("name"), style = MaterialTheme.typography.labelMedium, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (editor.previous != null) "Edit ${editor.previous.s("number").ifBlank { editor.previous.s("name") }}" else "New ${friendly(editor.kind)}", maxLines = 1, overflow=TextOverflow.Ellipsis, style = MaterialTheme.typography.titleLarge)
+                    Text(vm.company.s("name"), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow=TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } }, navigationIcon = { IconButton(enabled = idle, onClick = { close() }) { Icon(Icons.Outlined.Close, "Close entry") } })
                 if (editor.document) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("Details", "Items", "Review").forEachIndexed { index, title ->
-                        Surface(Modifier.weight(1f).clickable(enabled = idle && index < step) { step = index }, shape = RoundedCornerShape(12.dp), color = if (index == step) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface) {
+                        Surface(Modifier.weight(1f).heightIn(min=48.dp).clickable(enabled = idle && index < step) { step = index }, shape = RoundedCornerShape(12.dp), color = if (index == step) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface) {
                             Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 if (index < step) Icon(Icons.Outlined.CheckCircle, null, Modifier.size(16.dp), tint = ApexGreen) else Text("${index + 1}", color = ApexGreen, fontWeight = FontWeight.Bold)
                                 Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = if (index == step) FontWeight.Bold else FontWeight.Normal)
@@ -84,7 +85,7 @@ import org.json.JSONObject
                         }
                         if (editor.previewError.isNotBlank()) Text(editor.previewError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AdaptiveActions {
                         if (editor.document && step > 0) OutlinedButton(enabled = idle, onClick = { step-- }, modifier = Modifier.weight(1f)) { Text("Back") }
                         if (editor.document && step < 2) Button(enabled = idle, onClick = { next() }, modifier = Modifier.weight(1f)) { Text(if (step == 0) "Next: add items" else "Review document"); Icon(Icons.Outlined.ChevronRight, null) }
                         else {

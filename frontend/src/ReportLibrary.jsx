@@ -103,7 +103,7 @@ export default function ReportLibrary({ onSelect }) {
             Choose a report, set the period and export the figures you need.
           </p>
         </div>
-        <span className="library-count">15 reports · PDF & XLSX</span>
+        <span className="library-count">{reportGroups.reduce((total, group) => total + group.reports.length, 0)} reports · PDF & XLSX</span>
       </div>
       <label className="library-search">
         <Search size={19} />

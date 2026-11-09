@@ -64,7 +64,7 @@ public sealed partial class MainPage : Page
     private void ShowLogin()
     {
         leavePage=null;hasUnsavedPage=null;hasPendingPage=null;posDrafts.Clear();CompanyId = ""; Company = new(); Records = new(); Banks = new();recordsReady=false; Companies = new(); generation++;workspaceGeneration++;companyLoads++;refreshSequence++;CurrentPage="dashboard"; Body.Children.Clear(); NativeUi.CloseDialog();
-        var card = Stack(20); card.Width = 380;
+        var card = Stack(20); card.MaxWidth = 380;
         card.Children.Add(AppLogo(340));
         card.Children.Add(Text("Your business, in balance.", 28, true));
         card.Children.Add(Text("Sign in to your shared workspace. Documents and balances stay connected across devices."));
@@ -74,13 +74,13 @@ public sealed partial class MainPage : Page
         card.Children.Add(AsyncButton("Sign in", async () => { await Api.Login(email.Text.Trim(), password.Password, remember.IsChecked == true); password.Password = ""; await LoadCompanies(); }, Error, true));
         card.Children.Add(AsyncButton("Create an account", Register, Error)); card.Children.Add(AsyncButton("Use a recovery code", Recover, Error));
         card.Children.Add(Text("Server · " + new Uri(Api.Origin).Host, 11));
-        var outer = new ScrollViewer { Content = Card(card), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(24), MaxHeight = 800 };
+        var outer = new ScrollViewer { Content = Card(card), MaxWidth=460, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(24), MaxHeight = 800 };
         host.Content = outer;
     }
 
     private async Task Register()
     {
-        var panel = Stack(); var email = Input("Email address"); var password = new PasswordBox { Header = "Password · at least 10 characters" }; var repeat = new PasswordBox { Header = "Confirm password" };
+        var panel = Stack(); var email = Input("Email address"); var password = new PasswordBox { Header = "Password · at least 8 characters" }; var repeat = new PasswordBox { Header = "Confirm password" };
         panel.Children.Add(email); panel.Children.Add(password); panel.Children.Add(repeat);
         var saved = await Dialog("Create your Apex Books account", panel, async () =>
         {
@@ -115,14 +115,14 @@ public sealed partial class MainPage : Page
 
     private void BuildShell()
     {
-        navigation = new NavigationView { IsSettingsVisible = false, RequestedTheme = ElementTheme.Light, PaneDisplayMode = NavigationViewPaneDisplayMode.Left, OpenPaneLength = 252, IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed };
+        navigation = new NavigationView { IsSettingsVisible = false, RequestedTheme = ElementTheme.Light, PaneDisplayMode = NavigationViewPaneDisplayMode.Auto, OpenPaneLength = 252, CompactModeThresholdWidth=640, ExpandedModeThresholdWidth=1100, IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed };
         navigation.Resources["NavigationViewDefaultPaneBackground"] = Brush(255,255,255);
         navigation.Resources["NavigationViewExpandedPaneBackground"] = Brush(255,255,255);
         navigation.Resources["NavigationViewItemOnLeftMinHeight"]=44.0;navigation.Resources["NavigationViewSelectionIndicatorForeground"]=Brush(0xD9,0x8D,0x54);
         var pane = Stack(8);pane.Margin=new Thickness(4,6,8,10);var brandRow=Stack(10);brandRow.Orientation=Orientation.Horizontal;brandRow.VerticalAlignment=VerticalAlignment.Center;
         brandRow.Children.Add(AppLogo(150));
         pane.Children.Add(brandRow);
-        companyPicker.HorizontalAlignment=HorizontalAlignment.Stretch;companyPicker.MinHeight=34;companyPicker.Background=Brush(0xFF,0xF3,0xE7);companyPicker.Foreground=Brush(0x5C,0x4E,0x44);companyPicker.BorderBrush=Brush(0xF0,0xDF,0xCE);pane.Children.Add(companyPicker);navigation.PaneHeader=pane;
+        companyPicker.HorizontalAlignment=HorizontalAlignment.Stretch;companyPicker.MinHeight=44;companyPicker.Background=Brush(0xFF,0xF3,0xE7);companyPicker.Foreground=Brush(0x5C,0x4E,0x44);companyPicker.BorderBrush=Brush(0xF0,0xDF,0xCE);pane.Children.Add(companyPicker);navigation.PaneHeader=pane;
         companyPicker.SelectionChanged += async (_, _) => { if (!changingCompanies) await Run(ChooseCompany); };
         foreach (var group in FeatureCatalog.Navigation.Where(f=>f.Key!="settings").GroupBy(f=>f.Group))
         {
@@ -231,9 +231,21 @@ public sealed partial class MainPage : Page
         }
         var list = new ListView { ItemsSource = rows, SelectionMode = ListViewSelectionMode.Single, MaxHeight = 650, IsItemClickEnabled = true, CornerRadius=new CornerRadius(14), BorderBrush=Brush(0xF0, 0xE5, 0xDB),BorderThickness=new Thickness(1), Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White) };
         list.ItemContainerStyle=new Style(typeof(ListViewItem)){Setters={new Setter(Control.HorizontalContentAlignmentProperty,HorizontalAlignment.Stretch),new Setter(Control.PaddingProperty,new Thickness(0)),new Setter(FrameworkElement.MarginProperty,new Thickness(0))}};
-        list.ItemTemplate = (DataTemplate)XamlReader.Load("""
-          <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Grid Padding="18,14" ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="82"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="72"/><ColumnDefinition Width="100"/><ColumnDefinition Width="110"/><ColumnDefinition Width="132"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Date}" FontSize="12" VerticalAlignment="Center"/><StackPanel Grid.Column="1"><Button Command="{Binding OpenCommand}" Padding="0" BorderThickness="0" Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" FontSize="12" FontWeight="SemiBold" ToolTipService.ToolTip="{Binding PrimaryText}"><TextBlock Text="{Binding PrimaryText}" TextTrimming="CharacterEllipsis"/></Button><TextBlock Text="{Binding SecondaryText}" FontSize="11" Foreground="#796c63" TextTrimming="CharacterEllipsis"/></StackPanel><TextBlock Grid.Column="2" Text="{Binding Status}" FontSize="11" VerticalAlignment="Center" Foreground="{Binding StatusBrush}"/><TextBlock Grid.Column="3" Text="{Binding Amount}" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center"/><TextBlock Grid.Column="4" Text="{Binding BalanceValue}" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center"/><StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"><Button Content="Edit" Command="{Binding EditCommand}" FontSize="12" Padding="10,6" CornerRadius="8"/><Button Content="PDF" Command="{Binding PdfCommand}" Visibility="{Binding PdfVisibility}" FontSize="12" Padding="10,6" CornerRadius="8"/></StackPanel></Grid></DataTemplate>
+        var wideTemplate = (DataTemplate)XamlReader.Load("""
+          <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Grid Padding="18,14" ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="82"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="72"/><ColumnDefinition Width="100"/><ColumnDefinition Width="110"/><ColumnDefinition Width="132"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Date}" FontSize="12" VerticalAlignment="Center"/><StackPanel Grid.Column="1"><Button Command="{Binding OpenCommand}" Padding="0" BorderThickness="0" Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" FontSize="12" FontWeight="SemiBold" ToolTipService.ToolTip="{Binding PrimaryText}"><TextBlock Text="{Binding PrimaryText}" TextTrimming="CharacterEllipsis"/></Button><TextBlock Text="{Binding SecondaryText}" FontSize="12" Foreground="#796c63" TextTrimming="CharacterEllipsis"/></StackPanel><TextBlock Grid.Column="2" Text="{Binding Status}" FontSize="12" VerticalAlignment="Center" Foreground="{Binding StatusBrush}"/><TextBlock Grid.Column="3" Text="{Binding Amount}" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center"/><TextBlock Grid.Column="4" Text="{Binding BalanceValue}" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center"/><StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"><Button Content="Edit" Command="{Binding EditCommand}" FontSize="12" MinHeight="44" Padding="10,6" CornerRadius="8"/><Button Content="PDF" Command="{Binding PdfCommand}" Visibility="{Binding PdfVisibility}" FontSize="12" MinHeight="44" Padding="10,6" CornerRadius="8"/></StackPanel></Grid></DataTemplate>
           """);
+        var compactTemplate=(DataTemplate)XamlReader.Load("""
+          <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+            <StackPanel Padding="18,16" Spacing="12">
+              <Button Command="{Binding OpenCommand}" Padding="0" MinHeight="44" BorderThickness="0" Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" FontSize="14" FontWeight="SemiBold"><TextBlock Text="{Binding PrimaryText}" TextWrapping="Wrap"/></Button>
+              <TextBlock Text="{Binding SecondaryText}" FontSize="13" Foreground="#796c63" TextWrapping="Wrap"/>
+              <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Date}" FontSize="12" Foreground="#796c63"/><TextBlock Grid.Column="1" Text="{Binding Status}" FontSize="12" Foreground="{Binding StatusBrush}" HorizontalAlignment="Right" TextWrapping="Wrap"/></Grid>
+              <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Amount}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock Grid.Column="1" Text="{Binding Balance}" FontSize="13" TextWrapping="Wrap" HorizontalAlignment="Right"/></Grid>
+              <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Edit" Command="{Binding EditCommand}" MinHeight="44" Padding="14,10"/><Button Content="PDF" Command="{Binding PdfCommand}" Visibility="{Binding PdfVisibility}" MinHeight="44" Padding="14,10"/></StackPanel>
+            </StackPanel>
+          </DataTemplate>
+          """);
+        list.ItemTemplate=compactTemplate;
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         var edit = AsyncButton("Edit selected", async () => { if (list.SelectedItem is RecordRow row) await EditRow(row.Source); }, Error); edit.IsEnabled = false;
         var pdf = AsyncButton("Document PDF", async () => { if (list.SelectedItem is RecordRow row) await PreviewDocument(row.Source); }, Error); pdf.IsEnabled = false;
@@ -243,8 +255,10 @@ public sealed partial class MainPage : Page
         list.SelectionChanged += (_, _) => { var row = list.SelectedItem as RecordRow; edit.IsEnabled = row is not null && Editable(row); pdf.IsEnabled = row is not null && Printable(row); convert.IsEnabled = row is not null && CanWrite && FeatureCatalog.Drafts.Contains(row.Kind) && row.Source.Text("converted_to").Length == 0; };
         list.ItemClick += async (_, args) => await Run(async () => { if (args.ClickedItem is RecordRow row) { if (row.Kind == "party") await PartyStatement(row.Source); else if (row.Kind=="item"&&Editable(row)) await EditRow(row.Source); } });
         list.DoubleTapped+=async(_,args)=>{for(var source=args.OriginalSource as DependencyObject;source is not null;source=Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(source))if(source is Microsoft.UI.Xaml.Controls.Primitives.ButtonBase)return;await Run(async()=>{if(list.SelectedItem is RecordRow row&&row.Kind is not("party" or "item")){await TransactionDetails(row.Source);}});};
-        actions.Children.Add(edit); if(rows.Any(Printable))actions.Children.Add(pdf);if(rows.Any(r=>FeatureCatalog.Drafts.Contains(r.Kind)))actions.Children.Add(convert);target.Children.Add(actions);
-        var headings=new Grid{ColumnSpacing=10,Padding=new Thickness(12,10,12,10),Background=Brush(0xFF, 0xF4, 0xE9)};foreach(var width in new[]{new GridLength(82),new GridLength(2,GridUnitType.Star),new GridLength(72),new GridLength(100),new GridLength(110),new GridLength(132)})headings.ColumnDefinitions.Add(new ColumnDefinition{Width=width});var master=rows.Select(r=>r.Kind).Distinct().Count()==1?rows[0].Kind:"";var labels=new[]{"DATE",master=="party"?"PARTY / GSTIN":master=="item"?"ITEM / HSN":"DOCUMENT / PARTY","STATUS",master=="party"?"PHONE":master=="item"?"SALE PRICE":"AMOUNT","BALANCE","ACTIONS"};for(var i=0;i<labels.Length;i++){var label=Text(labels[i],9,true);label.Foreground=Muted;if(i is 3 or 4)label.HorizontalAlignment=HorizontalAlignment.Right;Grid.SetColumn(label,i);headings.Children.Add(label);}target.Children.Add(headings);target.Children.Add(list);
+        actions.Children.Add(edit); if(rows.Any(Printable))actions.Children.Add(pdf);if(rows.Any(r=>FeatureCatalog.Drafts.Contains(r.Kind)))actions.Children.Add(convert);var selectedActions=actions.Children.Cast<UIElement>().ToArray();actions.Children.Clear();target.Children.Add(ResponsiveGrid(180,selectedActions));
+        var headings=new Grid{ColumnSpacing=10,Padding=new Thickness(12,10,12,10),Background=Brush(0xFF, 0xF4, 0xE9)};foreach(var width in new[]{new GridLength(82),new GridLength(2,GridUnitType.Star),new GridLength(72),new GridLength(100),new GridLength(110),new GridLength(132)})headings.ColumnDefinitions.Add(new ColumnDefinition{Width=width});var master=rows.Select(r=>r.Kind).Distinct().Count()==1?rows[0].Kind:"";var labels=new[]{"DATE",master=="party"?"PARTY / GSTIN":master=="item"?"ITEM / HSN":"DOCUMENT / PARTY","STATUS",master=="party"?"PHONE":master=="item"?"SALE PRICE":"AMOUNT","BALANCE","ACTIONS"};for(var i=0;i<labels.Length;i++){var label=Text(labels[i],9,true);label.Foreground=Muted;if(i is 3 or 4)label.HorizontalAlignment=HorizontalAlignment.Right;Grid.SetColumn(label,i);headings.Children.Add(label);}headings.Visibility=Visibility.Collapsed;target.Children.Add(headings);target.Children.Add(list);
+        void ArrangeRecords(){var wide=list.ActualWidth>=760;var template=wide?wideTemplate:compactTemplate;if(!ReferenceEquals(list.ItemTemplate,template))list.ItemTemplate=template;headings.Visibility=wide?Visibility.Visible:Visibility.Collapsed;}
+        list.SizeChanged+=(_,_)=>ArrangeRecords();
     }
 
     internal Task NewEntry(string kind) => kind is "party" or "item" ? MasterForm(kind) : kind is "payment_in" or "payment_out" ? EditPayment(kind) : EditDocument(kind);

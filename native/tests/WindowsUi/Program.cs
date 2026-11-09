@@ -121,6 +121,18 @@ try{
     SelectCompany("Windows UI Alpha");Thread.Sleep(500);SelectCompany("Windows UI Beta");
     Wait(()=>Find("Windows UI Beta"),"Beta workspace heading after company switch");
     Wait(()=>Find("Sales & collections  ↗",ControlType.Button),"company dashboard ready");Snapshot("01-company-dashboard");Check("company picker selected synthetic Beta workspace");
+    // Resize the genuine app window; browser emulation cannot verify native reflow.
+    var originalBounds=window.Current.BoundingRectangle;
+    Check("native window supports standard resize automation",window.TryGetCurrentPattern(TransformPattern.Pattern,out var resizePattern)&&((TransformPattern)resizePattern).Current.CanResize);
+    var transform=(TransformPattern)resizePattern;
+    try{
+        transform.Resize(800,800);
+        var narrowCreate=Wait(()=>ReadyButton("+  Create"),"visible Create action in narrow window");
+        var narrowSearch=Wait(()=>Find("Search all records and sections"),"search in narrow window");
+        var bounds=window.Current.BoundingRectangle;
+        Check("narrow header controls stay within the app window",new[]{narrowCreate,narrowSearch}.All(control=>!control.Current.IsOffscreen&&control.Current.BoundingRectangle.Left>=bounds.Left&&control.Current.BoundingRectangle.Right<=bounds.Right));
+        Snapshot("01b-narrow-dashboard");
+    }finally{transform.Resize(originalBounds.Width,originalBounds.Height);}
     Invoke(Wait(()=>Find("Sales & collections  ↗",ControlType.Button),"sales register shortcut"));var number=invoice["number"]!.GetValue<string>();Invoke(Wait(()=>Find(number,ControlType.Button),"seeded invoice in register"));
     Wait(()=>Find("Synthetic UI Buyer"),"invoice detail buyer");Wait(()=>Find("Record payment received",ControlType.Button),"invoice collection context action");Snapshot("02-invoice-detail");Dump();Check("real register opened invoice detail with collection action");
     Invoke(Wait(()=>Find("Done",ControlType.Button),"close seeded invoice detail"));

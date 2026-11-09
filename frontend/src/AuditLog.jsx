@@ -23,6 +23,6 @@ export default function AuditLog({companyId, role}) {
   return <div className="settings-section audit-log">
     <div className="settings-section-heading"><div><h3>Activity log</h3><p>Recent changes in this company, including who made them.</p></div><button type="button" className="button secondary" onClick={refresh} disabled={busy}>{busy ? 'Loading…' : 'Refresh'}</button></div>
     {error && <div className="error">{error}</div>}
-    <div className="table-wrap"><table><thead><tr><th>WHEN</th><th>ACTION</th><th>BY</th><th>DETAIL</th></tr></thead><tbody>{events.map(event => <tr key={event.id}><td>{new Date(event.occurred_at).toLocaleString('en-IN')}</td><td>{event.action.replaceAll('.', ' · ').replaceAll('_', ' ')}</td><td>{event.actor}</td><td>{event.details?.number || event.details?.reference || event.details?.code || event.details?.kind || event.entity_type}</td></tr>)}</tbody></table>{!events.length && !busy && <p className="muted">No activity yet.</p>}</div>
+    <div className="table-wrap" tabIndex={0}><table><thead><tr><th>WHEN</th><th>ACTION</th><th>BY</th><th>DETAIL</th></tr></thead><tbody>{events.map(event => <tr key={event.id}><td>{new Date(event.occurred_at).toLocaleString('en-IN')}</td><td>{event.action.replaceAll('.', ' · ').replaceAll('_', ' ')}</td><td>{event.actor}</td><td>{event.details?.number || event.details?.reference || event.details?.code || event.details?.kind || event.entity_type}</td></tr>)}</tbody></table>{!events.length && !busy && <p className="muted">No activity yet.</p>}</div>
   </div>;
 }

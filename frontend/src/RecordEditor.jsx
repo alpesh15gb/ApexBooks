@@ -600,6 +600,7 @@ export default function RecordEditor({
               {true && (
                 <input
                   type="file"
+                  aria-label="Choose a purchase bill image"
                   accept="image/png,image/jpeg,image/webp"
                   onChange={scan}
                   disabled={scanning || !ocrStatus?.ready}

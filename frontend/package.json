@@ -19,6 +19,7 @@
     "vite": "6.4.5"
   },
   "devDependencies": {
+    "axe-core": "4.14.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.14.0",
     "globals": "^17.14.0",

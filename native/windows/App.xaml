@@ -19,6 +19,7 @@
             <Color x:Key="SystemAccentColorDark3">#4A3023</Color>
             <FontFamily x:Key="ContentControlThemeFontFamily">ms-appx:///Assets/Fonts/DMSans.ttf#DM Sans</FontFamily>
             <Style TargetType="TextBox">
+                <Setter Property="MinHeight" Value="44" />
                 <Setter Property="FontSize" Value="14" />
                 <Setter Property="CornerRadius" Value="11" />
                 <Setter Property="BorderThickness" Value="1" />
@@ -27,7 +28,18 @@
                 <Setter Property="Foreground" Value="#352d28" />
                 <Setter Property="Padding" Value="12,10" />
             </Style>
+            <Style TargetType="PasswordBox">
+                <Setter Property="MinHeight" Value="44" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="CornerRadius" Value="11" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="BorderBrush" Value="#DCCABE" />
+                <Setter Property="Background" Value="#FFFCF9" />
+                <Setter Property="Foreground" Value="#352D28" />
+                <Setter Property="Padding" Value="12,10" />
+            </Style>
             <Style TargetType="ComboBox">
+                <Setter Property="MinHeight" Value="44" />
                 <Setter Property="FontSize" Value="14" />
                 <Setter Property="CornerRadius" Value="11" />
                 <Setter Property="BorderThickness" Value="1" />
@@ -36,6 +48,7 @@
                 <Setter Property="Foreground" Value="#352d28" />
             </Style>
             <Style TargetType="CalendarDatePicker">
+                <Setter Property="MinHeight" Value="44" />
                 <Setter Property="FontSize" Value="14" />
                 <Setter Property="CornerRadius" Value="11" />
                 <Setter Property="BorderThickness" Value="1" />

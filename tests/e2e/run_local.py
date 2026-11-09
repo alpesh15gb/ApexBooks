@@ -26,11 +26,12 @@ def free_port():
 def run():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--browser', action='store_true')
+    parser.add_argument('--presentation', action='store_true', help='Also verify visual layouts, accessibility and keyboard interaction with synthetic populated books.')
     parser.add_argument('--browser-only', action='store_true', help='Run only the browser gate, still on newly created isolated servers/books.')
     parser.add_argument('--browser-channel', choices=('chrome', 'msedge'))
     parser.add_argument('--artifacts', type=Path)
     args = parser.parse_args()
-    args.browser = args.browser or args.browser_only
+    args.browser = args.browser or args.browser_only or args.presentation
     if os.environ.get('ACCEPTANCE_BASE') or os.environ.get('APEX_E2E_BASE'):
         parser.error('External/reused API targets are refused; this runner starts its own API.')
     node = shutil.which('node')
@@ -107,6 +108,8 @@ def run():
                         check([sys.executable, str(ROOT/'tests/e2e'/name)], cwd=ROOT, env=env)
                 if args.browser:
                     check([sys.executable, str(ROOT/'tests/e2e/browser_workflow.py')], cwd=ROOT, env=env)
+                if args.presentation:
+                    check([sys.executable, str(ROOT/'tests/e2e/browser_presentation.py')], cwd=ROOT, env=env)
             except BaseException:
                 api_log.flush(); web_log.flush()
                 for name in ('api.log', 'web.log'):
