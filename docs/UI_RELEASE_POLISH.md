@@ -4,7 +4,7 @@ The Apricot design is retained across React, Jetpack Compose and WinUI. This rev
 
 ## What changed
 
-- Web supporting text has consistent contrast and readable sizing across dashboards, registers, reports and settings. Phone metrics use the available width so complete amounts remain on one line. Company headings truncate within their own bounds.
+- Web text and financial figures use the bundled DM Sans font, including older shorthand styles. Supporting text has consistent contrast and readable sizing across dashboards, registers, reports and settings. Phone metrics use the available width so complete amounts remain on one line. Company headings truncate within their own bounds.
 - The phone navigation drawer has a close action, focus containment, Escape dismissal, background isolation and focus return. A keyboard skip link reaches the workspace. Document dialogs lock background scrolling and preserve scroll position.
 - Register overflow actions use the browser top layer, with arrow-key navigation and focus return. Menus stay visible beyond table boundaries. Scrollable tables accept keyboard focus.
 - Invoice discounts have room for both their mode and numeric input. Phone adjustment labels wrap, footer actions respect safe areas, and input text remains at least 16 px on phones. Sign-in supports password visibility and credential autofill.
@@ -22,6 +22,10 @@ The Apricot design is retained across React, Jetpack Compose and WinUI. This rev
 
 ![Phone invoice with the date and party fields inside their bounds](images/release-polish/web-invoice-phone.png)
 
+| Windows restored workspace | Windows invoice entry |
+| --- | --- |
+| ![Native Windows dashboard after verified restore](images/release-polish/windows-desktop.png) | ![Native Windows invoice entry](images/release-polish/windows-invoice.png) |
+
 ## Verification
 
 | Gate | Current evidence |
@@ -34,8 +38,8 @@ The Apricot design is retained across React, Jetpack Compose and WinUI. This rev
 | Presentation and accessibility | Passed 88 axe scans, six dashboard widths (320–1920 px), all 13 entry forms at phone and desktop sizes, all 16 reports, registered-GST invoice layouts at five widths and three GST working papers, every settings category, keyboard drawer/menu operation and dialog scroll locking. |
 | Android debug build, units and lint | Passed: 52 unit tests (one optional HTTP unit case skipped), debug and instrumentation builds, and lint. All four real Android 10 emulator journeys passed, including billing, collection, company switching, retained receipts and encrypted backup/restore. The genuine UI journey also passed again with a 150% system-text check. Bottom navigation uses an untruncated Entries label on phones and keeps the full Transactions accessibility name. |
 | Windows portable client | Passed. |
-| Windows source syntax, XAML XML and UI harness | All 44 application C# files parsed; XAML files are well formed; the UI automation harness compiles with no warnings. The harness now resizes the genuine app window and checks header controls. This does not establish WinUI application compilation or runtime behaviour. |
-| Windows native build/UI and unsigned release | Both Android and Windows unsigned release builds passed in [CI](https://github.com/alpesh15gb/ApexBooks/actions/runs/42702080660). The current [PR checks](https://github.com/alpesh15gb/ApexBooks/pull/48/checks) track the final revision and genuine Windows UI gate. |
+| Windows source syntax, XAML XML and UI harness | All 44 application C# files parsed; XAML files are well formed; the UI automation harness compiles with no warnings. The harness resizes the genuine app window and checks header controls. |
+| Windows native build/UI and unsigned release | Both Android and Windows unsigned release builds passed. [Windows genuine UI acceptance](https://github.com/alpesh15gb/ApexBooks/actions/runs/42706010025) passed all 34 checks: sign-in/company switching, narrow-window header, invoice entry, one partial receipt, draft protection, native receipt picker, encrypted save/open/restore and canonical restored balances/evidence. The [PR checks](https://github.com/alpesh15gb/ApexBooks/pull/48/checks) track the final revision. |
 
 Reproduce:
 

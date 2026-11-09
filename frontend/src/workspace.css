@@ -22,7 +22,7 @@ button,
 input,
 select,
 textarea {
-  font-family: 'IBM Plex Sans', sans-serif;
+  font-family: 'DM Sans', sans-serif;
 }
 button:focus-visible,
 a:focus-visible,
@@ -526,7 +526,7 @@ h2 {
 .overview-metric > strong {
   display: block;
   font:
-    800 27px 'IBM Plex Sans',
+    800 27px 'DM Sans',
     sans-serif;
   letter-spacing: -1px;
   margin-top: 14px;
@@ -753,7 +753,7 @@ h2 {
 }
 .collection-ring strong {
   font:
-    800 25px 'IBM Plex Sans',
+    800 25px 'DM Sans',
     sans-serif;
   color: #293a58;
   letter-spacing: -1px;
@@ -838,7 +838,7 @@ h2 {
 .insight-total {
   display: block;
   font:
-    800 26px 'IBM Plex Sans',
+    800 26px 'DM Sans',
     sans-serif;
   letter-spacing: -1px;
   color: #2a4656;
@@ -1798,7 +1798,7 @@ h2 {
 }
 .register-overview strong {
   font:
-    800 21px 'IBM Plex Sans',
+    800 21px 'DM Sans',
     sans-serif;
   letter-spacing: -0.6px;
   color: #355568;

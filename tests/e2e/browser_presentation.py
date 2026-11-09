@@ -90,6 +90,7 @@ with sync_playwright() as p:
             page.set_viewport_size({'width': width, 'height': 1000})
             page.evaluate('scrollTo(0,0)')
             capture(f'dashboard-{width}')
+            assert page.locator('.overview-metric > strong, .collection-ring strong').evaluate_all('nodes => nodes.every(n => getComputedStyle(n).fontFamily.includes("DM Sans"))'), 'Financial figures use an unbundled font'
             assert page.locator('.overview-metric > strong').evaluate_all('''nodes => nodes.every(n =>
                 n.getBoundingClientRect().height <= parseFloat(getComputedStyle(n).lineHeight) * 1.2)'''), f'Amount wraps at {width}px'
 
