@@ -133,9 +133,15 @@ try{
     Wait(()=>Find("Windows UI Beta"),"Beta workspace heading after company switch");
     Wait(()=>Find("Sales & collections  ↗",ControlType.Button),"company dashboard ready");Snapshot("01-company-dashboard");Check("company picker selected synthetic Beta workspace");
     // Resize the genuine app window; browser emulation cannot verify native reflow.
+    if(window.TryGetCurrentPattern(WindowPattern.Pattern,out var windowPattern)){
+        var frame=(WindowPattern)windowPattern;
+        Console.WriteLine("Native window state before resize: "+frame.Current.WindowVisualState+" / "+frame.Current.WindowInteractionState);
+        if(frame.Current.WindowVisualState!=WindowVisualState.Normal)frame.SetWindowVisualState(WindowVisualState.Normal);
+    }
+    Wait(()=>window.TryGetCurrentPattern(TransformPattern.Pattern,out var pattern)&&((TransformPattern)pattern).Current.CanResize?window:null,"resizable normal app window after navigation closes");
     var originalBounds=window.Current.BoundingRectangle;
-    Check("native window supports standard resize automation",window.TryGetCurrentPattern(TransformPattern.Pattern,out var resizePattern)&&((TransformPattern)resizePattern).Current.CanResize);
-    var transform=(TransformPattern)resizePattern;
+    var transform=(TransformPattern)window.GetCurrentPattern(TransformPattern.Pattern);
+    Check("native window supports standard resize automation",transform.Current.CanResize);
     try{
         transform.Resize(800,800);
         var narrowCreate=Wait(()=>ReadyButton("+  Create"),"visible Create action in narrow window");
