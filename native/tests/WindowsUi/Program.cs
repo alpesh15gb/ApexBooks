@@ -33,8 +33,17 @@ async Task<JsonNode> Get(string path){using var response=await http.GetAsync(pat
 async Task<JsonArray> CompanyRecords(string company)=> (await Get($"/api/companies/{company}/records?compact=true&limit=500")).AsArray();
 decimal Number(JsonNode? node,string key)=>decimal.TryParse(node?[key]?.ToString(),System.Globalization.NumberStyles.Number,System.Globalization.CultureInfo.InvariantCulture,out var value)?value:0;
 AutomationElement Wait(Func<AutomationElement?> find,string description,int seconds=60){var timeout=Stopwatch.StartNew();while(timeout.Elapsed.TotalSeconds<seconds){try{var element=find();if(element is not null)return element;}catch(ElementNotAvailableException){}if(app?.HasExited==true)throw new Exception($"WinUI exited with {app.ExitCode} while waiting for {description}");Thread.Sleep(250);}throw new Exception("UI timeout: "+description);}
-AutomationElement? Find(string name,ControlType? type=null)=>window?.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>().FirstOrDefault(x=>x.Current.Name==name&&(type is null||x.Current.ControlType==type));
-AutomationElement? ReadyButton(string label){var button=Find(label,ControlType.Button);return button is not null&&button.Current.IsEnabled&&!button.Current.IsOffscreen?button:null;}
+AutomationElement? Find(string name,ControlType? type=null){
+    if(window is null)return null;
+    foreach(AutomationElement element in window.FindAll(TreeScope.Descendants,Condition.TrueCondition)){
+        // Closing a native dialog can dispose descendants after FindAll returns.
+        // Re-query on the next wait iteration rather than retaining those nodes.
+        try{if(element.Current.Name==name&&(type is null||element.Current.ControlType==type))return element;}
+        catch(ElementNotAvailableException){}
+    }
+    return null;
+}
+AutomationElement? ReadyButton(string label){try{var button=Find(label,ControlType.Button);return button is not null&&button.Current.IsEnabled&&!button.Current.IsOffscreen?button:null;}catch(ElementNotAvailableException){return null;}}
 AutomationElement? EditField(string label)
 {
     if(window is null)return null;
@@ -210,8 +219,13 @@ try{
     Check("discarded UI draft created no accounting record",!finalRecords.OfType<JsonObject>().Any(r=>r["name"]?.ToString()==discardedBuyer));
     await File.WriteAllTextAsync(Path.Combine(evidence,"canonical-verification.json"),new JsonObject{["invoice_id"]=createdId,["invoice_number"]=reference,["amount"]=Number(detail,"amount"),["outstanding"]=Number(detail,"outstanding"),["payment_count"]=receipts.Length,["allocated_amount"]=Number(allocations[0],"amount"),["discarded_record_count"]=0}.ToJsonString());
     AutomationElement NavigationItem(string label){
-        var toggle=ReadyButton("Open Navigation");if(toggle is not null)Invoke(toggle);
-        return Wait(()=>window.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==label&&!e.Current.IsOffscreen&&(e.TryGetCurrentPattern(SelectionItemPattern.Pattern,out _)||e.TryGetCurrentPattern(InvokePattern.Pattern,out _))),label+" visible navigation");
+        var opened=false;
+        return Wait(()=>{
+            var item=Find(label,ControlType.ListItem);
+            if(item is not null&&!item.Current.IsOffscreen&&(item.TryGetCurrentPattern(SelectionItemPattern.Pattern,out _)||item.TryGetCurrentPattern(InvokePattern.Pattern,out _)))return item;
+            var toggle=ReadyButton("Open Navigation");if(!opened&&toggle is not null){Invoke(toggle);opened=true;}
+            return null;
+        },label+" visible navigation");
     }
     Invoke(NavigationItem("Dashboard"));Invoke(Wait(()=>Find("Purchases  ↗",ControlType.Button),"purchase register shortcut"));
     Invoke(Wait(()=>Find(evidenceBill["number"]!.GetValue<string>(),ControlType.Button),"synthetic purchase bill row"));Invoke(Wait(()=>Find("Retained receipts",ControlType.Button),"purchase bill retained evidence action"));
