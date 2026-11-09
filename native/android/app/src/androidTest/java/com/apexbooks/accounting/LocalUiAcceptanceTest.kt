@@ -170,7 +170,7 @@ class LocalUiAcceptanceTest {
         assertTrue("Company selector closes",device.wait(Until.gone(By.text("Each company keeps its own books and settings.")),15000))
         assertTrue("Second workspace opens",device.wait(Until.hasObject(By.text(target)),30000))
         device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-dashboard.png"))
-        device.findObject(By.text("Transactions")).click()
+        device.findObject(By.desc("Transactions")).click()
         assertTrue("Invoice is searchable in native register",device.wait(Until.hasObject(By.text("UI Smoke Buyer")),30000))
         device.findObject(By.text("UI Smoke Buyer")).click()
         assertTrue("Contextual collection action appears",device.wait(Until.hasObject(By.text("Record payment received")),30000))
@@ -347,11 +347,23 @@ class LocalUiAcceptanceTest {
                 clickReadyAction(device,"Open restored company")
                 assertTrue("Explicitly opened new company",device.wait(Until.hasObject(By.text(restoredName)),30000))
                 assertTrue("Restore dialog dismissed",device.wait(Until.gone(By.text("Restore complete portable backup")),15000))
-                clickReadyAction(device,"Transactions")
+                clickReadyDescription(device,"Transactions")
                 assertTrue("Restored company history loaded into the actual register",device.wait(Until.hasObject(By.text("UI Smoke Buyer")),30000))
                 device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-restored-company.png"))
             } finally { device.executeShellCommand("rm -f '/sdcard/Download/$backupName'") }
         } finally { resolver.delete(receiptUri,null,null) }
+        val originalFontScale=device.executeShellCommand("settings get system font_scale").trim().toFloatOrNull()?:1f
+        try{
+            device.executeShellCommand("settings put system font_scale 1.5")
+            assertTrue("Home remains accessible with enlarged system text",device.wait(Until.hasObject(By.desc("Home")),15000))
+            device.findObject(By.desc("Home")).click()
+            assertTrue("Dashboard opens with enlarged system text",device.wait(Until.hasObject(By.text("Your business")),15000))
+            device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-large-text-dashboard.png"))
+            clickReadyAction(device,"New invoice")
+            assertTrue("Entry actions remain visible with enlarged system text",device.wait(Until.hasObject(By.text("Next: add items")),15000))
+            device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-large-text-entry.png"))
+            device.findObject(By.desc("Close entry")).click()
+        }finally{device.executeShellCommand("settings put system font_scale $originalFontScale")}
         api.logout()
     }
 }

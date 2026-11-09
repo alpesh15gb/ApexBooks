@@ -50,7 +50,7 @@ with sync_playwright() as p:
         # Fonts, data responses and two painted frames precede geometry/captures.
         page.evaluate('''async () => { await document.fonts.ready; await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); }''')
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'), f'{label}: horizontal page overflow'
-        page.screenshot(path=str(ARTIFACTS/f'{label}.png'), full_page=not page.locator('[aria-modal="true"]').count())
+        page.screenshot(path=str(ARTIFACTS/f'{label}.png'), full_page=not page.locator('[aria-modal="true"], :popover-open').count())
         if audit:
             if not page.evaluate('!!window.axe'):
                 page.add_script_tag(path=str(AXE))
@@ -119,6 +119,7 @@ with sync_playwright() as p:
         for width in (320, 390, 768, 1440):
             page.set_viewport_size({'width': width, 'height': 844})
             dialog.locator('.document-form').evaluate('n => n.scrollTop = 0')
+            assert dialog.locator('.document-form').evaluate('n => n.scrollWidth <= n.clientWidth + 1'), f'Invoice fields overflow at {width}px'
             capture(f'invoice-{width}')
             footer = dialog.locator('.modal-actions').bounding_box()
             assert footer and footer['y'] + footer['height'] <= 845, 'Save actions are outside the viewport'
@@ -153,6 +154,9 @@ with sync_playwright() as p:
                 form = page.locator('.overlay .modal').last
                 expect(form).to_be_visible()
                 assert form.evaluate('n => n.scrollWidth <= n.clientWidth + 1'), f'{label}: dialog overflows at {width}px'
+                document_form = form.locator('.document-form')
+                if document_form.count():
+                    assert document_form.evaluate('n => n.scrollWidth <= n.clientWidth + 1'), f'{label}: fields overflow at {width}px'
                 capture(f'entry-{label.lower().replace(" ", "-")}-{width}')
                 form.get_by_role('button', name='Close', exact=True).click()
                 discard = page.get_by_role('dialog', name='Discard unsaved changes?', exact=True)
@@ -167,6 +171,28 @@ with sync_playwright() as p:
             page.locator('.report-choice').filter(has=page.get_by_text(title, exact=True)).click()
             expect(page.locator('.reports-page')).to_be_visible()
             capture(f'report-{index+1:02d}')
+            page.get_by_role('button', name='All reports', exact=True).click()
+        # Registered books expose the additional GST columns and working papers.
+        gst_company = client.request('POST', '/api/companies', {
+            'name': 'Synthetic GST presentation company', 'tax_mode': 'regular',
+            'state_code': '27', 'gstin': '27AAAAA0000A1Z5',
+        })
+        page.reload(wait_until='domcontentloaded')
+        page.get_by_role('combobox', name='Choose company', exact=True).select_option(gst_company['id'])
+        expect(page.get_by_role('status').filter(has_text='Company data loaded')).to_be_visible()
+        for width in (320, 390, 768, 1024, 1440):
+            page.set_viewport_size({'width': width, 'height': 1000})
+            page.get_by_role('button', name='Create', exact=True).click()
+            page.get_by_role('menuitem', name='Sales invoice', exact=True).click()
+            form = page.get_by_role('dialog', name='New sales invoice', exact=True)
+            expect(form.get_by_role('spinbutton', name='Item 1 GST rate', exact=True)).to_be_attached()
+            assert form.locator('.document-form').evaluate('n => n.scrollWidth <= n.clientWidth + 1'), f'GST fields overflow at {width}px'
+            capture(f'gst-invoice-{width}')
+            form.get_by_role('button', name='Close', exact=True).click()
+        navigate('Reports')
+        for title in ('GSTR-1', 'GSTR-2A · purchase books', 'GSTR-3B'):
+            page.locator('.report-choice').filter(has=page.get_by_text(title, exact=True)).click()
+            capture('gst-'+title.lower().split(' · ')[0])
             page.get_by_role('button', name='All reports', exact=True).click()
         assert not errors, errors
         violations = [r for r in reports if r['violations']]

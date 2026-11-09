@@ -35,7 +35,7 @@ import com.apexbooks.accounting.data.*
     BackHandler(enabled = vm.page != "dashboard" && vm.editor == null && vm.detail == null && vm.pdf == null && vm.statement == null && vm.tool.isBlank() && !vm.companyForm && !searchOpen && !createOpen && !companies) { vm.navigate("dashboard") }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 840.dp
-        val compactLabels = maxWidth / LocalDensity.current.fontScale < 390.dp
+        val compactLabels = maxWidth / LocalDensity.current.fontScale < 600.dp
         Row(Modifier.fillMaxSize()) {
             if (wide) NavigationRail(containerColor = Color.White, header = { AppLogo(Modifier.width(100.dp).padding(8.dp)) }) {
                 destinations.forEach { (key, label) -> NavigationRailItem(selected = key == currentTab, onClick = { navigate(key) }, icon = { Icon(mobileIcon(key), null) }, label = { Text(label) }) }
@@ -62,7 +62,7 @@ import com.apexbooks.accounting.data.*
                 } },
                 bottomBar = { if (!wide && !WindowInsets.isImeVisible) {
                     Surface(shadowElevation = 10.dp, color = Color.White) { NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
-                        destinations.forEach { (key, label) -> NavigationBarItem(selected = currentTab == key, onClick = { navigate(key) }, icon = { Icon(mobileIcon(key), null) }, label = { Text(if(compactLabels&&key=="transactions")"Entries"else label, maxLines = 1, overflow=TextOverflow.Ellipsis) }, colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer)) }
+                        destinations.forEach { (key, label) -> NavigationBarItem(modifier=Modifier.semantics{contentDescription=label}, selected = currentTab == key, onClick = { navigate(key) }, icon = { Icon(mobileIcon(key), null) }, label = { Text(if(compactLabels&&key=="transactions")"Entries"else label, maxLines = 1, overflow=TextOverflow.Ellipsis) }, colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer)) }
                     } }
                 } },
                 floatingActionButton = { if (vm.canWrite && vm.recordsReady && vm.companyId.isNotBlank() && vm.page !in setOf("dashboard", "reports", "settings", "more", "commerce", "pos") && !WindowInsets.isImeVisible) {

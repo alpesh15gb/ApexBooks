@@ -124,6 +124,7 @@ public sealed partial class MainPage : Page
         pane.Children.Add(brandRow);
         companyPicker.HorizontalAlignment=HorizontalAlignment.Stretch;companyPicker.MinHeight=44;companyPicker.Background=Brush(0xFF,0xF3,0xE7);companyPicker.Foreground=Brush(0x5C,0x4E,0x44);companyPicker.BorderBrush=Brush(0xF0,0xDF,0xCE);pane.Children.Add(companyPicker);navigation.PaneHeader=pane;
         companyPicker.SelectionChanged += async (_, _) => { if (!changingCompanies) await Run(ChooseCompany); };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(companyPicker,"Choose company");
         foreach (var group in FeatureCatalog.Navigation.Where(f=>f.Key!="settings").GroupBy(f=>f.Group))
         {
             var expandable=group.Key is "Sales" or "Purchase" or "Purchases";

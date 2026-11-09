@@ -8,7 +8,7 @@ export default function ActionMenu({ label, actions }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (!open) return;
-    const dismiss = event => { if (!menu.current?.contains(event.target)) menu.current?.hidePopover?.(); };
+    const dismiss = event => { if (event.type === 'resize' || !menu.current?.contains(event.target)) menu.current?.hidePopover?.(); };
     window.addEventListener('scroll', dismiss, true);
     window.addEventListener('resize', dismiss);
     return () => { window.removeEventListener('scroll', dismiss, true); window.removeEventListener('resize', dismiss); };

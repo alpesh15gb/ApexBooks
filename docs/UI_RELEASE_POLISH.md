@@ -16,7 +16,11 @@ The Apricot design is retained across React, Jetpack Compose and WinUI. This rev
 
 ![Desktop with large synthetic balances and a long company name](images/release-polish/web-desktop.png)
 
-![Phone business overview](images/release-polish/web-phone.png)
+| Web phone | Android phone | Android at 150% text |
+| --- | --- | --- |
+| ![Web business overview](images/release-polish/web-phone.png) | ![Native Android overview](images/release-polish/android-phone.png) | ![Native entry at enlarged text](images/release-polish/android-large-text.png) |
+
+![Phone invoice with the date and party fields inside their bounds](images/release-polish/web-invoice-phone.png)
 
 ## Verification
 
@@ -27,11 +31,11 @@ The Apricot design is retained across React, Jetpack Compose and WinUI. This rev
 | Web ESLint and production build | Passed. The existing Vite large-chunk advisory is still present. |
 | Local HTTP accounting and complete backup | All five accounting tests and the backup round trip passed. |
 | Web accounting browser journeys | Passed: invoice save, partial receipt, exports, search, dirty drafts, cancellation locking and lost-response recovery. |
-| Presentation and accessibility | Passed 80 axe scans, six dashboard widths (320–1920 px), all 13 entry forms at phone and desktop sizes, all 16 reports, every settings category, keyboard drawer/menu operation and dialog scroll locking. |
-| Android debug build, units and lint | Passed after the changes. Device journeys are being verified on a dedicated Android 10 emulator. |
+| Presentation and accessibility | Passed 88 axe scans, six dashboard widths (320–1920 px), all 13 entry forms at phone and desktop sizes, all 16 reports, registered-GST invoice layouts at five widths and three GST working papers, every settings category, keyboard drawer/menu operation and dialog scroll locking. |
+| Android debug build, units and lint | Passed: 52 unit tests (one optional HTTP unit case skipped), debug and instrumentation builds, and lint. All four real Android 10 emulator journeys passed, including billing, collection, company switching, retained receipts and encrypted backup/restore. The genuine UI journey also passed again with a 150% system-text check. Bottom navigation uses an untruncated Entries label on phones and keeps the full Transactions accessibility name. |
 | Windows portable client | Passed. |
 | Windows source syntax, XAML XML and UI harness | All 44 application C# files parsed; XAML files are well formed; the UI automation harness compiles with no warnings. The harness now resizes the genuine app window and checks header controls. This does not establish WinUI application compilation or runtime behaviour. |
-| Windows native build/UI and unsigned release | Must pass the repository's Windows CI on this revision. |
+| Windows native build/UI and unsigned release | Both Android and Windows unsigned release builds passed in [CI](https://github.com/alpesh15gb/ApexBooks/actions/runs/42702080660). The current [PR checks](https://github.com/alpesh15gb/ApexBooks/pull/48/checks) track the final revision and genuine Windows UI gate. |
 
 Reproduce:
 
@@ -41,7 +45,7 @@ PYTHON=/path/to/python bash scripts/check.sh
 /path/to/python tests/e2e/run_local.py --browser --presentation --artifacts .native-build/ui-release
 ```
 
-The browser CI now runs the presentation suite with the pinned `axe-core` development dependency. It retains screenshots, an accessibility JSON report and traces. The suite uses real local API data, including a long legal company name and an invoice worth ₹9,87,65,432.10. The release must also pass the existing native build and genuine-UI gates; syntax checks and browser emulation are insufficient substitutes.
+The browser CI now runs the presentation suite with the pinned `axe-core` development dependency. It retains screenshots, an accessibility JSON report and traces. A narrow-screen grid regression now also checks overflow inside the invoice form, where clipping can conceal an overflowing field without enlarging the page. The suite uses real local API data, including a long legal company name and an invoice worth ₹9,87,65,432.10. The release must also pass the existing native build and genuine-UI gates; syntax checks and browser emulation are insufficient substitutes.
 
 ## Release boundary
 

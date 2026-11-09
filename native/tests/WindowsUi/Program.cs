@@ -116,9 +116,11 @@ try{
     var passwordBox=Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Edit)).Cast<AutomationElement>().FirstOrDefault(x=>x.Current.IsPassword),"password input");
     Set(emailBox,email);Set(passwordBox,password);Invoke(Wait(()=>Find("Sign in",ControlType.Button),"Sign in button"));
     Wait(()=>Find("Business overview"),"authenticated dashboard");Check("real login controls completed sign-in");
-    var combo=Wait(()=>window.FindFirst(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.ComboBox)),"company picker");
+    var openNavigation=ReadyButton("Open Navigation");if(openNavigation is not null)Invoke(openNavigation);
+    var combo=Wait(()=>Find("Choose company",ControlType.ComboBox),"company picker in the visible navigation pane");
     void SelectCompany(string name){((ExpandCollapsePattern)combo.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();var choice=Wait(()=>window.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>().FirstOrDefault(x=>x.Current.Name.StartsWith(name+" ·",StringComparison.Ordinal)&&x.TryGetCurrentPattern(SelectionItemPattern.Pattern,out _)),name+" picker item");Invoke(choice);}
     SelectCompany("Windows UI Alpha");Thread.Sleep(500);SelectCompany("Windows UI Beta");
+    var closeNavigation=ReadyButton("Close Navigation");if(closeNavigation is not null)Invoke(closeNavigation);
     Wait(()=>Find("Windows UI Beta"),"Beta workspace heading after company switch");
     Wait(()=>Find("Sales & collections  ↗",ControlType.Button),"company dashboard ready");Snapshot("01-company-dashboard");Check("company picker selected synthetic Beta workspace");
     // Resize the genuine app window; browser emulation cannot verify native reflow.
@@ -207,7 +209,10 @@ try{
     var finalRecords=await CompanyRecords(cid);
     Check("discarded UI draft created no accounting record",!finalRecords.OfType<JsonObject>().Any(r=>r["name"]?.ToString()==discardedBuyer));
     await File.WriteAllTextAsync(Path.Combine(evidence,"canonical-verification.json"),new JsonObject{["invoice_id"]=createdId,["invoice_number"]=reference,["amount"]=Number(detail,"amount"),["outstanding"]=Number(detail,"outstanding"),["payment_count"]=receipts.Length,["allocated_amount"]=Number(allocations[0],"amount"),["discarded_record_count"]=0}.ToJsonString());
-    AutomationElement NavigationItem(string label)=>Wait(()=>window.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==label&&(e.TryGetCurrentPattern(SelectionItemPattern.Pattern,out _)||e.TryGetCurrentPattern(InvokePattern.Pattern,out _))),label+" navigation");
+    AutomationElement NavigationItem(string label){
+        var toggle=ReadyButton("Open Navigation");if(toggle is not null)Invoke(toggle);
+        return Wait(()=>window.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==label&&!e.Current.IsOffscreen&&(e.TryGetCurrentPattern(SelectionItemPattern.Pattern,out _)||e.TryGetCurrentPattern(InvokePattern.Pattern,out _))),label+" visible navigation");
+    }
     Invoke(NavigationItem("Dashboard"));Invoke(Wait(()=>Find("Purchases  ↗",ControlType.Button),"purchase register shortcut"));
     Invoke(Wait(()=>Find(evidenceBill["number"]!.GetValue<string>(),ControlType.Button),"synthetic purchase bill row"));Invoke(Wait(()=>Find("Retained receipts",ControlType.Button),"purchase bill retained evidence action"));
     Wait(()=>Find("No retained receipts. Upload original evidence to keep it with this transaction."),"empty receipt panel");Invoke(Wait(()=>Find("Choose receipt and upload",ControlType.Button),"native receipt upload action"));

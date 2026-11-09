@@ -667,3 +667,10 @@ input, textarea, select { scroll-margin: 100px 0 24px; }
 .modal-heading p, .line-card label, .allocation-row label { color: var(--ln-muted); }
 .transaction-reference { min-width: 0; }
 .transaction-reference > span, .transaction-reference > .transaction-party { overflow-wrap: anywhere; white-space: normal; }
+/* Grid children must be allowed to shrink below a date input's intrinsic width. */
+.document-form > .submission-fields { grid-template-columns: minmax(0, 1fr); }
+.document-form > .submission-fields > *, .document-customer, .document-meta,
+.document-meta > label, .customer-inline > label { min-width: 0; }
+.customer-inline, .document-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 700px) { .document-header-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 360px) { .document-meta, .customer-inline { grid-template-columns: minmax(0,1fr); } }
