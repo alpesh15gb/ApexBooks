@@ -202,7 +202,7 @@ fun ActionDialog(
                                     enabled = enabled && !saving && !working() && vm.busy == 0,
                                     onClick = { saving = true; vm.task { try { onSave() } finally { saving = false } } }
                                 ) {
-                                    if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(confirm)
+                                    if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary) else Text(confirm)
                                 }
                             }
                         }

@@ -70,7 +70,8 @@ public static class NativeUi
             var originalContent=button.Content;
             button.IsEnabled = false;
             var progress=Stack(8);progress.Orientation=Orientation.Horizontal;
-            progress.Children.Add(new ProgressRing{IsActive=true,Width=16,Height=16,VerticalAlignment=VerticalAlignment.Center});progress.Children.Add(Text(label));button.Content=progress;
+            progress.Children.Add(new ProgressRing{IsActive=true,Width=16,Height=16,Foreground=primary?Brush(255,255,255):Green,VerticalAlignment=VerticalAlignment.Center});
+            var progressLabel=Text(label);if(primary)progressLabel.Foreground=Brush(255,255,255);progress.Children.Add(progressLabel);button.Content=progress;
             if (context is not null) { context.Error.IsOpen = false; context.Operations++; context.Update(); }
             try { await click(); }
             catch (Exception e) { error(e); }
@@ -117,6 +118,7 @@ public static class NativeUi
         void Arrange(double width)
         {
             var count=Math.Max(1,Math.Min(elements.Length,(int)((width+16)/(minimumColumnWidth+16))));
+            if(elements.Length==4&&count==3)count=2;
             if(count==current)return;
             current=count;grid.ColumnDefinitions.Clear();grid.RowDefinitions.Clear();
             for(var col=0;col<count;col++)grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});

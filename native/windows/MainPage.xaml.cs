@@ -136,7 +136,7 @@ public sealed partial class MainPage : Page
             if(parent is not null)parent.MenuItems.Add(item);else navigation.MenuItems.Add(item);
             }
         }
-        navigation.MenuItems.Add(new NavigationViewItem { Content="Settings",Tag="settings",Icon=new SymbolIcon(Symbol.Setting) });
+        navigation.FooterMenuItems.Add(new NavigationViewItem { Content="Settings",Tag="settings",Icon=new SymbolIcon(Symbol.Setting) });
         navigation.FooterMenuItems.Add(new NavigationViewItem { Content = "Add company", Tag = "new_company", Icon = new SymbolIcon(Symbol.Add) });
         navigation.FooterMenuItems.Add(new NavigationViewItem { Content = "Sign out", Tag = "logout", Icon = new SymbolIcon(Symbol.LeaveChat) });
         navigation.ItemInvoked += async (_, args) => await Run(async () =>

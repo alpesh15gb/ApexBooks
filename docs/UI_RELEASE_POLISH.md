@@ -9,8 +9,8 @@ The Apricot design is retained across React, Jetpack Compose and WinUI. This rev
 - Register overflow actions use the browser top layer, with arrow-key navigation and focus return. Menus stay visible beyond table boundaries. Scrollable tables accept keyboard focus.
 - Invoice discounts have room for both their mode and numeric input. Phone adjustment labels wrap, footer actions respect safe areas, and input text remains at least 16 px on phones. Sign-in supports password visibility and credential autofill.
 - Android metrics and action rows reflow for window width and system font scaling. The company switcher has its own 48 dp row, separated from the page title. Form headings ellipsize safely; notices are announced accessibly; dialog content respects system insets. Redundant blank space below the dashboard is removed.
-- Windows navigation adapts to the window; form columns, financial metrics, header search and dialog footer actions reflow. Narrow registers use cards with readable names and amounts. Common buttons wrap their text and retain their accessible names during asynchronous operations. Password and date controls use consistent minimum heights. Dialog bounds follow window resizing.
-- Shared design tokens now record supporting typography, spacing and platform target sizes.
+- Windows navigation adapts to the window; form columns, financial metrics, header search and dialog footer actions reflow. Narrow registers use cards with readable names and amounts. Settings stays pinned in the navigation footer; four metrics keep balanced rows instead of leaving a single card below three others. Common buttons wrap their text and retain their accessible names during asynchronous operations. Password and date controls use consistent minimum heights. Dialog bounds follow window resizing.
+- Shared design tokens now record supporting typography, spacing and platform target sizes. Primary-button progress indicators keep a contrasting foreground on both native platforms.
 
 ## Screens
 
