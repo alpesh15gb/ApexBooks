@@ -96,7 +96,7 @@ export default function GstReturnView({ data }) {
           <div className="panel-header">
             <h2>{table.title}</h2>
           </div>
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0}>
             <table>
               <thead>
                 <tr>
@@ -129,7 +129,7 @@ export default function GstReturnView({ data }) {
       {!!data.hsn.length && (
         <section className="panel settings-panel">
           <h2>HSN / SAC summary</h2>
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0}>
             <table>
               <thead>
                 <tr>

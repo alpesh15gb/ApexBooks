@@ -24,6 +24,8 @@ import RecurringWorkspace from "./RecurringWorkspace.jsx";
 import ReorderWorkspace from "./ReorderWorkspace.jsx";
 import RecordEditor from "./RecordEditor.jsx";
 import BackupRestore from "./BackupRestore.jsx";
+import ActionMenu from "./ActionMenu.jsx";
+import WorkspaceSidebar from "./WorkspaceSidebar.jsx";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 const CompleteBackup = React.lazy(() => import("./CompleteBackup.jsx"));
@@ -51,9 +53,10 @@ import {
   X,
   LogOut,
   CircleHelp,
+  Eye,
+  EyeOff,
   Building2,
   ReceiptIndianRupee,
-  MoreHorizontal,
   BookOpen,
 } from "lucide-react";
 import "./style.css";
@@ -176,6 +179,7 @@ const api = async (path, options = {}) => {
 function Auth({ onLogin }) {
   const [recovery, setRecovery] = useState(false);
   const [register, setRegister] = useState(false),
+    [passwordVisible, setPasswordVisible] = useState(false),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
     [error, setError] = useState(""),
@@ -244,6 +248,10 @@ function Auth({ onLogin }) {
                   Email address
                   <input
                     type="email"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    disabled={busy}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@company.com"
@@ -252,16 +260,21 @@ function Auth({ onLogin }) {
                 </label>
                 <label>
                   Password
+                  <span className="password-field">
                   <input
-                    type="password"
+                    type={passwordVisible ? "text" : "password"}
+                    autoComplete={register ? "new-password" : "current-password"}
+                    disabled={busy}
                     minLength="8"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 8 characters"
+                    placeholder={register ? "At least 8 characters" : "Enter your password"}
                     required
                   />
+                  <button type="button" className="icon-button" disabled={busy} aria-label={passwordVisible ? "Hide password" : "Show password"} aria-pressed={passwordVisible} onClick={() => setPasswordVisible(value => !value)}>{passwordVisible ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+                  </span>
                 </label>
-                {error && <div className="error">{error}</div>}
+                {error && <div className="error" role="alert">{error}</div>}
                 <button className="button primary wide" disabled={busy}>
                   {busy
                     ? "Please wait…"
@@ -275,8 +288,10 @@ function Auth({ onLogin }) {
                 {register ? "Already have an account?" : "New to Apex Books?"}{" "}
                 <button
                   className="link"
+                  disabled={busy}
                   onClick={() => {
                     setRegister(!register);
+                    setPasswordVisible(false);
                     setError("");
                   }}
                 >
@@ -1016,7 +1031,8 @@ function App() {
   if (!signed) return <Auth onLogin={() => setSigned(true)} />;
   return (
     <div className="app">
-      <aside className={`sidebar ${menu ? "open" : ""}`}>
+      <a className="skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); document.getElementById('workspace-content')?.focus(); }}>Skip to content</a>
+      <WorkspaceSidebar open={menu} onClose={() => setMenu(false)}>
         <div className="brand">
           <img className="brand-wordmark" src="/apexbooks-wordmark.png" alt="Apex Books — Your books in balance" width="1569" height="230" />
         </div>
@@ -1046,13 +1062,15 @@ function App() {
           <ChevronDown size={14} />
         </div>
         <div className="nav-label">YOUR WORKSPACE</div>
-        <nav>
+        <nav aria-label="Main navigation">
           {sections.map((s) => (
             <React.Fragment key={s.label}>
               <button
                 disabled={!!routeFeature[s.key] && !supported(routeFeature[s.key])}
                 title={routeFeature[s.key] && !supported(routeFeature[s.key]) ? "Connected API upgrade required" : undefined}
                 className={`nav-item ${page === s.key || s.children?.some(([key]) => key === page) ? "active" : ""}`}
+                aria-current={!s.children && page === s.key ? "page" : undefined}
+                aria-expanded={s.children ? expanded === s.label : undefined}
                 onClick={() => {
                   editorRequests.current.latest();
                   if (s.children)
@@ -1077,6 +1095,7 @@ function App() {
                     <button
                       key={k}
                       className={page === k ? "active" : ""}
+                      aria-current={page === k ? "page" : undefined}
                       onClick={() => {
                         navigateWorkspace(k);
                       }}
@@ -1100,7 +1119,7 @@ function App() {
             <LogOut size={16} /> Sign out
           </button>
         </div>
-      </aside>
+      </WorkspaceSidebar>
       {menu && (
         <div className="mobile-backdrop" onClick={() => setMenu(false)} />
       )}
@@ -1118,13 +1137,14 @@ function App() {
           }}
           onCreate={createWorkspace}
           onMenu={() => setMenu(true)}
+          menuOpen={menu}
         />
-        <div className="content">
+        <div className="content" id="workspace-content" tabIndex={-1}>
           {companyId && <div className="workspace-sync-line" role="status">{company?.book_label?.trim() && <strong className="workspace-book-label" title={`Book label: ${company.book_label}`}>{company.book_label}</strong>}<span className={recordsLoading ? "sync-active" : "sync-idle"} /><span>{recordsLoading ? recordsReady ? "Refreshing company data…" : `Loading company data${recordsProgress ? ` · ${recordsProgress.toLocaleString()} records` : "…"}` : recordsLoadError ? "Refresh needed" : recordsReady ? "Company data loaded" : "Connecting to your company…"}</span><button className="link" disabled={recordsLoading} onClick={() => loadRecords()}>Refresh</button></div>}
           {capabilities && CORE_ENHANCEMENTS.some(feature => !supported(feature)) && <details className="info-box"><summary>Some newer tools are unavailable on the connected API</summary><p>{capabilities.reason || "Update the API to enable all supported workflows."} Existing core workspaces remain available. Unsupported settings are not submitted.</p><button className="button secondary" onClick={() => setCapabilityRevision(value => value + 1)}>Check API support again</button></details>}
           {error && (
-            <div className="error banner" onClick={() => setError("")}>
-              {error} · Click to dismiss
+            <div className="error banner" role="alert">
+              <span>{error}</span><button className="icon-button" aria-label="Dismiss error" onClick={() => setError("")}><X size={18} /></button>
             </div>
           )}
           {!companyId ? (
@@ -1594,7 +1614,7 @@ function App() {
                         {overdueCount(records) > 0 && <button type="button" className="button secondary whatsapp" onClick={() => setRemindOverdue(true)}>Remind overdue ({overdueCount(records)})</button>}
                       </div>
                     )}
-                    <div className="table-wrap">
+                    <div className="table-wrap" tabIndex={0}>
                       <table>
                         <thead>
                           <tr>
@@ -2371,7 +2391,7 @@ function Ledger({ companyId, role }) {
           </label>
         </div>
         {balance && (
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0}>
             <table>
               <thead>
                 <tr>
@@ -2558,31 +2578,7 @@ function RecordActions({ r, onEdit, onPdf, onConvert, onRelated }) {
         </button>
       )}
       {rest.length > 0 && (
-        <details
-          className="row-menu"
-          onBlur={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
-          }}
-        >
-          <summary aria-label={`More actions for ${r.number || r.name}`} title="More actions">
-            <MoreHorizontal size={16} />
-          </summary>
-          <div className="row-menu-list">
-            {rest.map((action) => (
-              <button
-                key={action.key}
-                disabled={action.disabled}
-                onClick={(event) => {
-                  const menu = event.currentTarget.closest("details");
-                  if (menu) menu.open = false;
-                  action.run();
-                }}
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
-        </details>
+        <ActionMenu label={`More actions for ${r.number || r.name}`} actions={rest} />
       )}
     </div>
   );

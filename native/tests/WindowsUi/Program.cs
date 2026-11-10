@@ -33,8 +33,17 @@ async Task<JsonNode> Get(string path){using var response=await http.GetAsync(pat
 async Task<JsonArray> CompanyRecords(string company)=> (await Get($"/api/companies/{company}/records?compact=true&limit=500")).AsArray();
 decimal Number(JsonNode? node,string key)=>decimal.TryParse(node?[key]?.ToString(),System.Globalization.NumberStyles.Number,System.Globalization.CultureInfo.InvariantCulture,out var value)?value:0;
 AutomationElement Wait(Func<AutomationElement?> find,string description,int seconds=60){var timeout=Stopwatch.StartNew();while(timeout.Elapsed.TotalSeconds<seconds){try{var element=find();if(element is not null)return element;}catch(ElementNotAvailableException){}if(app?.HasExited==true)throw new Exception($"WinUI exited with {app.ExitCode} while waiting for {description}");Thread.Sleep(250);}throw new Exception("UI timeout: "+description);}
-AutomationElement? Find(string name,ControlType? type=null)=>window?.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>().FirstOrDefault(x=>x.Current.Name==name&&(type is null||x.Current.ControlType==type));
-AutomationElement? ReadyButton(string label){var button=Find(label,ControlType.Button);return button is not null&&button.Current.IsEnabled&&!button.Current.IsOffscreen?button:null;}
+AutomationElement? Find(string name,ControlType? type=null){
+    if(window is null)return null;
+    foreach(AutomationElement element in window.FindAll(TreeScope.Descendants,Condition.TrueCondition)){
+        // Closing a native dialog can dispose descendants after FindAll returns.
+        // Re-query on the next wait iteration rather than retaining those nodes.
+        try{if(element.Current.Name==name&&(type is null||element.Current.ControlType==type))return element;}
+        catch(ElementNotAvailableException){}
+    }
+    return null;
+}
+AutomationElement? ReadyButton(string label){try{var button=Find(label,ControlType.Button);return button is not null&&button.Current.IsEnabled&&!button.Current.IsOffscreen?button:null;}catch(ElementNotAvailableException){return null;}}
 AutomationElement? EditField(string label)
 {
     if(window is null)return null;
@@ -116,11 +125,31 @@ try{
     var passwordBox=Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Edit)).Cast<AutomationElement>().FirstOrDefault(x=>x.Current.IsPassword),"password input");
     Set(emailBox,email);Set(passwordBox,password);Invoke(Wait(()=>Find("Sign in",ControlType.Button),"Sign in button"));
     Wait(()=>Find("Business overview"),"authenticated dashboard");Check("real login controls completed sign-in");
-    var combo=Wait(()=>window.FindFirst(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.ComboBox)),"company picker");
+    var openNavigation=ReadyButton("Open Navigation");if(openNavigation is not null)Invoke(openNavigation);
+    var combo=Wait(()=>Find("Choose company",ControlType.ComboBox),"company picker in the visible navigation pane");
     void SelectCompany(string name){((ExpandCollapsePattern)combo.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();var choice=Wait(()=>window.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>().FirstOrDefault(x=>x.Current.Name.StartsWith(name+" ·",StringComparison.Ordinal)&&x.TryGetCurrentPattern(SelectionItemPattern.Pattern,out _)),name+" picker item");Invoke(choice);}
     SelectCompany("Windows UI Alpha");Thread.Sleep(500);SelectCompany("Windows UI Beta");
+    var closeNavigation=ReadyButton("Close Navigation");if(closeNavigation is not null)Invoke(closeNavigation);
     Wait(()=>Find("Windows UI Beta"),"Beta workspace heading after company switch");
     Wait(()=>Find("Sales & collections  ↗",ControlType.Button),"company dashboard ready");Snapshot("01-company-dashboard");Check("company picker selected synthetic Beta workspace");
+    // Resize the genuine app window; browser emulation cannot verify native reflow.
+    if(window.TryGetCurrentPattern(WindowPattern.Pattern,out var windowPattern)){
+        var frame=(WindowPattern)windowPattern;
+        Console.WriteLine("Native window state before resize: "+frame.Current.WindowVisualState+" / "+frame.Current.WindowInteractionState);
+        if(frame.Current.WindowVisualState!=WindowVisualState.Normal)frame.SetWindowVisualState(WindowVisualState.Normal);
+    }
+    Wait(()=>window.TryGetCurrentPattern(TransformPattern.Pattern,out var pattern)&&((TransformPattern)pattern).Current.CanResize?window:null,"resizable normal app window after navigation closes");
+    var originalBounds=window.Current.BoundingRectangle;
+    var transform=(TransformPattern)window.GetCurrentPattern(TransformPattern.Pattern);
+    Check("native window supports standard resize automation",transform.Current.CanResize);
+    try{
+        transform.Resize(800,800);
+        var narrowCreate=Wait(()=>ReadyButton("+  Create"),"visible Create action in narrow window");
+        var narrowSearch=Wait(()=>Find("Search all records and sections"),"search in narrow window");
+        var bounds=window.Current.BoundingRectangle;
+        Check("narrow header controls stay within the app window",new[]{narrowCreate,narrowSearch}.All(control=>!control.Current.IsOffscreen&&control.Current.BoundingRectangle.Left>=bounds.Left&&control.Current.BoundingRectangle.Right<=bounds.Right));
+        Snapshot("01b-narrow-dashboard");
+    }finally{transform.Resize(originalBounds.Width,originalBounds.Height);}
     Invoke(Wait(()=>Find("Sales & collections  ↗",ControlType.Button),"sales register shortcut"));var number=invoice["number"]!.GetValue<string>();Invoke(Wait(()=>Find(number,ControlType.Button),"seeded invoice in register"));
     Wait(()=>Find("Synthetic UI Buyer"),"invoice detail buyer");Wait(()=>Find("Record payment received",ControlType.Button),"invoice collection context action");Snapshot("02-invoice-detail");Dump();Check("real register opened invoice detail with collection action");
     Invoke(Wait(()=>Find("Done",ControlType.Button),"close seeded invoice detail"));
@@ -195,7 +224,15 @@ try{
     var finalRecords=await CompanyRecords(cid);
     Check("discarded UI draft created no accounting record",!finalRecords.OfType<JsonObject>().Any(r=>r["name"]?.ToString()==discardedBuyer));
     await File.WriteAllTextAsync(Path.Combine(evidence,"canonical-verification.json"),new JsonObject{["invoice_id"]=createdId,["invoice_number"]=reference,["amount"]=Number(detail,"amount"),["outstanding"]=Number(detail,"outstanding"),["payment_count"]=receipts.Length,["allocated_amount"]=Number(allocations[0],"amount"),["discarded_record_count"]=0}.ToJsonString());
-    AutomationElement NavigationItem(string label)=>Wait(()=>window.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==label&&(e.TryGetCurrentPattern(SelectionItemPattern.Pattern,out _)||e.TryGetCurrentPattern(InvokePattern.Pattern,out _))),label+" navigation");
+    AutomationElement NavigationItem(string label){
+        var opened=false;
+        return Wait(()=>{
+            var item=Find(label,ControlType.ListItem);
+            if(item is not null&&!item.Current.IsOffscreen&&(item.TryGetCurrentPattern(SelectionItemPattern.Pattern,out _)||item.TryGetCurrentPattern(InvokePattern.Pattern,out _)))return item;
+            var toggle=ReadyButton("Open Navigation");if(!opened&&toggle is not null){Invoke(toggle);opened=true;}
+            return null;
+        },label+" visible navigation");
+    }
     Invoke(NavigationItem("Dashboard"));Invoke(Wait(()=>Find("Purchases  ↗",ControlType.Button),"purchase register shortcut"));
     Invoke(Wait(()=>Find(evidenceBill["number"]!.GetValue<string>(),ControlType.Button),"synthetic purchase bill row"));Invoke(Wait(()=>Find("Retained receipts",ControlType.Button),"purchase bill retained evidence action"));
     Wait(()=>Find("No retained receipts. Upload original evidence to keep it with this transaction."),"empty receipt panel");Invoke(Wait(()=>Find("Choose receipt and upload",ControlType.Button),"native receipt upload action"));

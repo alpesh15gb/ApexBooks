@@ -28,6 +28,9 @@ import androidx.compose.ui.text.input.*
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.apexbooks.accounting.data.*
@@ -44,8 +47,8 @@ private val WorkspaceType=Typography().let{base->Typography(
     headlineLarge=base.headlineLarge.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=28.sp),headlineMedium=base.headlineMedium.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=24.sp),headlineSmall=base.headlineSmall.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=22.sp),
     titleLarge=base.titleLarge.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=22.sp),titleMedium=base.titleMedium.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=16.sp),titleSmall=base.titleSmall.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=13.sp),
     bodyLarge=base.bodyLarge.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=16.sp,lineHeight=24.sp),bodyMedium=base.bodyMedium.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=14.sp,lineHeight=22.sp),bodySmall=base.bodySmall.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=12.sp,lineHeight=18.sp),
-    labelLarge=base.labelLarge.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=13.sp),labelMedium=base.labelMedium.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=11.sp),labelSmall=base.labelSmall.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=11.sp))}
-@Composable fun ApexTheme(content:@Composable ()->Unit){MaterialTheme(typography=WorkspaceType,colorScheme=lightColorScheme(primary=ApexGreen,onPrimary=Color.White,primaryContainer=Color(0xFFFBE3D0),onPrimaryContainer=Color(0xFF773F24),secondary=ApexGreen,onSecondary=Color.White,secondaryContainer=Color(0xFFFFF2E8),onSecondaryContainer=Color(0xFF773F24),background=Color(0xFFFFFAF6),onBackground=ApexInk,surface=Color.White,onSurface=ApexInk,surfaceVariant=Color(0xFFFFF2E8),onSurfaceVariant=Color(0xFF796C63),outline=Color(0xFFDCCABE),outlineVariant=Color(0xFFF0E5DB),surfaceContainerLowest=Color.White,surfaceContainerLow=Color(0xFFFFFCF9),surfaceContainer=Color(0xFFFFF2E8),surfaceContainerHigh=Color(0xFFFCE8D6),surfaceContainerHighest=Color(0xFFFBE3D0)),shapes=Shapes(small=RoundedCornerShape(8.dp),medium=RoundedCornerShape(12.dp),large=RoundedCornerShape(16.dp),extraLarge=RoundedCornerShape(20.dp)),content=content)}
+    labelLarge=base.labelLarge.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=13.sp),labelMedium=base.labelMedium.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=12.sp),labelSmall=base.labelSmall.copy(fontFeatureSettings="tnum",fontFamily=WorkspaceFont,fontSize=12.sp))}
+@Composable fun ApexTheme(content:@Composable ()->Unit){MaterialTheme(typography=WorkspaceType,colorScheme=lightColorScheme(primary=ApexGreen,onPrimary=Color.White,primaryContainer=Color(0xFFFBE3D0),onPrimaryContainer=Color(0xFF773F24),secondary=ApexGreen,onSecondary=Color.White,secondaryContainer=Color(0xFFFFF2E8),onSecondaryContainer=Color(0xFF773F24),background=Color(0xFFFFFAF6),onBackground=ApexInk,surface=Color.White,onSurface=ApexInk,surfaceVariant=Color(0xFFFFF2E8),onSurfaceVariant=Color(0xFF796C63),outline=Color(0xFFDCCABE),outlineVariant=Color(0xFFF0E5DB),surfaceContainerLowest=Color.White,surfaceContainerLow=Color(0xFFFFFCF9),surfaceContainer=Color(0xFFFFF2E8),surfaceContainerHigh=Color(0xFFFCE8D6),surfaceContainerHighest=Color(0xFFFBE3D0)),shapes=Shapes(small=RoundedCornerShape(10.dp),medium=RoundedCornerShape(16.dp),large=RoundedCornerShape(20.dp),extraLarge=RoundedCornerShape(24.dp)),content=content)}
 @Composable fun NumberedHeading(number:String,title:String,detail:String=""){Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){Surface(color=Color(0xFFFFF0E0),border=BorderStroke(1.dp,Color(0xFFF1D7BD)),shape=RoundedCornerShape(8.dp)){Box(Modifier.size(30.dp),contentAlignment=Alignment.Center){Text(number,color=ApexGreen,style=MaterialTheme.typography.labelMedium,fontWeight=FontWeight.SemiBold)}};Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){Text(title,style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.SemiBold);if(detail.isNotBlank())Text(detail,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}}
 private fun sectionNumber(title:String)=title.substringBefore(' ').takeIf{it.length==2&&it.all(Char::isDigit)}
 @Composable fun Heading(title:String,detail:String=""){val number=sectionNumber(title);if(number!=null)NumberedHeading(number,title.drop(2).trim(),detail)else Column(verticalArrangement=Arrangement.spacedBy(5.dp)){Text(title,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.SemiBold);if(detail.isNotBlank())Text(detail,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
@@ -53,7 +56,7 @@ private fun sectionNumber(title:String)=title.substringBefore(' ').takeIf{it.len
 val LocalFormEnabled = compositionLocalOf { true }
 
 @Composable fun Field(label:String,value:String,onChange:(String)->Unit,modifier:Modifier=Modifier,multiline:Boolean=false,number:Boolean=false,password:Boolean=false,readOnly:Boolean=false,maximum:Int=2000){val enabled=LocalFormEnabled.current;var visible by remember{mutableStateOf(false)};OutlinedTextField(value,enabled=enabled,shape=RoundedCornerShape(14.dp),onValueChange={if(enabled&&!readOnly&&it.length<=maximum)onChange(it)},label={Text(label)},modifier=modifier.fillMaxWidth(),singleLine=!multiline,minLines=if(multiline)3 else 1,readOnly=readOnly,keyboardOptions=KeyboardOptions(keyboardType=when{password->KeyboardType.Password;number->KeyboardType.Decimal;label.contains("phone",true)->KeyboardType.Phone;label.contains("email",true)->KeyboardType.Email;else->KeyboardType.Text}),visualTransformation=if(password&&!visible)PasswordVisualTransformation()else VisualTransformation.None,trailingIcon=if(password){{IconButton(onClick={visible=!visible}){Icon(if(visible)Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,if(visible)"Hide password" else "Show password")}}}else null)}
-@Composable fun Toggle(label:String,checked:Boolean,onChange:(Boolean)->Unit,enabled:Boolean=true){val interactive=enabled&&LocalFormEnabled.current;Row(Modifier.fillMaxWidth().clickable(enabled=interactive){onChange(!checked)},verticalAlignment=Alignment.CenterVertically){Checkbox(checked,onCheckedChange={if(interactive)onChange(it)},enabled=interactive);Text(label,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium)}}
+@Composable fun Toggle(label:String,checked:Boolean,onChange:(Boolean)->Unit,enabled:Boolean=true){val interactive=enabled&&LocalFormEnabled.current;Row(Modifier.fillMaxWidth().heightIn(min=48.dp).clickable(enabled=interactive){onChange(!checked)},verticalAlignment=Alignment.CenterVertically){Checkbox(checked,onCheckedChange={if(interactive)onChange(it)},enabled=interactive);Text(label,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium)}}
 fun selectionDescription(label:String,value:String)="$label · ${value.ifBlank{"Not set"}}"
 
 @Composable fun Choice(label:String,value:String,options:List<Pair<String,String>>,onChange:(String)->Unit,modifier:Modifier=Modifier,enabled:Boolean=true){
@@ -81,8 +84,33 @@ fun selectionDescription(label:String,value:String)="$label · ${value.ifBlank{"
     }
 }
 @Composable fun DateField(label:String,value:String,onChange:(String)->Unit,optional:Boolean=false){val enabled=LocalFormEnabled.current;var opened by remember{mutableStateOf(false)};Box(Modifier.fillMaxWidth()){OutlinedTextField(value,{},enabled=enabled,label={Text(label)},readOnly=true,modifier=Modifier.fillMaxWidth().clearAndSetSemantics{},trailingIcon={Icon(Icons.Outlined.CalendarMonth,null)});Box(Modifier.matchParentSize().semantics{contentDescription=selectionDescription(label,value)}.clickable(enabled=enabled,role=Role.Button,onClickLabel="Choose $label"){opened=true})};if(opened&&enabled){val state=rememberDatePickerState(initialSelectedDateMillis=runCatching{LocalDate.parse(value).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()}.getOrNull(),yearRange=2000..2100);DatePickerDialog(onDismissRequest={opened=false},confirmButton={TextButton(enabled=state.selectedDateMillis!=null,onClick={state.selectedDateMillis?.let{onChange(Instant.ofEpochMilli(it).atOffset(ZoneOffset.UTC).toLocalDate().toString())};opened=false}){Text("Select")}},dismissButton={Row{if(optional)TextButton(onClick={onChange("");opened=false}){Text("Clear")};TextButton(onClick={opened=false}){Text("Cancel")}}}){DatePicker(state)}}}
-@Composable fun Message(text:String,error:Boolean=false,onDismiss:(()->Unit)?=null){if(text.isBlank())return;Surface(color=if(error)MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,shape=RoundedCornerShape(12.dp)){Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically){Icon(if(error)Icons.Outlined.ErrorOutline else Icons.Outlined.CheckCircle,null,Modifier.padding(end=9.dp));Text(text,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium);if(onDismiss!=null)IconButton(onClick=onDismiss){Icon(Icons.Outlined.Close,"Dismiss")}}}}
+@Composable fun Message(text:String,error:Boolean=false,onDismiss:(()->Unit)?=null){if(text.isBlank())return;Surface(modifier=Modifier.semantics{liveRegion=if(error)LiveRegionMode.Assertive else LiveRegionMode.Polite},color=if(error)MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,shape=RoundedCornerShape(12.dp)){Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically){Icon(if(error)Icons.Outlined.ErrorOutline else Icons.Outlined.CheckCircle,null,Modifier.padding(end=9.dp));Text(text,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium);if(onDismiss!=null)IconButton(onClick=onDismiss){Icon(Icons.Outlined.Close,"Dismiss")}}}}
 @Composable fun Metric(label:String,value:String,modifier:Modifier=Modifier){Card(modifier,colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),shape=RoundedCornerShape(18.dp),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){Text(label,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant);Text(value,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.SemiBold,color=ApexInk)}}}
+
+/** Reflow complete amounts when the window or the user's font size needs room. */
+@Composable fun MetricGrid(values:List<Pair<String,String>>,modifier:Modifier=Modifier){
+    val fontScale=LocalDensity.current.fontScale
+    BoxWithConstraints(modifier.fillMaxWidth()){
+        val columns=when{maxWidth/fontScale>=900.dp->4;maxWidth/fontScale>=440.dp->2;else->1}
+        Column(verticalArrangement=Arrangement.spacedBy(12.dp)){
+            values.chunked(columns).forEach{row->
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                    row.forEach{(label,value)->Metric(label,value,Modifier.weight(1f))}
+                    repeat(columns-row.size){Spacer(Modifier.weight(1f))}
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable fun AdaptiveActions(modifier:Modifier=Modifier,content:@Composable FlowRowScope.()->Unit){
+    val fontScale=LocalDensity.current.fontScale
+    BoxWithConstraints(modifier.fillMaxWidth()){
+        FlowRow(Modifier.fillMaxWidth(),maxItemsInEachRow=if(maxWidth/fontScale<300.dp)1 else 2,
+            horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(8.dp),content=content)
+    }
+}
 @Composable fun DataImage(url:String,modifier:Modifier=Modifier){val bitmap=remember(url){runCatching{val bytes=Base64.decode(url.substringAfter(','),Base64.DEFAULT);BitmapFactory.decodeByteArray(bytes,0,bytes.size)?.asImageBitmap()}.getOrNull()};if(bitmap!=null)Image(bitmap,null,modifier=modifier)else Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant,RoundedCornerShape(12.dp)),contentAlignment=Alignment.Center){Icon(Icons.Outlined.Inventory2,null,tint=ApexGreen)}}
 
 fun display(key:String,value:Any?):String {if(value==null||value==JSONObject.NULL)return "—";if(value is Boolean)return if(value)"Yes"else"No";val text=value.toString();if(key in setOf("kind","tax_mode","payment_account","payment_method","status","direction","category"))return friendly(text);if(key.contains("gst_rate")||key.contains("percent")||key.contains("tax_rate"))return "$text%";val decimal=text.toBigDecimalOrNull();return if(decimal!=null&&!listOf("quantity","count","records","items").any{key.contains(it)}&&((key in setOf("sales","purchases","receipts","payments","movement")||key.endsWith("_movement"))||listOf("amount","total","taxable","cgst","sgst","igst","value","balance","receivable","payable","profit","income","expense","debit","credit","cost","available","paid","outstanding","difference").any{key.contains(it)}))money(decimal)else text}
@@ -145,7 +173,7 @@ fun ActionDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         BoxWithConstraints(
-            Modifier.fillMaxWidth().imePadding().padding(horizontal = 12.dp),
+            Modifier.fillMaxWidth().safeDrawingPadding().imePadding().padding(horizontal = 12.dp),
             contentAlignment = Alignment.Center
         ) {
             Surface(
@@ -174,7 +202,7 @@ fun ActionDialog(
                                     enabled = enabled && !saving && !working() && vm.busy == 0,
                                     onClick = { saving = true; vm.task { try { onSave() } finally { saving = false } } }
                                 ) {
-                                    if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(confirm)
+                                    if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary) else Text(confirm)
                                 }
                             }
                         }

@@ -63,7 +63,7 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
     val issued=invoices.fold(BigDecimal.ZERO){sum,r->sum+r.decimal("amount")}
     val outstanding=invoices.fold(BigDecimal.ZERO){sum,r->sum+r.decimal("outstanding")}
     val settled=(issued-outstanding).max(BigDecimal.ZERO)
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=14.dp,top=6.dp,end=14.dp,bottom=104.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
+    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=14.dp,top=6.dp,end=14.dp,bottom=24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
         item{Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
                 for((key,label)in listOf("year" to "Financial year","month" to "This month","30days" to "30 days"))FilterChip(selected=period==key,onClick={period=key},label={Text(label,style=MaterialTheme.typography.labelMedium)})
@@ -74,7 +74,7 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
                 Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(9.dp)){Icon(Icons.Outlined.AccountBalance,null,Modifier.size(20.dp),tint=Color(0xFF9A673E));Text("Cash & bank balance",style=MaterialTheme.typography.labelLarge,color=Color(0xFF895F40))}
                 Text(financial?.takeIf{vm.recordsReady}?.let{money(accounts.fold(BigDecimal.ZERO){sum,a->sum+a.decimal("closing_balance")})}?:"—",fontSize=34.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF794727))
                 Text("Posted ledger balance · $end",style=MaterialTheme.typography.bodySmall,color=Color(0xFF886B52))
-                Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                AdaptiveActions{
                     FilledTonalButton(enabled=vm.canWrite&&vm.recordsReady,onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f)){Text("Create a sale")}
                     OutlinedButton(onClick={vm.navigate("bank")},modifier=Modifier.weight(1f)){Text("View accounts")}
                 }
@@ -105,10 +105,14 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
             overdue.take(3).forEach{row->TextButton(onClick={vm.detail=row},modifier=Modifier.fillMaxWidth()){Text("${row.s("number")} · ${row.s("name")} · ${money(row.s("outstanding"))} due")}}
             if(overdue.size>3)TextButton(onClick={vm.navigate("sales_invoice")}){Text("View all sales invoices →")}
         }}
-        item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Metric("Net sales",summary?.let{money(it.s("sales"))}?:"—",Modifier.weight(1f));Metric("Net profit",financial?.let{money(it.s("net_profit"))}?:"—",Modifier.weight(1f))}}
-        item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){Metric("To collect · to date",summary?.let{money(it.s("receivables"))}?:"—",Modifier.weight(1f));Metric("To pay · to date",summary?.let{money(it.s("payables"))}?:"—",Modifier.weight(1f))}}
-        if(vm.recordsReady)item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){OutlinedButton(onClick={vm.toolData=null;vm.tool="recurring"},modifier=Modifier.weight(1f),contentPadding=PaddingValues(8.dp,8.dp)){Text("Recurring drafts",style=MaterialTheme.typography.labelLarge)};OutlinedButton(onClick={vm.tool="reorder"},modifier=Modifier.weight(1f),contentPadding=PaddingValues(8.dp,8.dp)){Text("Low stock review",style=MaterialTheme.typography.labelLarge)}}}
-        if(vm.canWrite&&vm.recordsReady)item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Button(onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,10.dp)){Icon(Icons.Outlined.Add,null,Modifier.size(18.dp));Text("New invoice")};OutlinedButton(onClick={vm.add("purchase_bill")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,10.dp)){Icon(Icons.Outlined.DocumentScanner,null,Modifier.size(18.dp));Text("Add purchase")}}}
+        item{MetricGrid(listOf(
+            "Net sales" to (summary?.let{money(it.s("sales"))}?:"—"),
+            "Net profit" to (financial?.let{money(it.s("net_profit"))}?:"—"),
+            "To collect · to date" to (summary?.let{money(it.s("receivables"))}?:"—"),
+            "To pay · to date" to (summary?.let{money(it.s("payables"))}?:"—")
+        ))}
+        if(vm.recordsReady)item{AdaptiveActions{OutlinedButton(onClick={vm.toolData=null;vm.tool="recurring"},modifier=Modifier.weight(1f),contentPadding=PaddingValues(8.dp,8.dp)){Text("Recurring drafts",style=MaterialTheme.typography.labelLarge)};OutlinedButton(onClick={vm.tool="reorder"},modifier=Modifier.weight(1f),contentPadding=PaddingValues(8.dp,8.dp)){Text("Low stock review",style=MaterialTheme.typography.labelLarge)}}}
+        if(vm.canWrite&&vm.recordsReady)item{AdaptiveActions{Button(onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,10.dp)){Icon(Icons.Outlined.Add,null,Modifier.size(18.dp));Text("New invoice")};OutlinedButton(onClick={vm.add("purchase_bill")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,10.dp)){Icon(Icons.Outlined.DocumentScanner,null,Modifier.size(18.dp));Text("Add purchase")}}}
         if(vm.recordsReady)item{Section("Sales & purchases"){MonthlyPerformance(vm.records,start,end);Text("Posted invoice values, including GST where applicable",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
         if(vm.recordsReady)item{Section("Invoice collections"){
             Text("GET PAID",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -138,7 +142,7 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
         }}else item{Section("Your tax settings"){Text(if(vm.company.s("tax_mode")=="composition")"Composition accounting is active. Review composition reports for your liability."else"Non-GST accounting is active. Documents use your non-GST settings.")}}
         item{Heading("Recent activity")}
         items(vm.records.filter{it.s("kind") !in setOf("party","item","bank_account")}.take(8),key={it.s("id")}){RecordCard(vm,it)}
-        item{Spacer(Modifier.height(88.dp))}
+        item{Spacer(Modifier.height(8.dp))}
     }
 }
 

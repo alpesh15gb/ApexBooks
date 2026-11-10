@@ -9,7 +9,17 @@ export class WorkspaceBoundary extends React.Component {
 /** Keep the foreground dialog interactive and every background branch inert. */
 export function DialogFocus() {
   useEffect(() => {
-    let dialog = null, previous = null;
+    let dialog = null, previous = null, scrollStyles = null;
+    const scrollLock = locked => {
+      if (locked && !scrollStyles) {
+        scrollStyles = [document.documentElement.style.overflow, document.body.style.overflow];
+        document.documentElement.style.overflow = 'hidden';
+        document.body.style.overflow = 'hidden';
+      } else if (!locked && scrollStyles) {
+        [document.documentElement.style.overflow, document.body.style.overflow] = scrollStyles;
+        scrollStyles = null;
+      }
+    };
     const inertNodes = new Map();
     const restore = () => {
       for (const [node, wasInert] of inertNodes) {
@@ -22,11 +32,13 @@ export function DialogFocus() {
       .filter(node => !node.disabled && !node.closest('[inert]') && node.getClientRects().length) : [];
     const focusInside = () => (fields()[0] || dialog)?.focus();
     const scan = () => {
-      const found = [...document.querySelectorAll('.overlay .modal')].at(-1) || null;
+      const found = [...document.querySelectorAll('.overlay .modal')].at(-1)
+        || document.querySelector('[data-focus-surface]') || null;
       if (found === dialog) return;
       restore();
       const wasOpen = !!dialog;
       dialog = found;
+      scrollLock(!!dialog);
       if (!dialog) {
         if (wasOpen && previous?.isConnected) previous.focus();
         previous = null;
@@ -38,7 +50,7 @@ export function DialogFocus() {
       // own parent. Only siblings off the foreground path are disabled.
       for (let branch = dialog; branch.parentElement && branch !== document.body; branch = branch.parentElement) {
         for (const sibling of branch.parentElement.children) {
-          if (sibling === branch || ['SCRIPT', 'STYLE', 'LINK'].includes(sibling.tagName)) continue;
+          if (sibling === branch || sibling.classList.contains('mobile-backdrop') || ['SCRIPT', 'STYLE', 'LINK'].includes(sibling.tagName)) continue;
           if (!inertNodes.has(sibling)) inertNodes.set(sibling, sibling.hasAttribute('inert'));
           sibling.setAttribute('inert', '');
         }
@@ -66,7 +78,7 @@ export function DialogFocus() {
     document.addEventListener('keydown', key, true);
     document.addEventListener('focusin', focus, true);
     scan();
-    return () => { observer.disconnect(); document.removeEventListener('keydown', key, true); document.removeEventListener('focusin', focus, true); restore(); };
+    return () => { observer.disconnect(); document.removeEventListener('keydown', key, true); document.removeEventListener('focusin', focus, true); restore(); scrollLock(false); };
   }, []);
   return null;
 }

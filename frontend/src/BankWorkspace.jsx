@@ -545,7 +545,7 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
             </p>
           </div>
         </div>
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0}>
           <table>
             <thead>
               <tr>

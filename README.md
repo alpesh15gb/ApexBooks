@@ -1,5 +1,7 @@
 # Apex Books
 
+Current UI candidate: [cross-platform release polish and visual evidence](docs/UI_RELEASE_POLISH.md).
+
 Light orange and white redesign: [Apex Apricot screens and cross-platform validation](docs/APRICOT_UI_REVIEW.md).
 
 UI and workflow fixes: [8 November 2026 cross-platform review](docs/UI_UX_REVIEW_2026_11.md), including local verification and remaining Windows/device release gates.

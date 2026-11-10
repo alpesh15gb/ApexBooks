@@ -17,6 +17,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalDensity
 import com.apexbooks.accounting.data.*
 
 @Composable fun ApexWorkspace(vm: AppModel, activity: MainActivity) {
@@ -31,6 +35,7 @@ import com.apexbooks.accounting.data.*
     BackHandler(enabled = vm.page != "dashboard" && vm.editor == null && vm.detail == null && vm.pdf == null && vm.statement == null && vm.tool.isBlank() && !vm.companyForm && !searchOpen && !createOpen && !companies) { vm.navigate("dashboard") }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 840.dp
+        val compactLabels = maxWidth / LocalDensity.current.fontScale < 600.dp
         Row(Modifier.fillMaxSize()) {
             if (wide) NavigationRail(containerColor = Color.White, header = { AppLogo(Modifier.width(100.dp).padding(8.dp)) }) {
                 destinations.forEach { (key, label) -> NavigationRailItem(selected = key == currentTab, onClick = { navigate(key) }, icon = { Icon(mobileIcon(key), null) }, label = { Text(label) }) }
@@ -39,22 +44,25 @@ import com.apexbooks.accounting.data.*
                 modifier = Modifier.weight(1f).imePadding(),
                 containerColor = MaterialTheme.colorScheme.background,
                 topBar = { Column {
-                    TopAppBar(title = { Column {
+                    TopAppBar(title = {
                         Text(when { vm.page == "dashboard" -> "Your business"; currentTab == "transactions" -> "Transactions"; vm.page == "more" -> "Workspace"; else -> vm.title(vm.page) }, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Row(Modifier.clickable { companyQuery = ""; companies = true }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Business, null, Modifier.size(14.dp), tint = ApexGreen)
-                            Text(companyDisplayName(vm.company).ifBlank { "Choose company" }, Modifier.weight(1f, false).padding(horizontal = 5.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Icon(Icons.Outlined.ExpandMore, "Switch company", Modifier.size(18.dp))
-                        }
-                    } }, actions = {
+                    }, actions = {
                         IconButton(onClick = { searchOpen = true }, enabled = vm.companyId.isNotBlank()) { Icon(Icons.Outlined.Search, "Search workspace") }
                         IconButton(onClick = { vm.task { vm.refresh() } }, enabled = vm.busy == 0 && vm.companyId.isNotBlank()) { Icon(Icons.Outlined.Refresh, "Refresh") }
-                    }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
-                    if (vm.busy > 0) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White))
+                    Row(Modifier.fillMaxWidth().semantics{contentDescription="Switch company"}
+                        .clickable(role=Role.Button,onClickLabel="Switch company"){companyQuery="";companies=true}
+                        .heightIn(min=48.dp).background(Color.White).padding(horizontal=20.dp,vertical=10.dp),
+                        verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                        Icon(Icons.Outlined.Business,null,Modifier.size(18.dp),tint=ApexGreen)
+                        Text(companyDisplayName(vm.company).ifBlank{"Choose company"},Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Outlined.ExpandMore,null,Modifier.size(20.dp))
+                    }
+                    if (vm.busy > 0) LinearProgressIndicator(Modifier.fillMaxWidth()) else HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                 } },
                 bottomBar = { if (!wide && !WindowInsets.isImeVisible) {
                     Surface(shadowElevation = 10.dp, color = Color.White) { NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
-                        destinations.forEach { (key, label) -> NavigationBarItem(selected = currentTab == key, onClick = { navigate(key) }, icon = { Icon(mobileIcon(key), null) }, label = { Text(label, maxLines = 1) }, colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer)) }
+                        destinations.forEach { (key, label) -> NavigationBarItem(modifier=Modifier.semantics{contentDescription=label}, selected = currentTab == key, onClick = { navigate(key) }, icon = { Icon(mobileIcon(key), null) }, label = { Text(if(compactLabels&&key=="transactions")"Entries"else label, maxLines = 1, overflow=TextOverflow.Ellipsis) }, colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer)) }
                     } }
                 } },
                 floatingActionButton = { if (vm.canWrite && vm.recordsReady && vm.companyId.isNotBlank() && vm.page !in setOf("dashboard", "reports", "settings", "more", "commerce", "pos") && !WindowInsets.isImeVisible) {

@@ -23,6 +23,7 @@ export default function WorkspaceHeader({
   onOpenRecord,
   onCreate,
   onMenu,
+  menuOpen = false,
 }) {
   const [query, setQuery] = useState(""),
     [open, setOpen] = useState(false),
@@ -120,7 +121,7 @@ export default function WorkspaceHeader({
   }
   const creation = [
     ["sales_invoice", "Sales invoice", FileText],
-    ["purchase_bill", "Purchase bill / OCR", ShoppingBag],
+    ["purchase_bill", "Purchase bill", ShoppingBag],
     ["payment_in", "Payment in", Wallet],
     ["payment_out", "Payment out", Wallet],
     ["estimate", "Estimate", FileText],
@@ -139,6 +140,8 @@ export default function WorkspaceHeader({
         className="mobile-menu icon-button"
         onClick={onMenu}
         aria-label="Open menu"
+        aria-expanded={menuOpen}
+        aria-controls="workspace-navigation"
       >
         <Menu size={21} />
       </button>
@@ -200,6 +203,7 @@ export default function WorkspaceHeader({
             className="workspace-search-results"
             id="workspace-search-results"
             role="listbox"
+            aria-label="Workspace search results"
           >
             <span className="search-heading">
               {query ? "SEARCH RESULTS" : "JUMP TO YOUR WORKSPACE"}

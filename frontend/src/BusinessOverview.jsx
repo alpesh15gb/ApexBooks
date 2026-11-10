@@ -200,7 +200,7 @@ function SalesChart({ records, start, end }) {
       </div>
       <details className="chart-data">
         <summary>View chart data</summary>
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0}>
           <table>
             <thead>
               <tr>
@@ -679,7 +679,7 @@ export default function BusinessOverview({
               View reports <ArrowUpRight size={15} />
             </button>
           </div>
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0}>
             <table className="recent-table">
               <thead>
                 <tr>

@@ -1,6 +1,6 @@
 {
   "name": "Apex Apricot",
-  "version": 2,
+  "version": 3,
   "note": "Apex Apricot reference. Palette is mirrored in frontend/src/ledger.css, Android UiKit.kt, and Windows NativeUi.cs/App.xaml; layout is adapted to each native platform.",
   "color": {
     "navy-950": "#35231B",
@@ -37,7 +37,17 @@
   "typography": {
     "web": "DM Sans (bundled)",
     "native": "DM Sans (bundled)",
-    "numerals": "tabular"
+    "numerals": "tabular",
+    "supporting-size": 12,
+    "body-size": 14
+  },
+  "spacing": [4, 8, 12, 16, 20, 24, 32, 48],
+  "interaction": {
+    "web-minimum-target": 44,
+    "windows-minimum-target": 44,
+    "android-minimum-target": 48,
+    "focus": "visible",
+    "reduced-motion": "respect-system"
   },
   "status": {
     "posted": "success",

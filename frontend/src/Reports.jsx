@@ -421,7 +421,7 @@ export default function Reports({ companyId, records }) {
             <div className="panel-header">
               <h2>Account balances</h2>
             </div>
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0}>
               <table>
                 <thead>
                   <tr>
@@ -466,7 +466,7 @@ export default function Reports({ companyId, records }) {
                 {data.as_of}
               </h2>
             </div>
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0}>
               <table>
                 <thead>
                   <tr>
@@ -537,7 +537,7 @@ export default function Reports({ companyId, records }) {
             <div className="panel-header">
               <h2>{party || "All parties"} · Statement</h2>
             </div>
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0}>
               <table>
                 <thead>
                   <tr>
@@ -588,7 +588,7 @@ export default function Reports({ companyId, records }) {
             <div className="panel-header">
               <h2>Age buckets · as of {data.as_of}</h2>
             </div>
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0}>
               <table>
                 <thead>
                   <tr>
@@ -617,7 +617,7 @@ export default function Reports({ companyId, records }) {
             <div className="panel-header">
               <h2>Open documents</h2>
             </div>
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0}>
               <table>
                 <thead>
                   <tr>
@@ -699,7 +699,7 @@ export default function Reports({ companyId, records }) {
                 <h2>GST by supply class and rate</h2>
                 <p>{data.document_count} posted GST documents in this period</p>
               </div>
-              <div className="table-wrap">
+              <div className="table-wrap" tabIndex={0}>
                 <table>
                   <thead>
                     <tr>
@@ -755,7 +755,7 @@ export default function Reports({ companyId, records }) {
             <div className="panel-header">
               <h2>Item activity</h2>
             </div>
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0}>
               <table>
                 <thead>
                   <tr>
@@ -803,7 +803,7 @@ export default function Reports({ companyId, records }) {
             <div className="panel-header">
               <h2>Tracked stock quantities</h2>
             </div>
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0}>
               <table>
                 <thead>
                   <tr>
@@ -875,7 +875,7 @@ export default function Reports({ companyId, records }) {
                   register
                 </h2>
               </div>
-              <div className="table-wrap">
+              <div className="table-wrap" tabIndex={0}>
                 <table>
                   <thead>
                     <tr>

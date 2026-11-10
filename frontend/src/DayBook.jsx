@@ -50,7 +50,7 @@ export default function DayBook({ companyId, records, api, labels, onOpen }) {
       <section className="panel register day-book">
         <div className="panel-header"><div><h2>Day book · {day}</h2><p>{data ? `${data.count} ${data.count === 1 ? "entry" : "entries"}` : "Loading…"} · cash and bank movement from posted entries</p></div></div>
         {data && (
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0}>
             <table>
               <thead><tr><th>TYPE</th><th>NUMBER / PARTY</th><th className="right">AMOUNT</th><th className="right">MONEY IN</th><th className="right">MONEY OUT</th></tr></thead>
               <tbody>
