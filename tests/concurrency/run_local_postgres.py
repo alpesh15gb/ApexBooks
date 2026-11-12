@@ -102,8 +102,11 @@ def run():
         check([str(binary / ('initdb' + suffix)), '-D', str(cluster), '-U', 'apex_test',
             '--pwfile', str(secret_file), '-A', 'scram-sha-256', '--encoding=UTF8', '--locale=C'], 'initdb.log')
         secret_file.unlink()
+        # All test clients use explicit loopback TCP. Do not require a
+        # system-owned Unix socket directory or socket-capable workspace mount.
+        socket_options = ' -k ""' if os.name != 'nt' else ''
         check([str(binary / ('pg_ctl' + suffix)), '-D', str(cluster), '-l', str(artifacts / 'postgres.log'),
-            '-o', f'-h 127.0.0.1 -p {port}', '-w', 'start'], 'start.log')
+            '-o', f'-h 127.0.0.1 -p {port}{socket_options}', '-w', 'start'], 'start.log')
         started = True
         with psycopg.connect(host='127.0.0.1', port=port, user='apex_test', password=password,
                 dbname='postgres', autocommit=True) as connection:

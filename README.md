@@ -1,5 +1,7 @@
 # Apex Books
 
+Latest follow-up: [launch hardening, invoice validation and settings safety](docs/LAUNCH_HARDENING_REVIEW.md). This is not a production deployment or statutory compliance certification.
+
 Latest web validation: [performance, accessibility and PostgreSQL release review](docs/WEB_RELEASE_REVIEW.md).
 
 Latest workspace candidate: [QuickBooks-inspired revamp, accounting fixes and validation](docs/QUICKBOOKS_REVAMP.md). Run `python scripts/preview_local.py` from an environment with the backend dependencies and frontend `npm ci` installed for an isolated synthetic local preview.

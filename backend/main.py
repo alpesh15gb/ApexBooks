@@ -1,4 +1,5 @@
 from business_calendar import business_today, financial_year_start
+from invoice_requirements import validate_outward_invoice_fields
 from build_info import BUILD_REVISION
 from auth_config import require_jwt_secret
 from ocr_transport import validate_ocr_base_url
@@ -314,6 +315,14 @@ def require_write(company: Company, user: User, session: Session):
     if member_role(company, user, session) not in {'owner', 'editor'}: raise HTTPException(403, 'This company is read only for your account')
 def audit(session, company_id, user, action, entity_type, entity_id, details=None):
     session.add(AuditEvent(company_id=company_id, actor_id=user.id, action=action, entity_type=entity_type, entity_id=entity_id, details=details or {}))
+def audit_changes(before, after):
+    """Capture changed business fields without duplicating uploaded image bytes."""
+    def value(key, item):
+        if key in {'image_data_url', 'image_thumbnail'}:
+            return {'sha256': hashlib.sha256(str(item).encode()).hexdigest()} if item else None
+        return item
+    return {'changes': {key: {'before': value(key, before.get(key)), 'after': value(key, after.get(key))}
+                        for key in sorted(before.keys() | after.keys()) if before.get(key) != after.get(key)}}
 def obj(record):
     return {'id': record.id, 'kind': record.kind, 'name': record.name, 'number': record.number, 'date': record.date.isoformat(), 'amount': str(record.amount), 'data': record.data}
 def company_obj(c, session, user=None):
@@ -977,11 +986,14 @@ def update_company(company_id: str, body: CompanyUpdate, user: User = Depends(cu
     if state and not re.fullmatch(r'\d{2}', state): raise HTTPException(422, 'State code must contain two digits')
     if gstin and gstin[:2] != state: raise HTTPException(422, 'GSTIN and state code must match')
     if mode in {'regular', 'composition'} and not state: raise HTTPException(422, 'State code is required for GST registered companies')
-    if mode == 'composition' and not gstin: raise HTTPException(422, 'A composition company needs its GSTIN')
+    if mode in {'regular', 'composition'} and not gstin: raise HTTPException(422, 'A GST registered company needs its GSTIN')
     if mode == 'unregistered' and gstin: raise HTTPException(422, 'An unregistered company cannot have a GSTIN')
+    tracked_fields = ('name', 'gstin', 'state_code', 'address', 'book_label')
+    before = {key: getattr(company, key) for key in tracked_fields}
     company.name = body.name.strip(); company.gstin = gstin; company.state_code = state; company.address = body.address.strip()
     if 'book_label' in body.model_fields_set:company.book_label=body.book_label.strip()
-    audit(session, company_id, user, 'company.updated', 'company', company_id)
+    audit(session, company_id, user, 'company.updated', 'company', company_id,
+          audit_changes(before, {key: getattr(company, key) for key in tracked_fields}))
     session.commit()
     return company_obj(company, session, user)
 
@@ -1415,6 +1427,7 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
     master = session.scalar(select(Record).where(Record.company_id == company_id,
         Record.id == master_id, Record.kind.in_(['party', 'item'])))
     if not master: raise HTTPException(404, 'Party or item not found')
+    before = dict(master.data or {})
     validate_master_defaults(body, master.kind)
     # New metadata omitted by an older client is retained, not implicitly cleared.
     # Validate that retained threshold against the proposed classification too.
@@ -1439,7 +1452,7 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
     for field in ('is_active','shipping_address'):
         if field in body.model_fields_set and (field != 'shipping_address' or master.kind == 'party'):
             master.data={**master.data,field:getattr(body,field)}
-    audit(session, company_id, user, 'master.updated', master.kind, master.id)
+    audit(session, company_id, user, 'master.updated', master.kind, master.id, audit_changes(before, master.data))
     if master.kind == 'item' and hasattr(sys.modules[__name__], 'commerce_stock_changed'): commerce_stock_changed(company_id, session)
     session.commit(); session.refresh(master)
     return obj(master)
@@ -1504,6 +1517,15 @@ def client_record_data(data):
             if key not in reserved and not key.startswith(('vyapar_', 'commerce_'))}
 
 
+def validate_outward_document_number(kind, tax_mode, number):
+    # GST tax invoices, bills of supply and outward credit notes use an
+    # alphanumeric serial, with slash/hyphen as the only special characters.
+    # Supplier references and historical reads retain their existing formats.
+    if tax_mode in {'regular', 'composition'} and kind in {'sales_invoice', 'pos', 'credit_note'}:
+        if not re.fullmatch(r'[A-Za-z0-9/-]{1,16}', number):
+            raise HTTPException(422, 'GST document number must contain 1–16 letters, digits, / or - only')
+
+
 def save_record(company_id, body, request, user, session, *, commit=True, historical_record=None):
     """Post inside the caller transaction when processing a durable integration event."""
     company = lock_company(company_id, user, session)
@@ -1565,6 +1587,7 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
     if tax_mode in {'regular','composition'} and body.kind in {'sales_invoice','pos','credit_note'} and not company.gstin:raise HTTPException(422,'Add the company GSTIN in Settings before issuing registered documents')
     if body.kind in DOCUMENTS and (body.kind != 'expense' or data.get('lines')):
         data, amount = calculate(data, company, tax_mode, body.kind, session)
+        validate_outward_invoice_fields(body.kind, tax_mode, data, body.date)
         data = {**data, 'company_snapshot': company_obj(company, session), 'document_branding': branding_for(company_id, session)}
     if body.kind == 'expense' and not data.get('lines'):
         # Amount-only expenses have no reviewed supplier-tax lines. Ignore stale
@@ -1591,6 +1614,7 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
     if body.kind in NUMBERED_KINDS:
         if not number: number = next_document_number(company_id, body.kind, body.date, session)
         if len(number) > 16: raise HTTPException(422, 'Document number cannot exceed 16 characters')
+    validate_outward_document_number(body.kind, tax_mode, number)
     if number and session.scalar(select(Record).where(Record.company_id == company_id, Record.kind == body.kind, Record.number == number)): raise HTTPException(409, 'Document number already exists')
     conversion_source = None
     source_id = data.get('source_document_id')

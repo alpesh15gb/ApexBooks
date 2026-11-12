@@ -34,6 +34,7 @@ def install(app,m):
         data={**record.data,**submitted}
         m.validate_active_references(company_id,record.kind,body.name,data,session,record)
         profile=session.get(m.CompanyTaxProfile,company_id)
+        m.validate_outward_document_number(record.kind, profile.mode if profile else 'regular', body.number.strip())
         purchase=record.kind in {'purchase_bill','debit_note','expense'}
         fields=('item_id','quantity','rate','gst_rate','discount_percent','discount_amount','tax_treatment','price_includes_tax')+ (('itc_treatment',) if purchase and (profile.mode if profile else 'regular')=='regular' else ())
         numeric={'quantity','rate','gst_rate','discount_percent','discount_amount','document_discount_percent','advance_gst_rate'}
@@ -139,6 +140,7 @@ def install(app,m):
                         if value<0 or value>Decimal('9999999999999.99') or value.as_tuple().exponent < -2:raise HTTPException(422,'Invalid MRP')
                     merged.append({**old,**{k:v for k,v in line.items() if k in {'description','hsn','unit','mrp'}}})
                 data['lines']=merged
+            m.validate_outward_invoice_fields(record.kind, data.get('tax_mode', profile.mode if profile else 'regular'), data, body.date)
             record.name=body.name.strip();record.number=body.number.strip();record.data={**data,'version':version,'updated_at':datetime.now(timezone.utc).isoformat()}
         else:
             if record.data.get('is_advance') and any(row.data.get('advance_id')==record.id for row in session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind.in_(['advance_application','advance_refund'])))):raise HTTPException(409,'This advance has settlements. Its description and notes can still be edited.')

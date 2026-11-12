@@ -20,6 +20,24 @@ from migrate import run_migrations
 run_migrations()
 
 class ApiTest(unittest.TestCase):
+    def test_registered_company_update_cannot_clear_gstin(self):
+        with TestClient(app) as client:
+            credentials = {'email': 'gst-profile-update@example.invalid', 'password': 'strong-password'}
+            self.assertEqual(client.post('/api/auth/register', json=credentials).status_code, 200)
+            headers = {'Authorization': 'Bearer ' + client.post('/api/auth/login', json=credentials).json()['token']}
+            for mode in ('regular', 'composition'):
+                original = {'name': mode + ' company', 'tax_mode': mode,
+                            'state_code': '27', 'gstin': '27AAAAA0000A1Z5'}
+                company = client.post('/api/companies', headers=headers, json=original).json()
+                for blank in ('', '   '):
+                    response = client.patch('/api/companies/' + company['id'], headers=headers,
+                        json={'name': 'Must not persist', 'state_code': '27', 'gstin': blank, 'address': ''})
+                    self.assertEqual(response.status_code, 422, response.text)
+                    saved = next(c for c in client.get('/api/companies', headers=headers).json()
+                                 if c['id'] == company['id'])
+                    self.assertEqual(saved['gstin'], original['gstin'])
+                    self.assertEqual(saved['name'], original['name'])
+
     def test_record_pagination_orders_same_day_by_creation_before_uuid(self):
         with TestClient(app) as client:
             credentials = {'email': 'record-order@example.invalid', 'password': 'strong-password'}
@@ -633,7 +651,7 @@ class ApiTest(unittest.TestCase):
                 'gstin': '27ABCDE1234F1Z0', 'state_code': '27'}).json()
             base = '/api/companies/' + company['id']
             item = client.post(base + '/records', headers=headers, json={
-                'kind': 'item', 'name': 'Cost variance adapter', 'data': {'track_stock': True, 'unit': 'NOS'}}).json()
+                'kind': 'item', 'name': 'Cost variance adapter', 'data': {'track_stock': True, 'unit': 'NOS', 'hsn': '8504'}}).json()
             opening = client.post(base + '/stock/opening', headers=headers, json={
                 'item_id': item['id'], 'date': '2026-11-01', 'quantity': '10', 'unit_cost': '50'})
             self.assertEqual(opening.status_code, 201, opening.text)
@@ -641,7 +659,7 @@ class ApiTest(unittest.TestCase):
             def post(kind, party, quantity, rate, source=None):
                 data = {'party_gstin': '27PQRST1234L1ZO', 'supplier_state': '27',
                     'place_of_supply': '27', 'return_stock': True, 'lines': [{
-                        'item_id': item['id'], 'description': item['name'],
+                        'item_id': item['id'], 'description': item['name'], 'hsn': '8504',
                         'quantity': str(quantity), 'rate': str(rate), 'gst_rate': '18',
                         'itc_treatment': 'pending_review'}]}
                 if source:

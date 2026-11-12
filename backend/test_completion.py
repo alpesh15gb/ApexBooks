@@ -69,8 +69,8 @@ class CompletionTest(unittest.TestCase):
         from sqlalchemy.orm import Session
         client,h,base=self.client_context('regular')
         payload={'kind':'sales_invoice','name':'Legacy buyer','date':'2026-04-02','data':{'place_of_supply':'36','lines':[
-            {'description':'Taxable service','quantity':1,'rate':100,'gst_rate':18},
-            {'description':'Exempt service','quantity':1,'rate':50,'gst_rate':0,'tax_treatment':'exempt'}]}}
+            {'description':'Taxable service','hsn':'9983','quantity':1,'rate':100,'gst_rate':18},
+            {'description':'Exempt service','hsn':'9983','quantity':1,'rate':50,'gst_rate':0,'tax_treatment':'exempt'}]}}
         created=client.post(base+'/records',headers=h,json=payload).json()
         # Model an already posted imported document, without recalculating its journal.
         with Session(engine) as session:
@@ -83,8 +83,8 @@ class CompletionTest(unittest.TestCase):
     def test_header_gstin_cannot_reclassify_mixed_sale(self):
         client,h,base=self.client_context('regular')
         payload={'kind':'sales_invoice','name':'Synthetic buyer','date':'2026-04-02','data':{'place_of_supply':'36','lines':[
-            {'description':'Taxable service','quantity':1,'rate':100,'gst_rate':18},
-            {'description':'Exempt service','quantity':1,'rate':50,'gst_rate':0,'tax_treatment':'exempt'}]}}
+            {'description':'Taxable service','hsn':'9983','quantity':1,'rate':100,'gst_rate':18},
+            {'description':'Exempt service','hsn':'9983','quantity':1,'rate':50,'gst_rate':0,'tax_treatment':'exempt'}]}}
         created=client.post(base+'/records',headers=h,json=payload)
         self.assertEqual(created.status_code,200,created.text);original=created.json()
         edit={**payload,'number':original['number'],'data':{'version':0,'party_gstin':'36AAAAA0000A1Z5'}}
@@ -99,7 +99,7 @@ class CompletionTest(unittest.TestCase):
 
     def test_amend_discount_supply_and_rounding_reposts_tax(self):
         client,h,base=self.client_context('regular')
-        payload={'kind':'sales_invoice','name':'Synthetic buyer','date':'2026-04-02','data':{'place_of_supply':'36','lines':[{'description':'Service','quantity':1,'rate':100,'gst_rate':18}]}}
+        payload={'kind':'sales_invoice','name':'Synthetic buyer','date':'2026-04-02','data':{'place_of_supply':'36','lines':[{'description':'Service','hsn':'9983','quantity':1,'rate':100,'gst_rate':18}]}}
         original=client.post(base+'/records',headers=h,json=payload).json()
         edit={**payload,'number':original['number'],'data':{**payload['data'],'version':0,'document_discount_percent':'10','place_of_supply':'27','round_total':True}}
         response=client.put(base+'/documents/'+original['id'],headers={**h,'Idempotency-Key':uuid4().hex},json=edit)
@@ -140,7 +140,7 @@ class CompletionTest(unittest.TestCase):
         from PIL import Image
         if os.getenv('ACCEPTANCE_BASE'):self.skipTest('Provider mock is an isolated unit test')
         client,h,base=self.client_context('regular');buf=io.BytesIO();Image.new('RGB',(20,20),'white').save(buf,format='PNG')
-        draft={'supplier_name':'Synthetic supplier','supplier_gstin':'27AAAAA0000A1Z5','supplier_address':'Synthetic address','place_of_supply':'36','invoice_number':'OCR-TEST','invoice_date':'2026-04-02','total':'118','items':[{'description':'Service','quantity':'1','rate':'100','gst_rate':'18','hsn':'9983'}]}
+        draft={'supplier_name':'Synthetic supplier','supplier_gstin':'27AAAAA0000A1Z5','supplier_address':'Synthetic address','place_of_supply':'36','invoice_number':'OCR-TEST','invoice_date':'2026-04-02','total':'118','items':[{'description':'Service','hsn':'9983','quantity':'1','rate':'100','gst_rate':'18','hsn':'9983'}]}
         response=Mock();response.json.return_value={'output':[{'type':'message','content':[{'type':'output_text','text':__import__('json').dumps(draft)}]}]}
         with patch.dict(os.environ,{'OMNIROUTE_API_KEY':'synthetic-provider-key','OCR_BASE_URL':'https://synthetic-provider.invalid/v1'}),patch('main.httpx.post',return_value=response) as provider:
             result=client.post(base+'/ocr/purchase-draft',headers=h,json={'image_data_url':'data:image/png;base64,'+base64.b64encode(buf.getvalue()).decode()})
@@ -150,9 +150,9 @@ class CompletionTest(unittest.TestCase):
     def test_posted_amendment_party_statement_and_gst_reports(self):
         client,h,base=self.client_context('regular')
         party=client.post(base+'/records',headers=h,json={'kind':'party','name':'Amend buyer','data':{'gstin':'36AAAAA0000A1Z5','address':'Synthetic address'}}).json()
-        payload={'kind':'sales_invoice','name':party['name'],'date':'2026-04-02','data':{'place_of_supply':'36','lines':[{'description':'Service','quantity':1,'rate':100,'gst_rate':18}]}}
+        payload={'kind':'sales_invoice','name':party['name'],'date':'2026-04-02','data':{'place_of_supply':'36','lines':[{'description':'Service','hsn':'9983','quantity':1,'rate':100,'gst_rate':18}]}}
         invoice=client.post(base+'/records',headers=h,json=payload).json()
-        updated={**payload,'number':invoice['number'],'data':{**payload['data'],'version':0,'lines':[{'description':'Service','quantity':1,'rate':200,'gst_rate':18}]}}
+        updated={**payload,'number':invoice['number'],'data':{**payload['data'],'version':0,'lines':[{'description':'Service','hsn':'9983','quantity':1,'rate':200,'gst_rate':18}]}}
         response=client.put(base+'/documents/'+invoice['id'],headers={**h,'Idempotency-Key':uuid4().hex},json=updated);self.assertEqual(response.status_code,200,response.text);self.assertEqual(Decimal(response.json()['amount']),236)
         self.assertEqual(response.json()['id'],invoice['id'])
         stale=client.put(base+'/documents/'+invoice['id'],headers={**h,'Idempotency-Key':uuid4().hex},json=updated);self.assertEqual(stale.status_code,409)
@@ -245,7 +245,7 @@ class CompletionTest(unittest.TestCase):
 
     def test_inclusive_rounding_expense_and_edit_conversion(self):
         client,h,base=self.client_context('regular')
-        payload={'kind':'estimate','name':'Synthetic buyer','date':'2026-04-02','data':{'place_of_supply':'36','lines':[{'description':'Service','quantity':'1','rate':'118','gst_rate':'18','price_includes_tax':True}], 'document_discount_percent':'5','round_total':True}}
+        payload={'kind':'estimate','name':'Synthetic buyer','date':'2026-04-02','data':{'place_of_supply':'36','lines':[{'description':'Service','hsn':'9983','quantity':'1','rate':'118','gst_rate':'18','price_includes_tax':True}], 'document_discount_percent':'5','round_total':True}}
         response=client.post(base+'/records',headers=h,json=payload);self.assertEqual(response.status_code,200,response.text);estimate=response.json()
         self.assertEqual(Decimal(estimate['amount']),112)
         self.assertEqual(Decimal(estimate['data']['taxable']),95)
@@ -293,7 +293,7 @@ class CompletionTest(unittest.TestCase):
         client,h,base=self.client_context('regular')
         advance=client.post(base+'/records',headers=h,json={'kind':'payment_in','name':'Service buyer','date':'2026-04-01','amount':'118','data':{'is_advance':True,'advance_supply':'services','advance_gst_rate':'18','place_of_supply':'36','payment_account':'cash'}})
         self.assertEqual(advance.status_code,200,advance.text);self.assertEqual(advance.json()['data']['advance_tax'],{'cgst':'9.00','sgst':'9.00','igst':'0'})
-        invoice=client.post(base+'/records',headers=h,json={'kind':'sales_invoice','name':'Service buyer','date':'2026-05-01','data':{'place_of_supply':'36','lines':[{'description':'Service','quantity':1,'rate':100,'gst_rate':18}]}});self.assertEqual(invoice.status_code,200,invoice.text)
+        invoice=client.post(base+'/records',headers=h,json={'kind':'sales_invoice','name':'Service buyer','date':'2026-05-01','data':{'place_of_supply':'36','lines':[{'description':'Service','hsn':'9983','quantity':1,'rate':100,'gst_rate':18}]}});self.assertEqual(invoice.status_code,200,invoice.text)
         response=client.post(base+'/advances/'+advance.json()['id']+'/apply',headers={**h,'Idempotency-Key':uuid4().hex},json={'kind':'advance_application','date':'2026-05-01','amount':'59','data':{'applied_to':invoice.json()['id']}});self.assertEqual(response.status_code,200,response.text)
         refund=client.post(base+'/advances/'+advance.json()['id']+'/refund',headers={**h,'Idempotency-Key':uuid4().hex},json={'kind':'advance_refund','date':'2026-05-02','amount':'59','data':{'payment_account':'cash'}});self.assertEqual(refund.status_code,201,refund.text)
         for first,last,expected in [('2026-04-01','2026-04-30','18'),('2026-05-01','2026-05-31','0')]:

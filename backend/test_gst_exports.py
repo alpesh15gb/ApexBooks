@@ -33,6 +33,7 @@ class GstExportTest(unittest.TestCase):
 
     def create(self, kind='sales_invoice', name='Synthetic buyer', rate=100, gst_rate=18, hsn='8207', unit='NOS', place='36', gst='', data=None, **kwargs):
         body = {'kind': kind, 'name': name, 'date': '2026-04-02', 'data': {'place_of_supply': place, 'supplier_state': place, 'party_gstin': gst,
+                 'party_address': 'Synthetic buyer, Mumbai, Maharashtra 400001',
                  'lines': [{'description': 'Synthetic product', 'quantity': 1, 'rate': rate, 'gst_rate': gst_rate, 'hsn': hsn, 'unit': unit}], **(data or {})}, **kwargs}
         response = self.client.post(self.base + '/records', headers=self.h, json=body)
         self.assertEqual(response.status_code, 200, response.text)
