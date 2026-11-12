@@ -1,3 +1,4 @@
+import {sessionFetch as fetch} from './sessionScope.js';
 import React, { useRef, useState } from "react";
 import { Download, Upload } from "lucide-react";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";

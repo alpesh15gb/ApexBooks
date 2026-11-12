@@ -1,3 +1,4 @@
+import {sessionFetch as fetch} from './sessionScope.js';
 import { businessDate } from "./businessDate.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import React, { useEffect, useState } from "react";

@@ -1,3 +1,4 @@
+import {sessionFetch as fetch} from './sessionScope.js';
 import FinancialFigure from "./FinancialFigure.jsx";
 import { businessDate, businessFinancialYear } from "./businessDate.js";
 import React, {useEffect, useState} from 'react';

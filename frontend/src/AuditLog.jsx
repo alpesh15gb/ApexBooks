@@ -1,3 +1,4 @@
+import {sessionFetch as fetch} from './sessionScope.js';
 import React, {useEffect, useState} from 'react';
 
 export default function AuditLog({companyId, role}) {

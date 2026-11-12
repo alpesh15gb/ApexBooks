@@ -1,3 +1,4 @@
+import {sessionFetch as fetch} from './sessionScope.js';
 import { imageInput } from './imageInput.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { registerPostingRequest } from './postingRegistry.js';
