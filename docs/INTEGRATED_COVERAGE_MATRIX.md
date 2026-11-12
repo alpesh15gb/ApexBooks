@@ -80,3 +80,5 @@ The immutable `9159cbf` candidate is blocked by subsequently reproduced settled-
 `41ef08e` improves party report PDFs with explicit scope, opening/closing balances, INR formatting, human-readable types and embedded fonts. Seventeen targeted tests and all nine rendered proof pages passed inspection. These PDFs are searchable, but are not tagged/PDF-UA certified.
 
 The native PDF/share follow-up is documented in `NATIVE_PDF_SHARE_REVIEW.md`. Compiled request/helper tests do not close the full native build, device, PdfRenderer or TalkBack gates. All these changes remain local; the old checkpoint and earlier CI must not be represented as covering them.
+
+The subsequent critical-reconstruction pass found and corrected missing XLSX formula/text fidelity protection. It also confirmed that party casefold identity and native access-denial cache handling remain incompletely reconstructed; see `CRITICAL_RECONSTRUCTION_INVENTORY.md`. These gaps prevent declaring the reconstruction complete despite passing targeted suites.

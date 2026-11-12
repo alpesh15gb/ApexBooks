@@ -2234,8 +2234,7 @@ def export_table(company_name, title, headers, rows, fmt, filename):
     if fmt == 'xlsx':
         book = Workbook(); sheet = book.active; sheet.title = re.sub(r'[\\/*?:\[\]]', ' ', title)[:31] or 'Report'
         sheet.append([company_name]); sheet.append([title]); sheet.append(headers)
-        if isinstance(company_name, str) and company_name.startswith('='): sheet['A1'].data_type = 's'
-        text_columns = {'Name', 'Description', 'Code', 'HSN', 'HSN / SAC', 'GSTIN', 'Phone', 'Email', 'Number', 'Document', 'Date', 'Type', 'Party', 'Account', 'Unit', 'Bucket', 'Category', 'Item', 'Reference', 'Particulars', 'Vch Type', 'Vch No.'}
+        text_columns = {'Name', 'Description', 'Code', 'HSN', 'HSN / SAC', 'GSTIN', 'Phone', 'Email', 'Number', 'Document', 'Date', 'Type', 'Party', 'Account', 'Unit', 'Bucket', 'Category', 'Item', 'Reference', 'Particulars', 'Vch Type', 'Vch No.', 'Barcode', 'HSN/SAC', 'Address', 'Item type', 'Tax treatment', 'Metric', 'Stock tracked'}
         for row in rows:
             prepared = []
             for header, value in zip(headers, row):
@@ -2244,8 +2243,11 @@ def export_table(company_name, title, headers, rows, fmt, filename):
                 else:
                     prepared.append(value)
             sheet.append(prepared)
-            for cell in sheet[sheet.max_row]:
-                if isinstance(cell.value, str) and cell.value.startswith('='): cell.data_type = 's'
+        # Preserve literal strings, including formula-like names and Excel error literals.
+        # Numeric amount/quantity conversion above remains explicit and unchanged.
+        for row in sheet:
+            for cell in row:
+                if isinstance(cell.value, str): cell.data_type = 's'
         sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
         sheet.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(headers))
         sheet['A1'].font = Font(name='Calibri', size=16, bold=True, color='244F43')
@@ -3044,6 +3046,9 @@ def export(company_id: str, fmt: str, kind: str = '', user: User = Depends(curre
     if fmt == 'xlsx':
         book = Workbook(); sheet = book.active; sheet.title = 'Register'; sheet.append(['Date', 'Type', 'Number', 'Party / name', 'Amount (INR)'])
         for r in rows: sheet.append([r.date.isoformat(), r.kind, r.number, r.name, float(r.amount)])
+        for row in sheet:
+            for cell in row:
+                if isinstance(cell.value, str): cell.data_type = 's'
         book.save(out); media = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     elif fmt == 'pdf':
         pdf = canvas.Canvas(out, pagesize=A4); pdf.setTitle('Apex Books register'); pdf.drawString(40, 800, f'{c.name} — Transaction register'); y = 770
