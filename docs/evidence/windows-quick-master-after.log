@@ -1,0 +1,15 @@
+
+Welcome to .NET 10.0!
+---------------------
+SDK Version: 10.0.100
+
+----------------
+Write your first app: https://aka.ms/dotnet-hello-world
+Find out what's new: https://aka.ms/dotnet-whats-new
+Explore documentation: https://aka.ms/dotnet-docs
+Report issues and find source on GitHub: https://github.com/dotnet/core
+Use 'dotnet --help' to see available commands or visit: https://aka.ms/dotnet-cli
+--------------------------------------------------------------------------------------
+/tmp/apex-quick-master-3uhzl397/Program.cs(6,30): warning CS0649: Field 'Submission.Unresolved' is never assigned to, and will always have its default value false [/tmp/apex-quick-master-3uhzl397/Proof.csproj]
+/tmp/apex-quick-master-3uhzl397/Program.cs(10,60): warning CS0649: Field 'Screen.stamp' is never assigned to, and will always have its default value 0 [/tmp/apex-quick-master-3uhzl397/Proof.csproj]
+PASS actual quick-add callbacks/helper: 16 party + 16 item delayed outcomes, duplicate and viewer gates

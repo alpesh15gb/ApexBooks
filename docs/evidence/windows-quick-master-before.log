@@ -1,0 +1,24 @@
+
+Welcome to .NET 10.0!
+---------------------
+SDK Version: 10.0.100
+
+----------------
+Write your first app: https://aka.ms/dotnet-hello-world
+Find out what's new: https://aka.ms/dotnet-whats-new
+Explore documentation: https://aka.ms/dotnet-docs
+Report issues and find source on GitHub: https://github.com/dotnet/core
+Use 'dotnet --help' to see available commands or visit: https://aka.ms/dotnet-cli
+--------------------------------------------------------------------------------------
+/tmp/apex-quick-master-huk5pb3y/Program.cs(6,30): warning CS0649: Field 'Submission.Unresolved' is never assigned to, and will always have its default value false [/tmp/apex-quick-master-huk5pb3y/Proof.csproj]
+/tmp/apex-quick-master-huk5pb3y/Program.cs(10,60): warning CS0649: Field 'Screen.stamp' is never assigned to, and will always have its default value 0 [/tmp/apex-quick-master-huk5pb3y/Proof.csproj]
+Unhandled exception. System.Exception: Unexpected linking party/edit
+   at Program.Check(Boolean b, String why) in /tmp/apex-quick-master-huk5pb3y/Program.cs:line 47
+   at Program.Main() in /tmp/apex-quick-master-huk5pb3y/Program.cs:line 54
+   at Program.<Main>()
+Traceback (most recent call last):
+  File "/workspace/scratch/bafc9a4c203a/apexbooks/native/tests/WindowsQuickMaster/check.py", line 45, in <module>
+    subprocess.run([args.dotnet,'run','--project',str(d/'Proof.csproj')],check=True,env={**os.environ,'DOTNET_CLI_TELEMETRY_OPTOUT':'1','DOTNET_GENERATE_ASPNET_CERTIFICATE':'false','DOTNET_CLI_HOME':str(d/'home')})
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/tmp/apex-dotnet-receipts/sdk/dotnet', 'run', '--project', '/tmp/apex-quick-master-huk5pb3y/Proof.csproj']' returned non-zero exit status 134.

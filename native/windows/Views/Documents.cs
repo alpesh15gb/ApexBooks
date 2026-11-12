@@ -106,6 +106,21 @@ public sealed partial class MainPage
             catch (OperationCanceledException) { }
             catch (Exception e) { if (!request.IsCancellationRequested) preview.Text = e.Message; }
         }
+        async Task QuickMaster(Func<Task<JsonObject>> create,Func<bool> unchanged,Action<JsonObject> apply)
+        {
+            if(sourceLoading||!editorOpen||submission.Unresolved||!ScopedFileExport.Current(writeAccess))return;
+            var access=CaptureFileSaveAccess();
+            bool Current()=>editorOpen&&stamp==generation&&ScopedFileExport.Current(writeAccess)&&ScopedFileExport.Current(access);
+            sourceLoading=true;
+            try{
+                var created=await create();if(!Current())return;
+                Records.Add(created.DeepClone());
+                if(unchanged())apply(created);
+                else LocalError(new Exception("The master was saved, but your document changed while it was saving. Choose the saved master explicitly if needed."));
+            }
+            catch(Exception e){if(Current())LocalError(e);}
+            finally{sourceLoading=false;}
+        }
         void AddLine(JsonObject? initial = null, bool preserveImportedValues = false)
         {
             var line = new DocumentLine(Records.OfType<JsonObject>().Where(r => r.Text("kind") == "item" && (WorkflowMasterValues.IsActive(r)||previous is not null&&r.Text("id")==initial.Text("item_id"))), purchase, regular, initial, preserveImportedValues, returnOptions?.OfType<JsonObject>()); var holder = Stack(6); holder.Children.Add(line.View);
@@ -130,9 +145,8 @@ public sealed partial class MainPage
                     if(values.Text("description").Length==0)throw new Exception("Enter the item name first.");
                     var inv=System.Globalization.CultureInfo.InvariantCulture;var style=System.Globalization.NumberStyles.Number;
                     decimal.TryParse(values.Text("rate"),style,inv,out var rate);decimal.TryParse(values.Text("gst_rate"),style,inv,out var gstRate);
-                    var created=(await Api.Send(Api.CompanyPath(cid,"/records"),HttpMethod.Post,new JsonObject{["kind"]="item",["name"]=values.Text("description"),["date"]=J.Today,["amount"]=0,["data"]=new JsonObject{["item_type"]="goods",["hsn"]=values.Text("hsn"),["unit"]=values.Text("unit"),[purchase?"purchase_rate":"sale_rate"]=Math.Round(rate,2).ToString("0.00",inv),["gst_rate"]=Math.Round(gstRate,2).ToString("0.00",inv),["tax_treatment"]=values.Text("tax_treatment")}})).Object();
-                    if(stamp!=generation||cid!=CompanyId)return;
-                    Records.Add(created.DeepClone());line.LinkCreatedItem(created);
+                    var signature=values.ToJsonString();
+                    await QuickMaster(async()=> (await Api.Send(Api.CompanyPath(cid,"/records"),HttpMethod.Post,new JsonObject{["kind"]="item",["name"]=values.Text("description"),["date"]=J.Today,["amount"]=0,["data"]=new JsonObject{["item_type"]="goods",["hsn"]=values.Text("hsn"),["unit"]=values.Text("unit"),[purchase?"purchase_rate":"sale_rate"]=Math.Round(rate,2).ToString("0.00",inv),["gst_rate"]=Math.Round(gstRate,2).ToString("0.00",inv),["tax_treatment"]=values.Text("tax_treatment")}})).Object(),()=>lines.Contains(line)&&!line.Linked&&line.Data().ToJsonString()==signature,created=>line.LinkCreatedItem(created));
                 },LocalError);
                 void ShowSaveItem()=>saveItem.Visibility=!line.Linked&&line.Description.Text.Trim().Length>0?Visibility.Visible:Visibility.Collapsed;
                 line.Changed+=ShowSaveItem;ShowSaveItem();holder.Children.Add(saveItem);
@@ -150,9 +164,8 @@ public sealed partial class MainPage
         void ShowAddParty(){var show=kind is not ("credit_note" or "debit_note" or "expense")&&Api.Capabilities.HasCoreAdditions&&party.Text.Trim().Length>0&&partyId.Length==0;addParty.Visibility=show?Visibility.Visible:Visibility.Collapsed;partyLinked.Text=partyId.Length>0?"Saved party · balance and reminders tracked":"";partyLinked.Visibility=partyId.Length>0?Visibility.Visible:Visibility.Collapsed;}
         addParty=AsyncButton(purchase?"+ Add as a new supplier":"+ Add as a new customer",async()=>{
             var name=party.Text.Trim();if(name.Length==0||partyId.Length>0)return;
-            var created=(await Api.Send(Api.CompanyPath(cid,"/records"),HttpMethod.Post,new JsonObject{["kind"]="party",["name"]=name,["date"]=J.Today,["amount"]=0,["data"]=new JsonObject{["party_type"]=purchase?"supplier":"customer",["phone"]=phone.Text.Trim(),["gstin"]=gstin.Text.Trim().ToUpperInvariant(),["address"]=address.Text,["shipping_address"]=shipping.Text}})).Object();
-            if(stamp!=generation||cid!=CompanyId)return;
-            Records.Add(created.DeepClone());partyId=created.Text("id");party.Text=created.Text("name");ShowAddParty();_=Calculate();
+            var signature=BodyValue().ToJsonString();
+            await QuickMaster(async()=> (await Api.Send(Api.CompanyPath(cid,"/records"),HttpMethod.Post,new JsonObject{["kind"]="party",["name"]=name,["date"]=J.Today,["amount"]=0,["data"]=new JsonObject{["party_type"]=purchase?"supplier":"customer",["phone"]=phone.Text.Trim(),["gstin"]=gstin.Text.Trim().ToUpperInvariant(),["address"]=address.Text,["shipping_address"]=shipping.Text}})).Object(),()=>partyId.Length==0&&BodyValue().ToJsonString()==signature,created=>{partyId=created.Text("id");party.Text=created.Text("name");ShowAddParty();_=Calculate();});
         },LocalError);
         identity.Children.Add(addParty);identity.Children.Add(partyLinked);identity.Children.Add(regular||purchase?Columns(phone,gstin):phone);
         var metadata=Stack(10);metadata.Children.Add(Columns(number,date.View));

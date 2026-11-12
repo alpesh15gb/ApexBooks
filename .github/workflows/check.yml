@@ -171,6 +171,7 @@ jobs:
           python native/tests/WindowsDocumentAccess/check.py
           python native/tests/WindowsDocumentCompletion/check.py
           python native/tests/WindowsEntryScan/check.py
+          python native/tests/WindowsQuickMaster/check.py
           python native/tests/WindowsImportReceipt/workflow.py
           python native/tests/WindowsBankImportReceipt/check.py
       - name: Verify streaming encrypted backups with a 64 MiB managed heap
