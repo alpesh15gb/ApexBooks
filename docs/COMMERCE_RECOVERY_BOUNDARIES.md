@@ -2,7 +2,7 @@
 
 ## Implemented and tested locally
 
-Money-command recovery is shared observable memory state per company/connection
+Money-command and order-command recovery use shared observable memory state per company/connection
 within the mounted CommerceWorkspace. All form instances observe its in-flight,
 uncertain, accepted and failed states. Remounting a form before the original response
 cannot dispatch a second command or retain an obsolete Retry action after success.
@@ -45,3 +45,19 @@ workspace remains open. After local state is lost, an authorized operator must i
 complete server/store delivery history and reconcile the source transaction before
 recording another. The latest-200 UI alone is insufficient. This document does not
 claim automatic recovery across reload, sign-out or process death.
+
+## Order-command follow-up
+
+Invoice, shipment, credit/refund and cancellation order actions now freeze the
+original operation/payload on an uncertain response and offer an exact retry.
+Other order actions are disabled until that response is recovered or definitively
+rejected. Each opened order dialog has separate identity, so a late response for A
+cannot close a newer dialog for B. Confirmed enqueue with a failed follow-up read
+is reported as accepted; only the read needs retrying. Invoice and cancellation
+paths have rendered regression coverage; shipment/refund share this handler but
+have not received separate integration/device acceptance.
+
+Catalogue/history/reconciliation commands use fixed payloads and existing in-memory
+command IDs for unchanged retries; this is not durable recovery. Connection setup,
+verification/state and mapping endpoints are separate mutations, and this batch
+does not add uncertain-outcome recovery or assert their end-to-end idempotency.

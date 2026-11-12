@@ -329,3 +329,14 @@ so they are not proof of a production cross-company leak. Lint/build budgets pas
 Unknown outcomes for non-money commands and same-context order-dialog replacement
 remain separate audit work; this is not a complete commerce acceptance claim.
 No production access, publication retry or deployment was performed.
+
+### Order-dialog ownership and uncertain command recovery
+
+Reproduced order A's late success closing newer dialog B within the same store,
+and unknown responses leaving new order commands enabled. Dialog generation now
+guards closing, while per-store observable recovery freezes original order commands
+and exposes exact retries. Accepted commands remain accepted if only refresh fails.
+Thirty-six rendered tests passed, including invoice/cancellation success, unknown,
+422 and post-success read-failure cases. Lint/build/bundle budgets passed.
+Recovery remains memory-only; non-command setup mutations and actual integration
+delivery remain separate gaps. No real store commands, publication or deployment.

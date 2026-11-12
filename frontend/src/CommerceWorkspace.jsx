@@ -68,6 +68,10 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
   if (!moneyRecoveries.current.has(path)) moneyRecoveries.current.set(path,createCommerceRecovery());
   const moneyRecovery = moneyRecoveries.current.get(path);
   const moneyRecoveryState = useSyncExternalStore(moneyRecovery.subscribe, moneyRecovery.snapshot, moneyRecovery.snapshot);
+  const orderViews = useRef(0), orderRecoveries = useRef(new Map());
+  if (!orderRecoveries.current.has(path)) orderRecoveries.current.set(path,createCommerceRecovery());
+  const orderRecovery = orderRecoveries.current.get(path);
+  const orderRecoveryState = useSyncExternalStore(orderRecovery.subscribe, orderRecovery.snapshot, orderRecovery.snapshot);
   const send = async (operation, payload={}) => {
     const intent = JSON.stringify([path,operation,payload]);
     const id = pendingCommands.current.get(intent) || commandId();
@@ -85,6 +89,30 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
         setError(`The source command was queued, but delivery results could not refresh. Do not queue it again. Use Refresh to check its status. ${failure.message || ''}`);
     }
   }
+  async function queueOrder(operation) {
+    if (!canWrite || !active || orderRecovery.snapshot().busy || (!operation && !orderRecovery.snapshot().request)) return;
+    await act(async current => {
+      let original = orderRecovery.snapshot().request;
+      if (!original) {
+        if (!order) return;
+        const items=Object.fromEntries(Object.entries(quantities).filter(([,q])=>Number(q)>0).map(([k,q])=>[k,Number(q)]));
+        if (operation !== 'order.cancel' && !Object.keys(items).length) throw new Error('Enter the quantities for this action.');
+        original={operation, payload:JSON.parse(JSON.stringify(operation === 'order.cancel' ? {order_id:order.external_id} : {order_id:order.external_id,items,carrier,tracking})), view:orderViews.current, number:order.number};
+      }
+      orderRecovery.update({request:original,busy:true,uncertain:false,error:''});
+      try {
+        await send(original.operation,original.payload);
+        orderRecovery.update({request:null,uncertain:false,completed:true});
+        if (!current()) return;
+        if (orderViews.current === original.view) setOrder(null);
+        try {await refresh();} catch(failure) {if(current())setError(`The order command was queued, but delivery results could not refresh. Do not queue it again. Use Refresh to check its status. ${failure.message || ''}`);}
+      } catch(failure) {
+        const uncertain=failure.status==null||failure.status===0||failure.status===408||failure.status===409||failure.status>=500;
+        orderRecovery.update({request:uncertain?original:null,uncertain,error:failure.message});
+        throw failure;
+      } finally {orderRecovery.update({busy:false});}
+    }, 'Order command queued. Review delivery results before recording it again.', false);
+  }
   async function createConnection(event) {
     event.preventDefault();
     await act(async (current) => {
@@ -100,6 +128,7 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
   const pendingSetup = useRef(null);
   useEffect(() => {if(pendingSetup.current?.id === selected) {setSetup(pendingSetup.current); pendingSetup.current = null;}}, [selected]);
   function openOrder(row) {
+    orderViews.current++;
     setOrder(row); setQuantities(Object.fromEntries((row.snapshot.items || []).map(line => [line.id, '']))); setCarrier(''); setTracking('');
   }
   const pending = (workspace?.summary?.inbox?.pending || 0) + (workspace?.summary?.outbox?.pending || 0);
@@ -112,6 +141,7 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
     {error && <div role="alert" className="commerce-alert error"><AlertCircle size={18}/>{error}</div>}
     {notice && <div role="status" className="commerce-alert"><CheckCircle2 size={18}/>{notice}</div>}
     {tab !== 'payments' && (moneyRecoveryState.busy || moneyRecoveryState.uncertain) && <section className="commerce-alert" role="status"><div><strong>{moneyRecoveryState.busy ? 'Waiting for the original money command response.' : 'The original money command response is uncertain.'}</strong><p>Reference: {moneyRecoveryState.request?.payload.source_id || 'not supplied'}. Do not record it again.</p><p>Reloading, signing out or leaving Ecommerce clears local recovery. Keep this workspace open until the result is recovered.</p><button onClick={()=>setTab('payments')}>Review original money command</button></div></section>}
+    {orderRecoveryState.request && <section className="commerce-alert" role="status"><div><strong>{orderRecoveryState.busy?'Waiting for the original order command response.':'The original order command response is uncertain.'}</strong><p>{orderRecoveryState.request.number} · {human(orderRecoveryState.request.operation)}. Do not record it again.</p><p>Reloading, signing out or leaving Ecommerce clears local recovery. Keep this workspace open until the result is recovered.</p>{orderRecoveryState.uncertain&&<button disabled={busy||orderRecoveryState.busy||!active||!canWrite} onClick={()=>queueOrder()}>Retry original order command</button>}</div></section>}
     {adding && <form onSubmit={createConnection} className="commerce-card"><h3>Connect a Bagisto channel</h3><p>Each connection belongs to {company.name}. Use a separate channel and inventory source for another company.</p><div className="commerce-fields">
       <Field label="Store name"><input required maxLength={100} value={form.name} onChange={e => setForm({...form,name:e.target.value})}/></Field>
       <Field label="Store HTTPS origin"><input required type="url" placeholder="https://shop.example.com" value={form.base_url} onChange={e => setForm({...form,base_url:e.target.value})}/></Field>
@@ -136,6 +166,6 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
         {tab === 'reconciliation' && <section className="commerce-card"><div className="commerce-heading"><div><h3>Store reconciliation</h3><p>Compare source totals and mapped sellable stock. Results stay in this company’s audit trail.</p></div>{canWrite&&<button className="primary" disabled={!active||busy} onClick={()=>act(()=>send('reconcile.snapshot'),'Reconciliation queued')}>Reconcile now</button>}</div>{workspace.reconciliations.length?workspace.reconciliations.map(r=><div className="commerce-reconciliation" key={r.id}><span className={`commerce-status ${r.status}`}>{r.status}</span><time>{new Date(r.created_at).toLocaleString()}</time><p>{(r.report.stock_differences||[]).length} stock differences · Store invoices {money(r.report.store?.invoice_total)} · Store credits {money(r.report.store?.credit_total)}</p>{(r.report.stock_differences||[]).map(d=><p key={d.product_id}>Product {d.product_id}: Books {d.expected}, store {d.actual??'missing'}</p>)}</div>):<Empty>Run the first reconciliation after mapping products and importing orders.</Empty>}</section>}
       </>}
     </>}
-    {order && <div className="commerce-dialog-backdrop"><section className="commerce-dialog" role="dialog" aria-modal="true" aria-labelledby="commerce-order-title"><div className="commerce-heading"><div><div className="commerce-eyebrow">BAGISTO ORDER</div><h3 id="commerce-order-title">{order.number} · {money(order.amount)}</h3></div><button onClick={()=>setOrder(null)}>Close</button></div><p>{human(order.status)} · Source {order.external_id}</p><div className="commerce-table"><table><thead><tr><th>Item</th><th>Ordered / invoiced / shipped</th><th>Action qty</th></tr></thead><tbody>{(order.snapshot.items||[]).map(line=><tr key={line.id}><td>{line.name}<small>{line.sku}</small></td><td>{line.quantity} / {line.invoiced} / {line.shipped}</td><td><input aria-label={`Action quantity for ${line.name}`} type="number" min="0" step="1" max={line.quantity} value={quantities[line.id]||''} onChange={e=>setQuantities({...quantities,[line.id]:e.target.value})}/></td></tr>)}</tbody></table></div>{canWrite&&<><div className="commerce-fields"><Field label="Carrier"><input value={carrier} onChange={e=>setCarrier(e.target.value)}/></Field><Field label="Tracking number"><input value={tracking} onChange={e=>setTracking(e.target.value)}/></Field></div><div className="commerce-actions">{[['order.invoice','Create invoice'],['order.ship','Create shipment'],['order.refund','Create credit / refund']].map(([operation,label])=><button key={operation} disabled={!active||busy} onClick={()=>act(async(current)=>{const items=Object.fromEntries(Object.entries(quantities).filter(([,q])=>Number(q)>0).map(([k,q])=>[k,Number(q)]));if(!Object.keys(items).length)throw new Error('Enter the quantities for this action.');await send(operation,{order_id:order.external_id,items,carrier,tracking});if(current())setOrder(null);},'Order action queued')}>{label}</button>)}<button disabled={!active||busy} onClick={()=>act(async(current)=>{await send('order.cancel',{order_id:order.external_id});if(current())setOrder(null);},'Cancellation queued')}>Cancel unfulfilled order</button></div><p className="commerce-muted">A credit note and a cash refund are separate accounting events. Source quantities and payment evidence are validated before posting.</p></>}</section></div>}
+    {order && <div className="commerce-dialog-backdrop"><section className="commerce-dialog" role="dialog" aria-modal="true" aria-labelledby="commerce-order-title"><div className="commerce-heading"><div><div className="commerce-eyebrow">BAGISTO ORDER</div><h3 id="commerce-order-title">{order.number} · {money(order.amount)}</h3></div><button onClick={()=>{orderViews.current++;setOrder(null);}}>Close</button></div><p>{human(order.status)} · Source {order.external_id}</p><div className="commerce-table"><table><thead><tr><th>Item</th><th>Ordered / invoiced / shipped</th><th>Action qty</th></tr></thead><tbody>{(order.snapshot.items||[]).map(line=><tr key={line.id}><td>{line.name}<small>{line.sku}</small></td><td>{line.quantity} / {line.invoiced} / {line.shipped}</td><td><input aria-label={`Action quantity for ${line.name}`} disabled={Boolean(orderRecoveryState.request)} type="number" min="0" step="1" max={line.quantity} value={quantities[line.id]||''} onChange={e=>setQuantities({...quantities,[line.id]:e.target.value})}/></td></tr>)}</tbody></table></div>{canWrite&&<><div className="commerce-fields"><Field label="Carrier"><input disabled={Boolean(orderRecoveryState.request)} value={carrier} onChange={e=>setCarrier(e.target.value)}/></Field><Field label="Tracking number"><input disabled={Boolean(orderRecoveryState.request)} value={tracking} onChange={e=>setTracking(e.target.value)}/></Field></div><div className="commerce-actions">{[['order.invoice','Create invoice'],['order.ship','Create shipment'],['order.refund','Create credit / refund']].map(([operation,label])=><button key={operation} disabled={!active||busy||Boolean(orderRecoveryState.request)} onClick={()=>queueOrder(operation)}>{label}</button>)}<button disabled={!active||busy||Boolean(orderRecoveryState.request)} onClick={()=>queueOrder('order.cancel')}>Cancel unfulfilled order</button></div><p className="commerce-muted">A credit note and a cash refund are separate accounting events. Source quantities and payment evidence are validated before posting.</p></>}</section></div>}
   </div>;
 }
