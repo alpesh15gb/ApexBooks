@@ -1,0 +1,116 @@
+Synthetic evidence directory: /workspace/shared/apex-browser-c57180f
+Running migrate.py
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 7eb3f7cfeafd, initial_schema
+INFO  [alembic.runtime.migration] Running upgrade 7eb3f7cfeafd -> 7442341b1871, auth_sessions
+INFO  [alembic.runtime.migration] Running upgrade 7442341b1871 -> a6d6f192e59b, bank_accounts
+INFO  [alembic.runtime.migration] Running upgrade a6d6f192e59b -> c321f06d1a48, Persist dated bank reconciliation reviews.
+INFO  [alembic.runtime.migration] Running upgrade c321f06d1a48 -> e49b0ce93d31, Track quantities for explicitly linked stock items.
+INFO  [alembic.runtime.migration] Running upgrade e49b0ce93d31 -> f81703c47a62, Record moving-average cost for new tracked stock movements.
+INFO  [alembic.runtime.migration] Running upgrade f81703c47a62 -> a70e29b0f6bc, Allow partial and many-to-many bank statement matching.
+INFO  [alembic.runtime.migration] Running upgrade a70e29b0f6bc -> b3486c812f14, Store split payment allocations alongside existing single allocations.
+INFO  [alembic.runtime.migration] Running upgrade b3486c812f14 -> c4527f019a21, Add one-use account recovery codes and persistent auth throttles.
+INFO  [alembic.runtime.migration] Running upgrade c4527f019a21 -> d5639a021b47, Tenant/company scoped Bagisto connections, durable delivery and stock holds.
+INFO  [alembic.runtime.migration] Running upgrade d5639a021b47 -> e674ab031c58, Use 64-bit source versions for durable event ordering.
+INFO  [alembic.runtime.migration] Running upgrade e674ab031c58 -> f785bc142d69, Add an owner-chosen book label separate from the legal company name.
+INFO  [alembic.runtime.migration] Running upgrade f785bc142d69 -> g896cd253e70, Add immutable company-scoped evidence, without changing existing book rows.
+INFO  [alembic.runtime.migration] Running upgrade g896cd253e70 -> h907ef475a92, Add durable bounded import/export staging, separate from retained evidence.
+INFO  [alembic.runtime.migration] Running upgrade h907ef475a92 -> i018fa586b03, Persist exact keyed master import results independently of company backups.
+INFO  [alembic.runtime.migration] Running upgrade i018fa586b03 -> j129ab697c14, Persist exact keyed bank import results independently of company backups.
+Running web-build
+vite v6.4.5 building for production...
+
+(!) outDir /tmp/apex-http-e2e-dpry50rb/web-build is not inside project root and will not be emptied.
+Use --emptyOutDir to override.
+
+transforming...
+✓ 1682 modules transformed.
+rendering chunks...
+computing gzip size...
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/index.html                               4.68 kB │ gzip:  1.65 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/.vite/manifest.json                      5.79 kB │ gzip:  0.89 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/index-Iu9MMI-B.css              171.93 kB │ gzip: 35.40 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/arrow-left-D0mahqPR.js            0.33 kB │ gzip:  0.27 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/upload-C9gStbti.js                0.43 kB │ gzip:  0.32 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/CompanyDataExport-CyS2TLCe.js     1.51 kB │ gzip:  0.87 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/AccountSecurity-5fHUilnj.js       2.03 kB │ gzip:  0.93 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/masterCsv-DDqQFR6Q.js             2.37 kB │ gzip:  1.20 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/AuditLog-C_JKSuhR.js              2.59 kB │ gzip:  1.17 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/DocumentBranding-DH0RV1cv.js      3.98 kB │ gzip:  1.83 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/PeriodLock-DiCUP1i_.js            4.72 kB │ gzip:  1.78 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/DayBook-DouS_851.js               4.89 kB │ gzip:  1.89 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/ReorderWorkspace-7Bk0qGWT.js      5.87 kB │ gzip:  2.38 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/SettingsWorkspace-C5xMRaPy.js     6.76 kB │ gzip:  2.87 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/BackupRestore-bd1vA0M6.js         7.65 kB │ gzip:  2.96 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/MasterImport-KkeJwrrp.js          9.18 kB │ gzip:  3.58 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/PosWorkspace-C-lyGmcp.js         10.14 kB │ gzip:  3.56 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/VyaparImport-CiEsIlwj.js         10.16 kB │ gzip:  3.67 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/RecurringWorkspace-DGL76xEk.js   14.64 kB │ gzip:  5.12 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/CompleteBackup-B1gG3aSR.js       19.65 kB │ gzip:  6.87 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/CommerceWorkspace-Ce0N_n5L.js    31.87 kB │ gzip:  9.71 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/BankWorkspace-K6HznAV3.js        35.61 kB │ gzip: 11.06 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/Reports-DL8CmyqG.js              36.28 kB │ gzip:  9.38 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/react-vendor-BxTT-i9p.js        186.62 kB │ gzip: 58.59 kB
+../../../../../tmp/apex-http-e2e-dpry50rb/web-build/assets/index-l7BYTJcR.js               279.75 kB │ gzip: 78.18 kB
+✓ built in 3.04s
+Isolated API and Vite proxy ready.
+Running browser_workflow.py
+BROWSER ENGINE: chromium (fresh isolated profile)
+Traceback (most recent call last):
+  File "/workspace/scratch/bafc9a4c203a/apexbooks/tests/e2e/browser_workflow.py", line 85, in <module>
+    browser = launch_browser(p)
+              ^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/bafc9a4c203a/apexbooks/tests/e2e/browser_support.py", line 27, in launch_browser
+    return getattr(playwright, engine).launch(**options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/apex-rehearsal-venv/lib/python3.12/site-packages/playwright/sync_api/_generated.py", line 4103, in launch
+    self._sync(
+  File "/tmp/apex-rehearsal-venv/lib/python3.12/site-packages/playwright/_impl/_sync_base.py", line 111, in _sync
+    return task.result()
+           ^^^^^^^^^^^^^
+  File "/tmp/apex-rehearsal-venv/lib/python3.12/site-packages/playwright/_impl/_browser_type.py", line 101, in launch
+    await self._channel.send(
+  File "/tmp/apex-rehearsal-venv/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 78, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/apex-rehearsal-venv/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 636, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TargetClosedError: BrowserType.launch: Target page, context or browser has been closed
+Browser logs:
+
+<launching> /usr/bin/chromium --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-edgeupdater --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,BlockOriginHeaderModificationOnRedirect,AvoidCorsURLLoaderRestartOnRedirect,Translate,AutoDeElevate,OptimizationHints,NetworkTimeServiceQuerying,AimEnabled,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --disable-updater-scheduler --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --headless --hide-scrollbars --mute-audio --blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4 --no-sandbox --user-data-dir=/tmp/playwright_chromiumdev_profile-rtCCS7 --remote-debugging-pipe --no-startup-window
+<launched> pid=163
+[pid=163][err] /usr/bin/chromium: 9: [: 5225713664: unexpected operator
+[pid=163][err] [163:163:1113/030850.956072:FATAL:chrome/browser/process_singleton_posix.cc:297] Check failed: . socket() failed: Operation not permitted (1)
+[pid=163][err] [1113/030850.956500:ERROR:third_party/crashpad/crashpad/util/linux/scoped_ptrace_attach.cc:27] ptrace: Operation not permitted (1)
+Call log:
+  - <launching> /usr/bin/chromium --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-edgeupdater --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,BlockOriginHeaderModificationOnRedirect,AvoidCorsURLLoaderRestartOnRedirect,Translate,AutoDeElevate,OptimizationHints,NetworkTimeServiceQuerying,AimEnabled,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --disable-updater-scheduler --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --headless --hide-scrollbars --mute-audio --blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4 --no-sandbox --user-data-dir=/tmp/playwright_chromiumdev_profile-rtCCS7 --remote-debugging-pipe --no-startup-window
+  - <launched> pid=163
+  - [pid=163][err] /usr/bin/chromium: 9: [: 5225713664: unexpected operator
+  - [pid=163][err] [163:163:1113/030850.956072:FATAL:chrome/browser/process_singleton_posix.cc:297] Check failed: . socket() failed: Operation not permitted (1)
+  - [pid=163][err] [1113/030850.956500:ERROR:third_party/crashpad/crashpad/util/linux/scoped_ptrace_attach.cc:27] ptrace: Operation not permitted (1)
+  - [pid=163] <gracefully close start>
+  - [pid=163] <kill>
+  - [pid=163] <will force kill>
+  - [pid=163] <process did exit: exitCode=null, signal=SIGABRT>
+  - [pid=163] starting temporary directories cleanup
+  - [pid=163] finished temporary directories cleanup
+  - [pid=163] <gracefully close end>
+
+Owned synthetic server api.log:
+INFO:     Started server process [78]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:41591 (Press CTRL+C to quit)
+INFO:     127.0.0.1:42962 - "GET /api/ready HTTP/1.1" 200 OK
+Owned synthetic server web.log:
+  ➜  Local:   http://127.0.0.1:43525/
+Traceback (most recent call last):
+  File "/workspace/scratch/bafc9a4c203a/apexbooks/tests/e2e/run_local.py", line 156, in <module>
+    run()
+  File "/workspace/scratch/bafc9a4c203a/apexbooks/tests/e2e/run_local.py", line 121, in run
+    check([sys.executable, str(ROOT/'tests/e2e/browser_workflow.py')], cwd=ROOT, env=env)
+  File "/workspace/scratch/bafc9a4c203a/apexbooks/tests/e2e/run_local.py", line 68, in check
+    raise subprocess.CalledProcessError(code, command)
+subprocess.CalledProcessError: Command '['/tmp/apex-rehearsal-venv/bin/python', '/workspace/scratch/bafc9a4c203a/apexbooks/tests/e2e/browser_workflow.py']' returned non-zero exit status 1.
