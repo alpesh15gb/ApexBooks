@@ -10,7 +10,7 @@ Compatibility policy:
 
 - Legacy requests with one matching source line automatically acquire explicit lineage when item identity matches.
 - Older requests without references may still use a pool of matching lines only when GST rate, supply classification and ITC treatment agree. Their aggregate source quantity/value/tax is bounded.
-- A later explicit selection that overlaps a historical ambiguous pooled return is blocked for review. The system does not guess how that earlier note was allocated. Overlapping explicit and pooled groups in one request are rejected.
+- A later explicit selection that overlaps a historical ambiguous pooled return is blocked for review. The system does not guess how that earlier note was allocated. Overlapping explicit and pooled groups in one request are rejected. Missing, negative or nonfinite historical line quantities/values also fail closed rather than freeing return capacity.
 - Description-only legacy lines retain their prior matching behavior. Explicit references bind item identity; display descriptions are refreshed from the selected source line.
 - New selectors require source references from the updated API to distinguish otherwise identical mixed-treatment lines. An older API does not provide the new guarantees. Deploy the reviewed API before distributing these client builds.
 

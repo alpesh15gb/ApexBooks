@@ -102,3 +102,12 @@ class PurchaseReturnLinesTest(unittest.TestCase):
         response=self.client.put(self.base+'/documents/'+note['id'],headers={**self.headers,'Idempotency-Key':uuid.uuid4().hex},json={**self.body(source,note['data']['lines']),'number':note['number'],'data':{**note['data'],'notes':'Header only','version':0}})
         self.assertEqual(response.status_code,200,response.text);self.assertEqual(response.json()['data']['lines'][0]['source_line_id'],note['data']['lines'][0]['source_line_id'])
         self.assertEqual(self.client.get(self.base+'/journals',headers=self.headers).json(),before)
+
+    def test_incomplete_historical_line_values_cannot_free_return_capacity(self):
+        from sqlalchemy.orm import Session
+        import main as m
+        source=self.bill(mixed=False);a=source['data']['lines'][0]
+        note=self.note(source,[{**a,'quantity':1}])
+        with Session(m.engine) as session:
+            record=session.get(m.Record,note['id']);data=dict(record.data);data['lines']=[{k:v for k,v in line.items() if k!='taxable'} for line in data['lines']];record.data=data;session.commit()
+        self.note(source,[{**a,'quantity':1,'rate':200}],409)

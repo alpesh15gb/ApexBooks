@@ -95,8 +95,15 @@ def validate_capacity(m, source, data, previous_notes):
                 if not set(old_indexes) <= set(indexes):
                     raise HTTPException(409, 'An earlier return has ambiguous source-line allocation; review it before returning this line')
                 previous.append(line)
+        def verified_value(line, field):
+            try:
+                value = Decimal(str(line[field]))
+                if not value.is_finite() or value < 0: raise ValueError()
+                return value
+            except (KeyError, ValueError, ArithmeticError):
+                raise HTTPException(409, 'Source or earlier return lacks verified line values; review historical allocation') from None
         for field in ('quantity', 'taxable', 'tax'):
-            used = sum((Decimal(str(line.get(field, 0))) for line in lines + previous), Decimal(0))
-            available = sum((Decimal(str(source.data['lines'][i].get(field, 0))) for i in indexes), Decimal(0))
+            used = sum((verified_value(line, field) for line in lines + previous), Decimal(0))
+            available = sum((verified_value(source.data['lines'][i], field) for i in indexes), Decimal(0))
             if used > available:
                 raise HTTPException(422, f'Returned {field} exceeds the remaining source purchase line')
