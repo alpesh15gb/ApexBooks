@@ -10,6 +10,11 @@ from main import app
 
 class MasterImportReceiptsTest(unittest.TestCase):
     setUp=ManualRecoveryConcurrencyTest.setUp
+    def test_published_contract_exposes_optional_key_and_recovery_route(self):
+        paths=app.openapi()['paths']
+        header=next(p for p in paths['/api/companies/{company_id}/masters/import']['post']['parameters'] if p['name']=='Idempotency-Key')
+        self.assertFalse(header['required']);self.assertEqual(header['schema']['maxLength'],80)
+        self.assertIn('get', paths['/api/companies/{company_id}/masters/import-receipts/{operation_key}'])
     def body(self,name='Receipt party'):
         return {'kind':'party','dry_run':False,'rows':[{'name':name,'party_type':'customer','phone':'00123'}]}
     def post(self,body=None,key='operation',headers=None):

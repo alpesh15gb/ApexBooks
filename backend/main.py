@@ -1472,7 +1472,11 @@ def vyapar_archive(company_id: str, user: User = Depends(current_user), session:
     if not archive: raise HTTPException(404, 'No Vyapar archive imported')
     return Response(json.dumps(archive.data, ensure_ascii=False), media_type='application/json', headers={'Content-Disposition': 'attachment; filename="vyapar-source-archive.json"'})
 
-@app.post('/api/companies/{company_id}/masters/import')
+@app.post('/api/companies/{company_id}/masters/import', openapi_extra={
+    'parameters': [{'name': 'Idempotency-Key', 'in': 'header', 'required': False,
+        'schema': {'type': 'string', 'minLength': 1, 'maxLength': 80, 'pattern': '^[A-Za-z0-9._:-]+$'},
+        'description': 'Optional durable operation key for dry_run=false. Matching actor and payload replay the original receipt; changed actor or payload conflicts. Preview ignores this header. Omitted keys retain legacy name-skip behavior.'}]
+})
 def import_masters(company_id: str, body: MasterImport, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):
     lock_company(company_id, user, session)
     if body.kind not in {'party', 'item'}: raise HTTPException(422, 'Import supports parties and items only')

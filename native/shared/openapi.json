@@ -1377,6 +1377,18 @@
               "type": "string",
               "title": "Company Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "description": "Optional durable operation key for dry_run=false. Matching actor and payload replay the original receipt; changed actor or payload conflicts. Preview ignores this header. Omitted keys retain legacy name-skip behavior."
           }
         ],
         "requestBody": {
@@ -7516,6 +7528,57 @@
             "schema": {
               "type": "integer",
               "title": "Index"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/masters/import-receipts/{operation_key}": {
+      "get": {
+        "summary": "Master Import Receipt",
+        "operationId": "master_import_receipt_api_companies__company_id__masters_import_receipts__operation_key__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "operation_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Operation Key"
             }
           }
         ],

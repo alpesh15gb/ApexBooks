@@ -1,0 +1,12 @@
+  ApexBooks.Printing -> /workspace/scratch/bafc9a4c203a/apexbooks/native/windows/Printing/bin/x64/Debug/net10.0-windows10.0.26100.0/ApexBooks.Printing.dll
+  WindowsBackupStreaming -> /workspace/scratch/bafc9a4c203a/apexbooks/native/shared/WindowsBackupStreaming/bin/x64/Debug/net10.0/WindowsBackupStreaming.dll
+  /usr/bin/sh: 2: /tmp/MSBuildTempeWZuKq/tmpc84dc9304d974768b2024f7b5a3bcbe8.exec.cmd: /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk.winui/2.6.4/buildTransitive/../tools/net6.0/../net472/XamlCompiler.exe: Exec format error
+/tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk.winui/2.6.4/buildTransitive/Microsoft.UI.Xaml.Markup.Compiler.interop.targets(609,9): error : XamlCompiler output file "obj/x64/Debug/net10.0-windows10.0.26100.0/win-x64/output.json" was not created. The XAML compiler may have crashed. [/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/ApexBooks.Windows.csproj]
+
+Build FAILED.
+
+/tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk.winui/2.6.4/buildTransitive/Microsoft.UI.Xaml.Markup.Compiler.interop.targets(609,9): error : XamlCompiler output file "obj/x64/Debug/net10.0-windows10.0.26100.0/win-x64/output.json" was not created. The XAML compiler may have crashed. [/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/ApexBooks.Windows.csproj]
+    0 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:07.00

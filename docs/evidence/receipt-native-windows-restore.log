@@ -1,0 +1,173 @@
+Build started 11/12/2026 23:45:39.
+Project "/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/ApexBooks.Windows.csproj" on node 1 (Restore target(s)).
+_GetAllRestoreProjectPathItems:
+  Determining projects to restore...
+Project "/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/ApexBooks.Windows.csproj" (1) is building "/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/Printing/ApexBooks.Printing.csproj" (2:4) on node 1 (_GenerateProjectRestoreGraph target(s)).
+AddPrunePackageReferences:
+  Loading prune package data from PrunePackageData folder
+  Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+  Looking for targeting packs in /tmp/apex-dotnet-receipts/sdk/packs/Microsoft.NETCore.App.Ref
+  Pack directories found: /tmp/apex-dotnet-receipts/sdk/packs/Microsoft.NETCore.App.Ref/10.0.0
+  Found package overrides file /tmp/apex-dotnet-receipts/sdk/packs/Microsoft.NETCore.App.Ref/10.0.0/data/PackageOverrides.txt
+  Loading prune package data from PrunePackageData folder
+  Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+  Looking for targeting packs in /tmp/apex-dotnet-receipts/sdk/packs/Microsoft.WindowsDesktop.App.Ref
+  Targeting pack folder /tmp/apex-dotnet-receipts/sdk/packs/Microsoft.WindowsDesktop.App.Ref does not exist
+  Failed to load prune package data for WindowsDesktop from targeting packs, loading from framework packages instead
+Done Building Project "/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/Printing/ApexBooks.Printing.csproj" (_GenerateProjectRestoreGraph target(s)).
+Project "/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/ApexBooks.Windows.csproj" (1) is building "/workspace/scratch/bafc9a4c203a/apexbooks/native/shared/WindowsBackupStreaming/WindowsBackupStreaming.csproj" (3:4) on node 1 (_GenerateProjectRestoreGraph target(s)).
+AddPrunePackageReferences:
+  Loading prune package data from PrunePackageData folder
+  Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+  Looking for targeting packs in /tmp/apex-dotnet-receipts/sdk/packs/Microsoft.NETCore.App.Ref
+  Pack directories found: /tmp/apex-dotnet-receipts/sdk/packs/Microsoft.NETCore.App.Ref/10.0.0
+  Found package overrides file /tmp/apex-dotnet-receipts/sdk/packs/Microsoft.NETCore.App.Ref/10.0.0/data/PackageOverrides.txt
+Done Building Project "/workspace/scratch/bafc9a4c203a/apexbooks/native/shared/WindowsBackupStreaming/WindowsBackupStreaming.csproj" (_GenerateProjectRestoreGraph target(s)).
+Project "/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/ApexBooks.Windows.csproj" (1) is building "/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/ApexBooks.Windows.csproj" (1:6) on node 1 (_GenerateProjectRestoreGraph target(s)).
+AddPrunePackageReferences:
+  Loading prune package data from PrunePackageData folder
+  Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+  Looking for targeting packs in /tmp/apex-dotnet-receipts/sdk/packs/Microsoft.NETCore.App.Ref
+  Pack directories found: /tmp/apex-dotnet-receipts/sdk/packs/Microsoft.NETCore.App.Ref/10.0.0
+  Found package overrides file /tmp/apex-dotnet-receipts/sdk/packs/Microsoft.NETCore.App.Ref/10.0.0/data/PackageOverrides.txt
+Done Building Project "/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/ApexBooks.Windows.csproj" (_GenerateProjectRestoreGraph target(s)).
+Restore:
+  X.509 certificate chain validation will use the fallback certificate bundle at '/tmp/apex-dotnet-receipts/sdk/sdk/10.0.100/trustedroots/codesignctl.pem'.
+  X.509 certificate chain validation will use the fallback certificate bundle at '/tmp/apex-dotnet-receipts/sdk/sdk/10.0.100/trustedroots/timestampctl.pem'.
+  Restoring packages for /workspace/scratch/bafc9a4c203a/apexbooks/native/windows/Printing/ApexBooks.Printing.csproj...
+  Restoring packages for /workspace/scratch/bafc9a4c203a/apexbooks/native/windows/ApexBooks.Windows.csproj...
+  Restoring packages for /workspace/scratch/bafc9a4c203a/apexbooks/native/shared/WindowsBackupStreaming/WindowsBackupStreaming.csproj...
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsdesktop.app.ref/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools.winapp/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.net.ref/index.json
+    GET https://api.nuget.org/v3-flatcontainer/communitytoolkit.mvvm/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk/index.json
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsdesktop.app.ref/index.json 5161ms
+    OK https://api.nuget.org/v3-flatcontainer/communitytoolkit.mvvm/index.json 5161ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools/index.json 5176ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools/10.0.28000.2957/microsoft.windows.sdk.buildtools.10.0.28000.2957.nupkg
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsdesktop.app.ref/10.0.0/microsoft.windowsdesktop.app.ref.10.0.0.nupkg
+    GET https://api.nuget.org/v3-flatcontainer/communitytoolkit.mvvm/8.4.2/communitytoolkit.mvvm.8.4.2.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.net.ref/index.json 5202ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools/10.0.28000.2957/microsoft.windows.sdk.buildtools.10.0.28000.2957.nupkg 18ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk/index.json 5205ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk/2.6.4/microsoft.windowsappsdk.2.6.4.nupkg
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.net.ref/10.0.26100.57/microsoft.windows.sdk.net.ref.10.0.26100.57.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools.winapp/index.json 5215ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools.winapp/0.7.1/microsoft.windows.sdk.buildtools.winapp.0.7.1.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsdesktop.app.ref/10.0.0/microsoft.windowsdesktop.app.ref.10.0.0.nupkg 30ms
+    OK https://api.nuget.org/v3-flatcontainer/communitytoolkit.mvvm/8.4.2/communitytoolkit.mvvm.8.4.2.nupkg 40ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk/2.6.4/microsoft.windowsappsdk.2.6.4.nupkg 38ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.net.ref/10.0.26100.57/microsoft.windows.sdk.net.ref.10.0.26100.57.nupkg 53ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools.winapp/0.7.1/microsoft.windows.sdk.buildtools.winapp.0.7.1.nupkg 70ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.base/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.interactiveexperiences/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.ai/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.winui/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.widgets/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.runtime/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.foundation/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.dwrite/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.ml/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.search/index.json
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.base/index.json 47ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.base/2.6.4/microsoft.windowsappsdk.base.2.6.4.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.winui/index.json 37ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.winui/2.6.4/microsoft.windowsappsdk.winui.2.6.4.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.runtime/index.json 61ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.interactiveexperiences/index.json 62ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.ai/index.json 62ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.ai/2.6.4/microsoft.windowsappsdk.ai.2.6.4.nupkg
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.interactiveexperiences/2.6.4/microsoft.windowsappsdk.interactiveexperiences.2.6.4.nupkg
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.runtime/2.6.4/microsoft.windowsappsdk.runtime.2.6.4.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.dwrite/index.json 77ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.foundation/index.json 77ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.dwrite/2.6.4/microsoft.windowsappsdk.dwrite.2.6.4.nupkg
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.foundation/2.6.4/microsoft.windowsappsdk.foundation.2.6.4.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.ml/index.json 95ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.search/index.json 97ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.ml/2.6.4/microsoft.windowsappsdk.ml.2.6.4.nupkg
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.search/2.6.4/microsoft.windowsappsdk.search.2.6.4.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.widgets/index.json 103ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.base/2.6.4/microsoft.windowsappsdk.base.2.6.4.nupkg 69ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.widgets/2.6.4/microsoft.windowsappsdk.widgets.2.6.4.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.winui/2.6.4/microsoft.windowsappsdk.winui.2.6.4.nupkg 73ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.interactiveexperiences/2.6.4/microsoft.windowsappsdk.interactiveexperiences.2.6.4.nupkg 65ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.runtime/2.6.4/microsoft.windowsappsdk.runtime.2.6.4.nupkg 76ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.ai/2.6.4/microsoft.windowsappsdk.ai.2.6.4.nupkg 98ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.dwrite/2.6.4/microsoft.windowsappsdk.dwrite.2.6.4.nupkg 183ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.foundation/2.6.4/microsoft.windowsappsdk.foundation.2.6.4.nupkg 919ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.ml/2.6.4/microsoft.windowsappsdk.ml.2.6.4.nupkg 1484ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.search/2.6.4/microsoft.windowsappsdk.search.2.6.4.nupkg 1524ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.widgets/2.6.4/microsoft.windowsappsdk.widgets.2.6.4.nupkg 1956ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools.msix/index.json
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools.msix/index.json 41ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools.msix/1.7.251221100/microsoft.windows.sdk.buildtools.msix.1.7.251221100.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools.msix/1.7.251221100/microsoft.windows.sdk.buildtools.msix.1.7.251221100.nupkg 30ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/index.json
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windows.ai.machinelearning/index.json
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/index.json 22ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.3719.77/microsoft.web.webview2.1.0.3719.77.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.3719.77/microsoft.web.webview2.1.0.3719.77.nupkg 21ms
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windows.ai.machinelearning/index.json 261ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.windows.ai.machinelearning/2.4.89/microsoft.windows.ai.machinelearning.2.4.89.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.windows.ai.machinelearning/2.4.89/microsoft.windows.ai.machinelearning.2.4.89.nupkg 20ms
+    GET https://api.nuget.org/v3-flatcontainer/system.numerics.tensors/index.json
+    OK https://api.nuget.org/v3-flatcontainer/system.numerics.tensors/index.json 15ms
+    GET https://api.nuget.org/v3-flatcontainer/system.numerics.tensors/9.0.0/system.numerics.tensors.9.0.0.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/system.numerics.tensors/9.0.0/system.numerics.tensors.9.0.0.nupkg 17ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.netcore.app.host.win-x64/index.json
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.netcore.app.host.win-x64/index.json 13ms
+    GET https://api.nuget.org/v3-flatcontainer/microsoft.netcore.app.host.win-x64/10.0.0/microsoft.netcore.app.host.win-x64.10.0.0.nupkg
+    OK https://api.nuget.org/v3-flatcontainer/microsoft.netcore.app.host.win-x64/10.0.0/microsoft.netcore.app.host.win-x64.10.0.0.nupkg 25ms
+  Installed Microsoft.WindowsAppSDK.Base 2.6.4 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk.base/2.6.4 with content hash h9N9+RfWYMYtf0OB7zAIMo/bJhSv3Ea4YhO+y7j6V3TDVldx9hSNj/LkrbfMT9M9o3FojXIowRSb8ArYlNeKvA==.
+  Installed Microsoft.WindowsAppSDK 2.6.4 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk/2.6.4 with content hash Q8DtDcFEvcOslXBly4kH44EBSbiUsNAzjkTaVioerP3tTjMktMY0DC5Z0a7/KzwDXKYzJ8ao0RLF07KbKigUiw==.
+  Installed System.Numerics.Tensors 9.0.0 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/system.numerics.tensors/9.0.0 with content hash hyJB4UlpAi19Xr9AXzu2NuagKC4lPfHObNMEAA0HmqFz2rX7wKgzeYzO/jM/eBHDhnUGFFEjk5cOoJaxqg5J4A==.
+  Installed Microsoft.Windows.SDK.BuildTools.MSIX 1.7.251221100 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windows.sdk.buildtools.msix/1.7.251221100 with content hash f4aIZJ0NUth2403oxrpR+9rxVzZVI6dabqB21u8ncnk8eJAKCs9m77E4iYAnvP1YwrRe4axz3f8+yUcttNSfEA==.
+  Installed Microsoft.WindowsAppSDK.Foundation 2.6.4 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk.foundation/2.6.4 with content hash WHioxawiHrIF0QIWsSIq6WpgZ7pR46peJC8ru99NSrtqx3puhsz8UH71sRdLyQ6DMN7D1t38LnHJ6g1f7aKAfw==.
+  Installed Microsoft.WindowsAppSDK.Widgets 2.6.4 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk.widgets/2.6.4 with content hash 82j92RQ0pfUzAfxXPiuU6t3q6n6ywRx6m8TChGzfmm2C1pal+Ni1O9mLQPx8Ofc0BT/7RCxIJ8fJ4UVRpAFTlg==.
+  Installed Microsoft.NETCore.App.Host.win-x64 10.0.0 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.netcore.app.host.win-x64/10.0.0 with content hash 2MyYWwXpUGzhZyuSStFMC8wDN8lP4p6iZAjRza6HmtICqfRijgoQRfafJUsQdOaR9xMWfXmeauPyQ9DV2kaCkg==.
+  Installed Microsoft.WindowsAppSDK.ML 2.6.4 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk.ml/2.6.4 with content hash 2Z6SFua1dnPNlYHRERIDBjF8Y/ToMTPeRA8pZYNLQTZ8BHK9Ok9+mPnR7bSDqbpAIc46XbmxHTy+ZhmLHFOUug==.
+  Installed Microsoft.WindowsAppSDK.Search 2.6.4 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk.search/2.6.4 with content hash HebiZBrawtoZWpdJ9/kM1AvqE+xlyy1n5epLjBjgpEll6Tsh12zBnh7w9PWbsUwaT9dXBxDCbNi8azHpb7b1tQ==.
+  Installed Microsoft.WindowsDesktop.App.Ref 10.0.0 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsdesktop.app.ref/10.0.0 with content hash engYxDtyCTbKzIBoaG93sBvzJFHSkiuuzm9JnLlT5c2b+Wz8qMSpSAFK5GmiajuKkfkuY+pS0Wq5hR10xX9iKA==.
+    CACHE https://api.nuget.org/v3/vulnerabilities/index.json
+    CACHE https://api.nuget.org/v3-vulnerabilities/2026.11.11.06.01.49/vulnerability.base.json
+  Installed Microsoft.WindowsAppSDK.AI 2.6.4 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk.ai/2.6.4 with content hash 6u7kDP6ykTnLWmpsSsRvkQr9RvTql1bEjdqBEWXKAPq95b8VBgUjBtnMXdJaNn3uP655kWy2Wo78Yi5L5RaiKQ==.
+    CACHE https://api.nuget.org/v3-vulnerabilities/2026.11.11.06.01.49/2026.11.12.11.22.45/vulnerability.update.json
+  Installed Microsoft.Windows.SDK.NET.Ref 10.0.26100.57 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windows.sdk.net.ref/10.0.26100.57 with content hash fblsw58XVRk9MATXP6E+l0bXEPoUOG8F0kvdhYD+QxnLM1ztkDiFBwB8Ci0qLAUnxurKQS1udjZ6U4/PyZP+Tw==.
+  Installed Microsoft.WindowsAppSDK.DWrite 2.6.4 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk.dwrite/2.6.4 with content hash j2XW/DHmG27Rp5sI7xZ1NOHupaC7QBqE6X+6aa+XWpzPD+HXmkrWz1SP3EK/cW4CIhAnoy/C5JJzhSurtxBoCA==.
+  Generating MSBuild file /workspace/scratch/bafc9a4c203a/apexbooks/native/windows/Printing/obj/ApexBooks.Printing.csproj.nuget.g.props.
+  Generating MSBuild file /workspace/scratch/bafc9a4c203a/apexbooks/native/windows/Printing/obj/ApexBooks.Printing.csproj.nuget.g.targets.
+  Writing assets file to disk. Path: /workspace/scratch/bafc9a4c203a/apexbooks/native/windows/Printing/obj/project.assets.json
+  Restored /workspace/scratch/bafc9a4c203a/apexbooks/native/windows/Printing/ApexBooks.Printing.csproj (in 22.12 sec).
+  Writing assets file to disk. Path: /workspace/scratch/bafc9a4c203a/apexbooks/native/shared/WindowsBackupStreaming/obj/project.assets.json
+  Restored /workspace/scratch/bafc9a4c203a/apexbooks/native/shared/WindowsBackupStreaming/WindowsBackupStreaming.csproj (in 22.14 sec).
+  Installed Microsoft.Windows.SDK.BuildTools 10.0.28000.2957 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windows.sdk.buildtools/10.0.28000.2957 with content hash nTsRheC9AO+if3BykWkRJ4QXkIMfkqufnBFPIcSEOj7rnX60fqiGrORnxzVFnIXJvsMIjlDOvs/K5EzMLA2RKQ==.
+  Installed Microsoft.Web.WebView2 1.0.3719.77 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.web.webview2/1.0.3719.77 with content hash t+ucyKw5NTwMjsUrDF6R9Lk40lpcKQD1/HgyGFxl49tdA4h9dKlsj6FYGEmDRpFNfnTpENuTypMcdbrlkqBdDA==.
+  Installed Microsoft.WindowsAppSDK.InteractiveExperiences 2.6.4 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk.interactiveexperiences/2.6.4 with content hash pKTwHkItGBk6CY1QnByqUoEGaKGyZApzjGzwngZ7oe0rdLTq/viH9vd8g0PXJH1iNPDddwsTyVV91PE319LA7A==.
+  Installed Microsoft.Windows.SDK.BuildTools.WinApp 0.7.1 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windows.sdk.buildtools.winapp/0.7.1 with content hash oCUTw4+psOgBzT1C52VxIDdtZWX/MqynGWIOAI2U5LsSVo+AUQpggGkvddFBlN+aCUjS/iiBanJLvjm7Vt45xg==.
+  Installed Microsoft.Windows.AI.MachineLearning 2.4.89 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windows.ai.machinelearning/2.4.89 with content hash uc+Lej0vmZJprvHEuNJs7xMegoParROM9pZ2a7uMeXQiELva42V1wAUoYHCsw/u5ho/nwkYasiSFWZ95ABot3A==.
+  Installed Microsoft.WindowsAppSDK.WinUI 2.6.4 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk.winui/2.6.4 with content hash AyQN+i9GEhwIt9YZA/fQXGZOLluKBfqtfwGCU8t9mbWtyABivaVsKZ7oZLxm1cGxhdlOhnUhZRfBO/1BV4+MUA==.
+  Installed Microsoft.WindowsAppSDK.Runtime 2.6.4 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/microsoft.windowsappsdk.runtime/2.6.4 with content hash QArtzzUL7r2QpgyvDCWDBcXyv/RJxL+jQR42pJiseqnrLbHoq6izvTzqqmTkPrdXZD/FlR7x4uKzLeNeLxD7DQ==.
+  Installed CommunityToolkit.Mvvm 8.4.2 from https://api.nuget.org/v3/index.json to /tmp/apex-dotnet-receipts/home/.nuget/packages/communitytoolkit.mvvm/8.4.2 with content hash WadCzGEc2U+3e20avRLng4qNtt4zoOGWrdUISqJWrHe3/FSnrYjuM5Sb4yQb09LhkBXrrI4Zt3dLKgRMbItsrg==.
+  Generating MSBuild file /workspace/scratch/bafc9a4c203a/apexbooks/native/windows/obj/ApexBooks.Windows.csproj.nuget.g.props.
+  Generating MSBuild file /workspace/scratch/bafc9a4c203a/apexbooks/native/windows/obj/ApexBooks.Windows.csproj.nuget.g.targets.
+  Writing assets file to disk. Path: /workspace/scratch/bafc9a4c203a/apexbooks/native/windows/obj/project.assets.json
+  Restored /workspace/scratch/bafc9a4c203a/apexbooks/native/windows/ApexBooks.Windows.csproj (in 26.87 sec).
+  
+  NuGet Config files used:
+      /tmp/apex-dotnet-receipts/home/.nuget/NuGet/NuGet.Config
+  
+  Feeds used:
+      https://api.nuget.org/v3/index.json
+  
+  Installed:
+      18 package(s) to /workspace/scratch/bafc9a4c203a/apexbooks/native/windows/ApexBooks.Windows.csproj
+Done Building Project "/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/ApexBooks.Windows.csproj" (Restore target(s)).
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:27.99

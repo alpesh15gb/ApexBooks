@@ -175,3 +175,36 @@ boundaries; the existing portable suite passed with 145 PASS lines. Android help
 and actual-callback fixtures also passed after the shared edge hardening. No real
 WinUI picker, physical-device restart or full native build is certified by these
 portable tests. SDK path in this workspace: /tmp/apex-dotnet-receipts/sdk/dotnet.
+
+
+## Contract and exact-revision build readiness (2026-11-12)
+
+Native product sources tested: 2924d186e5cfe7be0d7b23fa18163d358af2024d.
+This follow-up changes API documentation, the checked-in native contract and CI
+wiring, without changing native runtime sources or import execution logic.
+The contract now includes the optional Idempotency-Key header and recovery GET.
+Eight receipt API tests pass, including the OpenAPI contract regression. Static
+route checking matches all 257 native route literals against 122 contract paths;
+this does not prove request payload or runtime compatibility. Workflow YAML parses.
+
+The existing CI workflow now invokes both Android receipt checks and both Windows
+receipt checks. These commands previously passed locally and independent review;
+adding them to YAML does not mean hosted CI has run on this unpublished revision.
+
+Official .NET 10.0.100 restored all pinned Windows dependencies in locked mode
+with sequential traversal (0 warnings, 0 errors). Printing and backup-streaming
+projects compiled. Full WinUI build then failed at XamlCompiler.exe with Exec
+format error on Linux. A Windows runner is still required to compile the entire
+application; portable helper tests do not replace that build.
+
+Android online and offline attempts could not resolve the declared AGP 8.13.1
+from the configured repositories here. No version or lockfile was changed to
+bypass this. Full unit/lint/assemble and emulator/device acceptance remain open.
+Build logs are retained in docs/evidence/receipt-native-*.log.
+
+Next gate after scoped publication approval: run the existing check workflow on
+its exact published SHA, retain full Windows and Android artifacts/results, then
+perform WinUI/Compose UI acceptance for import preview, unknown commit, restart
+GET-only recovery, changed-file rejection and access changes. Use synthetic data
+and fake external launchers; do not deploy. Browser restart recovery and real
+file-picker/device interactions remain distinct from compiled synthetic checks.
