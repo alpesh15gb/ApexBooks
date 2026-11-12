@@ -107,6 +107,7 @@ class ReturnTaxResidualTest(unittest.TestCase):
     def test_inclusive_tracked_returns_clear_inventory_and_tax_without_weakening_caps(self):
         for treatment in ('pending_review','ineligible'):
             self.source([treatment])
+            before={r['code']:D(r['closing_balance']) for r in self.client.get(self.base+'/reports/financial?from_date=2026-11-01&to_date=2026-11-30',headers=self.headers).json()['accounts']}
             item=self.post('/records',{'kind':'item','name':'Tiny tracked goods','data':{'track_stock':True}}).json()
             response=self.post('/records',{'kind':'purchase_bill','name':'Supplier','date':'2026-11-01','data':{'place_of_supply':'27','lines':[{'item_id':item['id'],'description':item['name'],'quantity':3,'rate':'.03','gst_rate':18,'itc_treatment':treatment,'price_includes_tax':True}]}})
             self.assertEqual(response.status_code,200,response.text);source=response.json()
@@ -118,6 +119,6 @@ class ReturnTaxResidualTest(unittest.TestCase):
                 self.assertEqual(response.status_code,200,response.text);self.assertEqual(preview.json()['amount'],response.json()['amount']);self.assertEqual(D(response.json()['amount']),D('.03'))
             report=self.client.get(self.base+'/reports/financial?from_date=2026-11-01&to_date=2026-11-30',headers=self.headers).json()
             for row in report['accounts']:
-                if row['code'] in {'SYS-AP','SYS-PURCHASE','SYS-INVENTORY','SYS-IN-CGST','SYS-IN-SGST'}:self.assertEqual(D(row['closing_balance']),0,row['code'])
+                if row['code'] in {'SYS-AP','SYS-PURCHASE','SYS-INVENTORY','SYS-IN-CGST','SYS-IN-SGST'}:self.assertEqual(D(row['closing_balance']),before.get(row['code'],D(0)),row['code'])
             stock=self.client.get(self.base+'/reports/stock?from_date=2026-11-01&to_date=2026-11-30',headers=self.headers).json()['rows'][0]
             self.assertEqual(D(stock['closing_quantity']),0);self.assertEqual(D(stock['closing_value']),0)
