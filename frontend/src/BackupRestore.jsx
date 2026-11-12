@@ -36,7 +36,8 @@ export default function BackupRestore({ companyId, role, onRestored }) {
     [name, setName] = useState(""),
     [preview, setPreview] = useState(null),
     [encoded, setEncoded] = useState(""),
-    [success, setSuccess] = useState("");
+    [success, setSuccess] = useState(""),
+    [restored, setRestored] = useState(null);
   const processing = useRef(false);
   const previewOwnership = useRef(null);
   const exportScope = useRef(createRequestScope(`${companyId}:${role}`));
@@ -229,15 +230,31 @@ export default function BackupRestore({ companyId, role, onRestored }) {
       if (!current()) return;
       verifyOwnership();
       const result = confirmed.value;
+      setRestored({id: result.company_id, companyId, token});
       setSuccess("Backup restored into a separate company.");
       setPreview(null);
-      await onRestored?.(result.company_id);
+      try { await onRestored?.(result.company_id); }
+      catch (failure) { throw Error(`Restore completed, but opening the company failed: ${failure.message}. Use Open restored company; do not restore again.`); }
     } catch (e) {
       if (current() && localStorage.token === token) { try { verifyOwnership(); setError(e.message); } catch { /* Ignore obsolete restore errors. */ } }
     } finally {
       processing.current = false;
       setBusy(false);
     }
+  }
+  async function openRestored() {
+    if (role !== "owner" || processing.current || posting.pending || !restored || restored.companyId !== companyId || restored.token !== localStorage.token) return;
+    const current = exportScope.current.capture();
+    const token = localStorage.token;
+    let verify = () => {};
+    processing.current = true; setBusy(true); setError("");
+    try {
+      const session = captureSession(), access = captureCompanyAccess(`/api/companies/${companyId}`);
+      verify = () => { session(); access?.verify(); };
+      verify(); await onRestored?.(restored.id);
+    } catch (failure) {
+      if (current() && localStorage.token === token) { try { verify(); setError(`The company was already restored. Opening it failed: ${failure.message}`); } catch { /* Obsolete opening attempt. */ } }
+    } finally { processing.current = false; setBusy(false); }
   }
   return (
     <section className="member-settings">
@@ -316,6 +333,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
           </button>
         </div>
       )}
+      {restored?.companyId === companyId && restored.token === localStorage.token && <button className="button primary" disabled={locked} onClick={openRestored}>Open restored company</button>}
       {busy && <p role="status">Processing backup…</p>}
       {posting.pending && !busy && <p role="status" className="info-box">{pendingPostingMessage}</p>}
       {error && (

@@ -754,3 +754,16 @@ refresh-error feedback and double-click-safe reopen with no additional commit.
 Lint, frontend production build and bundle budgets pass. Synthetic staged transfer
 only; real encrypted ZIP, interruption/device and browser-picker acceptance remain
 separate. No production, publication retry or deployment.
+
+### Legacy confirmed-result reopen parity (2026-11-12)
+
+The same confirmed-write/navigation-failure gap also reproduced in legacy restore.
+It now retains the confirmed company result, shows an explicit already-restored
+failure message and offers Open restored company. The action is owner-, company-
+and session-scoped, single-flight, and calls only the guarded parent navigation
+callback. It never repeats commit. Retained identity is memory-only.
+
+Validation: 45 focused legacy backup tests pass, including the new red-to-green
+confirmed commit / failed navigation / double-click reopen case. Lint, frontend
+build and bundle budgets pass. Synthetic callbacks/files only; no actual restore,
+production access, upload retry or deployment.
