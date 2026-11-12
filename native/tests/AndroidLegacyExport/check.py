@@ -5,7 +5,7 @@ root=Path(__file__).resolve().parents[3];sys.path.insert(0,str(root/'native/test
 from kotlin_toolchain import add_arguments,run_proof
 p=argparse.ArgumentParser();add_arguments(p);args=p.parse_args()
 s=(root/'native/android/app/src/main/java/com/apexbooks/accounting/ToolsScreen.kt').read_text()
-method=s[s.index('private suspend fun legacyFileExport('):s.index('@Composable private fun BasicTool')]
+method=s[s.index('private suspend fun legacyFileExport('):s.index('private suspend fun generateScopedRecoveryCodes(')]
 assert 'if(legacyFileExport(vm,cid,tool,JSONObject(v.toMap())))close();return@ActionDialog' in s
 fixture=r'''
 import kotlinx.coroutines.*

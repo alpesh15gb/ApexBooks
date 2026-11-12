@@ -29,8 +29,16 @@ private suspend fun legacyFileExport(vm:AppModel,cid:String,tool:String,values:J
     }catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;if(current())throw e;return false}
 }
 
+private suspend fun generateScopedRecoveryCodes(vm:AppModel,password:String,current:()->Boolean):Boolean {
+    if(!current())return false
+    try{val result=vm.api.request("/api/auth/recovery-codes","POST",JSONObject().put("current_password",password))as JSONObject;if(!current())return false;vm.toolData=result;vm.tool="recovery_saved";return true}
+    catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;if(current())throw e;return false}
+}
+private fun saveScopedRecoveryCodes(vm:AppModel,codes:String,current:()->Boolean){if(current())vm.files.save(("Apex Books recovery codes\n"+codes).toByteArray(),"apex-recovery-codes.txt")}
+
 @Composable private fun BasicTool(vm:AppModel){
     val tool=vm.tool;val cid=vm.companyId;val original=vm.toolData;val data=original?.o("data")?:JSONObject()
+    val readOwner=remember(cid,tool,original){vm.captureReadOwner(tool,original)}
     val protectedWrite=tool in setOf("transfer","stock_opening","stock_adjust","openings","settle_credit","settle_advance")
     val scope=tool+":"+(original?.s("id")?:"")+":"+(original?.s("source")?:"")
     val draft=remember(cid,scope){vm.toolDraft(scope)}
@@ -63,7 +71,7 @@ fun root(suffix:String)=vm.api.company(cid,suffix)
             "reverse_journal"->vm.api.request(root("/journals/${original?.s("id")}/reverse"),"POST",JSONObject().put("date",value("date")).put("reference",value("reference")).put("reason",value("reason")))
             "settle_credit","settle_advance"->{val source=sources.find{it.s("id")==value("source")}?:throw Exception("Choose an available balance.");val values=JSONObject().put("action",value("action")).put("applied_to",value("target")).put("payment_account",value("method")).put("bank_account_id",value("bank_account_id"));val endpoint=if(tool=="settle_credit")"/credits/${source.s("id")}/settle"else"/advances/${source.s("id")}/${value("action")}";vm.api.request(root(endpoint),"POST",JSONObject().put("kind","advance_application").put("name",source.s("name")).put("date",value("date")).put("amount",value("amount")).put("data",values),retry)}
             "security"->{vm.api.request("/api/auth/change-password","POST",JSONObject().put("current_password",value("current_password")).put("new_password",value("new_password")));vm.endLocalSession();return@ActionDialog}
-            "recovery"->{val result=vm.api.request("/api/auth/recovery-codes","POST",JSONObject().put("current_password",value("current_password")))as JSONObject;vm.toolData=result;vm.tool="recovery_saved";return@ActionDialog}
+            "recovery"->{generateScopedRecoveryCodes(vm,value("current_password"),readOwner);return@ActionDialog}
         }
         } catch(e:Exception){if(protectedWrite){submission.failed(e);unresolved=submission.unresolved};throw e}
         submission.succeeded();unresolved=false
@@ -83,7 +91,7 @@ fun root(suffix:String)=vm.api.company(cid,suffix)
             "settle_credit","settle_advance"->{if(sources.isEmpty())Text("No available balance.")else{Choice("Available balance",value("source"),sources.map{it.s("id") to "${it.s("number")} · ${it.s("name")} · ${money(it.s(if(tool=="settle_credit")"credit_remaining"else"advance_remaining"))}"},{v["source"]=it;v["target"]="";v["amount"]=""});Choice("Action",value("action"),listOf("apply" to "Apply to invoice / bill","refund" to "Refund"),{v["action"]=it});val source=sources.find{it.s("id")==value("source")};if(value("action")=="apply"){val customer=source?.s("kind")in setOf("payment_in","credit_note");Choice("Invoice / bill",value("target"),listOf("" to "Choose document")+vm.records.filter{it.optBoolean("posted")&&it.s("kind")==if(customer)"sales_invoice"else"purchase_bill"}.filter{it.s("name").trim().equals(source?.s("name")?.trim(),true)&&it.decimal("outstanding")>BigDecimal.ZERO}.map{it.s("id") to "${it.s("number")} · ${money(it.s("outstanding"))} due"},{v["target"]=it})}else{Choice("Refund through",value("method"),listOf("cash" to "Cash","bank" to "Bank / UPI / card"),{v["method"]=it});if(value("method")=="bank")Choice("Bank",value("bank_account_id"),bankChoices(),{v["bank_account_id"]=it})};DateField("Date",value("date"),{v["date"]=it});ToolInput(v,"amount","Amount (₹)",number=true)}}
             "security"->{Text("Changing the password ends all sign-in sessions.");ToolInput(v,"current_password","Current password",password=true,maximum=128);ToolInput(v,"new_password","New password · 8–128 characters",password=true,maximum=128);OutlinedButton(onClick={vm.task{val result=vm.api.request("/api/auth/logout-other-sessions","POST")as JSONObject;vm.notice="${result.s("revoked")} other sessions signed out."}}){Text("Sign out other devices")}}
             "recovery"->{Text("Generating codes replaces previous unused codes. Store the new codes outside this device. Each works once.");ToolInput(v,"current_password","Current password",password=true,maximum=128)}
-            "recovery_saved"->{val codes=(0 until (original?.a("codes")?.length()?:0)).joinToString("\n"){original!!.a("codes").getString(it)};Text(codes);OutlinedButton(onClick={vm.files.save(("Apex Books recovery codes\n"+codes).toByteArray(),"apex-recovery-codes.txt")}){Text("Save recovery codes")}}
+            "recovery_saved"->{val codes=(0 until (original?.a("codes")?.length()?:0)).joinToString("\n"){original!!.a("codes").getString(it)};if(readOwner()){Text(codes);OutlinedButton(onClick={saveScopedRecoveryCodes(vm,codes,readOwner)}){Text("Save recovery codes")}}else Text("Access changed. Close this view and reopen account recovery after signing in.")}
             "backup"->{Text("Keep your backup and password securely. The password cannot be recovered.");ToolInput(v,"password","Optional password · at least 12 characters",password=true,maximum=128)}
             "data_export"->{Choice("Data",value("export_kind"),listOf("all" to "Full company JSON","party" to "Parties","item" to "Items","reconciliation" to "Vyapar reconciliation","archive" to "Vyapar source archive"),{v["export_kind"]=it});if(value("export_kind")in setOf("party","item"))Choice("Format",value("format"),listOf("xlsx" to "XLSX","csv" to "CSV","pdf" to "PDF"),{v["format"]=it})}
             "audit"->ReportContent(report)

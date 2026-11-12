@@ -111,6 +111,7 @@ jobs:
           python3 native/tests/AndroidResponseSession/check.py
           python3 native/tests/AndroidSaveOwnership/check.py
           python3 native/tests/AndroidLegacyExport/check.py
+          python3 native/tests/AndroidRetainedRead/check.py
           python3 native/tests/AndroidSourceSelection/check.py
       - name: Verify restored-company navigation survives dialog disposal
         run: python3 native/tests/AndroidLifecycle/check.py
@@ -145,6 +146,7 @@ jobs:
       - run: python native/tests/WindowsExportContext/check.py
       - run: python native/tests/WindowsPdfOwnership/check.py
       - run: python native/tests/WindowsPdfOwnership/external.py
+      - run: python native/tests/WindowsRetainedRead/check.py
       - name: Verify streaming encrypted backups with a 64 MiB managed heap
         shell: pwsh
         run: |

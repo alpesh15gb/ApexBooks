@@ -215,3 +215,29 @@ full application compilation, OS picker/print/share behavior, accessibility or
 physical-device acceptance. Retained attachment and recovery-code views remain
 separate review items. Final native CI on the exact commit remains required;
 no workflow dispatch, publication or production action occurred.
+
+
+## Retained receipts and recovery-code follow-up
+
+Android attachment reads and recovery-code generation/save now retain the original
+session, company, read epoch and tool identity. Late success or failure cannot
+publish into a replacement context. Receipt checksum verification precedes saving;
+NativeFiles retains its separate final-picker guard. Hidden stale attachment views
+can close without discarding an uncertain draft, so reopening after access recovery
+can retry its original operation. Stale attachment read errors are suppressed.
+
+Windows receipt reads/downloads and recovery-code generation/save retain the
+original export access guard. Access invalidation clears receipt rows and displayed
+recovery codes. Closing the code view invalidates retained Save callbacks. Receipt
+list loads suppress obsolete failures and cannot open a stale dialog. Pending
+receipt write recovery is retained; this batch does not redesign write idempotency.
+
+Verification: AndroidRetainedRead compiles actual owner/read/save methods and passes
+26 synthetic delayed-response, context, checksum and retained-save scenarios.
+WindowsRetainedRead compiles actual recovery-view and receipt-download callback
+bodies and passes 11 synthetic current/stale/error/closed-view scenarios. Both are
+included in CI. These harnesses replace UI, transport and file actions; they do not
+compile the full Compose/WinUI application or test real pickers, shares or devices.
+Recovery generation may have succeeded server-side before context changes; suppressed
+results must never be treated as proof that the server operation was cancelled.
+No production, real recovery codes, publication or external launch was used.

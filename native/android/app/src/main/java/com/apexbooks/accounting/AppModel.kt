@@ -82,6 +82,10 @@ class AppModel(application:Application):AndroidViewModel(application) {
     private var readEpoch=0
     fun readStamp()=(generation.toLong() shl 32) or readEpoch.toLong()
     fun canRead(id:String,stamp:Long)=signedIn&&recordsReady&&companyId==id&&readStamp()==stamp
+    fun captureReadOwner(expectedTool:String,expectedData:JSONObject?):()->Boolean {
+        val session=api.captureSession();val id=companyId;val stamp=readStamp()
+        return {runCatching{session();canRead(id,stamp)&&tool==expectedTool&&toolData===expectedData}.getOrDefault(false)}
+    }
     fun workspaceStamp()=generation
     fun inWorkspace(id:String,stamp:Int)=signedIn&&companyId==id&&generation==stamp
     /** Keeps a party or item created from inside an editor (quick-add) selectable until the next refresh. */

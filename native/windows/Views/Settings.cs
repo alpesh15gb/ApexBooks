@@ -153,9 +153,16 @@ public sealed partial class MainPage
     }
     private async Task RecoveryCodes()
     {
-        var password=new PasswordBox{Header="Current password"};var panel=Stack();panel.Children.Add(Text("Generating codes replaces any previous unused codes. Store them outside this device. Each code works once."));panel.Children.Add(password);JsonNode? result=null;
-        if(await Dialog("Generate recovery codes",panel,async()=>{result=await Api.Send("/api/auth/recovery-codes",HttpMethod.Post,new JsonObject{["current_password"]=password.Password});},"Generate new codes"))
-        {var codes=string.Join(Environment.NewLine,result?["codes"].Array().Select(r=>r.Text())??Array.Empty<string>());var view=Stack();view.Children.Add(new TextBox{Text=codes,IsReadOnly=true,AcceptsReturn=true,FontFamily=new Microsoft.UI.Xaml.Media.FontFamily("Consolas")});view.Children.Add(AsyncButton("Save recovery codes",async()=>{await ApexFiles.Save(Encoding.UTF8.GetBytes("Apex Books recovery codes\n"+codes),"apex-recovery-codes.txt");},Error));await Dialog("Save your one-use recovery codes",view,()=>Task.CompletedTask,"Done");}
+        var exportAccess=CaptureFileSaveAccess();var password=new PasswordBox{Header="Current password"};var panel=Stack();panel.Children.Add(Text("Generating codes replaces any previous unused codes. Store them outside this device. Each code works once."));panel.Children.Add(password);JsonNode? result=null;
+        if(await Dialog("Generate recovery codes",panel,async()=>{await ScopedFileExport.Run(exportAccess,async()=>{result=await Api.Send("/api/auth/recovery-codes",HttpMethod.Post,new JsonObject{["current_password"]=password.Password});exportAccess();return true;});},"Generate new codes")&&ScopedFileExport.Current(exportAccess)&&result is not null)
+        {
+            var codes=string.Join(Environment.NewLine,result?["codes"].Array().Select(r=>r.Text())??Array.Empty<string>());var view=Stack();var output=new TextBox{Text=codes,IsReadOnly=true,AcceptsReturn=true,FontFamily=new Microsoft.UI.Xaml.Media.FontFamily("Consolas")};view.Children.Add(output);bool closed=false;
+            void Verify(){exportAccess();if(closed)throw new InvalidOperationException("This recovery-code view is closed.");}
+            view.Children.Add(AsyncButton("Save recovery codes",async()=>{await ScopedFileExport.Run(Verify,()=>ApexFiles.Save(Encoding.UTF8.GetBytes("Apex Books recovery codes\n"+codes),"apex-recovery-codes.txt",Verify));},Error));
+            void Invalidate(){codes="";output.Text="";view.Children.Clear();view.Children.Add(Text("Access changed. Close this view and reopen account recovery after signing in."));}
+            ReadAccessInvalidated+=Invalidate;
+            try{await Dialog("Save your one-use recovery codes",view,()=>Task.CompletedTask,"Done");}finally{closed=true;codes="";output.Text="";ReadAccessInvalidated-=Invalidate;}
+        }
     }
     private async Task AuditHistory()
     {var panel=Stack();panel.MinWidth=850;Table(panel,(await Api.Send(PathFor("/audit-events"))).Array(),"Latest audit events");await Dialog("Audit history",panel,()=>Task.CompletedTask,"Done");}
