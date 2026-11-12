@@ -1,0 +1,19 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm,readFile} from 'node:fs/promises';import {resolve} from 'node:path';import {pathToFileURL} from 'node:url';import {build} from 'esbuild';import {JSDOM} from 'jsdom';import React,{act} from 'react';
+const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});Object.assign(globalThis,{window:dom.window,document:dom.window.document,localStorage:dom.window.localStorage,IS_REACT_ACT_ENVIRONMENT:true});
+const {createRoot}=await import('react-dom/client');const temp=await mkdtemp(resolve('node_modules/.audit-ui-'));await build({entryPoints:['src/AuditLog.jsx'],outfile:resolve(temp,'audit.mjs'),bundle:true,format:'esm',platform:'node',jsx:'automatic',external:['react']});const Audit=(await import(pathToFileURL(resolve(temp,'audit.mjs')))).default;
+const row=(id='allocation')=>({id,occurred_at:'2026-04-01T10:00:00Z',action:'bank_statement.allocated',actor:'owner@example.invalid',entity_type:'bank_match_allocation',entity_id:id,details:{}});
+const response=data=>({ok:true,status:200,json:async()=>data});
+test('audit presents readable labels and retains exact technical identifiers and references',async()=>{
+ globalThis.fetch=async()=>response([row(),{...row('invoice'),details:{number:'INV_A-01'}},{...row('new'),entity_type:'future_event_type',action:'new_action.completed'}]);const root=createRoot(document.getElementById('root'));await act(async()=>root.render(React.createElement(Audit,{companyId:'a',role:'owner'})));
+ const cells=document.querySelectorAll('tbody tr');assert.match(cells[0].cells[1].textContent,/Bank statement · allocated/);assert.equal(cells[0].cells[3].firstChild.textContent,'Bank statement allocation');assert.equal(cells[0].querySelectorAll('code')[1].textContent,'bank_match_allocation');assert.equal(cells[1].cells[3].firstChild.textContent,'INV_A-01');assert.equal(cells[2].cells[3].firstChild.textContent,'Future event type');await act(async()=>root.unmount());
+});
+for(const transition of ['company','role'])test(`audit rejects late responses after ${transition} switch and recovery`,async()=>{
+ const pending=[];globalThis.fetch=()=>new Promise(resolve=>pending.push(resolve));const root=createRoot(document.getElementById('root'));const render=(id,role='owner')=>root.render(React.createElement(Audit,{companyId:id,role}));await act(async()=>render('a'));
+ if(transition==='role'){await act(async()=>render('a','viewer'));assert.equal(document.querySelector('.audit-log'),null);await act(async()=>render('a'));}else await act(async()=>render('b'));
+ await act(async()=>pending[1](response([row('current')])));await act(async()=>pending[0](response([row('stale')])));assert.match(document.querySelector('tbody').textContent,/current/);assert.doesNotMatch(document.querySelector('tbody').textContent,/stale/);await act(async()=>root.unmount());
+});
+test('backup acknowledgement has bounded checkbox sizing and wrapped associated text',async()=>{
+ const css=await readFile('src/style.css','utf8'),source=await readFile('src/CompleteBackup.jsx','utf8');const proof=new JSDOM(`<style>${css}</style><section class="complete-backup member-settings"><label class="backup-acknowledgement"><input type="checkbox"><span>Private financial information</span></label></section>`);
+ const label=proof.window.document.querySelector('label'),input=label.querySelector('input');assert.equal(proof.window.getComputedStyle(label).display,'flex');assert.equal(proof.window.getComputedStyle(input).width,'18px');assert.equal(proof.window.getComputedStyle(input).height,'18px');assert.match(source,/className="backup-acknowledgement"/);assert.match(source,/<span>I understand an unencrypted ZIP/);proof.window.close();
+});
+test.after(async()=>{dom.window.close();await rm(temp,{recursive:true,force:true});});

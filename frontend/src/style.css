@@ -80,3 +80,9 @@
 .party-balance-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.party-balance-grid strong{display:block;font-size:19px;margin-top:8px}.party-open{text-align:left;font-weight:700}.item-thumb{width:44px;height:44px;object-fit:cover;border-radius:8px}.pos-product img{width:100%;height:100px;object-fit:contain}@media(max-width:600px){.party-balance-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 .document-preview{min-height:65px;display:flex;flex-wrap:wrap;align-content:center;gap:4px}.summary-card>strong{display:block;margin-top:10px}.summary-card{min-width:0;overflow-wrap:anywhere}
+
+/* Keep the acknowledgement label clickable without stretching its checkbox. */
+.complete-backup>label.backup-acknowledgement{display:flex;align-items:flex-start;gap:10px;min-height:44px;padding:8px 0;cursor:pointer}
+.complete-backup>label.backup-acknowledgement>input[type=checkbox]{flex:0 0 18px;width:18px;height:18px;min-height:18px;padding:0;margin:2px 0 0;border-radius:3px}
+.complete-backup .backup-acknowledgement span{min-width:0;line-height:1.5}
+.audit-log details{margin-top:6px;font-size:12px;overflow-wrap:anywhere}

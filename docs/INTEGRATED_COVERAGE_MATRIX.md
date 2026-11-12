@@ -2,6 +2,42 @@
 
 This is a review candidate, not a production-ready declaration or a claim of comprehensive Indian accounting/GST compliance. The user owns deployment. No production data, credentials or systems were accessed for this checkpoint.
 
+## Current reconciliation (2026-11-12 follow-up)
+
+The revision inventory and aggregate results below describe the historical 9159
+checkpoint unless explicitly dated as a follow-up. They are not final-stack CI
+results. The local branch now includes these corrections:
+
+| Finding family | Local correction | Independent review reported by parent | Remaining gap |
+| --- | --- | --- | --- |
+| Settled notes and dependent payments | `9db279c` | 40 tests plus customer/supplier repeated restores passed | Actual-book audit and operator recovery rehearsal |
+| Party PDF and native PDF/share scope | `41ef08e`, `5e65e6b` | PDF visual checks and compiled request/share tests passed | Tagged PDF/accessibility and native rendering/printing |
+| XLSX fidelity, casefold party/item identities | `ae7e9a7`, `e46744f`, `28ded2e` | Export and identity tests passed | Lookup still scans masters; broader historical inventory incomplete |
+| Native denied-access and pending reads; web access recovery | `e46744f` through `bb5a5e5` | Review exposed follow-on gaps, addressed in later commits | Full native app/device acceptance and final browser revocation matrix |
+| Retained stock drafts after viewer recovery | `78ddeb1` | Seven rendered recovery and eight handler-body authorization cases passed | Final browser acceptance |
+| Member-removal confirmation and role-aware shortcuts | `7eda259` | Six existing tests plus in-flight Escape, late-success and owner-row probes passed | Confirmation focus/keyboard/browser acceptance |
+| Audit labels/scoped refresh and backup acknowledgement | This follow-up | Local rendered/CSS and backup tests | Actual narrow-screen and zoom visual acceptance |
+
+Parent's real-browser samples were on an isolated **9159** instance, not this final
+branch: CSV duplicate handling, bank reconciliation and duplicate import, complete
+backup/restore dashboard equality, retained attachment byte identity/reactivation,
+viewer/editor roles, high-zoom navigation, invoice trails/totals, return defaults,
+period-lock rejection and stock overview passed sampled scenarios. Later observed
+revocation deficiencies led to the access corrections above. These observations
+are valuable partial evidence; they must not be presented as final-commit or
+exhaustive feature acceptance.
+
+The verified Gradle 8.14.3 compiler passed six extracted native-method harnesses.
+An offline full Android build failed before compilation because the Android
+Gradle plugin was not cached. Android SDK and Windows build tools are unavailable
+locally. No final-commit native CI or device run has completed. See
+`WEB_ACCESS_ANDROID_REPORT_RECOVERY.md` for exact commands and limitations.
+
+Remaining clear gates: final-stack CI, complete browser/keyboard acceptance,
+Windows/Android builds and real device/file/print/share flows, remaining lost-fix
+inventory, and the operator-owned production recovery/migration/writer-pause
+rehearsal. No new production actions or remote publication were performed.
+
 ## Revision and publication inventory
 
 - Product tree checkpoint: `f29787f79ceca48a41c41063500bfa9ae45fa65f`, plus the standard-check wiring and this matrix in the candidate commit.
@@ -47,7 +83,7 @@ This is a review candidate, not a production-ready declaration or a claim of com
 
 ## Known nonblocking polish and unclosed inventory
 
-- Backup unencrypted acknowledgement checkbox layout still needs alignment/visual acceptance.
+- Backup unencrypted acknowledgement alignment is corrected locally; actual browser zoom/narrow-width acceptance remains open.
 - State selection is a native name/code select with keyboard type-ahead, not a custom searchable combobox; existing unsupported saved codes remain visible and unchanged.
 - Full native visual parity for the new totals, stock, journal and compact-ledger presentation is not claimed.
 - Reconstructed fixes do not certify every earlier lost enhancement (including all historical report/export, numeric, authorization-concurrency and native session/cache refinements). Existing tests cover important cases; a complete old-to-new inventory is still a release-review task.
