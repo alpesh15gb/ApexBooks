@@ -767,3 +767,21 @@ Validation: 45 focused legacy backup tests pass, including the new red-to-green
 confirmed commit / failed navigation / double-click reopen case. Lint, frontend
 build and bundle budgets pass. Synthetic callbacks/files only; no actual restore,
 production access, upload retry or deployment.
+
+### Confirmed master import versus refresh failure (2026-11-12)
+
+Reproduced confirmed import followed by failed record-list refresh showing a generic
+error without read-only recovery. MasterImport now reports that import was confirmed,
+keeps its completed preview, and offers single-flight Refresh imported records. App
+wiring uses refreshPostedRecords so loadRecords' caught failure becomes observable.
+The retry invokes only the refresh callback and does not repost imported rows.
+
+Validation: 25 focused CSV/import tests pass, including red-to-green confirmed import,
+failed refresh and duplicate-click retry (one commit). Lint, frontend build and
+bundle budgets pass. No real imports or external access.
+
+Remaining integrity boundary: masters/import has serialized, casefold-name duplicate
+skipping but no durable operation receipt. Unknown commit outcomes and retries after
+concurrent master renames need separate recovery design; duplicate skipping alone
+must not be described as exact idempotent replay. This batch does not resolve that
+boundary. No publication retry or deployment.

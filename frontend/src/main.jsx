@@ -1481,7 +1481,7 @@ function App() {
                       <MasterImport
                         companyId={companyId}
                         role={company?.role}
-                        onImported={() => loadRecords()}
+                        onImported={refreshPostedRecords}
                       />
                     </div>
                     <div className="settings-block" id="setting-export">

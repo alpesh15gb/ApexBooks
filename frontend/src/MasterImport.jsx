@@ -11,12 +11,15 @@ export default function MasterImport({companyId, onImported, role}) {
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
+  const [refreshBusy, setRefreshBusy] = useState(false);
+  const refreshing = useRef(false);
   const operation = useRef({busy:false});
   const scope = useRef(createRequestScope(`${companyId}:${kind}`));
   scope.current.setContext(`${companyId}:${kind}`);
   useEffect(() => registerPostingRequest(operation.current), []);
   useEffect(() => () => scope.current.setContext(Symbol('unmounted')), []);
-  useEffect(() => {setRows([]); setPreview(null); setError('');}, [companyId]);
+  useEffect(() => {setRows([]); setPreview(null); setError(''); setRefreshError('');}, [companyId]);
   const writable = role === 'owner' || role === 'editor';
   async function request(dryRun, values = rows) {
     const response = await fetch(`/api/companies/${companyId}/masters/import`, {
@@ -42,6 +45,14 @@ export default function MasterImport({companyId, onImported, role}) {
       if (current()) { setRows(values); setPreview(result); }
     } catch (err) {if(current()){setRows([]); setError(err.message);}} finally {operation.current.busy=false;setBusy(false); event.target.value = '';}
   }
+  async function refreshImported() {
+    if (refreshing.current) return;
+    const current = scope.current.capture();
+    refreshing.current = true; setRefreshBusy(true); setRefreshError('');
+    try { await onImported(); }
+    catch (failure) { if (current()) setRefreshError(failure.message); }
+    finally { refreshing.current = false; setRefreshBusy(false); }
+  }
   async function commit() {
     if (operation.current.busy || !preview?.dry_run || !rows.length || !writable) return;
     operation.current.busy = true;
@@ -49,7 +60,7 @@ export default function MasterImport({companyId, onImported, role}) {
     setBusy(true); setError('');
     try {
       const result = await request(false);
-      if (current()) {setPreview({...result, dry_run: false}); setRows([]); await onImported();}
+      if (current()) {setPreview({...result, dry_run: false}); setRows([]); await refreshImported();}
     } catch (err) {if(current())setError(err.message);} finally {operation.current.busy=false;setBusy(false);}
   }
   function downloadTemplate() {
@@ -73,6 +84,7 @@ export default function MasterImport({companyId, onImported, role}) {
     <p className="import-hint">Party columns: name, party_type, gstin, address, phone, email. Item columns: name, hsn, unit, sale_rate, purchase_rate, gst_rate, track_stock (true/false).</p>
     <div className="master-export-actions"><button type="button" className="button secondary" disabled={busy} onClick={downloadTemplate}>CSV template</button><button type="button" className="button secondary" disabled={busy} onClick={() => exportList('xlsx')}>Export XLSX</button><button type="button" className="button secondary" disabled={busy} onClick={() => exportList('pdf')}>Export PDF</button></div>
     {busy && <p role="status">Processing {kind === 'party' ? 'parties' : 'items'}…</p>}
+    {refreshError && <div className="info-box" role="alert">The import was confirmed, but the record list could not refresh: {refreshError}. Do not import the file again.<button type="button" disabled={refreshBusy || busy} onClick={refreshImported}>Refresh imported records</button></div>}
     {error && <div className="error banner" role="alert">{error}</div>}
     {preview && <><p>{preview.dry_run ? 'Preview' : 'Imported'}: {preview.ready} ready · {preview.duplicates} duplicates · {preview.errors.length} errors</p>{preview.errors.map(issue => <p className="error" key={issue.row}>Row {issue.row}: {issue.message}</p>)}{preview.dry_run && <button className="button primary" disabled={busy || preview.ready === 0 || preview.errors.length > 0} onClick={commit}>Import {preview.ready} records</button>}</>}
   </section>;
