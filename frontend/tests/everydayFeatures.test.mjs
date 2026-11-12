@@ -83,7 +83,7 @@ test('changing item classification never silently drops an existing threshold or
  await act(async()=>root.render(React.createElement(Master,{features:CORE_ENHANCEMENTS,kind:'item',record:{name:'Synthetic threshold',data:{track_stock:true,item_type:'goods',low_stock_threshold:'2'}},save:value=>{saved=value;},close:()=>{}})));
  await act(async()=>{const select=document.querySelector('select[name=item_type]');select.value='services';select.dispatchEvent(new window.Event('change',{bubbles:true}));});
  const input=document.querySelector('input[name=low_stock_threshold]');assert.ok(input);assert.equal(input.value,'2');
- await act(async()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));assert.equal(saved.data.low_stock_threshold,'2');
+ await act(async()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));assert.equal(saved,undefined);assert.match(document.querySelector('[role=alert]').textContent,/goods only/);await act(async()=>{const select=document.querySelector('select[name=item_type]');select.value='goods';select.dispatchEvent(new window.Event('change',{bubbles:true}));});
  await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(input,'');input.dispatchEvent(new window.Event('input',{bubbles:true}));input.dispatchEvent(new window.Event('change',{bubbles:true}));});
  await act(async()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));assert.equal(saved.data.low_stock_threshold,null);
  await act(async()=>root.unmount());

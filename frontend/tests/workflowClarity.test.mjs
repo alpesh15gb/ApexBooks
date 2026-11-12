@@ -9,8 +9,9 @@ import {createRoot} from 'react-dom/client';
 import {JSDOM} from 'jsdom';
 
 const temporary = await mkdtemp(resolve('node_modules/.workflow-clarity-'));
-await build({entryPoints:['src/MasterForm.jsx','src/ReportLibrary.jsx','src/DocumentWorkbench.jsx'],outdir:temporary,bundle:true,platform:'node',format:'esm',outExtension:{'.js':'.mjs'},external:['react','react-dom','lucide-react']});
+await build({entryPoints:['src/OpeningStock.jsx','src/MasterForm.jsx','src/ReportLibrary.jsx','src/DocumentWorkbench.jsx'],outdir:temporary,bundle:true,jsx:'automatic',platform:'node',format:'esm',outExtension:{'.js':'.mjs'},external:['react','react-dom','lucide-react']});
 const MasterForm = (await import(pathToFileURL(resolve(temporary,'MasterForm.mjs')))).default;
+const OpeningStock = (await import(pathToFileURL(resolve(temporary,'OpeningStock.mjs')))).default;
 const ReportLibrary = (await import(pathToFileURL(resolve(temporary,'ReportLibrary.mjs')))).default;
 const {DocumentIdentity} = await import(pathToFileURL(resolve(temporary,'DocumentWorkbench.mjs')));
 after(()=>rm(temporary,{recursive:true,force:true}));
@@ -92,4 +93,20 @@ test('document customer validation accepts real names and rejects only whitespac
     name.value='   ';assert.equal(name.checkValidity(),false);
     name.value='Gujarat Trading & Co.';assert.equal(name.checkValidity(),true);
   });
+});
+
+test('tracked goods cannot be changed to service while legacy service metadata remains editable',async()=>{
+ let saves=0;
+ await mount(MasterForm,{kind:'item',record:{name:'Synthetic goods',data:{track_stock:true,item_type:'goods'}},close:()=>{},save:async()=>saves++},async({dom})=>{
+  const type=document.querySelector('select[name="item_type"]');await act(async()=>{type.value='services';type.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});await act(async()=>document.querySelector('form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})));assert.equal(saves,0);assert.match(document.querySelector('[role=alert]').textContent,/goods only/);
+ });
+ await mount(MasterForm,{kind:'item',record:{name:'Legacy synthetic service',data:{track_stock:true,item_type:'services'}},close:()=>{},save:async()=>saves++},async({dom})=>{
+  assert.match(document.body.textContent,/Existing service stock history requires review/);await act(async()=>document.querySelector('form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})));assert.equal(saves,1);
+ });
+});
+
+test('opening stock excludes service masters and disables an empty goods selection',async()=>{
+ await mount(OpeningStock,{items:[{id:'service',name:'Legacy service',data:{item_type:'services'}}],close:()=>{},save:async()=>{}},async()=>{
+  assert.equal([...document.querySelectorAll('option')].some(option=>option.value==='service'),false);assert.equal([...document.querySelectorAll('button')].find(button=>button.textContent==='Post opening stock').disabled,true);
+ });
 });

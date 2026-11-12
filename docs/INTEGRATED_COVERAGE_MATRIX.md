@@ -462,3 +462,27 @@ XLSX/PDF order remains stable through six restores covering recorded, tied and m
 timestamps. Existing ledger, multipage PDF and cash-book tests passed. This is not
 proof of historic posting order when timestamps are absent/tied, nor final browser
 or screen-reader acceptance. No publication retry or deployment occurred.
+
+### Service versus physical inventory boundary
+
+Actual synthetic API tests confirmed services could be stock-tracked and receive
+opening inventory, and tracked goods without movements could become services.
+This application does not model service WIP/capacity accounting; goods-only physical
+stock tracking is an application scope decision, not a general statutory assertion.
+New masters/imports and tracked-goods-to-service changes now reject this combination.
+Legacy service-stock metadata remains editable, existing journals are not rewritten,
+and legacy backup preview remains supported. New service stock openings reject;
+no-history legacy classification can be corrected explicitly to goods. Web forms
+explain the boundary and opening-stock choices exclude services. All 20 backend and
+27 frontend focused tests passed, plus lint/build budgets. API validation applies to
+native requests too; native UI/device acceptance and broader legacy-stock correction
+work remain open. No publication retry or deployment occurred.
+
+### Remaining incoming visual findings, prioritized
+
+- Financial statement PDF/XLSX exports must carry the UI's actual calculation basis,
+  limitations and accountant-review warning, plus explicit INR; preserve numeric cells.
+- Inline journal/account draft loss on navigation/company change; announce validation.
+- Clear stale form-local access-denial wording only after verified recovery, retain draft.
+- Cash-book PDF readable labels/dates/currency and multi-page checks; announce invalid range.
+- Document discount preview error should identify the 0–100 document-discount field.

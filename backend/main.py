@@ -440,7 +440,9 @@ class MasterRow(BaseModel):
     is_active: bool = Field(default=True, strict=True)
     shipping_address: str = Field(default='', max_length=500)
 
-def validate_master_defaults(master, kind):
+def validate_master_defaults(master, kind, *, previous=None):
+    if kind == 'item' and master.track_stock and master.item_type == 'services' and not (previous and previous.get('track_stock') and previous.get('item_type') == 'services'):
+        raise HTTPException(422, 'Stock tracking is supported for goods only; create services without stock tracking')
     if master.credit_limit is not None and kind != 'party':
         raise HTTPException(422, 'Credit limit belongs to a party')
     if master.shipping_address and kind != 'party':
@@ -1504,7 +1506,7 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
         Record.id == master_id, Record.kind.in_(['party', 'item'])))
     if not master: raise HTTPException(404, 'Party or item not found')
     before = dict(master.data or {})
-    validate_master_defaults(body, master.kind)
+    validate_master_defaults(body, master.kind, previous=before)
     # New metadata omitted by an older client is retained, not implicitly cleared.
     # Validate that retained threshold against the proposed classification too.
     if master.kind == 'item' and 'low_stock_threshold' not in body.model_fields_set and (master.data or {}).get('low_stock_threshold') is not None and (not body.track_stock or body.item_type != 'goods'):
@@ -1848,6 +1850,7 @@ def post_opening_stock(company_id: str, body: OpeningStockInput, request: Reques
         Record.id == body.item_id, Record.kind == 'item'))
     if not item or not item.data.get('track_stock'):
         raise HTTPException(422, 'Choose a stock-tracked item in this company')
+    if item.data.get('item_type','goods') != 'goods':raise HTTPException(422,'Opening inventory is supported for goods only; review this legacy service item without changing existing books')
     if item.data.get('is_active',True) is False:raise HTTPException(422,'Reactivate this item before posting opening stock')
     if session.scalar(select(StockMovement.id).where(StockMovement.company_id == company_id,
         StockMovement.item_id == item.id)):

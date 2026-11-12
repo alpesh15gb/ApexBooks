@@ -63,6 +63,7 @@ export default function MasterForm({ kind, close: onClose, save, record, feature
     if (readOnly) { setError("You have read-only access. Your draft is preserved; ask the owner for editor access before saving."); return; }
     if (operation.current.busy) return;
     if (!form.name.trim()) { setError(`Enter a ${isParty ? "party" : "item"} name.`); return; }
+    if (!isParty && form.track_stock && form.item_type === 'services' && !(record?.data?.track_stock && record?.data?.item_type === 'services')) { setError('Stock tracking is supported for goods only. Turn off stock tracking for a new service, or keep this tracked item as goods.'); return; }
     operation.current.busy = true;
     setBusy(true);
     setError("");
@@ -288,13 +289,14 @@ export default function MasterForm({ kind, close: onClose, save, record, feature
                 <input
                   type="checkbox"
                   checked={form.track_stock}
-                  disabled={!!record}
+                  disabled={!!record || (form.item_type === "services" && !form.track_stock)}
                   onChange={(event) =>
                     setForm({ ...form, track_stock: event.target.checked })
                   }
                 />{" "}
                 Track stock quantities for this item
                 {record && " (fixed after creation)"}
+                {form.item_type === "services" && <small>Inventory tracking is supported for goods only. Existing service stock history requires review; it is not changed here.</small>}
               </label>
               {supported("low_stock_reorder") && ((form.track_stock && form.item_type !== "services") || (form.low_stock_threshold !== "" && form.low_stock_threshold != null)) && <label className="full">Low-stock threshold<input name="low_stock_threshold" type="number" min="0" step="0.001" value={form.low_stock_threshold ?? ""} onChange={update} placeholder="Disabled" /><small>Alerts when on-hand stock is at or below this quantity. Blank explicitly disables alerts. Clear this value before changing to a service or untracked item. Changing this never posts stock or accounting entries.</small></label>}
 
