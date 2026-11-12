@@ -54,3 +54,7 @@ class QuotationAcceptanceTest(unittest.TestCase):
                     self.assertTrue(any(f['expected']['amount'] in page and f['expected']['taxable'] in page and f['expected']['cgst'] in page for page in pages),'Keep total and its tax breakdown together')
                     if template in LAYOUTS:self.assertIn('mixed units',text)
                     self.assertGreaterEqual(len(reader.pages),2)
+                    if template == 'minimal':self.assertEqual(len(reader.pages),2,'Keep the nine-line terms on the second page')
+                    if template == 'evergreen':
+                        raw='\n'.join(page.extract_text() for page in reader.pages)
+                        self.assertNotIn('ROL\nL',raw,'Unit must remain intact in Per column')

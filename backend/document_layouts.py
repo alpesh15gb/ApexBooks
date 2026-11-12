@@ -88,7 +88,7 @@ def render_document(record, supplier, branding, template, title, paid=Decimal('0
     if not grid and template != 'elegant' and tax_mode == 'regular': elements.append(p('Place of supply: ' + str(data.get('place_of_supply') or '—'), bold))
     elements.append(Spacer(1, 9))
     if template == 'mrp_discount': headers = ['#', 'Item', 'MRP', 'Selling price', 'Qty', 'Amount']; fractions = [.035,.39,.14,.14,.095,.20]
-    elif template == 'evergreen': headers = ['#','Item','HSN/SAC','Tax','Qty','Rate / item','Per','Amount']; fractions = [.035,.335,.10,.07,.09,.13,.06,.18]
+    elif template == 'evergreen': headers = ['#','Item','HSN/SAC','Tax','Qty','Rate / item','Per','Amount']; fractions = [.035,.315,.10,.07,.09,.13,.08,.18]
     elif template == 'elegant': headers = ['#','Item','HSN/SAC','Rate / item','Qty','Amount']; fractions = [.035,.39,.13,.16,.085,.20]
     else: headers = ['#','Item','HSN/SAC','Rate / item','Qty','Taxable value','Tax amount','Amount']; fractions = [.035,.285,.10,.13,.06,.14,.13,.14]
     scale = width / sum(fractions); widths = [v*scale for v in fractions]
