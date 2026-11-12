@@ -490,7 +490,12 @@ class StockAdjustmentInput(BaseModel):
 
 def lock_company(company_id, user, session):
     company = company_for(company_id, user, session)
-    session.execute(select(Company.id).where(Company.id == company_id).with_for_update()).scalar_one()
+    if session.bind.dialect.name == 'sqlite':
+        # SQLite ignores SELECT FOR UPDATE. Acquire its writer lock before any
+        # duplicate/capacity reads; the no-op update changes no business values.
+        session.execute(Company.__table__.update().where(Company.id == company_id).values(name=Company.name))
+    else:
+        session.execute(select(Company.id).where(Company.id == company_id).with_for_update()).scalar_one()
     # Recheck access after waiting for the same lock used by membership changes.
     # A revoked editor must not resume a queued posting with stale authorization.
     require_write(company, user, session)
@@ -1529,6 +1534,20 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
     session.commit(); session.refresh(master)
     return obj(master)
 
+def master_name_matches(company_id, kind, name, session):
+    # Python casefold is shared with imports/statements; SQL lower differs by DB
+    # and does not implement the same Unicode identity policy.
+    key = name.strip().casefold()
+    return [row for row in session.scalars(select(Record).where(
+        Record.company_id == company_id, Record.kind == kind))
+        if row.name.strip().casefold() == key]
+
+def resolve_party(company_id, name, session):
+    matches = master_name_matches(company_id, 'party', name, session)
+    if len(matches) > 1:
+        raise HTTPException(409, 'Ambiguous legacy party names require review before continuing; no parties were merged')
+    return matches[0] if matches else None
+
 def validate_active_references(company_id, kind, name, data, session, historical_record=None):
     """Archive prevents new business, not correction or settlement of existing debt.
 
@@ -1552,7 +1571,7 @@ def validate_active_references(company_id, kind, name, data, session, historical
             if not isinstance(rid,str):continue
             target=session.get(Record,rid)
             if target and target.kind in ({'sales_invoice','opening_receivable'} if kind=='payment_in' else {'purchase_bill','opening_payable'}):retain(target)
-    party=session.scalar(select(Record).where(Record.company_id==company_id,Record.kind=='party',func.lower(Record.name)==name.strip().lower()))
+    party=resolve_party(company_id, name, session)
     if data.get('party_id') and (not party or party.id!=data['party_id']):
         raise HTTPException(422,'Party identity does not match this company and name')
     if party and party.data.get('is_active',True) is False and party.id not in allowed_party and party.name.strip().casefold() not in allowed_party:
@@ -1628,7 +1647,7 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
         data={k:v for k,v in data.items() if k not in {'advance_tax','advance_tax_released','advance_tax_event','advance_taxable','lines','cgst','sgst','igst','taxable','taxable_supply_value','tax_mode','pending_input_cgst','pending_input_sgst','pending_input_igst','round_off'}}
         data.update(cgst='0',sgst='0',igst='0',lines=[],round_off='0',advance_tax_event=False)
     if body.kind in DOCUMENTS|POSTED_KINDS:
-        party=session.scalar(select(Record).where(Record.company_id==company_id,Record.kind=='party',func.lower(Record.name)==body.name.strip().lower()))
+        party=resolve_party(company_id, body.name, session)
         if data.get('party_id') and (not party or data['party_id']!=party.id):raise HTTPException(422,'Party identity does not match this company and name')
         if party:
             if body.kind in {'sales_invoice','pos','estimate','proforma','sales_order'} and 'shipping_address' not in data:
@@ -1648,7 +1667,7 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
         validate_item_image(master)
         validate_master_defaults(master, body.kind)
         if not master.name.strip(): raise HTTPException(422, 'Name is required')
-        if session.scalar(select(Record.id).where(Record.company_id == company_id, Record.kind == body.kind, func.lower(Record.name) == master.name.strip().lower())):
+        if master_name_matches(company_id, body.kind, master.name, session):
             raise HTTPException(409, 'A party or item with this name already exists')
         if body.kind == 'party':
             if master.party_type not in {'customer', 'supplier', 'both'}: raise HTTPException(422, 'Party type must be customer, supplier or both')

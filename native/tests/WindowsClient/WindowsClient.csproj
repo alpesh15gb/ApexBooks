@@ -4,5 +4,6 @@
       <Compile Include="../../windows/Services/ClientCapabilities.cs" Link="ClientCapabilities.cs" /><Compile Include="../../windows/Services/CompleteBackupTransfer.cs" Link="CompleteBackupTransfer.cs" /><Compile Include="../../windows/Services/LineDiscountState.cs" Link="LineDiscountState.cs" /><Compile Include="../../windows/Services/BuildIdentity.cs" Link="BuildIdentity.cs" />
   <Compile Include="../../windows/Services/WhatsAppShare.cs" Link="WhatsAppShare.cs" /><Compile Include="../../windows/Services/SourceLineChoices.cs" Link="SourceLineChoices.cs" /><Compile Include="../../windows/Services/Csv.cs" Link="Csv.cs" />  <Compile Include="../../windows/Services/SourceSelectionRequest.cs" Link="SourceSelectionRequest.cs" />
 <Compile Include="../../windows/Services/ScopedExternalAction.cs" Link="ScopedExternalAction.cs" />
+<Compile Include="../../windows/Services/ScopedCoreRefresh.cs" Link="ScopedCoreRefresh.cs" />
 </ItemGroup>
 </Project>

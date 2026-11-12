@@ -61,6 +61,13 @@ class ConcurrentPostingTest(unittest.TestCase):
         if item: line.update(item_id=item['id'], description=item['name'])
         return {'kind': kind, 'name': 'Buyer', 'date': '2026-04-02', 'data': {'lines': [line]}}
 
+    def test_casefold_master_duplicates_serialize(self):
+        names=['Straße Concurrent','STRASSE CONCURRENT']
+        replies=self.race([('/records',{'kind':'party','name':name,'data':{}},uuid4().hex) for name in names])
+        self.assertEqual(sorted(r.status_code for r in replies),[200,409],[r.text for r in replies])
+        masters=self.client.get(self.base+'/records',headers=self.headers,params={'kind':'party'}).json()
+        self.assertEqual(sum(r['name'].casefold()=='strasse concurrent' for r in masters),1)
+
     def test_linked_payment_retries_serialize_whole_operation(self):
         for changed in (False, True):
             key='linked-'+uuid4().hex

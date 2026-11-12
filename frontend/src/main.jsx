@@ -1646,7 +1646,7 @@ function App() {
                         <Search size={17} />
                         <input
                           aria-label="Search this register"
-                          placeholder="Search party or reference"
+                          placeholder={page === "item" ? "Search item or reference" : "Search party or reference"}
                           value={search}
                           onChange={(e) => setSearch(e.target.value)}
                         />

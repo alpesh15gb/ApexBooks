@@ -17,6 +17,8 @@ fixture.app, fixture.engine, fixture.Record = main.app, main.engine, main.Record
 sys.modules['test_api'] = fixture
 
 CASES = [
+    'test_rebuilt_party_identity.RebuiltPartyIdentityTest',
+    'test_rebuilt_export_text.RebuiltExportTextTest',
     'test_settled_return_lifecycle.SettledReturnLifecycleTest',
     'test_journal_sources.JournalSourcesTest',
     'test_sales_return_capacity.SalesReturnCapacityTest',

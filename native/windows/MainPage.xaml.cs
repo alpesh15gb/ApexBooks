@@ -169,7 +169,13 @@ public sealed partial class MainPage : Page
 
     internal async Task Refresh()
     {
-        var cid = CompanyId;if(cid.Length==0||!Api.SignedIn)return;var current=workspaceGeneration;var request=++refreshSequence; var rows = Api.Records(cid);var banks=Api.Send(Api.CompanyPath(cid,"/bank-accounts"));await Task.WhenAll(rows,banks); if (current != workspaceGeneration||request!=refreshSequence) return; Records = await rows;Banks=(await banks).Array();recordsReady=true; await Navigate(CurrentPage);
+        var cid=CompanyId;if(cid.Length==0||!Api.SignedIn)return;
+        var current=workspaceGeneration;var session=Api.SessionGeneration;var request=++refreshSequence;
+        await ScopedCoreRefresh.Run(Api.Records(cid),Api.Send(Api.CompanyPath(cid,"/bank-accounts")),
+            ()=>Api.SignedIn&&session==Api.SessionGeneration&&cid==CompanyId&&current==workspaceGeneration&&request==refreshSequence,
+            ()=>{Records=new();Banks=new();recordsReady=false;},
+            (rows,banks)=>{Records=rows;Banks=banks.Array();recordsReady=true;},
+            ()=>Navigate(CurrentPage));
     }
 
     internal async Task Navigate(string page)

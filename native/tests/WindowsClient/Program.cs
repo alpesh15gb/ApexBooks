@@ -16,6 +16,7 @@ foreach(var scenario in new[]{"current","stale-success","stale-failure","current
 }
 Console.WriteLine("PASS external action scoped before/after delayed branding and immediately before synthetic launch");
 
+await CoreRefreshRegression.Run();
 CsvRegression.Run();
 
 var returnRows=new JsonArray(new JsonObject{["quantity"]="2",["rate"]="100",["discount_amount"]="7",["return_capacity_scope"]="additional_returns",["remaining_return_quantity"]="1"},new JsonObject{["quantity"]="2",["return_capacity_scope"]="additional_returns",["remaining_return_quantity"]="0"},new JsonObject{["quantity"]="2"});

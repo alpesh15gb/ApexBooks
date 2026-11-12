@@ -82,6 +82,7 @@ def install(app,m):
     def ledger_party(company_id,party_id,from_date,to_date,session):
         party=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==party_id,m.Record.kind=='party'))
         if not party:raise HTTPException(404,'Party not found')
+        m.resolve_party(company_id,party.name,session)
         if from_date>to_date:raise HTTPException(422,'Start date must precede end date')
         return party
 
@@ -117,7 +118,10 @@ def install(app,m):
             elif r.kind in {'advance_application','credit_application'}:side[1]-=r.amount
             elif r.kind in {'debit_note','payment_out'}:side[1]-=r.amount-unallocated
         rows=[]
-        for party in session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind=='party')):
+        parties=list(session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind=='party')))
+        names=[party.name.strip().casefold() for party in parties]
+        if len(names)!=len(set(names)):raise HTTPException(409,'Ambiguous legacy party names require review before calculating master balances')
+        for party in parties:
             receivable,payable=totals.get(party.name.strip().casefold(),[Decimal('0'),Decimal('0')])
             rows.append({'party_id':party.id,'name':party.name,'receivable':str(receivable),'payable':str(payable),'net':str(receivable-payable)})
         return {'as_of':day.isoformat(),'rows':rows,
@@ -129,6 +133,7 @@ def install(app,m):
         m.company_for(company_id,user,session)
         party=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==party_id,m.Record.kind=='party'))
         if not party:raise HTTPException(404,'Party not found')
+        m.resolve_party(company_id,party.name,session)
         if from_date>to_date:raise HTTPException(422,'Start date must precede end date')
         rows=list(session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.date<=to_date,m.Record.kind.not_in(['party','item','document_branding','restore_marker','vyapar_backup_archive','recurring_template']))))
         rows=[r for r in rows if r.name.strip().casefold()==party.name.strip().casefold()]

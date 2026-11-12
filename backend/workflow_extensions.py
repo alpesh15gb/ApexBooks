@@ -133,7 +133,8 @@ def install(app,m):
             party=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==body.data.get('party_id'),m.Record.kind=='party'))
             if not party:raise HTTPException(422,'Choose a party in this company')
             if party.data.get('is_active',True) is False:raise HTTPException(422,'Reactivate this party before posting an opening balance')
-            existing=list(session.scalars(select(m.Record).where(m.Record.company_id==company_id,func.lower(m.Record.name)==party.name.lower())))
+            m.resolve_party(company_id,party.name,session)
+            existing=[r for r in session.scalars(select(m.Record).where(m.Record.company_id==company_id)) if r.name.strip().casefold()==party.name.strip().casefold()]
             if any(r.kind in ('sales_invoice','purchase_bill','payment_in','payment_out','credit_note','debit_note','pos','opening_'+category) for r in existing):raise HTTPException(409,'Set a party opening before its first transaction; this balance cannot be added twice')
             data['party_id']=party.id;name=party.name
         else:

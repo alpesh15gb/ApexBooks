@@ -33,3 +33,7 @@ This inventory compares the surviving integrated tree with the parent thread's d
 - XLSX checks inspect explicit cell types after reopening actual API response bytes. Numeric values remain numeric; barcode/HSN leading zeros, formula-like strings and Excel error literals remain unchanged text. No spreadsheet formulas were executed.
 
 The immutable 9159 checkpoint remains unsuitable for release. Current work requires independent review, exact-SHA full CI/native builds, final browser/device acceptance and the operator-owned backup/restore/migration/writer-pause gates in `INTEGRATED_COVERAGE_MATRIX.md`. The user will deploy; no delivery date or comprehensive statutory-compliance claim is made.
+
+## Follow-up correction
+
+The subsequent party/native-cache batch reconstructs the two explicit gaps above; see `PARTY_IDENTITY_NATIVE_CACHE_RECONSTRUCTION.md`. The original gap descriptions are retained as reproduction history. Closure still requires independent review and native acceptance, and does not imply all historical lost changes are recovered. An additional SQLite concurrent duplicate race was reproduced and fixed with a transaction writer guard.
