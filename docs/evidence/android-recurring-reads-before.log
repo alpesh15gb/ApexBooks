@@ -1,0 +1,23 @@
+Exception in thread "main" java.lang.IllegalStateException: Late recurring list published after access denial
+	at ProofKt$main$1.invokeSuspend(Proof.kt:14)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:106)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:284)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:85)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:59)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:38)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source)
+	at ProofKt.main(Proof.kt:13)
+	at ProofKt.main(Proof.kt)
+Traceback (most recent call last):
+  File "/workspace/scratch/bafc9a4c203a/apexbooks/native/tests/AndroidRecurringReads/check.py", line 35, in <module>
+    d=Path(folder);(d/'Proof.kt').write_text(fixture);run_proof(args,[d/'Proof.kt'],d)
+                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/bafc9a4c203a/apexbooks/native/tests/kotlin_toolchain.py", line 22, in run_proof
+    run('run',['-cp',str(jar)+os.pathsep+cp,main])
+  File "/workspace/scratch/bafc9a4c203a/apexbooks/native/tests/kotlin_toolchain.py", line 19, in run
+    subprocess.run([os.environ.get('JAVA','java'),'@'+str(argfile)],check=True)
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['java', '@/tmp/apex-recurring-reads-2fop5mky/run.args']' returned non-zero exit status 1.

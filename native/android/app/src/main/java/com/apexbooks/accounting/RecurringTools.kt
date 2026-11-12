@@ -50,30 +50,44 @@ private suspend fun recurringWrite(vm:AppModel,command:RecurringCommand,path:Str
     "recurring_review"->RecurringReview(vm,row)
     else->RecurringHub(vm)
 }}
+suspend fun openRecurringSchedule(vm:AppModel,row:JSONObject){
+    val cid=vm.companyId;val stamp=vm.workspaceStamp();val data=vm.toolData;val current=vm.captureReadOwner("recurring",data)
+    if(!current())return
+    try{
+        val result=vm.api.request(vm.api.company(cid,"/recurring-templates/${encode(row.s("id"))}"))as JSONObject
+        if(current()){vm.toolData=result;vm.tool="recurring_edit"}
+    }catch(e:Exception){
+        if(e is kotlinx.coroutines.CancellationException||current()||(e is ApiFailure&&e.status==401&&vm.inWorkspace(cid,stamp)&&vm.tool=="recurring"&&vm.toolData===data&&!vm.api.signedIn))throw e
+    }
+}
 @Composable private fun RecurringHub(vm:AppModel){
-    val cid=vm.companyId;val stamp=vm.workspaceStamp();var revision by remember{mutableIntStateOf(0)}
+    val cid=vm.companyId;val stamp=vm.workspaceStamp();val access=vm.readStamp();var revision by remember{mutableIntStateOf(0)}
     var rows by remember{mutableStateOf<List<JSONObject>?>(null)};var failure by remember{mutableStateOf("")};var mode by remember{mutableStateOf("due")};var search by remember{mutableStateOf("")}
     var dueIds by remember{mutableStateOf(emptySet<String>())};var businessDate by remember{mutableStateOf("")};var timezone by remember{mutableStateOf("")}
-    LaunchedEffect(cid,revision){rows=null;failure="";try{
+    LaunchedEffect(cid,revision,access,vm.recordsReady){
+        rows=null;failure="";dueIds=emptySet();businessDate="";timezone=""
+        if(!vm.canRead(cid,access)){failure="Company access is unavailable. Refresh company access before loading schedules.";return@LaunchedEffect}
+        val data=vm.toolData;val current=vm.captureReadOwner("recurring",data)
+        try{
         val (all,due)=coroutineScope{val all=async{vm.api.request(vm.api.company(cid,"/recurring-templates"))as JSONObject};val due=async{vm.api.request(vm.api.company(cid,"/recurring-templates/due"))as JSONObject};all.await() to due.await()}
-        if(vm.inWorkspace(cid,stamp)){rows=all.a("templates").objects();dueIds=due.a("rows").objects().map{it.s("id")}.toSet();businessDate=due.s("business_date").ifBlank{due.s("as_of")};timezone=due.s("timezone")}
-    }catch(e:Exception){currentCoroutineContext().ensureActive();failure=e.message?:"Could not load schedules.";if(e is ApiFailure&&e.status==401)vm.failure(e)}}
+        if(current()){rows=all.a("templates").objects();dueIds=due.a("rows").objects().map{it.s("id")}.toSet();businessDate=due.s("business_date").ifBlank{due.s("as_of")};timezone=due.s("timezone")}
+    }catch(e:Exception){currentCoroutineContext().ensureActive();if(current()||(e is ApiFailure&&e.status==401&&vm.inWorkspace(cid,stamp)&&vm.tool=="recurring"&&vm.toolData===data&&!vm.api.signedIn)){failure=e.message?:"Could not load schedules.";if(e is ApiFailure&&e.status==401)vm.failure(e)}}}
     ActionDialog("Recurring draft schedules",vm,confirm="Done",onSave={vm.tool=""},onDismiss={vm.tool=""}){
         Text("Create each scheduled draft explicitly, then review or convert it. Schedules never post invoices, move stock, charge customers or run automatically.")
-        if(businessDate.isNotBlank())Text("Business date $businessDate · $timezone",style=MaterialTheme.typography.bodySmall)
+        if(vm.recordsReady&&businessDate.isNotBlank())Text("Business date $businessDate · $timezone",style=MaterialTheme.typography.bodySmall)
         Choice("Show",mode,listOf("due" to "Due now","all" to "All schedules","paused" to "Paused"),{mode=it})
         Field("Find schedule or party",search,{search=it})
         TextButton(onClick={revision++}){Text("Refresh schedules")}
         if(failure.isNotBlank())Message(failure,true)
         if(rows==null&&failure.isBlank())LinearProgressIndicator(Modifier.fillMaxWidth())
-        val visible=rows.orEmpty().filter{(it.s("name")+" "+it.s("party_name")).contains(search.trim(),true)}.filter{when(mode){"due"->it.s("id")in dueIds;"paused"->!it.optBoolean("is_active");else->true}}
+        val visible=(if(vm.recordsReady)rows.orEmpty()else emptyList()).filter{(it.s("name")+" "+it.s("party_name")).contains(search.trim(),true)}.filter{when(mode){"due"->it.s("id")in dueIds;"paused"->!it.optBoolean("is_active");else->true}}
         if(rows!=null&&visible.isEmpty())Text("No matching schedules. Open a saved estimate, proforma, sales order or purchase order and choose Create recurring draft schedule.")
         for(row in visible)Section(row.s("name")){
             Text("${friendly(row.s("draft_kind"))} · ${row.s("party_name")}");Text("Every ${row.s("interval")} ${if(row.s("frequency")=="weekly")"week(s)"else"month(s)"} · ${if(row.optBoolean("is_active"))"Active"else"Paused"}",style=MaterialTheme.typography.bodySmall)
             DetailValue("Next scheduled date",row.s("next_due").ifBlank{"Complete / no remaining dates"});DetailValue("Drafts generated",row.s("generated_count"))
-            OutlinedButton(onClick={vm.task{val result=vm.api.request(vm.api.company(cid,"/recurring-templates/${encode(row.s("id"))}"))as JSONObject;if(vm.inWorkspace(cid,stamp)){vm.toolData=result;vm.tool="recurring_edit"}}}){Text(if(vm.canWrite)"Manage / pause schedule"else"View schedule")}
+            OutlinedButton(enabled=vm.recordsReady&&vm.busy==0,onClick={if(vm.canRead(cid,access)&&vm.tool=="recurring")vm.task{openRecurringSchedule(vm,row)}}){Text(if(vm.canWrite)"Manage / pause schedule"else"View schedule")}
             if(vm.canWrite){
-                if(row.optBoolean("is_active")&&row.s("id")in dueIds)Button(onClick={vm.toolData=row;vm.tool="recurring_occurrence"}){Text("Create next due draft")}
+                if(row.optBoolean("is_active")&&row.s("id")in dueIds)Button(onClick={if(vm.canWrite&&vm.canRead(cid,access)&&vm.tool=="recurring"){vm.toolData=row;vm.tool="recurring_occurrence"}}){Text("Create next due draft")}
             }else Text("Read-only access · an owner or editor can manage or create drafts.",style=MaterialTheme.typography.bodySmall)
         }
     }
