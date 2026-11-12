@@ -42,6 +42,31 @@ class PayAtInvoiceTest(unittest.TestCase):
         report = client.get(base + '/reports/financial', headers=h, params={'from_date': '2026-04-01', 'to_date': '2026-04-30'}).json()
         self.assertEqual(Decimal(report['balance_difference']), 0)
 
+    def test_standalone_document_key_cannot_be_reused_to_add_payment(self):
+        c,h,b=self.context();body={'document':self.doc(),'payment':{'amount':'150'}}
+        headers={**h,'Idempotency-Key':'standalone'}
+        original=c.post(b+'/records',headers=headers,json=body['document']);self.assertEqual(original.status_code,200,original.text)
+        response=c.post(b+'/records/with-payment',headers=headers,json=body)
+        self.assertEqual(response.status_code,409,response.text)
+        self.assertFalse(any(r['kind']=='payment_in' for r in c.get(b+'/records',headers=h).json()))
+
+    def test_changed_payment_conflicts_and_exact_legacy_pair_replays(self):
+        import hashlib,json
+        from sqlalchemy.orm import Session
+        from sqlalchemy import select
+        import main as m
+        c,h,b=self.context();body={'document':self.doc(),'payment':{'amount':'150'}};headers={**h,'Idempotency-Key':'whole-request'}
+        response=c.post(b+'/records/with-payment',headers=headers,json=body);self.assertEqual(response.status_code,200,response.text)
+        for payment in ({'amount':'100'},{'amount':'150','reference':'changed'},{'amount':'150','date':'2026-04-03'}):
+            rejected=c.post(b+'/records/with-payment',headers=headers,json={**body,'payment':payment});self.assertEqual(rejected.status_code,409,rejected.text)
+        # Simulate an exact pair produced by the older document-only key scheme.
+        with Session(m.engine) as session:
+            key=session.scalar(select(m.IdempotencyKey).where(m.IdempotencyKey.company_id==b.split('/')[-1],m.IdempotencyKey.key=='whole-request'))
+            key.request_hash=hashlib.sha256(json.dumps(m.RecordInput(**body['document']).model_dump(mode='json'),sort_keys=True,separators=(',',':')).encode()).hexdigest();session.commit()
+        replay=c.post(b+'/records/with-payment',headers=headers,json=body);self.assertEqual(replay.status_code,200,replay.text)
+        self.assertEqual(replay.json()['payment']['id'],response.json()['payment']['id'])
+        rejected=c.post(b+'/records/with-payment',headers=headers,json={**body,'payment':{'amount':'100'}});self.assertEqual(rejected.status_code,409,rejected.text)
+
 
 if __name__ == '__main__':
     unittest.main()

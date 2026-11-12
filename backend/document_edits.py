@@ -117,11 +117,9 @@ def install(app,m):
                     and Decimal(str(data.get('taxable_supply_value',0)))>0
                     and sum((Decimal(str(data.get(field,0))) for field in ('nil_rated_value','exempt_value','non_gst_value')),Decimal('0'))>0):
                 raise HTTPException(422,'Issue separate taxable and non-taxable outward documents in this workflow')
-            if record.kind=='pos' and data.get('payment_account','cash')=='cash' and 'tender_amount' in submitted:
-                tender=normalize('rate',submitted['tender_amount'])
-                if tender<record.amount or tender>Decimal('9999999999999.99') or tender.as_tuple().exponent < -2:
-                    raise HTTPException(422,'Cash tendered must cover the total and use at most two decimal places')
-                data['tender_amount']=str(m.money(tender));data['change_amount']=str(m.money(tender-record.amount))
+            if record.kind=='pos' and 'tender_amount' in submitted:
+                from pos_validation import validate_tender
+                data = validate_tender(data, record.amount)
             if data.get('party_id'):
                 party=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==data['party_id'],m.Record.kind=='party'))
                 if not party or party.name.strip().casefold()!=body.name.strip().casefold():raise HTTPException(422,'Choose the matching party from this company')

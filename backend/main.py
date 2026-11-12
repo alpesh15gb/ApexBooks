@@ -1588,13 +1588,13 @@ def validate_outward_document_number(kind, tax_mode, number):
             raise HTTPException(422, 'GST document number must contain 1–16 letters, digits, / or - only')
 
 
-def save_record(company_id, body, request, user, session, *, commit=True, historical_record=None):
+def save_record(company_id, body, request, user, session, *, commit=True, historical_record=None, idempotency_request_hash=None):
     """Post inside the caller transaction when processing a durable integration event."""
     company = lock_company(company_id, user, session)
     if body.kind not in KINDS: raise HTTPException(422, 'Unsupported record type')
     idempotency_key = request.headers.get('Idempotency-Key', '').strip()
     if len(idempotency_key) > 80: raise HTTPException(422, 'Idempotency key is too long')
-    request_hash = hashlib.sha256(json.dumps(body.model_dump(mode='json'), sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    request_hash = idempotency_request_hash or hashlib.sha256(json.dumps(body.model_dump(mode='json'), sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     if idempotency_key:
         previous = session.scalar(select(IdempotencyKey).where(IdempotencyKey.company_id == company_id, IdempotencyKey.key == idempotency_key))
         if previous:
@@ -1659,10 +1659,8 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             'pending_input_cgst', 'pending_input_sgst', 'pending_input_igst',
             'input_tax_ineligible', 'round_off')}, 'lines': [], 'taxable': str(amount)}
     if body.kind == 'pos':
-        try: tender = money(data.get('tender_amount',amount))
-        except (ValueError,TypeError,InvalidOperation): raise HTTPException(422,'Enter valid cash tendered')
-        if not tender.is_finite() or tender < amount: raise HTTPException(422,'Tendered amount must cover the sale')
-        data={**data,'tender_amount':str(tender),'change_amount':str(tender-amount if data.get('payment_account','cash')=='cash' else Decimal('0'))}
+        from pos_validation import validate_tender
+        data = validate_tender(data, amount)
     if not amount.is_finite() or amount < 0: raise HTTPException(422, 'Amount must be finite and nonnegative')
     if body.kind in POSTED_KINDS:
         require_open_period(company_id, body.date, session)

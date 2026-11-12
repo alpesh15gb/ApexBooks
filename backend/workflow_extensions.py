@@ -85,6 +85,9 @@ def install(app,m):
             if not editing or body.kind != 'debit_note' or editing.data.get('applied_to') != body.data.get('applied_to'):
                 raise HTTPException(422, 'Preview must identify this source bill’s existing return')
         data,amount=m.calculate(body.data,company,profile.mode if profile else 'regular',body.kind,session,exclude_return_id=editing_id)
+        if body.kind == 'pos':
+            from pos_validation import validate_tender
+            data = validate_tender(data, amount)
         return {'data':data,'amount':str(amount)}
 
     @app.put('/api/companies/{company_id}/drafts/{record_id}')

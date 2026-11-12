@@ -61,6 +61,18 @@ class ConcurrentPostingTest(unittest.TestCase):
         if item: line.update(item_id=item['id'], description=item['name'])
         return {'kind': kind, 'name': 'Buyer', 'date': '2026-04-02', 'data': {'lines': [line]}}
 
+    def test_linked_payment_retries_serialize_whole_operation(self):
+        for changed in (False, True):
+            key='linked-'+uuid4().hex
+            body={'document':self.sale(),'payment':{'amount':'50'}}
+            other={**body,'payment':{'amount':'60'}} if changed else body
+            replies=self.race([('/records/with-payment',body,key),('/records/with-payment',other,key)])
+            self.assertEqual(sorted(r.status_code for r in replies),[200,409] if changed else [200,200], [r.text for r in replies])
+            winner=next(r.json() for r in replies if r.status_code==200)
+            rows=self.client.get(self.base+'/records',headers=self.headers).json()
+            self.assertEqual(sum(r['kind']=='payment_in' and r['data'].get('applied_to')==winner['document']['id'] for r in rows),1)
+            if not changed:self.assertEqual(replies[0].json()['payment']['id'],replies[1].json()['payment']['id'])
+
     def concurrent_http(self, method, path, **kwargs):
         gate = Barrier(4)
         def send(_):
