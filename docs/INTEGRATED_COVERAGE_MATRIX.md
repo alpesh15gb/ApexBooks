@@ -1099,3 +1099,33 @@ owner-only workflow scope. No production, publication retry or deployment.
 Next priority from independent review: bank-import uncertain outcomes. Backend
 row fingerprint deduplication exists, but is not an exact durable command receipt.
 Native role gating alone must not be described as safe changed-payload retry.
+
+### In-transfer restore ownership and bank retry boundary (2026-11-12)
+
+Independent review found outer owner checks insufficient during Windows chunked
+restore upload. CompleteBackupTransfer now accepts an original ownership callback,
+invoked by its internal Guard. Restore passes the captured owner verifier. Upload
+rechecks after hashing, create/read responses, chunk reads/uploads and preview,
+blocking later dispatch or preview publication after ownership changes. The
+constructor remains optional for existing service-only consumers; the restore UI
+explicitly supplies it. A request already dispatched cannot be undone.
+
+Six compiled production-service scenarios pass: normal two-chunk upload, ownership
+loss during hashing/create/chunk/preview, and chunk-time denial then recovery with
+changed epoch. Fake transport only; delayed hashing/chunk tasks exercised. Existing
+portable client suite passes with real service compilation. Full WinUI/device and
+live transport acceptance remain open.
+
+Bank recovery investigation: one synthetic API regression passes. Two identical
+statement rows import as added=2, duplicates=0; replay returns added=0, duplicates=2
+with two rows retained. Changing one description imports an additional row. This
+is expected row deduplication, not replay of original command/result. No ledger
+journals are created by these statement imports. Native unknown-outcome safeguards
+remain unfinished; current role guards alone do not solve this boundary.
+
+Safe next implementation boundary: freeze original bank ID, complete ordered row
+payload and actor/company before dispatch; block changed/new submissions while
+unknown. A durable solution needs an optional operation key and actor/payload-bound
+receipt committed with rows, an authorized GET lookup and legacy capability gating.
+Missing lookup must remain unknown; no inference from a bounded statement list.
+No automatic historical edits, production access, publication retry or deployment.
