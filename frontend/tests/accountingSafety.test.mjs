@@ -11,6 +11,14 @@ test('bank review suppresses double submit and ignores a late result after switc
  const form=[...document.querySelectorAll('form')].find(x=>x.textContent.includes('Save review'));await act(async()=>{submit(form);submit(form);});assert.equal(writes,1);
  await change(label('Active bank').querySelector('select'),'bank-b');await act(async()=>finish(response({id:'review-a',as_of:'2026-11-01',note:'BANK A PRIVATE REVIEW'})));assert.doesNotMatch(document.body.textContent,/BANK A PRIVATE REVIEW/);await act(async()=>root.unmount());
 });
+for (const outcome of ['success','failure']) test(`bank unmatch suppresses duplicate clicks and ignores late ${outcome} after bank switch`,async()=>{
+ let finish,writes=0,reads=0;globalThis.fetch=async(url,options={})=>{if(options.method==='DELETE'){writes++;return new Promise(resolve=>{finish=resolve;});}if(url.includes('/cash-book?'))return response({opening:{cash:0,bank:0},closing:{cash:0,bank:0},rows:[]});if(url.endsWith('/bank-accounts'))return response([{id:'default',name:'Bank A'},{id:'bank-b',name:'Bank B'}]);if(url.includes('/bank-statement?')){reads++;return response(url.includes('bank-b')?[]:[{id:'line-a',date:'2026-04-01',description:'A matched row',amount:'100',matched_record_id:'invoice-a'}]);}if(url.includes('/bank-reconciliation?'))return response({});return response([]);};
+ const root=createRoot(document.getElementById('root'));await act(async()=>root.render(React.createElement(components.BankWorkspace,{companyId:'c1',records:[],role:'owner'})));
+ const button=[...document.querySelectorAll('button')].find(x=>x.textContent.includes('Matched · Unmatch'));assert.ok(button);
+ await act(async()=>{button.click();button.click();});assert.equal(writes,1);assert.equal(button.disabled,true);
+ await change(label('Active bank').querySelector('select'),'bank-b');const before=reads;
+ await act(async()=>finish(outcome==='success'?response({}):{ok:false,status:409,json:async()=>({detail:'BANK A DELETE FAILED'})}));assert.equal(reads,before);assert.doesNotMatch(document.body.textContent,/BANK A DELETE FAILED|A matched row/);await act(async()=>root.unmount());
+});
 test('commerce credit change removes hidden quantities from submitted payload',async()=>{
  let sent;const workspace={connection:{status:'active',config:{}},orders:[{external_id:'order',number:'Order'}],stock:[],links:['A','B'].map(id=>({entity_type:'credit',external_id:id,snapshot:{order_id:'order',lines:[{product_id:id,quantity:'5'}]}}))};
  const root=createRoot(document.getElementById('root'));await act(async()=>root.render(React.createElement(components.CommerceMoneyForm,{workspace,banks:[],send:async(op,body)=>{sent=body;},onDone:()=>{}})));

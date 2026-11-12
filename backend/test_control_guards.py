@@ -34,7 +34,7 @@ class ControlGuardTest(__import__('unittest').TestCase):
                 self.assertEqual(result.status_code, 422, result.text)
         self.assertEqual(self.client.get(self.base + '/journals', headers=self.headers).json(), [])
 
-    def test_replenished_provisional_sale_return_requires_reconciliation(self):
+    def test_replenished_provisional_sale_return_restores_purchase_cost(self):
         item = self.post('/records', {'kind': 'item', 'name': 'Widget', 'data': {'track_stock': True}}).json()
         def document(kind, rate, source=None):
             data = {'lines': [{'item_id': item['id'], 'description': 'Widget', 'quantity': 5, 'rate': rate, 'gst_rate': 0}]}
@@ -44,10 +44,10 @@ class ControlGuardTest(__import__('unittest').TestCase):
         self.assertEqual(sale.status_code, 200, sale.text)
         self.assertEqual(document('purchase_bill', 60).status_code, 200)
         result = document('credit_note', 100, sale.json()['id'])
-        self.assertEqual(result.status_code, 409, result.text)
+        self.assertEqual(result.status_code, 200, result.text)
         stock = self.client.get(self.base + '/reports/stock?from_date=2026-11-01&to_date=2026-11-30', headers=self.headers).json()['rows'][0]
-        self.assertEqual(stock['closing_quantity'], '0.000')
-        self.assertEqual(stock['closing_value'], '0.00')
+        self.assertEqual(stock['closing_quantity'], '5.000')
+        self.assertEqual(stock['closing_value'], '300.00')
 
     def test_payment_derived_credit_cannot_change_party_balance_or_amendment(self):
         for source_kind, payment_kind, side in [('sales_invoice','payment_in','receivable'),('purchase_bill','payment_out','payable')]:

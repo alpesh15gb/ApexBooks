@@ -596,7 +596,11 @@ def posting_lines(kind, amount, data, tax_mode):
         for tax_key in tax:
             add('output_' + tax_key, debit=tax[tax_key] if reverse else Decimal('0'), credit=Decimal('0') if reverse else tax[tax_key])
         add('inventory', debit=stock_cost if reverse else Decimal('0'), credit=Decimal('0') if reverse else stock_cost)
-        add('cogs', debit=Decimal('0') if reverse else stock_cost, credit=stock_cost if reverse else Decimal('0'))
+        purchase_variance = sum((Decimal(str(line.get('return_purchase_variance', '0'))) for line in data.get('lines', [])), Decimal('0')) if reverse else Decimal('0')
+        cogs_credit = stock_cost - purchase_variance
+        add('cogs', debit=max(-cogs_credit, Decimal('0')) if reverse else stock_cost, credit=max(cogs_credit, Decimal('0')) if reverse else Decimal('0'))
+        if reverse:
+            add('purchases', debit=max(-purchase_variance, Decimal('0')), credit=max(purchase_variance, Decimal('0')))
         adjustment = round_off * (-1 if reverse else 1)
         add('rounding', debit=max(-adjustment,Decimal(0)), credit=max(adjustment,Decimal(0)))
     elif kind in {'purchase_bill', 'debit_note'}:
@@ -751,7 +755,7 @@ def calculate(data, company, tax_mode, kind, session):
             supply_values[treatment] += base
             if itc_treatment == 'pending_review': pending_input_tax += line_tax
             # Valuation is derived from stock movements, never accepted from a client.
-            line = {key: value for key, value in line.items() if key not in {'inventory_cost', 'legacy_shortage_cost', 'shortage_cost', 'shortage_quantity', 'stock_cost_provisional', 'return_cost_basis'}}
+            line = {key: value for key, value in line.items() if key not in {'inventory_cost', 'legacy_shortage_cost', 'shortage_cost', 'shortage_quantity', 'stock_cost_provisional', 'return_cost_basis', 'return_purchase_variance', 'return_cost_reconciliation'}}
             cleaned.append({**line, 'description': description, 'hsn': hsn, 'gross': str(gross),
                             'discount_percent': str(discount_percent), 'discount': str(discount),'document_discount':str(document_discount_value),
                             'taxable': str(base), 'tax': str(line_tax), 'itc_treatment': itc_treatment,
@@ -785,14 +789,6 @@ def calculate(data, company, tax_mode, kind, session):
     data={**data,'round_off':str(rounded-total)}
     return data, money(rounded)
 
-def require_final_return_cost(source_lines):
-    # A negative-stock sale is only provisionally costed. Later replenishment
-    # variances are expensed separately, not allocated back to its source lines.
-    # Reusing that stale cost would misstate inventory when the goods return.
-    if any(line.get('stock_cost_provisional') or Decimal(str(line.get('shortage_quantity', '0'))) > 0
-           for line in source_lines):
-        raise HTTPException(409, 'Source sale has provisional negative-stock cost; reconcile its valuation before recording a physical return')
-
 def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session):
     if kind not in {'purchase_bill', 'debit_note', 'sales_invoice', 'pos', 'credit_note'}: return data
     if kind in {'credit_note','debit_note'} and data.get('return_stock') is False:
@@ -808,15 +804,17 @@ def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session)
         released = -held_value if covered == -held_qty else money(-held_value * covered / -held_qty)
         return basis - money(basis * covered / qty) + released
     previous_notes = {}
+    previous_purchase_variance = {}
     if target and kind in {'credit_note', 'debit_note'}:
         posted_notes = select(RecordPosting.record_id).where(RecordPosting.company_id == company_id)
-        for note in session.scalars(select(Record).where(Record.company_id == company_id, Record.kind.in_([kind, 'stock_return'] if kind == 'credit_note' else [kind]), Record.id.in_(posted_notes))):
+        for note in session.scalars(select(Record).where(Record.company_id == company_id, Record.kind.in_([kind, 'stock_return'] if kind == 'credit_note' else [kind]), or_(Record.id.in_(posted_notes), (Record.kind == 'stock_return') & Record.id.in_(select(StockMovement.source_record_id).where(StockMovement.company_id == company_id))))):
             if note.data.get('applied_to') != target.id or note.data.get('return_stock') is False: continue
             for line in note.data.get('lines', []):
                 item_id = line.get('item_id')
                 if item_id:
                     if 'inventory_cost' not in line:
                         raise HTTPException(409, 'Older stock return has no valuation; migrate it before posting')
+                    previous_purchase_variance[item_id] = previous_purchase_variance.get(item_id, Decimal('0')) + Decimal(str(line.get('return_purchase_variance', '0')))
                     qty, cost = previous_notes.get(item_id, (Decimal('0'), Decimal('0')))
                     previous_notes[item_id] = (qty + Decimal(str(line['quantity'])),
                                                cost + Decimal(str(line.get('return_cost_basis', line.get('inventory_cost', '0')))))
@@ -871,12 +869,23 @@ def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session)
                 cost = inventory
             held_qty += qty; held_value += cost
         elif kind == 'credit_note':
-            require_final_return_cost(source_lines)
             source_cost = sum((Decimal(str(original.get('inventory_cost', '0'))) for original in source_lines), Decimal('0'))
+            purchase_variance = Decimal('0')
+            if any(original.get('stock_cost_provisional') or Decimal(str(original.get('shortage_quantity', '0'))) > 0 for original in source_lines):
+                from inventory_reconciliation import reconciled_source_cost
+                source_cost, purchase_variance, evidence = reconciled_source_cost(sys.modules[__name__], company_id, item_id, target, session)
+                line['return_cost_reconciliation'] = evidence
             remaining_qty = source_qty - prior_qty - (now_qty - qty)
             # Keep nominal returned cost separate from inventory absorbed by
             # another sale's deficit, so partial returns cannot consume it twice.
-            cost = source_cost - prior_cost - sum((Decimal(str(other.get('return_cost_basis', other.get('inventory_cost', '0')))) for other in valued if other.get('item_id') == item_id), Decimal('0')) if qty == remaining_qty else money(source_cost * qty / source_qty)
+            remaining_cost = source_cost - prior_cost - sum((Decimal(str(other.get('return_cost_basis', other.get('inventory_cost', '0')))) for other in valued if other.get('item_id') == item_id), Decimal('0'))
+            if remaining_cost < 0: raise HTTPException(409, 'Prior returns exceed source cost; review historical valuation')
+            cost = remaining_cost if qty == remaining_qty else min(remaining_cost, money(source_cost * qty / source_qty))
+            returned_variance = previous_purchase_variance.get(item_id, Decimal('0')) + sum((Decimal(str(other.get('return_purchase_variance', '0'))) for other in valued if other.get('item_id') == item_id), Decimal('0'))
+            remaining_variance = purchase_variance - returned_variance
+            proposed_variance = money(purchase_variance * qty / source_qty)
+            allocated_variance = min(max(proposed_variance, min(remaining_variance, Decimal('0'))), max(remaining_variance, Decimal('0')))
+            line['return_purchase_variance'] = str(remaining_variance if qty == remaining_qty else allocated_variance)
             line['return_cost_basis'] = str(cost)
             cost = receipt_cost(qty, cost, held_qty, held_value)
             held_qty += qty; held_value += cost
