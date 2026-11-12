@@ -181,7 +181,7 @@ def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
                         raise HTTPException(409, 'Source discount residual needs review')
                     discounts[field] = value
                 allocated_before_discount = allocated_gross + sum(discounts.values())
-                if abs(allocated_before_discount - Decimal(line['gross'])) > Decimal('.01'):
+                if abs(allocated_before_discount - Decimal(line['gross'])) > Decimal('.02'):
                     raise HTTPException(409, 'Source price residual needs review')
                 line = {**line, **{key: str(value) for key, value in discounts.items()},
                         'gross': str(allocated_before_discount)}

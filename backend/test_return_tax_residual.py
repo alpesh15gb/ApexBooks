@@ -143,9 +143,9 @@ class ReturnTaxResidualTest(unittest.TestCase):
                 self.note(source,[{**source['data']['lines'][0],'quantity':1}],422)
 
     def test_unchanged_line_discount_residuals_preserve_each_source_component(self):
-        for rate,document_discount,expected in [('.37',0,'1.03'),('.03',5,'.08')]:
+        for rate,line_discount,document_discount,expected in [('.37',7,0,'1.03'),('.03',7,5,'.08'),('.13',13,5,'.32')]:
             self.source(['pending_review'])
-            response=self.post('/records',{'kind':'purchase_bill','name':'Supplier','date':'2026-11-01','data':{'place_of_supply':'27','document_discount_percent':document_discount,'lines':[{'description':'Line discount residual','quantity':3,'rate':rate,'discount_percent':7,'gst_rate':18,'price_includes_tax':True}]}})
+            response=self.post('/records',{'kind':'purchase_bill','name':'Supplier','date':'2026-11-01','data':{'place_of_supply':'27','document_discount_percent':document_discount,'lines':[{'description':'Line discount residual','quantity':3,'rate':rate,'discount_percent':line_discount,'gst_rate':18,'price_includes_tax':True}]}})
             self.assertEqual(response.status_code,200,response.text);source=response.json();notes=[]
             for unused in range(3):
                 body=self.body(source,[{**source['data']['lines'][0],'quantity':1}]);body['data']['document_discount_percent']=document_discount
