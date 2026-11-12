@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { registerPostingRequest } from "./postingRegistry.js";
 import { X } from "lucide-react";
 
-export default function MasterForm({ kind, close: onClose, save, record, features = [] }) {
+export default function MasterForm({ kind, close: onClose, save, record, features = [], readOnly = false }) {
   const supported = feature => supportsFeature(features, feature);
   const isParty = kind === "party";
   const [form, setForm] = useState({
@@ -60,6 +60,7 @@ export default function MasterForm({ kind, close: onClose, save, record, feature
   const update=event=>{const key=event.target.name,value=event.target.value;setForm(current=>({...current,[key]:value,...(key==='gst_rate'?{tax_treatment:Number(value)>0?'taxable':current.tax_treatment==='taxable'?'nil_rated':current.tax_treatment}:key==='tax_treatment'&&value!=='taxable'?{gst_rate:'0'}:{})}))};
   async function submit(event) {
     event.preventDefault();
+    if (readOnly) { setError("You have read-only access. Your draft is preserved; ask the owner for editor access before saving."); return; }
     if (operation.current.busy) return;
     if (!form.name.trim()) { setError(`Enter a ${isParty ? "party" : "item"} name.`); return; }
     operation.current.busy = true;
@@ -125,9 +126,10 @@ export default function MasterForm({ kind, close: onClose, save, record, feature
             <X size={18} />
           </button>
         </div>
+        {readOnly && <p className="info-box">Read-only access: your draft is preserved, but saving requires editor access.</p>}
         <form className="form-grid" onSubmit={submit} onChangeCapture={() => setDirty(true)} aria-busy={busy}>
           {discard && <div className="info-box full" role="alert"><strong>Discard unsaved changes?</strong><p>Your {isParty ? "party" : "item"} details have not been saved.</p><div className="modal-actions"><button ref={keepEditingButton} type="button" className="button secondary" onClick={keepEditing}>Keep editing</button><button type="button" className="button danger-outline" onClick={onClose}>Discard changes</button></div></div>}
-          <fieldset className="form-grid full submission-fields" disabled={busy}>
+          <fieldset className="form-grid full submission-fields" disabled={busy || readOnly}>
           {!supported("master_lifecycle") && <p className="info-box full">Advanced master settings need an updated connected API. Core details can still be saved; unsupported settings will not be submitted.</p>}
           <label className="full">
             {isParty ? "Party name" : "Item name"}
@@ -206,7 +208,7 @@ export default function MasterForm({ kind, close: onClose, save, record, feature
             </>
           ) : (
             <>
-              <div className="full"><label>Item image<input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={async e=>{const file=e.target.files?.[0];if(!file || operation.current.busy)return;operation.current.busy=true;setBusy(true);setError('');try{const [image,thumbnail]=await Promise.all([imageInput(file,600,64000),imageInput(file,160,15000)]);setForm(current=>({...current,image_data_url:image,image_thumbnail:thumbnail}))}catch(err){setError(err.message)}finally{operation.current.busy=false;setBusy(false);e.target.value=''}}}/></label>{(form.image_data_url||form.image_thumbnail)&&<><img src={form.image_data_url||form.image_thumbnail} alt="Item preview" style={{maxWidth:150,maxHeight:120}}/><button className="link" type="button" onClick={()=>{setDirty(true);setForm({...form,image_data_url:'',image_thumbnail:''});}}>Remove item image</button></>}</div>
+              <div className="full"><label>Item image<input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy || readOnly} onChange={async e=>{const file=e.target.files?.[0];if(!file || operation.current.busy)return;operation.current.busy=true;setBusy(true);setError('');try{const [image,thumbnail]=await Promise.all([imageInput(file,600,64000),imageInput(file,160,15000)]);setForm(current=>({...current,image_data_url:image,image_thumbnail:thumbnail}))}catch(err){setError(err.message)}finally{operation.current.busy=false;setBusy(false);e.target.value=''}}}/></label>{(form.image_data_url||form.image_thumbnail)&&<><img src={form.image_data_url||form.image_thumbnail} alt="Item preview" style={{maxWidth:150,maxHeight:120}}/><button className="link" type="button" onClick={()=>{setDirty(true);setForm({...form,image_data_url:'',image_thumbnail:''});}}>Remove item image</button></>}</div>
               <label>
                 Item type
                 <select
@@ -304,7 +306,7 @@ export default function MasterForm({ kind, close: onClose, save, record, feature
             <button type="button" className="button secondary" onClick={close} disabled={busy}>
               Cancel
             </button>
-            <button className="button primary" disabled={busy}>
+            <button className="button primary" disabled={busy || readOnly}>
               {busy ? "Saving…" : `Save ${isParty ? "party" : "item"}`}
             </button>
           </div>

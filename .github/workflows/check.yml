@@ -106,6 +106,9 @@ jobs:
         run: |
           python3 native/tests/AndroidPdfLoading/check.py
           python3 native/tests/AndroidCoreRefresh/check.py
+          python3 native/tests/AndroidCashBook/check.py
+          python3 native/tests/AndroidEditorAccess/check.py
+          python3 native/tests/AndroidSourceSelection/check.py
       - name: Verify restored-company navigation survives dialog disposal
         run: python3 native/tests/AndroidLifecycle/check.py
       - uses: actions/upload-artifact@v4

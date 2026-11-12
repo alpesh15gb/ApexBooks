@@ -1,3 +1,4 @@
+import {captureCompanyAccess} from './companyAccess.js';
 import {captureSession} from './sessionScope.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { usePostingRequest } from './usePostingRequest.js';
@@ -46,10 +47,11 @@ export default function DocumentAttachments({ companyId, recordId, role, api, on
     setDownloading(row.id); setError('');
     try {
       const verifySession = captureSession();
+      const access = captureCompanyAccess(`/api/companies/${companyId}`);
       const response = await api(`/companies/${companyId}/attachments/${row.id}/download`,{rawResponse:true,signal:controller.signal});
       const blob = await verifiedReceiptDownload(response,row);
       if (scope.current !== current || controller.signal.aborted) return;
-      verifySession();
+      verifySession(); access?.verify();
       const url = URL.createObjectURL(blob), link = document.createElement('a');
       link.href = url; link.download = safeReceiptFilename(row.filename); link.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
     } catch (e) { if (scope.current === current && !controller.signal.aborted) setError(e.message); }

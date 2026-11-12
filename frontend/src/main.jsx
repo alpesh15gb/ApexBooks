@@ -1,3 +1,4 @@
+import {setActiveCompanyAccess,allowCompanyRecovery,blockCompanyAccess} from './companyAccess.js';
 import JournalSource from './JournalSource.jsx';
 import SessionBoundary from './SessionBoundary.jsx';
 import {acceptLocalSession, requireCurrentSession} from './sessionScope.js';
@@ -172,7 +173,7 @@ const api = async (path, options = {}) => {
       ...options.headers,
     },
   }); } catch (failure) {
-    if (failure.name === "AbortError") throw failure;
+    if (failure.name === "AbortError" || failure.companyAccess) throw failure;
     const error = new Error(apiErrorMessage(0, {}, mutation));
     error.status = 0;
     throw error;
@@ -504,6 +505,8 @@ function App() {
     [relatedSource, setRelatedSource] = useState(null),
     [draftSeed, setDraftSeed] = useState(null),
     [reorderCreated, setReorderCreated] = useState(null),
+    [accessLost, setAccessLost] = useState(false),
+    [accessRecovering, setAccessRecovering] = useState(false),
     [detail, setDetail] = useState(null),
     [detailLoading, setDetailLoading] = useState(false),
     [detailError, setDetailError] = useState(""),
@@ -532,6 +535,7 @@ function App() {
   const acceptedSession = useRef(localStorage.token);
   const activeCompany = useRef(companyId);
   activeCompany.current = companyId;
+  setActiveCompanyAccess(companyId);
   const workspaceScope = useRef(createRequestScope(companyId));
   workspaceScope.current.setContext(companyId);
   const editorRequests = useRef(createRequestScope(companyId));
@@ -539,6 +543,34 @@ function App() {
   const recordsAbort = useRef(null);
   const recordsReady = recordsCompanyId === companyId;
   const records = recordsReady ? rawRecords : EMPTY_RECORDS;
+  useEffect(() => {
+    const lost = event => {
+      if (event.detail.id !== activeCompany.current) return;
+      setAccessLost(true); setRecords([]); setRecordsCompanyId(""); setPartyBalances(null);
+      setDetail(null); setActiveParty(null); setRemindOverdue(false); setOpenAfterSave(null);
+      editorRequests.current.latest(); setRecordsLoading(false);
+    };
+    const role = event => { const company = event.detail.company; if (company.id === activeCompany.current) setCompanies(rows => rows.map(row => row.id === company.id ? {...row,...company} : row)); };
+    window.addEventListener('apex-company-access-lost', lost); window.addEventListener('apex-company-access-role', role);
+    return () => { window.removeEventListener('apex-company-access-lost', lost); window.removeEventListener('apex-company-access-role', role); };
+  }, []);
+  async function recoverCompanyAccess() {
+    if (accessRecovering) return;
+    const id = companyId, session = localStorage.token;
+    setAccessRecovering(true);
+    try {
+      const data = await api('/companies');
+      if (activeCompany.current !== id || localStorage.token !== session) return;
+      const found = data.find(row => row.id === id);
+      if (!found) throw Error('This company is no longer available to your account. Ask its owner to restore access. Your draft remains preserved in this tab.');
+      setCompanies(data); allowCompanyRecovery(id);
+      const rows = await loadRecords(id);
+      if (activeCompany.current !== id || localStorage.token !== session) return;
+      if (!rows) { blockCompanyAccess(id); return; }
+      setAccessLost(false); setError('');
+    } catch (reason) { if (activeCompany.current === id && localStorage.token === session) setError(reason.message); }
+    finally { setAccessRecovering(false); }
+  }
   async function loadCompanies() {
     const requestToken = localStorage.token;
     try {
@@ -611,6 +643,7 @@ function App() {
   }, [signed]);
   useEffect(() => {
     activeCompany.current = companyId;
+    setAccessLost(false);
     setError("");
     setRecords([]);
     setRecordsCompanyId("");
@@ -1074,7 +1107,7 @@ function App() {
   }, [page, modal, detail]);
   if (!signed) return <Auth onLogin={() => { acceptedSession.current = localStorage.token; setSigned(true); }} />;
   return (
-    <div className="app">
+    <><div className="app" data-company-locked={accessLost ? "true" : "false"} hidden={accessLost} inert={accessLost ? true : undefined}>
       <a className="skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); document.getElementById('workspace-content')?.focus(); }}>Skip to content</a>
       <WorkspaceSidebar open={menu} onClose={() => setMenu(false)}>
         <div className="brand workspace-brand"><span className="workspace-brand-symbol"><BookOpen size={23} /></span><span>Apex<span className="workspace-brand-light">Books</span><small>BUSINESS ACCOUNTING</small></span></div>
@@ -1825,6 +1858,7 @@ function App() {
         company &&
         (["party", "item"].includes(page) ? (
           <MasterForm
+            readOnly={!["owner", "editor"].includes(company?.role)}
             features={features}
             kind={page}
             record={editingMaster}
@@ -1875,7 +1909,7 @@ function App() {
           save={saveStockAdjustment}
         />
       )}
-    </div>
+    </div>{accessLost && <div className="overlay"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="company-access-title"><h2 id="company-access-title">Company access removed or unavailable</h2><p>This company workspace is locked. Your unsaved draft remains in memory in this tab; no draft has been discarded.</p><p role="alert">{error || 'Refresh access after the company owner restores your permissions.'}</p><button className="button primary" disabled={accessRecovering} onClick={recoverCompanyAccess}>{accessRecovering ? 'Checking access…' : 'Refresh company access'}</button></section></div>}</>
   );
 }
 function Prefixes({ companyId, role }) {

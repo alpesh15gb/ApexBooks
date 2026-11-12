@@ -158,12 +158,13 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     private fun loadSource(id:String){
         val request=++sourceSequence
         if(id.isBlank()){set("applied_to","");returnSourceLines.clear();return}
+        val access=vm.readStamp()
         val originalDraft=body().toString()
         sourceLoading=true
         vm.task{
             try{
                 val row=vm.api.record(companyId,id)
-                if(vm.editor!==this||sourceSequence!=request||!vm.inWorkspace(companyId,workspaceStamp))return@task
+                if(vm.editor!==this||sourceSequence!=request||!vm.inWorkspace(companyId,workspaceStamp)||!vm.canRead(companyId,access))return@task
                 if(body().toString()!=originalDraft){vm.notice="Draft changed while source loaded. Review it and choose the source again.";return@task}
                 val data=row.o("data")
                 val stagedLines=row.a("return_capacity_lines").objects().ifEmpty{data.a("lines").objects()}.filter{additionalReturnQuantity(it.s("return_capacity_scope"),it.s("remaining_return_quantity")).toBigDecimalOrNull()?.signum()!=0}.map{row->LineState(row,regular).also{it.set("quantity",additionalReturnQuantity(row.s("return_capacity_scope"),row.s("remaining_return_quantity")))}}
@@ -175,7 +176,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
                 lines.clear();lines.addAll(stagedLines);preview=null;previewError=""
             }catch(e:Exception){
                 if(e is kotlinx.coroutines.CancellationException)throw e
-                if(vm.editor===this&&sourceSequence==request&&vm.inWorkspace(companyId,workspaceStamp))throw e
+                if(vm.editor===this&&sourceSequence==request&&vm.inWorkspace(companyId,workspaceStamp)&&vm.canRead(companyId,access))throw e
             }finally{if(request==sourceSequence)sourceLoading=false}
         }
     }

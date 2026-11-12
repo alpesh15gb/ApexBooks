@@ -4,6 +4,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import com.apexbooks.accounting.data.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import org.json.JSONObject
 
 @Composable fun PeriodLockTool(vm:AppModel) {
@@ -55,12 +57,14 @@ import org.json.JSONObject
     fun query(filters:Triple<String,String,String>)="?from_date=${filters.first}&to_date=${filters.second}&bank_account_id=${encode(filters.third)}"
     LaunchedEffect(cid,requested,attempt) {
         loading=true;failure=""
-        val snapshot=requested
+        val snapshot=requested;val access=vm.readStamp()
         try {
             val result=vm.api.request(vm.api.company(cid,"/cash-book"+query(snapshot)))
+            currentCoroutineContext().ensureActive()
+            if(!vm.canRead(cid,access)||vm.tool!="cashbook")return@LaunchedEffect
             report=result;applied=snapshot
         } catch(e:CancellationException) { throw e }
-          catch(e:Exception) { failure=e.message?:"Could not load cash book." }
+          catch(e:Exception) { if(vm.canRead(cid,access)&&vm.tool=="cashbook")failure=e.message?:"Could not load cash book." }
         finally { loading=false }
     }
     ActionDialog("Cash and bank book",vm,confirm="Done",onDismiss={vm.tool=""},onSave={vm.tool=""}) {
@@ -70,10 +74,10 @@ import org.json.JSONObject
         if(loading) Text("Loading report…")
         if(failure.isNotBlank()) Text(failure)
         Text("Exports use the filters of the displayed report. Apply edited filters to update it.")
-        applied?.let { Text("Displayed: ${it.first} to ${it.second}") }
-        for(fmt in listOf("pdf","xlsx")) OutlinedButton(enabled=applied!=null,onClick={
-            val snapshot=applied?:return@OutlinedButton
-            vm.task { vm.files.save(vm.api.bytes(vm.api.company(cid,"/cash-book.$fmt"+query(snapshot))),"cash-book.$fmt") }
+        applied?.let { filters -> Text("Displayed: ${filters.first} to ${filters.second} · Bank ${vm.banks.find{it.s("id")==filters.third}?.s("name")?:filters.third}") }
+        for(fmt in listOf("pdf","xlsx")) OutlinedButton(enabled=vm.recordsReady&&applied!=null,onClick={
+            val snapshot=applied?:return@OutlinedButton;val access=vm.readStamp()
+            vm.task { val bytes=vm.api.bytes(vm.api.company(cid,"/cash-book.$fmt"+query(snapshot)));if(vm.canRead(cid,access)&&vm.tool=="cashbook")vm.files.save(bytes,"cash-book.$fmt") }
         }) { Text("Export ${fmt.uppercase()}") }
         (report as? JSONObject)?.s("ordering_note")?.takeIf{it.isNotBlank()}?.let{Text(it)}
         ReportContent(report)

@@ -1,3 +1,4 @@
+import {captureCompanyAccess,checkCompanyDenial} from './companyAccess.js';
 let acceptedToken = globalThis.localStorage?.token || '';
 export function sessionMatches() { return (globalThis.localStorage?.token || '') === acceptedToken; }
 export function acceptLocalSession() {
@@ -20,8 +21,10 @@ export function captureSession() {
   };
 }
 export async function sessionFetch(...args) {
-  const verify = captureSession();
+  const verifySession = captureSession(); const company = captureCompanyAccess(args[0]);
+  const verify = () => { verifySession(); company?.verify(); };
   const response = await globalThis.fetch(...args); verify();
+  await checkCompanyDenial(company, response.status, verifySession);
   let body;
   return new Proxy(response, {get(target, key) {
     if (key === 'body' && target.body?.getReader) {

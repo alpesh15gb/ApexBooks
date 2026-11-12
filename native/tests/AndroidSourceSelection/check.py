@@ -4,7 +4,10 @@ No Android runtime, device, server, credentials or production access is used.
 from pathlib import Path
 import argparse,os,subprocess,tempfile
 root=Path(__file__).resolve().parents[3]
-p=argparse.ArgumentParser();p.add_argument('--kotlin-home',type=Path,required=True);args=p.parse_args()
+import sys
+sys.path.insert(0,str(root/'native/tests'))
+from kotlin_toolchain import add_arguments,run_proof
+p=argparse.ArgumentParser();add_arguments(p);args=p.parse_args()
 source=(root/'native/android/app/src/main/java/com/apexbooks/accounting/EntryEditor.kt').read_text()
 methods=source[source.index('    fun chooseSource(id:String)'):source.index('    fun body():JSONObject')]
 screen=(root/'native/android/app/src/main/java/com/apexbooks/accounting/EntryScreen.kt').read_text()
@@ -27,7 +30,7 @@ class Api {
  val pending=mutableMapOf<String,CompletableDeferred<JSONObject>>();var calls=0
  suspend fun record(company:String,id:String):JSONObject {calls++;return pending.getOrPut(id){CompletableDeferred()}.await()}
 }
-class Model(val scope:CoroutineScope){val api=Api();var editor:Editor?=null;var stamp=1;var notice="";var error="";val jobs=mutableListOf<Job>()
+class Model(val scope:CoroutineScope){val api=Api();var editor:Editor?=null;var stamp=1;var readEpoch=0;var recordsReady=true;fun readStamp()=readEpoch;fun canRead(id:String,access:Int)=recordsReady&&access==readEpoch;var notice="";var error="";val jobs=mutableListOf<Job>()
  fun inWorkspace(company:String,version:Int)=company=="company"&&stamp==version
  fun task(action:suspend()->Unit){jobs+=scope.launch{try{action()}catch(e:Exception){error=e.message?:"failed"}}}
  suspend fun finish(){jobs.toList().forEach{it.join()}}
@@ -55,14 +58,12 @@ fun main()=runBlocking {
  suspend fun fresh():Pair<Model,Editor>{val m=Model(this);val e=Editor(m);m.editor=e;return m to e}
  run {val(m,e)=fresh();val before=e.body().toString();e.chooseSource("new");yield();check(e.sourceLoading&&e.body().toString()==before);m.api.pending["new"]!!.completeExceptionally(Exception("503 synthetic"));m.finish();check(e.body().toString()==before&&!e.sourceLoading);e.chooseSource("retry");yield();m.api.pending["retry"]!!.complete(row("retry"));m.finish();check(e.get("applied_to")=="retry"&&e.get("name")=="Supplier retry");println("PASS failed fetch preserves draft and retry atomically replaces it")}
  run {val(m,e)=fresh();e.dirty=true;e.chooseSource("new");check(e.requestedSource=="new"&&m.api.calls==0);e.cancelSourceChange();check(e.requestedSource==null&&e.get("applied_to")=="old");e.chooseSource("new");e.confirmSourceChange();yield();m.api.pending["new"]!!.complete(row("new"));m.finish();check(e.get("applied_to")=="new");println("PASS dirty replacement waits for confirmation; Keep editing preserves draft")}
- for(stale in listOf("company","editor","draft")){val(m,e)=fresh();e.chooseSource("new");yield();when(stale){"company"->m.stamp++;"editor"->m.editor=Editor(m);else->e.set("name","Edited meanwhile")};m.api.pending["new"]!!.complete(row("new"));m.finish();check(e.get("applied_to")=="old");println("PASS stale $stale response cannot replace draft")}
+ for(stale in listOf("company","editor","draft","denied","recovered","denied-error","recovered-error")){val(m,e)=fresh();e.chooseSource("new");yield();when(stale){"company"->m.stamp++;"editor"->m.editor=Editor(m);"denied","denied-error"->{m.recordsReady=false;m.readEpoch++};"recovered","recovered-error"->{m.readEpoch++;m.recordsReady=true};else->e.set("name","Edited meanwhile")};if(stale.endsWith("error"))m.api.pending["new"]!!.completeExceptionally(Exception("obsolete error"))else m.api.pending["new"]!!.complete(row("new"));m.finish();check(e.get("applied_to")=="old");check(m.error.isBlank());println("PASS stale $stale response cannot replace draft")}
  run {val(m,e)=fresh();val before=e.body().toString();e.chooseSource("bad");yield();m.api.pending["bad"]!!.complete(row("bad","malformed"));m.finish();check(e.body().toString()==before);println("PASS parse failure preserves draft")}
  run {val(m,e)=fresh();e.chooseSource("new");e.chooseSource("duplicate");yield();check(m.api.calls==1);m.api.pending["new"]!!.completeExceptionally(Exception("failed"));m.finish();println("PASS pending source change is single-flight")}
 }
 '''
 with tempfile.TemporaryDirectory(prefix='apex-source-selection-') as temp:
  path=Path(temp);(path/'Proof.kt').write_text(fixture)
- cp=os.pathsep.join(str(x) for x in (args.kotlin_home/'lib').glob('*.jar'))
- subprocess.run(['java','-cp',cp,'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler','-kotlin-home',str(args.kotlin_home),'-classpath',cp,'-d',str(path/'proof.jar'),str(path/'Proof.kt'),str(root/'native/android/app/src/main/java/com/apexbooks/accounting/ReturnCapacity.kt')],check=True)
- subprocess.run(['java','-cp',str(path/'proof.jar')+os.pathsep+cp,'ProofKt'],check=True)
+ run_proof(args,[path/'Proof.kt',root/'native/android/app/src/main/java/com/apexbooks/accounting/ReturnCapacity.kt'],path)
 print('Save & new Review placement/reset/retry wiring assertions passed; full Compose/device acceptance remains required.')

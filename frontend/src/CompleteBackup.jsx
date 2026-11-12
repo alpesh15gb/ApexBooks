@@ -1,3 +1,4 @@
+import {captureCompanyAccess} from './companyAccess.js';
 import {captureSession} from './sessionScope.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { Download, Upload, ShieldCheck } from 'lucide-react';
@@ -43,6 +44,7 @@ export default function CompleteBackup({ companyId, api, onRestored }) {
     const selected = exportJob, secret = password;
     perform(async signal => {
       const verifySession = captureSession();
+      const access = captureCompanyAccess(`/api/companies/${companyId}`);
       if (!secret && !plainAccepted) throw Error('Acknowledge that the unencrypted file contains private financial information.');
       if (secret && secret.length < 12) throw Error('Use a backup password of at least 12 characters.');
       validateBackupManifest(selected, secret ? MAX_BACKUP_PLAINTEXT_BYTES : MAX_WEB_ARCHIVE_BYTES);
@@ -52,7 +54,7 @@ export default function CompleteBackup({ companyId, api, onRestored }) {
       }, { signal, maximumBytes: secret ? MAX_BACKUP_PLAINTEXT_BYTES : MAX_WEB_ARCHIVE_BYTES, onProgress: setProgress });
       const output = secret ? new Blob([await encryptPortableBackup(await blob.arrayBuffer(), secret, { signal })], { type: 'application/json' }) : blob;
       if (signal.aborted || !alive.current) return;
-      verifySession();
+      verifySession(); access?.verify();
       saveFile(output, `apex-complete-${companyId.slice(0, 8)}-${businessDate()}.${secret ? 'apexbackup' : 'zip'}`);
       setSuccess(`Complete backup downloaded with ${selected.attachment_count || 0} retained receipts. Keep the file${secret ? ' and password' : ''} securely. The snapshot remains available until expiry or cancellation.`);
     });

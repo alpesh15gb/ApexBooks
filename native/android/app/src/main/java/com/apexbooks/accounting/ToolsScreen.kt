@@ -20,14 +20,13 @@ import java.math.BigDecimal
     val draft=remember(cid,scope){vm.toolDraft(scope)}
     // Only financial inputs are retained. Password/recovery inputs remain ephemeral.
     val v=if(protectedWrite)draft.values else remember{mutableStateMapOf<String,String>()}
-    var report by remember{mutableStateOf<Any?>(null)};var selected by remember{mutableStateOf("default")};var load by remember{mutableIntStateOf(0)}
+    var report by remember{mutableStateOf<Any?>(null)}
     val retry=draft.key;val submission=draft.submission;var unresolved by remember(cid,scope){mutableStateOf(submission.unresolved)}
     fun close(){vm.finishToolDraft(scope);vm.tool="";vm.toolData=null;vm.error=""}
     fun bankChoices()=vm.banks.map{it.s("id") to it.s("name")}
     val sources=vm.records.filter{it.decimal(if(tool=="settle_credit")"credit_remaining"else"advance_remaining")>BigDecimal.ZERO}
     LaunchedEffect(Unit){if(v.isEmpty()){v.putAll(mapOf("date" to today(),"amount" to "","name" to "","number" to "","kind" to "sales_invoice","year" to financialStart().take(4),"balance_kind" to "receivable","party_id" to "","bank_account_id" to (original?.s("bank_account_id")?.ifBlank{null}?:"default"),"to_bank_account_id" to "default","direction" to "cash_to_bank","adjustment" to "increase","category" to "asset","method" to "cash","source" to (original?.s("source")?.takeIf{id->sources.any{it.s("id")==id}}?:sources.firstOrNull()?.s("id")?:""),"action" to "apply","target" to "","format" to "xlsx","export_kind" to "all","from" to financialStart(),"to" to today()));if(original?.s("kind")=="bank_transfer"){for(key in listOf("name","number","date","amount"))v[key]=original.s(key);for(key in listOf("bank_account_id","to_bank_account_id","direction"))if(data.s(key).isNotBlank())v[key]=data.s(key)}}
         try{when(tool){"period"->report=vm.api.request(vm.api.company(cid,"/period-lock"));"prefixes"->report=vm.api.request(vm.api.company(cid,"/number-series"));"audit"->report=vm.api.request(vm.api.company(cid,"/audit-events"));"recovery_saved"->report=original;"cashbook"->Unit}}catch(e:Exception){vm.failure(e)}}
-    LaunchedEffect(tool,load){if(tool=="cashbook")try{report=vm.api.request(vm.api.company(cid,"/cash-book?from_date=${v["from"]?:financialStart()}&to_date=${v["to"]?:today()}&bank_account_id=${encode(selected)}"))}catch(e:Exception){vm.failure(e)}}
     val readOnly=tool in setOf("audit","cashbook","recovery_saved")
     val title=mapOf("bank_new" to "Add bank account","transfer" to "Cash and bank transfer","stock_opening" to "Opening stock","stock_adjust" to "Stock adjustment","openings" to "Opening balance","prefixes" to "Transaction prefixes","period" to "Lock accounting period","security" to "Password and sessions","recovery" to "Generate recovery codes","recovery_saved" to "Save your recovery codes","backup" to "Download company backup","data_export" to "Export company data","audit" to "Audit history","ledger_account" to "Add ledger account","reverse_journal" to "Reverse journal","cashbook" to "Cash and bank book","settle_credit" to "Apply or refund note credit","settle_advance" to "Apply or refund advance")[tool]?:friendly(tool)
     ActionDialog(title,vm,unresolved={unresolved},confirm=if(unresolved)"Retry original save"else if(readOnly)"Done"else if(tool in setOf("backup","data_export"))"Download"else if(tool=="period")"Lock through date"else"Save",onDismiss=::close,onSave={
@@ -73,7 +72,6 @@ fun root(suffix:String)=vm.api.company(cid,suffix)
             "backup"->{Text("Keep your backup and password securely. The password cannot be recovered.");ToolInput(v,"password","Optional password · at least 12 characters",password=true,maximum=128)}
             "data_export"->{Choice("Data",value("export_kind"),listOf("all" to "Full company JSON","party" to "Parties","item" to "Items","reconciliation" to "Vyapar reconciliation","archive" to "Vyapar source archive"),{v["export_kind"]=it});if(value("export_kind")in setOf("party","item"))Choice("Format",value("format"),listOf("xlsx" to "XLSX","csv" to "CSV","pdf" to "PDF"),{v["format"]=it})}
             "audit"->ReportContent(report)
-            "cashbook"->{Choice("Bank account · cash included",selected,bankChoices(),{selected=it});DateField("From",value("from"),{v["from"]=it});DateField("To",value("to"),{v["to"]=it});Button(onClick={load++}){Text("Apply dates")};for(fmt in listOf("pdf","xlsx"))OutlinedButton(onClick={vm.task{val bytes=vm.api.bytes(vm.api.company(cid,"/cash-book.$fmt?from_date=${value("from")}&to_date=${value("to")}&bank_account_id=${encode(selected)}"));vm.files.save(bytes,"cash-book.$fmt")}}){Text("Export ${fmt.uppercase()}")};ReportContent(report)}
         }
     }
 }
