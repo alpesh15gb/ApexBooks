@@ -59,3 +59,61 @@ class RecordTrailTest(unittest.TestCase):
         trail=self.detail(c,vh,b,bill)['document_trail'];self.assertEqual(trail[0]['id'],note['id']);self.assertTrue(trail[0]['cancelled'])
         r=c.post(b+'/credits/'+note['id']+'/settle',headers={**vh,'Idempotency-Key':uuid4().hex},json={'kind':'credit','date':'2026-04-02','amount':1,'data':{'action':'refund','payment_account':'cash'}})
         self.assertEqual(r.status_code,403,r.text)
+
+    def restore_body(self,payload,name='Restored history'):
+        import base64,json,hashlib
+        raw=json.dumps(payload).encode()
+        return {'company_name':name,'backup_base64':base64.b64encode(raw).decode(),'digest':hashlib.sha256(raw).hexdigest()}
+
+    def test_cancelled_conversions_restore_twice_and_reject_forged_lineage_atomically(self):
+        import copy
+        for source_kind,target_kind in [('estimate','sales_invoice'),('purchase_order','purchase_bill')]:
+            c,h,b=self.context();source=self.create(c,h,b,source_kind);target=self.create(c,h,b,target_kind,source_document_id=source['id'])
+            c.post(b+'/records/'+target['id']+'/cancel',headers=h,json={'reason':'Synthetic cancelled conversion'}).raise_for_status()
+            payload=c.get(b+'/data-export.json',headers=h).json()
+            before=c.get('/api/companies',headers=h).json()
+            for mutation in ['no_reversal','flag_only','wrong_source_kind','wrong_party','source_after_target','missing_source','wrong_cancel_reference','wrong_original_reference','wrong_cancel_journal']:
+                forged=copy.deepcopy(payload);origin=next(r for r in forged['records'] if r['id']==source['id']);record=next(r for r in forged['records'] if r['id']==target['id'])
+                if mutation=='no_reversal':forged['journal_reversals']=[]
+                elif mutation=='flag_only':record['data']['cancelled']=True
+                elif mutation=='wrong_source_kind':origin['kind']='item'
+                elif mutation=='wrong_party':origin['name']='Different party'
+                elif mutation=='source_after_target':origin['date']='2026-04-03'
+                elif mutation=='missing_source':record['data']['source_document_id']='missing'
+                elif mutation=='wrong_cancel_journal':record['data']['cancelled']['journal_id']=forged['journal_reversals'][0]['original_id']
+                else:
+                    key='reversal_id' if mutation=='wrong_cancel_reference' else 'original_id'
+                    next(j for j in forged['journals'] if j['id']==forged['journal_reversals'][0][key])['reference']='Unrelated manual journal'
+                for action in ['preview','commit']:
+                    response=c.post('/api/backups/restore/'+action,headers=h,json=self.restore_body(forged))
+                    self.assertEqual(response.status_code,422,(mutation,action,response.text))
+                    self.assertEqual(c.get('/api/companies',headers=h).json(),before)
+            for cycle in range(2):
+                body=self.restore_body(payload,'Restored history '+str(cycle))
+                r=c.post('/api/backups/restore/preview',headers=h,json=body);self.assertEqual(r.status_code,200,r.text)
+                r=c.post('/api/backups/restore/commit',headers=h,json=body);self.assertEqual(r.status_code,200,r.text)
+                b='/api/companies/'+r.json()['company_id'];records=c.get(b+'/records',headers=h).json()
+                restored_source=next(r for r in records if r['kind']==source_kind)
+                trail=self.detail(c,h,b,restored_source)['document_trail'];self.assertEqual(len(trail),1);self.assertTrue(trail[0]['cancelled'])
+                self.assertIsNone(self.detail(c,h,b,restored_source)['converted_to'])
+                payload=c.get(b+'/data-export.json',headers=h).json()
+
+    def test_cancelled_split_allocations_keep_history_only_through_restore(self):
+        c,h,b=self.context();invoices=[self.create(c,h,b,'sales_invoice',rate=100) for _ in range(2)]
+        r=c.post(b+'/records',headers=h,json={'kind':'payment_in','name':invoices[0]['name'],'date':'2026-04-02','amount':100,'data':{'allocations':[{'document_id':i['id'],'amount':50} for i in invoices]}})
+        self.assertEqual(r.status_code,200,r.text);payment=r.json()
+        active=self.detail(c,h,b,payment)['document_trail'];self.assertEqual(len(active),2);self.assertTrue(all(Decimal(r['allocated_amount'])==50 for r in active))
+        c.post(b+'/records/'+payment['id']+'/cancel',headers=h,json={'reason':'Synthetic cancelled split'}).raise_for_status()
+        for cycle in range(2):
+            trail=self.detail(c,h,b,payment)['document_trail'];self.assertEqual(len(trail),2)
+            for row in trail:
+                self.assertIsNone(row['allocated_amount']);self.assertEqual(Decimal(row['historical_allocated_amount']),50)
+                self.assertIn('Cancelled allocation (history only)',row['relations'])
+            for invoice in invoices:
+                detail=self.detail(c,h,b,invoice);self.assertEqual(Decimal(detail['outstanding']),100)
+                self.assertEqual(detail['document_trail'][0]['id'],payment['id']);self.assertTrue(detail['document_trail'][0]['cancelled'])
+                self.assertEqual(Decimal(detail['document_trail'][0]['historical_allocated_amount']),50)
+            payload=c.get(b+'/data-export.json',headers=h).json();self.assertEqual(payload['payment_allocations'],[])
+            body=self.restore_body(payload,'Restored split '+str(cycle));r=c.post('/api/backups/restore/commit',headers=h,json=body)
+            self.assertEqual(r.status_code,200,r.text);b='/api/companies/'+r.json()['company_id']
+            records=c.get(b+'/records',headers=h).json();payment=next(r for r in records if r['kind']=='payment_in');invoices=[r for r in records if r['kind']=='sales_invoice']

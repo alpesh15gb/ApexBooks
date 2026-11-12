@@ -41,3 +41,8 @@ test('reopened source shows cancelled conversion history and can still convert a
  const markup=renderToStaticMarkup(React.createElement(Detail,{record:{id:'quote',kind:'estimate',number:'EST-1',data:{},document_trail:[{id:'old',kind:'sales_invoice',number:'INV-CANCELLED',name:'Buyer',date:'2026-04-02',amount:'100',allocated_amount:null,relations:['Converted document'],cancelled:true}]},records:[],company:{role:'owner'},labels:{}}));
  assert.match(markup,/INV-CANCELLED/);assert.match(markup,/Cancelled/);assert.match(markup,/Convert to invoice/);
 });
+
+test('cancelled split allocations show historical amounts rather than active allocation labels',()=>{
+ const markup=renderToStaticMarkup(React.createElement(Detail,{record:{id:'payment',kind:'payment_in',number:'RC-1',amount:'100',cancelled:true,data:{cancelled:{reason:'Duplicate'}},document_trail:[{id:'invoice',kind:'sales_invoice',number:'INV-1',name:'Buyer',date:'2026-04-01',amount:'100',allocated_amount:null,historical_allocated_amount:'50',relations:['Cancelled allocation (history only)'],cancelled:false}]},records:[],company:{role:'viewer'},labels:{}}));
+ assert.match(markup,/history only/);assert.match(markup,/₹50\.00/);assert.match(markup,/Cancelled allocation/);assert.doesNotMatch(markup,/>Allocated amount</);
+});

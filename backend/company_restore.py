@@ -41,6 +41,25 @@ def expand_assets(payload):
         return value
     return expand(payload)
 
+def verified_cancelled_journals(record,indexes,reversals):
+    """Match a retained cancellation to its exact original/reversal references.
+
+    validate() separately verifies balanced inverse account effects and posting exclusion.
+    """
+    cancellation=record.get('data',{}).get('cancelled')
+    if not isinstance(cancellation,dict) or not isinstance(cancellation.get('reason'),str) or not cancellation['reason'].strip():return None
+    reversal_id=cancellation.get('journal_id')
+    if not isinstance(reversal_id,str):return None
+    matches=[r for r in reversals if r.get('reversal_id')==reversal_id]
+    if len(matches)!=1:return None
+    original_id=matches[0].get('original_id')
+    original=indexes['journals'].get(original_id);reversal=indexes['journals'].get(reversal_id)
+    if not original or not reversal:return None
+    if original.get('reference')!='AUTO:'+record['id'] or reversal.get('reference')!='CANCEL:'+record['id']:return None
+    if original['date']!=record['date'] or reversal['date']!=record['date']:return None
+    return original_id,reversal_id
+
+
 def validate(payload):
     groups={}
     label=payload.get('company',{}).get('book_label','')
@@ -199,10 +218,6 @@ def validate(payload):
         if target['data'].get('source_document_id') not in (None,'',src):raise ValueError('Conversion target reference mismatch')
         sources.add(src);targets.add(dst)
     conversion_sources={row['target_record_id']:row['source_record_id'] for row in groups['document_conversions']}
-    for row in groups['records']:
-        value=row['data'].get('source_document_id')
-        if value not in (None,''):
-            if not isinstance(value,str) or (conversion_sources.get(row['id'])!=value and not verified_immediate_source(row,indexes['records'].get(value))):raise ValueError('Missing or mismatched conversion or imported payment lineage')
     reversed_ids=set();reversal_targets=set()
     journal_accounts=defaultdict(lambda:defaultdict(Decimal))
     for line in groups['journal_lines']:journal_accounts[line['journal_id']][line['account_id']]+=number(line['debit'])-number(line['credit'])
@@ -214,6 +229,15 @@ def validate(payload):
         reversal_targets.add(dst)
         reversed_ids.add(src)
     if reversed_ids & reversal_targets:raise ValueError('Journal reversal chains are not supported')
+    def cancelled_conversion(row, origin):
+        if not origin or row['id'] in posted or row['id'] in conversion_sources:return False
+        allowed={'sales_invoice':{'estimate','proforma','sales_order'},'purchase_bill':{'purchase_order'}}
+        if origin['kind'] not in allowed.get(row['kind'],set()) or origin['name'].strip().casefold()!=row['name'].strip().casefold() or row['date']<origin['date']:return False
+        return verified_cancelled_journals(row,indexes,groups['journal_reversals']) is not None
+    for row in groups['records']:
+        value=row['data'].get('source_document_id')
+        if value not in (None,''):
+            if not isinstance(value,str) or (conversion_sources.get(row['id'])!=value and not verified_immediate_source(row,indexes['records'].get(value)) and not cancelled_conversion(row,indexes['records'].get(value))):raise ValueError('Missing or mismatched conversion or imported payment lineage')
     if payload['schema_version']==6 and any(j.get('memo','').startswith('Reversal of') for j in groups['journals']):raise ValueError('This older export omits reversal links; take a fresh backup')
     for row in groups['bank_statement_lines']:
         if row.get('bank_account_id','default') not in bank_ids|{'default'} or row.get('matched_record_id') and row['matched_record_id'] not in posted:raise ValueError('Invalid statement reference')
@@ -345,8 +369,14 @@ def restore_payload(m,user,session,payload,digest,company_name,*,action='commit'
         for row in groups['records']:session.add(m.Record(id=mapping[row['id']],company_id=cid,kind=row['kind'],name=row['name'],number=row['number'],date=date.fromisoformat(row['date']),amount=Decimal(row['amount']),data=remap(row['data'])))
         session.flush()
         automatic={r['journal_id']:r['record_id'] for r in groups['record_postings']}
+        cancelled_references={}
+        for record in groups['records']:
+            pair=verified_cancelled_journals(record,indexes,groups['journal_reversals'])
+            if pair:
+                cancelled_references[pair[0]]='AUTO:'+mapping[record['id']]
+                cancelled_references[pair[1]]='CANCEL:'+mapping[record['id']]
         for row in groups['journals']:
-            reference='AUTO:'+mapping[automatic[row['id']]] if row['id'] in automatic else row['reference']
+            reference='AUTO:'+mapping[automatic[row['id']]] if row['id'] in automatic else cancelled_references.get(row['id'],row['reference'])
             session.add(m.Journal(id=mapping[row['id']],company_id=cid,date=date.fromisoformat(row['date']),reference=reference,memo=row.get('memo',''),created_by=user.id))
         for row in groups['bank_accounts']:session.add(m.BankAccount(id=mapping[row['id']],company_id=cid,ledger_account_id=mapping[row['ledger_account_id']],name=row['name'],account_hint=row.get('account_hint','')))
         session.flush()
