@@ -111,6 +111,7 @@ public sealed partial class MainPage
         async Task QuickMaster(JsonObject candidate,Func<bool> unchanged,Action<JsonObject> apply,bool retry=false)
         {
             if(sourceLoading||!editorOpen||submission.Unresolved||quickSubmission.Unresolved&&!retry||!ScopedFileExport.Current(writeAccess))return;
+            if(!Supports("master_create_idempotency")){LocalError(new Exception("This server has not confirmed safe master-create retry support. Upgrade the API and refresh capabilities before creating or recovering a master. Any original request is preserved."));return;}
             var access=CaptureFileSaveAccess();
             bool Current()=>editorOpen&&stamp==generation&&ScopedFileExport.Current(writeAccess)&&ScopedFileExport.Current(access);
             if(!quickSubmission.Unresolved){quickRetryKey=Guid.NewGuid().ToString();retryQuickMaster=()=>QuickMaster(candidate,unchanged,apply,true);}
@@ -144,7 +145,7 @@ public sealed partial class MainPage
                     history.Children.Add(Button("Apply suggested rate and tax basis",()=>{if(stamp!=generation||partyId!=selectedParty||line.Data().Text("item_id")!=item||submission.Unresolved)return;line.ApplySuggestedPrice(rate,includes);history.Children.Clear();}));
                 },LocalError));holder.Children.Add(history);
             }
-            if(kind is not ("credit_note" or "debit_note")&&Api.Capabilities.HasCoreAdditions){
+            if(kind is not ("credit_note" or "debit_note")&&Api.Capabilities.HasCoreAdditions&&Supports("master_create_idempotency")){
                 // Quick-add: save a typed line as a catalogue item without leaving the document.
                 var saveItem=AsyncButton("+ Save as item",async()=>{
                     var values=line.Data();if(line.Linked)return;
@@ -167,7 +168,7 @@ public sealed partial class MainPage
         // Quick-add (Vyapar / MyBillBook style): save the typed name as a party so it gets a balance and WhatsApp number.
         var partyLinked=Text("",12);partyLinked.Foreground=Green;
         Button addParty=null!;
-        void ShowAddParty(){var show=kind is not ("credit_note" or "debit_note" or "expense")&&Api.Capabilities.HasCoreAdditions&&party.Text.Trim().Length>0&&partyId.Length==0;addParty.Visibility=show?Visibility.Visible:Visibility.Collapsed;partyLinked.Text=partyId.Length>0?"Saved party · balance and reminders tracked":"";partyLinked.Visibility=partyId.Length>0?Visibility.Visible:Visibility.Collapsed;}
+        void ShowAddParty(){var show=kind is not ("credit_note" or "debit_note" or "expense")&&Api.Capabilities.HasCoreAdditions&&Supports("master_create_idempotency")&&party.Text.Trim().Length>0&&partyId.Length==0;addParty.Visibility=show?Visibility.Visible:Visibility.Collapsed;partyLinked.Text=partyId.Length>0?"Saved party · balance and reminders tracked":"";partyLinked.Visibility=partyId.Length>0?Visibility.Visible:Visibility.Collapsed;}
         addParty=AsyncButton(purchase?"+ Add as a new supplier":"+ Add as a new customer",async()=>{
             var name=party.Text.Trim();if(name.Length==0||partyId.Length>0)return;
             var signature=BodyValue().ToJsonString();

@@ -4,6 +4,7 @@ import test_completion
 class QuickMasterRetryTest(unittest.TestCase):
     def test_party_and_item_exact_retry_and_changed_payload(self):
         c,h,b=test_completion.CompletionTest.client_context(self,'unregistered')
+        self.assertIn('master_create_idempotency',c.get('/api/capabilities').json()['supported_features'])
         for kind in ('party','item'):
             body={'kind':kind,'name':'Synthetic '+kind,'date':'2026-04-01','amount':0,'data':{'party_type':'supplier'} if kind=='party' else {'item_type':'goods','purchase_rate':'100'}}
             headers={**h,'Idempotency-Key':'quick-'+kind}

@@ -51,7 +51,7 @@ import org.json.JSONObject
         catch (e: Exception) { currentCoroutineContext().ensureActive(); if(vm.canRead(editor.companyId,access))editor.previewError = e.message ?: "Preview is unavailable."; if (e is ApiFailure && e.status == 401) vm.failure(e) }
     }
     LaunchedEffect(step) { scroll.scrollTo(0); stepError = "" }
-    fun close() { if (idle) { if (editor.retryPending) { discard = false; stepError = "The previous save may already have posted. Retry original save to recover its outcome before closing; do not create a replacement entry." } else if (editor.changed()) discard = true else { vm.error = ""; vm.notice = ""; vm.editor = null } } }
+    fun close() { if (idle) { if (editor.retryPending || editor.quickPending) { discard = false; stepError = "The previous operation may already have succeeded. Use its original save or master recovery action before closing; do not create a replacement." } else if (editor.changed()) discard = true else { vm.error = ""; vm.notice = ""; vm.editor = null } } }
     fun next() {
         val issue = entryStepIssue(step, editor.get("name"), editor.get("date"), editor.lines.map { Triple(it.get("description"), it.get("quantity"), it.get("rate")) })
         if (issue != null) stepError = issue else { stepError = ""; step++ }
@@ -92,7 +92,7 @@ import org.json.JSONObject
                         if (editor.document && step < 2) Button(enabled = idle, onClick = { next() }, modifier = Modifier.weight(1f)) { Text(if (step == 0) "Next: add items" else "Review document"); Icon(Icons.Outlined.ChevronRight, null) }
                         else {
                             if (editor.document && step == 2 && editor.canSaveAndNew) OutlinedButton(onClick = { editor.save(true) }, enabled = vm.canWrite && editor.canEdit && vm.busy == 0 && previewReady && editor.preview != null && editor.previewError.isBlank(), modifier = Modifier.weight(1f)) { Text("Save & new") }
-                            Button(onClick = { editor.save() }, enabled = vm.canWrite && idle && vm.busy == 0 && (editor.retryPending || !editor.document || editor.preview != null), modifier = Modifier.weight(1f)) {
+                            Button(onClick = { editor.save() }, enabled = vm.canWrite && !editor.quickPending && idle && vm.busy == 0 && (editor.retryPending || !editor.document || editor.preview != null), modifier = Modifier.weight(1f)) {
                                 if (editor.saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                                 else Text(if(editor.retryPending) "Retry original save" else if (editor.sourceLoading) "Loading source…" else if (editor.previous != null) "Save changes" else "Save ${when (editor.kind) { "sales_invoice" -> "invoice"; "purchase_bill" -> "bill"; "payment_in" -> "receipt"; "payment_out" -> "payment"; else -> "record" }}")
                             }
@@ -101,6 +101,10 @@ import org.json.JSONObject
                 }
             } }) { padding -> Column(Modifier.padding(padding).fillMaxSize().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 if (editor.scanning) Message("Reading your purchase image…")
+                if(editor.quickPending) {
+                    Message("Master creation has an unknown outcome. Recover the original request before saving or closing. Keep this editor open; restarting loses recovery. Upgrade the API if safe master-create retry support is unavailable.")
+                    Button(onClick=editor::recoverQuickMaster,enabled=vm.canWrite&&idle&&vm.busy==0&&"master_create_idempotency" in vm.supportedFeatures){Text("Recover original master creation")}
+                }
                 if(editor.retryPending) Message("The previous save has an unknown outcome. Retry original save submits the original values, not subsequent edits. Resolve it before creating another document.")
                 if (editor.ocrTotal.isNotBlank()) Message("Scanned total ${money(editor.ocrTotal)}. Review the extracted details and items before saving.")
                 if (editor.master) MasterFields(editor)
@@ -203,7 +207,7 @@ import org.json.JSONObject
     }
     }
     if (editor.requestedSource != null) AlertDialog(onDismissRequest = { editor.cancelSourceChange() }, title = { Text("Replace return source?") }, text = { Text("Changing the source replaces the party and item lines after the new source loads successfully. Your current draft stays unchanged if loading fails.") }, confirmButton = { TextButton(onClick = { editor.confirmSourceChange() }) { Text("Load selected source") } }, dismissButton = { TextButton(onClick = { editor.cancelSourceChange() }) { Text("Keep editing") } })
-    if (discard && !editor.retryPending) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard unsaved changes?") }, text = { Text("This draft has not been saved.") }, confirmButton = { TextButton(onClick = { discard = false; vm.error = ""; vm.notice = ""; vm.editor = null }) { Text("Discard draft") } }, dismissButton = { TextButton(onClick = { discard = false }) { Text("Keep editing") } })
+    if (discard && !editor.retryPending && !editor.quickPending) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard unsaved changes?") }, text = { Text("This draft has not been saved.") }, confirmButton = { TextButton(onClick = { discard = false; vm.error = ""; vm.notice = ""; vm.editor = null }) { Text("Discard draft") } }, dismissButton = { TextButton(onClick = { discard = false }) { Text("Keep editing") } })
 }
 
 @Composable private fun CollapsibleLine(editor: EntryEditor, line: LineState, index: Int) {

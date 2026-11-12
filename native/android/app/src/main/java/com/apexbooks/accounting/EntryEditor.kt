@@ -63,7 +63,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     val submission=RetrySubmission()
     val saveIntent=EntrySaveIntent()
     var retryPending by mutableStateOf(false);private set
-    val canEdit get()=vm.canWrite&&!saving&&!scanning&&!sourceLoading&&!retryPending&&quickAdding.isBlank()
+    val canEdit get()=vm.canWrite&&!saving&&!scanning&&!sourceLoading&&!retryPending&&!quickPending&&quickAdding.isBlank()
     val canSaveAndNew get()=document&&previous==null&&conversion==null
     val canPayNow get()=previous==null&&conversion==null&&kind in setOf("sales_invoice","purchase_bill")&&vm.supports("payment_at_entry")
     fun paymentBody():JSONObject?{
@@ -100,36 +100,47 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     fun chooseItem(line:LineState,id:String){val item=items(line).find{it.s("id")==id}?:return;line.linkProduct(item,purchase,regular)}
     // Quick-add (Vyapar / MyBillBook style): save the typed customer or line as a master without leaving the document.
     var quickAdding by mutableStateOf("");private set
-    val canQuickAdd get()=vm.canWrite&&document&&kind !in setOf("credit_note","debit_note","expense")&&vm.company.s("role") in setOf("owner","editor")
-    private suspend fun createMaster(masterKind:String,name:String,data:JSONObject):JSONObject=
-        vm.api.request(vm.api.company(companyId,"/records"),"POST",JSONObject().put("kind",masterKind).put("name",name.trim()).put("date",today()).put("amount","0").put("data",data)) as JSONObject
+    val canQuickAdd get()="master_create_idempotency" in vm.supportedFeatures&&vm.canWrite&&document&&kind !in setOf("credit_note","debit_note","expense")&&vm.company.s("role") in setOf("owner","editor")
+    private val quickSubmission=RetrySubmission()
+    var quickPending by mutableStateOf(false);private set
+    private var quickKey=""
+    private var retryQuick:(()->Unit)?=null
+    fun recoverQuickMaster(){retryQuick?.invoke()}
+    private fun startQuickMaster(label:String,candidate:JSONObject,unchanged:()->Boolean,apply:(JSONObject)->Unit,recover:Boolean=false){
+        if(quickAdding.isNotBlank()||saving||scanning||sourceLoading||retryPending||!vm.canWrite||vm.editor!==this||!vm.inWorkspace(companyId,workspaceStamp)||quickPending&&!recover)return
+        if("master_create_idempotency" !in vm.supportedFeatures){vm.error="This server has not confirmed safe master-create retries. Upgrade the API and refresh capabilities; the original request is preserved.";return}
+        val access=vm.readStamp();val session=vm.api.captureSession()
+        fun current()=vm.editor===this&&vm.inWorkspace(companyId,workspaceStamp)&&vm.canRead(companyId,access)&&vm.canWrite&&runCatching{session();true}.getOrDefault(false)
+        if(!quickPending){quickKey=vm.key();retryQuick={startQuickMaster(label,candidate,unchanged,apply,true)}}
+        quickAdding=label
+        vm.task{try{
+            val created:JSONObject
+            try{created=vm.api.saveRecord(companyId,quickSubmission.body(candidate),quickKey);quickSubmission.succeeded();quickPending=false;retryQuick=null}
+            catch(e:Exception){quickSubmission.failed(e);quickPending=quickSubmission.unresolved;if(!quickPending)retryQuick=null;throw e}
+            if(!current())return@task
+            vm.rememberMaster(created)
+            if(unchanged())apply(created)else vm.notice="Master saved. Your draft changed; select the saved master explicitly if needed."
+        }catch(e:Exception){
+            if(e is kotlinx.coroutines.CancellationException)throw e
+            if(e is ApiFailure&&e.status==401&&!vm.api.signedIn&&vm.editor===this&&vm.inWorkspace(companyId,workspaceStamp))throw e
+            if(current())throw if(quickPending)ApiFailure((e as? ApiFailure)?.status?:0,"Master creation may already have succeeded. Recover the original request before creating another master or saving this entry. Keep this editor open; restarting loses its recovery request. ${e.message.orEmpty()}")else e
+        }finally{quickAdding=""}}
+    }
+    private fun masterBody(masterKind:String,name:String,data:JSONObject)=JSONObject().put("kind",masterKind).put("name",name.trim()).put("date",today()).put("amount","0").put("data",data)
     fun quickAddParty(){
         if(!canEdit||!canQuickAdd||vm.editor!==this||!vm.inWorkspace(companyId,workspaceStamp))return
-        val access=vm.readStamp();val session=vm.api.captureSession()
-        fun current()=vm.editor===this&&vm.inWorkspace(companyId,workspaceStamp)&&vm.canRead(companyId,access)&&vm.canWrite&&runCatching{session();true}.getOrDefault(false)
-        val name=get("name").trim();if(name.isBlank()||get("party_id").isNotBlank()||quickAdding.isNotBlank())return
+        val name=get("name").trim();if(name.isBlank()||get("party_id").isNotBlank())return
         val original=fields.toMap()
-        quickAdding="party"
-        vm.task{try{
-            val created=createMaster("party",name,JSONObject().put("party_type",if(purchase)"supplier" else "customer").put("phone",get("party_phone").trim()).put("gstin",get("party_gstin").trim().uppercase()).put("address",get("party_address")).put("shipping_address",get("shipping_address")))
-            if(!current())return@task
-            vm.rememberMaster(created);if(fields.toMap()!=original){vm.notice="Master saved. Your draft changed; select the saved party explicitly if needed.";return@task};fields["name"]=created.s("name");fields["party_id"]=created.s("id");vm.notice="Saved ${created.s("name")} as a new ${if(purchase)"supplier" else "customer"}."
-        }catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;if(current())throw e}finally{quickAdding=""}}
+        val body=masterBody("party",name,JSONObject().put("party_type",if(purchase)"supplier" else "customer").put("phone",get("party_phone").trim()).put("gstin",get("party_gstin").trim().uppercase()).put("address",get("party_address")).put("shipping_address",get("shipping_address")))
+        startQuickMaster("party",body,{fields.toMap()==original},{created->fields["name"]=created.s("name");fields["party_id"]=created.s("id");vm.notice="Saved ${created.s("name")} as a new party."})
     }
     fun quickAddItem(line:LineState){
-        if(!canEdit||!canQuickAdd||vm.editor!==this||!vm.inWorkspace(companyId,workspaceStamp))return
-        val access=vm.readStamp();val session=vm.api.captureSession()
-        fun current()=vm.editor===this&&vm.inWorkspace(companyId,workspaceStamp)&&vm.canRead(companyId,access)&&vm.canWrite&&runCatching{session();true}.getOrDefault(false)
-        val name=line.get("description").trim();if(name.isBlank()||line.get("item_id").isNotBlank()||quickAdding.isNotBlank())return
-        if(line !in lines)return
+        if(!canEdit||!canQuickAdd||vm.editor!==this||!vm.inWorkspace(companyId,workspaceStamp)||line !in lines)return
+        val name=line.get("description").trim();if(name.isBlank()||line.get("item_id").isNotBlank())return
         val original=line.json().toString()
-        quickAdding=line.uiKey
-        vm.task{try{
-            fun amount(value:String)=(value.toBigDecimalOrNull()?:BigDecimal.ZERO).setScale(2,java.math.RoundingMode.HALF_UP).toPlainString()
-            val created=createMaster("item",name,JSONObject().put("item_type","goods").put("hsn",line.get("hsn")).put("unit",line.get("unit")).put(if(purchase)"purchase_rate" else "sale_rate",amount(line.get("rate"))).put("gst_rate",amount(line.get("gst_rate"))).put("tax_treatment",line.get("tax_treatment").ifBlank{"taxable"}))
-            if(!current())return@task
-            vm.rememberMaster(created);if(line !in lines||line.json().toString()!=original){vm.notice="Master saved. Your line changed or was removed; select the saved item explicitly if needed.";return@task};line.set("item_id",created.s("id"));line.set("description",created.s("name"));vm.notice="Saved ${created.s("name")} as a new item."
-        }catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;if(current())throw e}finally{quickAdding=""}}
+        fun amount(value:String)=(value.toBigDecimalOrNull()?:BigDecimal.ZERO).setScale(2,java.math.RoundingMode.HALF_UP).toPlainString()
+        val body=masterBody("item",name,JSONObject().put("item_type","goods").put("hsn",line.get("hsn")).put("unit",line.get("unit")).put(if(purchase)"purchase_rate" else "sale_rate",amount(line.get("rate"))).put("gst_rate",amount(line.get("gst_rate"))).put("tax_treatment",line.get("tax_treatment").ifBlank{"taxable"}))
+        startQuickMaster(line.uiKey,body,{line in lines&&line.json().toString()==original},{created->line.set("item_id",created.s("id"));line.set("description",created.s("name"));vm.notice="Saved ${created.s("name")} as a new item."})
     }
     fun targets():List<JSONObject> = vm.records.filter{r->r.optBoolean("posted")&&when(kind){"payment_in"->r.s("kind")in setOf("sales_invoice","opening_receivable");"payment_out"->r.s("kind")in setOf("purchase_bill","opening_payable");"credit_note"->r.s("kind")in setOf("sales_invoice","pos");"debit_note"->r.s("kind")=="purchase_bill";else->false}&&(!payment||available(r)>BigDecimal.ZERO||originalAllocations.any{it.s("document_id")==r.s("id")})}
     fun available(row:JSONObject)=row.decimal("outstanding")+originalAllocations.filter{it.s("document_id")==row.s("id")}.fold(BigDecimal.ZERO){sum,a->sum+a.decimal("amount")}
@@ -199,7 +210,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         return JSONObject().put("kind",kind).put("name",get("name")).put("number",get("number")).put("date",get("date")).put("amount",if(document||master)"0"else get("amount")).put("data",values)
     }
     fun save(keepOpen:Boolean=false){
-        if(!vm.canWrite||saving||scanning||sourceLoading||quickAdding.isNotBlank()||!vm.inWorkspace(companyId,workspaceStamp))return
+        if(!vm.canWrite||saving||scanning||sourceLoading||quickPending||quickAdding.isNotBlank()||!vm.inWorkspace(companyId,workspaceStamp))return
         saving=true
         vm.task{try{
             if(!retryPending){
@@ -229,7 +240,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         }finally{saving=false}}
     }
     fun scan(uri:android.net.Uri){
-        if(scanning||saving||sourceLoading||retryPending||!vm.canWrite||vm.editor!==this||!vm.inWorkspace(companyId,workspaceStamp))return
+        if(scanning||saving||sourceLoading||retryPending||quickPending||!vm.canWrite||vm.editor!==this||!vm.inWorkspace(companyId,workspaceStamp))return
         val access=vm.readStamp();val session=vm.api.captureSession();val originalFields=fields.toMap();val originalLines=lines.map{it.json().toString()}
         fun current()=vm.editor===this&&vm.inWorkspace(companyId,workspaceStamp)&&vm.canRead(companyId,access)&&vm.canWrite&&runCatching{session();true}.getOrDefault(false)
         fun unchanged()=fields.toMap()==originalFields&&lines.map{it.json().toString()}==originalLines
