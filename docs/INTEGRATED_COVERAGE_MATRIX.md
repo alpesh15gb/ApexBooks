@@ -168,3 +168,23 @@ reset, and full native builds remain open. The disposable Python environment was
 recreated from repository requirements. This follow-up supersedes 10fcf92 for product
 acceptance; it has not been published. The previous GitHub blob upload was denied
 by automatic review and was not retried or bypassed.
+
+
+### Restored Kotlin compilation evidence
+
+Restored temporary Gradle 8.14.3 from the official downloads.gradle.org distribution;
+SHA256 matched `bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531`.
+At product revision 9ad0079, AndroidRetainedRead passed 32 cases and
+AndroidImportSnapshot passed 11 cases again. A new harness compiles seven actual
+DayBook status/reference expression cases and is wired into CI. This establishes
+expression/helper compilation, not a full Compose build or device behavior.
+
+The attempted offline `:app:compileDebugKotlin` still fails during plugin resolution:
+`com.android.application` 8.13.1 is absent from cache. No application compiler result
+is available. Log: `/tmp/apex-restored-android-build.log` (disposable environment).
+Windows SDK/.NET toolchain restoration and full WinUI builds remain outstanding.
+Source inspection found the Android workspace removes DayBookScreen when
+recordsReady is false; no additional retained Day book access defect was established.
+The parent independently passed the preceding status fix, including restore and
+company-isolation probes. No publication retry, device permission change or
+deployment was performed.
