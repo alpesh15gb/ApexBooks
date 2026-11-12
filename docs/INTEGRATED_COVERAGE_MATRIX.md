@@ -798,3 +798,22 @@ See MASTER_IMPORT_RECOVERY_DESIGN.md for an explicit transactionally durable rec
 contract, migration/client capability boundaries and required SQLite/PostgreSQL
 validation. This is a documented design, not completed receipt implementation.
 No production access, publication retry or deployment.
+
+### Durable master-import API receipts (2026-11-12)
+
+Implemented optional keyed POST replay and actor/company-authorized GET recovery,
+with canonical request hash and immutable original response/created IDs. Masters,
+audit and receipt commit atomically. Changed payload/actor conflicts; legacy no-key
+clients retain their response shape. Company backups omit receipts and restored
+companies start a separate operation namespace. Migration i018fa586b03 refuses a
+nonempty destructive downgrade; full database backup must include receipts.
+
+Evidence: 22 SQLite tests pass (receipts, rollback-after-flush, legacy imports,
+restore/capability compatibility and migration). Seven PostgreSQL 17.11 tests pass,
+including four identical requests returning one result and four distinct requests
+with one key yielding one success/three conflicts. PostgreSQL fresh migration,
+empty downgrade/re-upgrade and nonempty fail-closed downgrade probe exits 0.
+Disposable loopback databases only; server stopped afterward.
+
+Remaining: capability-gated web/native adoption and reload recovery; no automatic
+client protection claim. No production migration, publication retry or deployment.

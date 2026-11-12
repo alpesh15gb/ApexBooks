@@ -192,6 +192,17 @@ class IdempotencyKey(Base):
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     record_id: Mapped[str] = mapped_column(ForeignKey('records.id'), nullable=False)
 
+class MasterImportReceipt(Base):
+    __tablename__ = 'master_import_receipts'
+    __table_args__ = (UniqueConstraint('company_id', 'operation_key'),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    company_id: Mapped[str] = mapped_column(ForeignKey('companies.id'), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(ForeignKey('users.id'), nullable=False)
+    operation_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    response: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
 class AuditEvent(Base):
     __tablename__ = 'audit_events'
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
@@ -1462,9 +1473,21 @@ def vyapar_archive(company_id: str, user: User = Depends(current_user), session:
     return Response(json.dumps(archive.data, ensure_ascii=False), media_type='application/json', headers={'Content-Disposition': 'attachment; filename="vyapar-source-archive.json"'})
 
 @app.post('/api/companies/{company_id}/masters/import')
-def import_masters(company_id: str, body: MasterImport, user: User = Depends(current_user), session: Session = Depends(db)):
+def import_masters(company_id: str, body: MasterImport, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):
     lock_company(company_id, user, session)
     if body.kind not in {'party', 'item'}: raise HTTPException(422, 'Import supports parties and items only')
+    import_key = request.headers.get('Idempotency-Key') if not body.dry_run else None
+    fingerprint = None
+    if import_key is not None:
+        if not re.fullmatch(r'[A-Za-z0-9._:-]{1,80}', import_key): raise HTTPException(422, 'Use an idempotency key of 1 to 80 letters, digits, dots, underscores, colons or hyphens')
+        canonical = {'operation': 'master-import-v1', 'body': body.model_dump(mode='json')}
+        fingerprint = hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        receipt = session.scalar(select(MasterImportReceipt).where(MasterImportReceipt.company_id == company_id, MasterImportReceipt.operation_key == import_key))
+        if receipt:
+            if receipt.actor_id != user.id or receipt.request_hash != fingerprint:
+                raise HTTPException(409, 'Import key belongs to a different actor or request')
+            return receipt.response
+
     existing = {r.name.strip().casefold() for r in session.scalars(select(Record).where(Record.company_id == company_id, Record.kind == body.kind))}
     seen = set()
     errors, ready, duplicates = [], [], 0
@@ -1497,10 +1520,22 @@ def import_masters(company_id: str, body: MasterImport, user: User = Depends(cur
     result = {'dry_run': body.dry_run, 'ready': len(ready), 'duplicates': duplicates, 'errors': errors}
     if body.dry_run: return result
     if errors: raise HTTPException(422, {'message': 'Resolve import errors before saving', **result})
-    for name, data in ready: session.add(Record(company_id=company_id, kind=body.kind, name=name, data=data))
+    created = [Record(id=str(uuid4()), company_id=company_id, kind=body.kind, name=name, data=data) for name, data in ready]
+    session.add_all(created)
+    response = {**result, 'created': len(ready)}
+    if import_key is not None:
+        response = {**response, 'operation_key': import_key, 'record_ids': [record.id for record in created]}
+        session.add(MasterImportReceipt(company_id=company_id, actor_id=user.id, operation_key=import_key, request_hash=fingerprint, response=response))
     audit(session, company_id, user, 'masters.imported', body.kind, company_id, {'created': len(ready), 'duplicates': duplicates})
     session.commit()
-    return {**result, 'created': len(ready)}
+    return response
+
+@app.get('/api/companies/{company_id}/masters/import-receipts/{operation_key}')
+def master_import_receipt(company_id: str, operation_key: str, user: User = Depends(current_user), session: Session = Depends(db)):
+    lock_company(company_id, user, session)
+    receipt = session.scalar(select(MasterImportReceipt).where(MasterImportReceipt.company_id == company_id, MasterImportReceipt.operation_key == operation_key, MasterImportReceipt.actor_id == user.id))
+    if not receipt: raise HTTPException(404, 'No committed import receipt found. This does not prove an in-flight request failed; do not start a new import.')
+    return receipt.response
 
 @app.put('/api/companies/{company_id}/masters/{master_id}')
 def update_master(company_id: str, master_id: str, body: MasterRow,

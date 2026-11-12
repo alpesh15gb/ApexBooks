@@ -8,7 +8,7 @@ class MasterImportRecoveryContractTest(unittest.TestCase):
             with self.subTest(archived=archived):
                 c,h,b=test_completion.CompletionTest.client_context(self,'unregistered')
                 body={'kind':'party','dry_run':False,'rows':[{'name':'Synthetic original','party_type':'customer','phone':'00123'}]}
-                headers={**h,'Idempotency-Key':'synthetic-import-recovery'}
+                headers=h  # Legacy clients deliberately omit the operation key.
                 first=c.post(b+'/masters/import',headers=headers,json=body)
                 self.assertEqual(first.status_code,200,first.text)
                 original=next(r for r in c.get(b+'/records',headers=h).json() if r['name']=='Synthetic original')

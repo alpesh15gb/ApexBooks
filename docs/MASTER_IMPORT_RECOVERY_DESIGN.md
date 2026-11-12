@@ -1,9 +1,10 @@
 # Master import recovery: verified boundary and proposed durable receipt
 
-Status: investigation and implementation design, not an implemented receipt API.
+Status: backend receipt API implemented and tested locally; client adoption and
+reload-recovery UI remain pending. Earlier investigation is retained below.
 No production data or external services used.
 
-## Verified current behavior
+## Verified baseline before receipt implementation
 
 `main.import_masters` holds the company write lock, builds a casefold/trim name
 set across all masters of the chosen kind (including archived ones), validates the
@@ -25,7 +26,7 @@ as an exact operation. Do not advertise exact replay or infer original completio
 from a bounded name search. Existing record-level IdempotencyKey requires one
 record_id and cannot represent an empty/all-duplicate batch or its original counts.
 
-## Proposed implementation contract
+## Implementation contract and remaining client work
 
 1. Add a dedicated master_import_receipts table with company foreign key, actor ID,
    operation key, versioned canonical request hash, committed response JSON,
@@ -71,3 +72,32 @@ must verify the original key/body; physical device acceptance remains separate.
 Current executed evidence: one unittest with two synthetic lifecycle subcases
 (active and archived), proving unchanged retry does not duplicate and renaming is
 rejected. No durable receipt or new recovery UI has been implemented by this batch.
+
+
+## Implemented API (local candidate)
+
+Migration i018fa586b03 adds master_import_receipts. POST masters/import with a valid
+Idempotency-Key and dry_run=false returns the original result on replay, including
+operation_key and record_ids. GET masters/import-receipts/{key} returns that result
+only for the original actor with current write permission in the original company.
+Same-key different actor/payload returns 409; no-key legacy requests retain their
+old response shape and name-skip behavior. Preview never creates receipts.
+Capability: master_import_receipts. No raw input payload is stored in receipts.
+
+Receipt persistence, master rows and audit are one transaction. Receipts have no
+expiry. Company exports intentionally omit them; restoring to a separate company
+does not recreate operation ownership. Full database backups must preserve this
+new table with the rest of the database. Empty-table migration downgrade works;
+nonempty downgrade refuses to erase accepted operation keys. Do not bypass that
+refusal during rollback: preserve the database and review an application rollback
+compatible with the retained table.
+
+Executed: 22 SQLite regression tests, seven PostgreSQL 17.11 tests (including two
+four-request races), and separate PostgreSQL migration lifecycle probe. Upgrade,
+empty downgrade/re-upgrade and nonempty refusal preserve receipts. A synthetic
+failure after flush rolls back both master and receipt. Legacy and separate-company
+restore parity passed. This does not certify deployment or device behavior.
+
+Web/Windows/Android still need capability-gated adoption, frozen request keys and
+read-only receipt recovery. Existing clients do not gain exact replay merely because
+the API supports it. No sensitive browser-storage persistence was added.
