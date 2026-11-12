@@ -80,7 +80,16 @@ def prepare(m, data, company_id, session):
     return {**data, 'lines': result}
 
 
-def validate_capacity(m, source, data, previous_notes):
+def verified_value(line, field):
+    try:
+        value = Decimal(str(line[field]))
+        if not value.is_finite() or value < 0: raise ValueError()
+        return value
+    except (KeyError, ValueError, ArithmeticError):
+        raise HTTPException(409, 'Source or earlier return lacks verified line values; review historical allocation') from None
+
+
+def validate_capacity(m, source, data, previous_notes, fields=('quantity', 'taxable', 'tax')):
     groups = defaultdict(list)
     for line in data.get('lines', []): groups[tuple(candidates(line, source))].append(line)
     keys = list(groups)
@@ -95,15 +104,70 @@ def validate_capacity(m, source, data, previous_notes):
                 if not set(old_indexes) <= set(indexes):
                     raise HTTPException(409, 'An earlier return has ambiguous source-line allocation; review it before returning this line')
                 previous.append(line)
-        def verified_value(line, field):
-            try:
-                value = Decimal(str(line[field]))
-                if not value.is_finite() or value < 0: raise ValueError()
-                return value
-            except (KeyError, ValueError, ArithmeticError):
-                raise HTTPException(409, 'Source or earlier return lacks verified line values; review historical allocation') from None
-        for field in ('quantity', 'taxable', 'tax'):
+        for field in fields:
             used = sum((verified_value(line, field) for line in lines + previous), Decimal(0))
             available = sum((verified_value(source.data['lines'][i], field) for i in indexes), Decimal(0))
             if used > available:
                 raise HTTPException(422, f'Returned {field} exceeds the remaining source purchase line')
+
+
+def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
+    """Allocate source tax residuals, then split each ITC class by remaining components.
+
+    Quantity/taxable limits stay strict; rounding may change only the tax paise.
+    Preview passes a validated editing ID; posting never trusts that input.
+    """
+    source = session.get(m.Record, data['applied_to'])
+    posted = select(m.RecordPosting.record_id).where(m.RecordPosting.company_id == company_id)
+    previous = [r for r in session.scalars(select(m.Record).where(m.Record.company_id == company_id,
+        m.Record.kind == 'debit_note', m.Record.id.in_(posted)))
+        if r.id != exclude_return_id and r.data.get('applied_to') == source.id]
+    validate_capacity(m, source, data, previous, fields=('quantity', 'taxable'))
+    remaining = {}
+    result = []
+    for line in data['lines']:
+        indexes = tuple(candidates(line, source))
+        if indexes not in remaining:
+            prior = [old for note in previous for old in note.data.get('lines', [])
+                     if set(candidates(old, source)) & set(indexes)]
+            remaining[indexes] = [sum((verified_value(source.data['lines'][i], field) for i in indexes), Decimal(0)) -
+                sum((verified_value(old, field) for old in prior), Decimal(0)) for field in ('taxable', 'tax')]
+        base_left, tax_left = remaining[indexes]
+        if tax_left < 0: raise HTTPException(409, 'Earlier return tax exceeds source; review historical allocation')
+        base = Decimal(line['taxable'])
+        original_base = sum((verified_value(source.data['lines'][i], 'taxable') for i in indexes), Decimal(0))
+        original_tax = sum((verified_value(source.data['lines'][i], 'tax') for i in indexes), Decimal(0))
+        desired = m.money(original_tax * (original_base - base_left + base) / original_base) if original_base else Decimal(0)
+        tax = tax_left if base == base_left else max(Decimal(0), min(tax_left, desired - (original_tax - tax_left)))
+        if abs(tax - Decimal(line['tax'])) > Decimal('.01'):
+            raise HTTPException(409, 'Historical tax residual exceeds a rounding adjustment; review the source returns')
+        result.append({**line, 'tax': str(tax)})
+        remaining[indexes] = [base_left - base, tax_left - tax]
+    validate_capacity(m, source, {**data, 'lines': result}, previous)
+    keys = ('cgst', 'sgst', 'igst', 'supplier_tax')
+    def parts(row, pending):
+        values = {key: Decimal(str(row.get('pending_input_' + key, 0))) for key in keys}
+        return values if pending else {key: Decimal(str(row.get(key, 0))) - values[key] for key in keys}
+    allocated = []
+    for pending in (True, False):
+        total = sum((Decimal(line['tax']) for line in result if (line.get('itc_treatment') == 'pending_review') == pending), Decimal(0))
+        original = parts(source.data, pending)
+        budget = {key: original[key] - sum((parts(note.data, pending)[key] for note in previous), Decimal(0)) for key in keys}
+        if any(value < 0 for value in budget.values()) or total > sum(budget.values()):
+            raise HTTPException(409, 'Earlier return tax components need reconciliation against the source bill')
+        values = dict.fromkeys(keys, Decimal(0))
+        # Prefer the ordinary half split, then use whichever source component
+        # still owns the residual. This preserves original component totals.
+        left = total
+        preferred = {'cgst': m.money(total / 2), 'sgst': total - m.money(total / 2), 'igst': total, 'supplier_tax': total}
+        for key in keys:
+            values[key] = min(budget[key], preferred[key], left)
+            left -= values[key]
+        for key in keys:
+            extra = min(budget[key] - values[key], left); values[key] += extra; left -= extra
+        if left: raise HTTPException(409, 'Source tax residual cannot be allocated')
+        allocated.append(values)
+    pending, ineligible = allocated
+    return {**data, 'lines': result, **{key: str(pending[key] + ineligible[key]) for key in keys},
+            **{'pending_input_' + key: str(pending[key]) for key in keys if key != 'supplier_tax'},
+            'input_tax_ineligible': str(sum(ineligible.values()))}

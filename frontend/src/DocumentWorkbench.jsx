@@ -9,6 +9,7 @@ export function useDocumentPreview({
   form,
   lines,
   enabled,
+  editingRecordId,
 }) {
   const [result, setResult] = useState(null);
   const payload = {
@@ -18,6 +19,7 @@ export function useDocumentPreview({
     data: {
       lines,
       applied_to: form.applied_to,
+      editing_record_id: editingRecordId,
       place_of_supply: form.place_of_supply,
       supplier_state: form.supplier_state,
       party_gstin: form.party_gstin,
@@ -318,7 +320,7 @@ export function DocumentItems({
                 const selected = returnSourceLines.find(row => row.source_line_id === event.target.value);
                 if (selected) setLines(lines.map((row, i) => i === index ? { ...emptyLine(), ...selected } : row));
               }}>
-                <option value="">{line.source_line_id ? "Saved source line · reload bill to change" : "Choose a source line (legacy match if omitted)"}</option>
+                {!line.source_line_id && <option value="">Choose a source line or match by item/description</option>}
                 {line.source_line_id && !returnSourceLines.some(row => row.source_line_id === line.source_line_id) && <option value={line.source_line_id}>Saved source line {line.source_line_number || ""}</option>}
                 {returnSourceLines.filter(row => row.source_line_id).map(row => <option key={row.source_line_id} value={row.source_line_id}>Line {row.source_line_number} · {row.description} · source qty {row.quantity} · GST {row.gst_rate}% · {row.itc_treatment === "ineligible" ? "Ineligible ITC" : "ITC pending review"}</option>)}
               </select>

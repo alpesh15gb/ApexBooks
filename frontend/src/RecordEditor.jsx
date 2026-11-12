@@ -563,6 +563,7 @@ export default function RecordEditor({
     form,
     lines: lines.map(serializeLineDiscount),
     enabled: doc,
+    editingRecordId: edit && kind === "debit_note" ? source?.id : undefined,
   });
   const saveLabel =
     {

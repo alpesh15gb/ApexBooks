@@ -87,7 +87,7 @@ public sealed partial class MainPage
             try
             {
                 await Task.Delay(350, request.Token);
-                var body = BodyValue(); var bodySignature=TotalSignature(); body["name"] = "Preview"; var result = await Api.Send(Api.CompanyPath(cid, "/documents/preview"), HttpMethod.Post, body, cancellation: request.Token);
+                var body = BodyValue(); var bodySignature=TotalSignature(); body["name"] = "Preview"; if(kind=="debit_note"&&previous is not null)body["data"]!["editing_record_id"]=previous.Text("id"); var result = await Api.Send(Api.CompanyPath(cid, "/documents/preview"), HttpMethod.Post, body, cancellation: request.Token);
                 if (!request.IsCancellationRequested) {
                     lastTotal=result.Number("amount");
                     totalForBody=bodySignature;if(payFull is not null)payFull.IsEnabled=!submission.Unresolved;

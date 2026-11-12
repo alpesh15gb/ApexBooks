@@ -29,6 +29,12 @@ class LineState(initial:JSONObject=JSONObject(),regular:Boolean=false,val import
     }
     fun json():JSONObject=JSONObject().also{result->values.forEach{(key,value)->if(key !in setOf("discount_percent","discount_amount")||key==if(discountMode=="amount")"discount_amount" else "discount_percent")result.put(key,if(key=="price_includes_tax")value=="true" else if(key in setOf("discount_percent","discount_amount","mrp")&&value.isBlank())"0" else value)}}
 }
+fun purchaseReturnChoices(rows:List<JSONObject>,line:LineState):List<Pair<String,String>> {
+    val selected=line.get("source_line_id")
+    val choices=rows.filter{it.s("source_line_id").isNotBlank()}.map{it.s("source_line_id") to "Line ${it.s("source_line_number")} · ${it.s("description")} · source qty ${it.s("quantity")} · GST ${it.s("gst_rate")}% · ${it.s("itc_treatment")}"}
+    val saved=if(selected.isNotBlank()&&choices.none{it.first==selected})listOf(selected to "Saved source line ${line.get("source_line_number")}")else emptyList()
+    return (if(selected.isBlank())listOf("" to "Choose source line or match item/description")else emptyList())+saved+choices
+}
 class AllocationState(id:String="",amount:String="") { var documentId by mutableStateOf(id);var amount by mutableStateOf(amount) }
 
 class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,val conversion:JSONObject?=null) {

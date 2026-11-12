@@ -671,7 +671,7 @@ def source_return_itc(data, company_id, session):
     from purchase_returns import prepare
     return prepare(sys.modules[__name__], data, company_id, session)
 
-def calculate(data, company, tax_mode, kind, session):
+def calculate(data, company, tax_mode, kind, session, *, exclude_return_id=None):
     purchase = kind in {'purchase_bill', 'purchase_order', 'debit_note','expense'}
     data = normalize_document_tax_identifiers(data, purchase)
     if kind == 'debit_note':
@@ -770,6 +770,10 @@ def calculate(data, company, tax_mode, kind, session):
             'pending_input_cgst': str(pending_cgst), 'pending_input_sgst': str(pending_input_tax - pending_cgst if intra else Decimal('0')),
             'pending_input_igst': str(pending_input_tax if not intra and not unclassified_supplier_tax else Decimal('0')),
             'input_tax_ineligible': str(tax - pending_input_tax if purchase else Decimal('0'))}
+    if kind == 'debit_note':
+        from purchase_returns import reconcile_tax
+        data = reconcile_tax(sys.modules[__name__], data, company.id, session, exclude_return_id)
+        tax = sum((Decimal(data[key]) for key in ('cgst', 'sgst', 'igst', 'supplier_tax')), Decimal(0))
     total=money(taxable+tax)
     if data.get('round_total') not in (None,False,True):raise HTTPException(422,'Invalid rounding option')
     rounded=total.quantize(Decimal('1'),rounding=ROUND_HALF_UP) if data.get('round_total') else total
@@ -1558,7 +1562,7 @@ def client_record_data(data):
     Internal posting callers can still attach verified commerce/import lineage.
     Draft/edit version checks read the submitted version before using this helper.
     """
-    reserved = {'cancelled', 'version', 'created_at', 'updated_at',
+    reserved = {'cancelled', 'version', 'created_at', 'updated_at', 'editing_record_id',
                 'recurring_template_id', 'recurring_occurrence_date', 'unallocated_credit',
                 'outstanding', 'advance_remaining', 'credit_remaining', 'posted',
                 'company_snapshot', 'document_branding', 'advance_tax', 'advance_taxable',

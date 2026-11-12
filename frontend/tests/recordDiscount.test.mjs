@@ -79,6 +79,7 @@ test('duplicate purchase descriptions select distinct source lines and preserve 
  const api=async path=>path.includes('/records/')?original:path.endsWith('bank-accounts')?[]:{amount:'118',data:{lines:[]}};
  const view=await mount({kind:'debit_note',documentKinds:['debit_note'],edit:false,source:undefined,relatedSource:original,api,labels:{debit_note:'Debit notes'}});
  assert.equal(document.querySelector('[aria-label="Item 1 source purchase line"]').value,'0:fingerprint');
+ assert.equal(document.querySelector('[aria-label="Item 1 source purchase line"] option[value=""]'),null);
  await act(async()=>document.querySelector('[aria-label="Remove item 2"]').click());
  await change('[aria-label="Item 1 source purchase line"]','1:fingerprint');await change('[name=quantity]','1');await submit();
  assert.equal(view.saved.data.lines.length,1);assert.equal(view.saved.data.lines[0].source_line_id,'1:fingerprint');assert.equal(view.saved.data.lines[0].source_document_id,'bill-ref');assert.equal(view.saved.data.lines[0].itc_treatment,'pending_review');
@@ -93,4 +94,11 @@ test('source-option load failure and retry preserve the edited return draft',asy
  assert.match(document.body.textContent,/Source lines could not be loaded/);await change('[name=quantity]','1');fail=false;
  await act(async()=>[...document.querySelectorAll('button')].find(button=>button.textContent==='Retry source lines').click());
  assert.equal(document.querySelector('[name=quantity]').value,'1');assert.equal(document.querySelector('[aria-label="Item 1 source purchase line"]').value,'0:saved');await submit();assert.equal(view.saved.data.lines[0].source_line_id,'0:saved');assert.equal(view.saved.data.lines[0].quantity,'1');await act(async()=>view.root.unmount());
+});
+
+test('debit-note amendment preview identifies the edited note without sending preview context to save',async()=>{
+ const calls=[];const note={id:'note-context',name:'Supplier',date:'2026-11-02',data:{applied_to:'bill-context',lines:[{description:'Service',quantity:'1',rate:'100',gst_rate:'18'}]}};
+ const api=async(path,options)=>{if(path.endsWith('/documents/preview'))calls.push(JSON.parse(options.body));return path.endsWith('/bank-accounts')?[]:path.includes('/records/')?{data:{lines:[]}}:{amount:'118',data:{lines:[]}};};
+ const view=await mount({kind:'debit_note',documentKinds:['debit_note'],source:note,api,labels:{debit_note:'Debit notes'}});await act(async()=>new Promise(resolve=>setTimeout(resolve,400)));
+ assert.equal(calls.at(-1).data.editing_record_id,'note-context');await submit();assert.equal(view.saved.data.editing_record_id,undefined);await act(async()=>view.root.unmount());
 });

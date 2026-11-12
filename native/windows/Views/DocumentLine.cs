@@ -88,13 +88,12 @@ public sealed class DocumentLine
         if(returnLines is not null){
             sourceLineId=data.Text("source_line_id");sourceDocumentId=data.Text("source_document_id");sourceLineNumber=data.Text("source_line_number");
             var originals=returnLines.Where(row=>row.Text("source_line_id").Length>0).ToList();
-            var choices=new List<(string,string)>{("","Choose source line / legacy match")};
-            choices.AddRange(originals.Select(row=>(row.Text("source_line_id"),$"Line {row.Text("source_line_number")} · {row.Text("description")} · source qty {row.Text("quantity")} · GST {row.Text("gst_rate")}% · {row.Text("itc_treatment")}")));
-            if(sourceLineId.Length>0&&!originals.Any(row=>row.Text("source_line_id")==sourceLineId))choices.Add((sourceLineId,"Saved source line "+sourceLineNumber));
+            var choices=SourceLineChoices.Build(originals,sourceLineId,sourceLineNumber);
             var sourceChoice=Select("Source purchase line",choices,sourceLineId);panel.Children.Insert(0,sourceChoice);
             void LockSourceTax(){gst.IsReadOnly=sourceLineId.Length>0;treatment.IsEnabled=credit.IsEnabled=selector.IsEnabled=sourceLineId.Length==0;Description.IsReadOnly=sourceLineId.Length>0||itemId.Length>0;}
             sourceChoice.SelectionChanged+=(_,_)=>{
-                var selected=originals.FirstOrDefault(row=>row.Text("source_line_id")==Value(sourceChoice));if(selected is null){sourceLineId=sourceDocumentId=sourceLineNumber="";LockSourceTax();Changed?.Invoke();return;}
+                var selected=originals.FirstOrDefault(row=>row.Text("source_line_id")==Value(sourceChoice));if(selected is null)return;
+                if(sourceChoice.Items[0] is ComboBoxItem placeholder && placeholder.Tag?.ToString()=="")sourceChoice.Items.Remove(placeholder);
                 sourceLineId=selected.Text("source_line_id");sourceDocumentId=selected.Text("source_document_id");sourceLineNumber=selected.Text("source_line_number");
                 itemId=selected.Text("item_id");selector.Text=Description.Text=selected.Text("description");Description.IsReadOnly=itemId.Length>0;
                 Quantity.Text=selected.Text("quantity");Rate.Text=selected.Text("rate");hsn.Text=selected.Text("hsn");unit.Text=selected.Text("unit");

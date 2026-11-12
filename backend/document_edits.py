@@ -96,7 +96,7 @@ def install(app,m):
         intent=intent or (amount_entered and m.money(body.amount)!=record.amount)
         if record.data.get('commerce_connection_id') and (intent or any(data.get(k) != record.data.get(k) for k in metadata-{'notes','terms','due_date'})):
             raise HTTPException(409,'This document is linked to an ecommerce source. Use its source correction / credit workflow to keep both systems reconciled.')
-        if intent and record.kind in m.DOCUMENTS and (record.kind!='expense' or data.get('lines')):data,amount=m.calculate(data,company,profile.mode if profile else 'regular',record.kind,session)
+        if intent and record.kind in m.DOCUMENTS and (record.kind!='expense' or data.get('lines')):data,amount=m.calculate(data,company,profile.mode if profile else 'regular',record.kind,session,exclude_return_id=record.id)
         else:amount=m.money(body.amount) if intent else record.amount
         financial=intent
         previous={'name':record.name,'number':record.number,'date':record.date.isoformat(),'amount':str(record.amount),'data':record.data,'journal_id':posting.journal_id}

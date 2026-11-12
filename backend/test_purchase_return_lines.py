@@ -75,8 +75,10 @@ class PurchaseReturnLinesTest(unittest.TestCase):
         cancelled=self.client.post(self.base+'/records/'+note['id']+'/cancel',headers=self.headers,json={'reason':'Synthetic correction'});self.assertEqual(cancelled.status_code,200,cancelled.text)
         self.note(source,[{**a,'quantity':1}]);self.note(source,[b])
 
-    def test_restore_remaps_source_document_and_keeps_line_fingerprint(self):
-        source=self.bill();a=source['data']['lines'][0];self.note(source,[{**a,'quantity':1}])
+    def restore_partial_return(self,tracked):
+        source=self.bill(tracked=tracked);a=source['data']['lines'][0]
+        body=self.body(source,[{**a,'quantity':1}]);body['data']['return_stock']=tracked
+        first=self.post('/records',body);self.assertEqual(first.status_code,200,first.text)
         export=self.client.get(self.base+'/data-export.json',headers=self.headers)
         payload={'company_name':'Restored line references','backup_base64':base64.b64encode(export.content).decode()}
         preview=self.client.post('/api/backups/restore/preview',headers=self.headers,json=payload);self.assertEqual(preview.status_code,200,preview.text)
@@ -84,7 +86,31 @@ class PurchaseReturnLinesTest(unittest.TestCase):
         self.base='/api/companies/'+restored.json()['company_id']
         rows=self.client.get(self.base+'/records',headers=self.headers).json();bill=next(r for r in rows if r['kind']=='purchase_bill');note=next(r for r in rows if r['kind']=='debit_note')
         self.assertEqual(note['data']['lines'][0]['source_document_id'],bill['id'])
-        self.note(bill,[{**bill['data']['lines'][0],'quantity':1}])
+        self.assertEqual(note['data']['lines'][0]['source_line_id'],bill['data']['lines'][0]['source_line_id'])
+        if tracked:
+            self.assertNotEqual(note['data']['lines'][0]['item_id'],a['item_id'])
+            self.assertNotEqual(note['data']['lines'][0]['source_line_id'],a['source_line_id'])
+        body=self.body(bill,[{**bill['data']['lines'][0],'quantity':1}]);body['data']['return_stock']=tracked
+        second=self.post('/records',body);self.assertEqual(second.status_code,200,second.text)
+        if tracked:
+            stock=self.client.get(self.base+'/reports/stock?from_date=2026-11-01&to_date=2026-11-30',headers=self.headers).json()['rows'][0]
+            self.assertEqual(Decimal(stock['closing_quantity']),2)
+
+    def test_restore_untracked_partial_return_keeps_reference(self):
+        self.restore_partial_return(False)
+
+    def test_restore_tracked_partial_return_remaps_fingerprint(self):
+        self.restore_partial_return(True)
+
+    def test_restore_rejects_forged_active_reference_before_creating_company(self):
+        import json
+        source=self.bill(tracked=True);self.note(source,[{**source['data']['lines'][0],'quantity':1}])
+        exported=self.client.get(self.base+'/data-export.json',headers=self.headers).json()
+        note=next(r for r in exported['records'] if r['kind']=='debit_note');note['data']['lines'][0]['source_line_id']='0:forged'
+        companies=self.client.get('/api/companies',headers=self.headers).json()
+        response=self.client.post('/api/backups/restore/preview',headers=self.headers,json={'company_name':'Invalid refs','backup_base64':base64.b64encode(json.dumps(exported).encode()).decode()})
+        self.assertEqual(response.status_code,422,response.text)
+        self.assertEqual(self.client.get('/api/companies',headers=self.headers).json(),companies)
 
     def test_same_stock_item_with_mixed_treatment_reverses_inventory_and_tax(self):
         source=self.bill(tracked=True)

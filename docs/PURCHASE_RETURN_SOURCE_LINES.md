@@ -17,3 +17,12 @@ Compatibility policy:
 Selectors show **original source quantity**, not live remaining capacity. Save checks the current remaining balance. Historical incorrect ITC, metadata or postings are not repaired. The read-only review and correction process remains in `STOCK_RECONCILIATION_REVIEW.md`.
 
 Validation added: API mixed-service and same-stock-item treatment, partial/full reversals, duplicate-row and source-line caps, invalid/stale references, amendment/cancellation, header preservation and restore; web exact selection/reopen payload; Android in-place selection identity and serialization/reopen; PostgreSQL competing returns against one source line. Native build checks do not replace device acceptance of these selectors, especially Windows interaction and Android navigation/accessibility.
+
+
+## Independent-review corrections
+
+Tracked-item restore validates active note references in the exported ID namespace, then recomputes valid fingerprints after item IDs are remapped. A stale or forged active reference blocks restore preview rather than being silently made valid. Cancelled historical records are not reactivated. Physical tracked partial-return restore is covered separately from the untracked-service case.
+
+Partial supplier returns now apportion source tax by cumulative returned taxable value, with the remaining source tax exhausted on the final value return. CGST, SGST, IGST and unclassified supplier tax use remaining source-component budgets, separately for pending and ineligible ITC. Rounding adjustments larger than one paise per line require historical review. Amendment previews identify the edited note so its previous posting is excluded from the preview calculation; POST does not trust this preview-only field. Save still rechecks all capacities under the company lock.
+
+After an explicit source line is selected, no client offers a blank choice that appears to clear it. New or legacy rows can still use matching by item/description where the API permits it. Native choice-contract tests and the web submitted-payload tests cover the distinction.

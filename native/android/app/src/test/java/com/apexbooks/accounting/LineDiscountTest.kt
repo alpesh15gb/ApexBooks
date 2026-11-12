@@ -14,4 +14,10 @@ class LineDiscountTest {
         assertEquals(identity,line.uiKey);assertEquals("1:second",line.json().getString("source_line_id"));assertEquals("bill",line.json().getString("source_document_id"));assertEquals("pending_review",line.get("itc_treatment"));assertEquals("amount",line.discountMode)
         val reopened=LineState(line.json());assertEquals("1:second",reopened.get("source_line_id"));assertEquals("1",reopened.get("quantity"))
     }
+    @Test fun explicitSourceChoicesNeverOfferBlankAndMissingOptionsKeepReadableSelection(){
+        val rows=listOf(JSONObject().put("source_line_id","0:first").put("description","Same service"),JSONObject().put("source_line_id","1:second").put("description","Same service"))
+        val line=LineState();assertTrue(purchaseReturnChoices(rows,line).any{it.first.isBlank()})
+        line.selectSource(JSONObject(rows[1].toString()).put("source_line_number",2))
+        val choices=purchaseReturnChoices(rows,line);assertEquals(2,choices.size);assertTrue(choices.none{it.first.isBlank()});assertEquals("Saved source line 2",purchaseReturnChoices(emptyList(),line).single().second)
+    }
 }

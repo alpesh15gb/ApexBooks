@@ -46,7 +46,7 @@ import org.json.JSONObject
         editor.preview = null; editor.previewError = ""
         if (!previewReady) return@LaunchedEffect
         delay(350)
-        try { editor.preview = vm.api.request(vm.api.company(editor.companyId, "/documents/preview"), "POST", JSONObject(serialized)) as JSONObject }
+        try { val payload=JSONObject(serialized);if(editor.kind=="debit_note"&&editor.previous!=null)payload.getJSONObject("data").put("editing_record_id",editor.previous.s("id"));editor.preview = vm.api.request(vm.api.company(editor.companyId, "/documents/preview"), "POST", payload) as JSONObject }
         catch (e: Exception) { currentCoroutineContext().ensureActive(); editor.previewError = e.message ?: "Preview is unavailable."; if (e is ApiFailure && e.status == 401) vm.failure(e) }
     }
     LaunchedEffect(step) { scroll.scrollTo(0); stepError = "" }
@@ -235,9 +235,7 @@ val supplyChoices=listOf("taxable" to "Taxable","nil_rated" to "Nil rated","exem
         val calculated=editor.preview?.o("data")?.a("lines")?.optJSONObject(index)
         if(calculated!=null){val amount=(calculated.s("taxable").toBigDecimalOrNull()?:java.math.BigDecimal.ZERO)+(calculated.s("tax").toBigDecimalOrNull()?:java.math.BigDecimal.ZERO);Text(money(amount),style=MaterialTheme.typography.titleMedium,color=ApexGreen)}
         if(editor.kind=="debit_note"){
-            val options=editor.returnSourceLines.filter{it.s("source_line_id").isNotBlank()}.map{it.s("source_line_id") to "Line ${it.s("source_line_number")} · ${it.s("description")} · source qty ${it.s("quantity")} · GST ${it.s("gst_rate")}% · ${it.s("itc_treatment")}"}
-            val saved=if(line.get("source_line_id").isNotBlank()&&options.none{it.first==line.get("source_line_id")})listOf(line.get("source_line_id") to "Saved source line ${line.get("source_line_number")}")else emptyList()
-            Choice("Source purchase line",line.get("source_line_id"),listOf("" to "Choose source line / legacy match")+saved+options,{editor.chooseReturnLine(line,it)})
+            Choice("Source purchase line",line.get("source_line_id"),purchaseReturnChoices(editor.returnSourceLines,line),{editor.chooseReturnLine(line,it)})
             if(line.get("source_line_id").isNotBlank())Text("GST and ITC treatment follow the selected source line.",style=MaterialTheme.typography.bodySmall)
         }
         val products=editor.items(line)

@@ -78,7 +78,13 @@ def install(app,m):
         company=m.company_for(company_id,user,session)
         if body.kind not in m.DOCUMENTS:raise HTTPException(422,'Choose a document type')
         profile=session.get(m.CompanyTaxProfile,company_id)
-        data,amount=m.calculate(body.data,company,profile.mode if profile else 'regular',body.kind,session)
+        editing_id = body.data.get('editing_record_id')
+        if editing_id:
+            if not isinstance(editing_id, str): raise HTTPException(422, 'Invalid editing document')
+            editing = session.scalar(select(m.Record).where(m.Record.company_id == company_id, m.Record.id == editing_id, m.Record.kind == body.kind))
+            if not editing or body.kind != 'debit_note' or editing.data.get('applied_to') != body.data.get('applied_to'):
+                raise HTTPException(422, 'Preview must identify this source bill’s existing return')
+        data,amount=m.calculate(body.data,company,profile.mode if profile else 'regular',body.kind,session,exclude_return_id=editing_id)
         return {'data':data,'amount':str(amount)}
 
     @app.put('/api/companies/{company_id}/drafts/{record_id}')
