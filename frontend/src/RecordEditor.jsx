@@ -1,3 +1,5 @@
+import { captureSession } from "./sessionScope.js";
+import { captureCompanyAccess } from "./companyAccess.js";
 import StateCodeSelect from './StateCodeSelect.jsx';
 import { remainingReturnDraftLines } from './returnDefaults.js';
 import { changeLineDiscount, serializeLineDiscount, lineDiscountMode } from "./lineDiscount.js";
@@ -255,19 +257,37 @@ export default function RecordEditor({
     return () => { window.removeEventListener("beforeunload", unload); window.removeEventListener("apex-close-editor", back); };
   }, [dirty, saving, pending, scanning]);
 
+  const scanFlight = useRef(null);
+  const scanContext = useRef(null);
+  if (scanContext.current?.scope !== editorScope || scanContext.current?.role !== company.role)
+    scanContext.current = { scope: editorScope, role: company.role };
+  const scanDraft = useRef(null);
+  scanDraft.current = JSON.stringify([form, lines]);
   async function scan(e) {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !canWrite || saving || pending || loadingSource || quickFlight.current || scanFlight.current) return;
+    const flight = {}, context = scanContext.current, draft = scanDraft.current, input = e.target;
+    scanFlight.current = flight;
+    let verifySession, access;
+    const current = () => {
+      if (activeEditor.current !== editorScope || scanContext.current !== context || scanFlight.current !== flight) return false;
+      try { verifySession?.(); access?.verify(); return true; } catch { return false; }
+    };
+    const unchanged = () => scanDraft.current === draft;
     setError("");
     setScanning(true);
     setDirty(true);
     try {
+      verifySession = captureSession();
+      access = captureCompanyAccess(`/companies/${companyId}/ocr/purchase-draft`);
       const image = await prepareInvoiceImage(file);
-      setSourcePreview(URL.createObjectURL(file));
+      if (!current() || !unchanged()) return;
       const result = await api(`/companies/${companyId}/ocr/purchase-draft`, {
         method: "POST",
         body: JSON.stringify({ image_data_url: image }),
       });
+      if (!current() || !unchanged()) return;
+      setSourcePreview(URL.createObjectURL(file));
       const d = result.draft;
       setOcrTotal(d.total || "");
       setForm((current) =>
@@ -289,10 +309,13 @@ export default function RecordEditor({
           })),
         );
     } catch (err) {
-      setError(err.message);
+      if (current()) setError(err.message);
     } finally {
-      setScanning(false);
-      e.target.value = "";
+      if (scanFlight.current === flight) {
+        scanFlight.current = null;
+        if (activeEditor.current === editorScope) setScanning(false);
+      }
+      input.value = "";
     }
   }
   useEffect(() => {

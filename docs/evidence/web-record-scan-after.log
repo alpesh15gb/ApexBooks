@@ -1,0 +1,43 @@
+✔ reopened fixed discount remains visible and a nonfinancial edit preserves exact input (132.696816ms)
+✔ switching percent and rupee modes cannot submit both inputs (98.305836ms)
+✔ linked return retains fixed amount and requires review again after quantity changes (86.772405ms)
+✔ conversion keeps fixed/inclusive/document discount inputs unchanged without mandatory return acknowledgement (30.253548ms)
+✔ manual source selection and contextual return copy identical fixed plus document discount inputs (89.466632ms)
+✔ reopening financial-only credit and debit notes preserves false stock-return flag (96.739177ms)
+✔ quick-add item freezes line removal, submit and close until its request resolves (79.12691ms)
+✔ quick-add party cannot replace an edited name or submit while pending (52.208365ms)
+✔ linked debit-note preview includes the source bill required for inherited ITC (417.836088ms)
+✔ duplicate purchase descriptions select distinct source lines and preserve the reference on reopen (154.962531ms)
+✔ source-option load failure and retry preserve the edited return draft (44.966167ms)
+✔ debit-note amendment preview identifies the edited note without sending preview context to save (435.539906ms)
+✔ nine-line quotation reopen and invoice conversion preserve all entry fields (151.274695ms)
+✔ source banner names the edited or converted target document (94.560375ms)
+✔ repeat linked return submits only remaining quantity and retains visible allowance (24.961757ms)
+✔ scan image current success (123.731097ms)
+✔ scan image current failure (85.726655ms)
+✔ scan image company success (73.652919ms)
+✔ scan image company failure (48.863142ms)
+✔ scan image role-roundtrip success (44.816332ms)
+✔ scan image role-roundtrip failure (45.88486ms)
+✔ scan image token success (63.356707ms)
+✔ scan image token failure (61.536515ms)
+✔ scan image unmount success (50.841406ms)
+✔ scan image unmount failure (38.17636ms)
+✔ scan ocr current success (39.575758ms)
+✔ scan ocr current failure (28.448147ms)
+✔ scan ocr company success (23.766106ms)
+✔ scan ocr company failure (23.726306ms)
+✔ scan ocr role-roundtrip success (38.618627ms)
+✔ scan ocr role-roundtrip failure (37.795768ms)
+✔ scan ocr token success (37.467593ms)
+✔ scan ocr token failure (30.949045ms)
+✔ scan ocr unmount success (29.672732ms)
+✔ scan ocr unmount failure (28.551564ms)
+ℹ tests 35
+ℹ suites 0
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2879.337929
