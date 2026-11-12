@@ -1,3 +1,4 @@
+import {createCommerceRecovery} from './commerceRecovery.js';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ShoppingBag, RefreshCw, Plus, Link2, ShieldCheck, ArrowUpRight, AlertCircle, Package, CheckCircle2 } from 'lucide-react';
 import './commerce.css';
@@ -56,7 +57,7 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
   currentMoneyContext.current = moneyContext;
   const pendingCommands = useRef(new Map());
   const moneyRecoveries = useRef(new Map());
-  if (!moneyRecoveries.current.has(path)) moneyRecoveries.current.set(path,{request:null});
+  if (!moneyRecoveries.current.has(path)) moneyRecoveries.current.set(path,createCommerceRecovery());
   const send = async (operation, payload={}) => {
     const intent = JSON.stringify([path,operation,payload]);
     const id = pendingCommands.current.get(intent) || commandId();

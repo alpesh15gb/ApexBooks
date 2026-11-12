@@ -97,7 +97,7 @@ for(const status of [0,408,409,503])test(`uncertain commerce ${status} retries f
  await change(label('Bank / provider').querySelector('input'),'ORIGINAL-REF');await change(label('Amount').querySelector('input'),'100');await act(async()=>submit(document.querySelector('form')));
  assert.equal(document.querySelector('fieldset').disabled,true);assert.match(document.querySelector('[role=status]').textContent,/ORIGINAL-REF/);
  await change(label('Bank / provider').querySelector('input'),'EDITED-REF');await change(label('Amount').querySelector('input'),'200');await act(async()=>submit(document.querySelector('form')));
- assert.deepEqual(sent[1],sent[0]);assert.equal(document.querySelector('fieldset').disabled,false);assert.equal(document.querySelector('[role=status]'),null);
+ assert.deepEqual(sent[1],sent[0]);assert.equal(document.querySelector('fieldset').disabled,false);assert.match(document.querySelector('[role=status]').textContent,/accepted/);
 });
 test('uncertain commerce command survives store switch with the same command ID and payload',async(t)=>{
  const root=createRoot(document.getElementById('root'));t.after(async()=>act(async()=>root.unmount()));const commands=[];
@@ -107,4 +107,17 @@ test('uncertain commerce command survives store switch with the same command ID 
  await change(label('Store channel').querySelector('select'),'b');assert.doesNotMatch(document.body.textContent,/RECOVER-A/);
  await change(label('Store channel').querySelector('select'),'a');assert.match(document.body.textContent,/RECOVER-A/);assert.equal(document.querySelector('fieldset').disabled,true);
  await act(async()=>submit(document.querySelector('form')));assert.equal(commands.length,2);assert.deepEqual(commands[1],commands[0]);
+});
+for(const outcome of ['success','unknown','definitive'])test(`commerce shared recovery observes ${outcome} after remount before response`,async(t)=>{
+ const root=createRoot(document.getElementById('root'));t.after(async()=>act(async()=>root.unmount()));const commands=[];let finish,fail;
+ const workspace={connection:{id:'a',status:'active',config:{}},orders:[],stock:[],links:[],outbox:[],reconciliations:[],summary:{}};
+ const api=async(path,options={})=>{if(options.method==='POST'){commands.push(JSON.parse(options.body));if(commands.length===1)return new Promise((resolve,reject)=>{finish=resolve;fail=reject;});return {status:'pending'};}if(path.endsWith('/bank-accounts'))return [];if(path.endsWith('/connections'))return [{id:'a',name:'Synthetic',channel:'test'}];return workspace;};
+ await act(async()=>root.render(React.createElement(components.CommerceWorkspace,{company:{id:'c',name:'Synthetic',role:'editor'},records:[],api})));
+ const tab=name=>[...document.querySelectorAll('.commerce-tabs button')].find(b=>b.textContent===name);
+ await act(async()=>tab('payments').click());await change(label('Bank / provider').querySelector('input'),'REMOUNT-ORIGINAL');await act(async()=>submit(document.querySelector('form')));
+ await act(async()=>tab('overview').click());await act(async()=>tab('payments').click());assert.equal(document.querySelector('fieldset').disabled,true);await act(async()=>submit(document.querySelector('form')));assert.equal(commands.length,1);
+ await act(async()=>outcome==='success'?finish({status:'pending'}):fail(Object.assign(Error('Synthetic outcome'),{status:outcome==='unknown'?0:422})));
+ if(outcome==='success'){assert.equal(document.querySelector('fieldset').disabled,false);assert.match(document.body.textContent,/original source command was accepted/);assert.doesNotMatch(document.body.textContent,/Retry original source command/);}
+ else if(outcome==='unknown'){assert.equal(document.querySelector('fieldset').disabled,true);assert.match(document.body.textContent,/REMOUNT-ORIGINAL/);await act(async()=>submit(document.querySelector('form')));assert.equal(commands.length,2);assert.deepEqual(commands[1],commands[0]);assert.equal(document.querySelector('fieldset').disabled,false);}
+ else {assert.equal(document.querySelector('fieldset').disabled,false);assert.match(document.querySelector('[role=alert]').textContent,/Synthetic outcome/);assert.doesNotMatch(document.body.textContent,/Retry original source command/);}
 });

@@ -37,6 +37,21 @@ class CommerceTest(unittest.TestCase):
         with patch('commerce.remote', return_value={'protocol': 1, 'channel': self.tag, 'currency': 'INR'}):
             self.client.post(self.path + '/verify', headers=self.headers).raise_for_status()
         self.client.put(self.path + '/state', headers=self.headers, json={'status': 'active'}).raise_for_status()
+    def test_workspace_window_is_not_authoritative_unknown_command_lookup(self):
+        command={'command_id':'synthetic-lost-response','operation':'payment.capture','payload':{'source_id':'synthetic-reference','confirmed':True,'data':{'amount':'100'}}}
+        first=self.client.post(self.path+'/commands',headers=self.headers,json=command)
+        self.assertEqual(first.status_code,202,first.text);original=first.json()
+        with Session(engine) as session:
+            t=m.commerce.t['outbox'];session.execute(update(t).where(t.c.id==original['id']).values(created_at='2000-01-01T00:00:00+00:00'))
+            connection=m.commerce.one(session,m.commerce.t['connections'],m.commerce.t['connections'].c.id==self.c['id'])
+            for i in range(205):m.commerce.enqueue(session,connection,'synthetic-later-'+str(i),'catalogue.scan',{})
+            session.commit()
+        view=self.client.get(self.path+'/workspace',headers=self.headers);self.assertEqual(view.status_code,200,view.text)
+        self.assertEqual(len(view.json()['outbox']),200);self.assertNotIn(original['id'],{r['id'] for r in view.json()['outbox']})
+        replay=self.client.post(self.path+'/commands',headers=self.headers,json=command);self.assertEqual(replay.status_code,202,replay.text);self.assertEqual(replay.json()['id'],original['id'])
+        changed={**command,'payload':{**command['payload'],'data':{'amount':'200'}}}
+        self.assertEqual(self.client.post(self.path+'/commands',headers=self.headers,json=changed).status_code,409)
+
     def record(self, kind, name, data, amount='0'):
         response = self.client.post(self.base + '/records', headers=self.headers, json={'kind': kind, 'name': name, 'date': '2026-11-02', 'amount': amount, 'data': data})
         self.assertEqual(response.status_code, 200, response.text); return response.json()

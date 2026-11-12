@@ -280,3 +280,14 @@ These are synthetic commands, not a live Bagisto or posting acceptance run. Reco
 is not persisted through workspace unmount, browser reload, sign-out or process death;
 operators must reconcile delivery history in those cases. No publication retry or
 deployment was performed.
+
+### Shared commerce recovery and durable-recovery assessment
+
+Independent review found a remount-before-response race in cb09e7f. Shared recovery
+is now observable, including its single-flight state; reopened forms see success,
+definitive failure or unresolved original payload without issuing duplicate commands.
+Twenty targeted rendered tests passed, plus a synthetic backend test proving the
+latest-200 outbox window is not authoritative absence evidence. See
+COMMERCE_RECOVERY_BOUNDARIES.md for exact limits and durable recovery prerequisites.
+No financial payload is persisted in browser storage; reload/sign-out replay remains
+unimplemented. Final lint/build/bundle budgets passed. No publication retry or deployment was performed.
