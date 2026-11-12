@@ -282,13 +282,22 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
     }
   }
   async function unmatch(line) {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const submittedView = view;
+    setBusy(true);
+    setError("");
     try {
       await api(`/companies/${companyId}/bank-statement/${line.id}/match`, {
         method: "DELETE",
       });
+      if (activeView.current !== submittedView) return;
       setRevision((value) => value + 1);
     } catch (err) {
-      setError(err.message);
+      if (activeView.current === submittedView) setError(err.message);
+    } finally {
+      inFlight.current = false;
+      if (activeView.current !== null) setBusy(false);
     }
   }
   async function saveReview(event) {
@@ -598,7 +607,7 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
                     {line.matched_record_id ? (
                       <button
                         className="link"
-                        disabled={role === "viewer"}
+                        disabled={busy || role === "viewer"}
                         onClick={() => unmatch(line)}
                       >
                         Matched · Unmatch
