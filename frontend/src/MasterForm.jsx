@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { registerPostingRequest } from "./postingRegistry.js";
 import { X } from "lucide-react";
 
-export default function MasterForm({ kind, close: onClose, save, record, features = [], readOnly = false }) {
+export default function MasterForm({ kind, close: onClose, save, record, features = [], readOnly = false, recoveryRevision = 0 }) {
   const supported = feature => supportsFeature(features, feature);
   const isParty = kind === "party";
   const [form, setForm] = useState({
@@ -30,6 +30,9 @@ export default function MasterForm({ kind, close: onClose, save, record, feature
     name: record?.name || "",tax_treatment:record?.data?.tax_treatment || (Number(record?.data?.gst_rate||0)>0?"taxable":"nil_rated"),
   });
   const [error, setError] = useState("");
+  const accessError = useRef(false);
+  const recovery = useRef(recoveryRevision); recovery.current = recoveryRevision;
+  useEffect(() => { if (accessError.current) { accessError.current = false; setError(""); } }, [recoveryRevision]);
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [discard, setDiscard] = useState(false);
@@ -64,6 +67,8 @@ export default function MasterForm({ kind, close: onClose, save, record, feature
     if (operation.current.busy) return;
     if (!form.name.trim()) { setError(`Enter a ${isParty ? "party" : "item"} name.`); return; }
     if (!isParty && form.track_stock && form.item_type === 'services' && !(record?.data?.track_stock && record?.data?.item_type === 'services')) { setError('Stock tracking is supported for goods only. Turn off stock tracking for a new service, or keep this tracked item as goods.'); return; }
+    const recoveryAtSubmit = recovery.current;
+    accessError.current = false;
     operation.current.busy = true;
     setBusy(true);
     setError("");
@@ -95,7 +100,7 @@ export default function MasterForm({ kind, close: onClose, save, record, feature
           };
       await save({ kind, name: form.name.trim(), data: supportedMasterData(data, features) });
     } catch (err) {
-      setError(err.message);
+      if (!err.companyAccess || recoveryAtSubmit === recovery.current) { accessError.current = Boolean(err.companyAccess); setError(err.message); }
     } finally {
       operation.current.busy = false;
       setBusy(false);

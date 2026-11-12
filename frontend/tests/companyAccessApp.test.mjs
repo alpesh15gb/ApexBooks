@@ -15,8 +15,8 @@ for(const restoredRole of ['editor','viewer'])test(`actual App preserves master 
   await act(async()=>button.click());const input=document.querySelector('.overlay input');assert.ok(input);
   await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(input,'Preserved synthetic draft');input.dispatchEvent(new window.Event('input',{bubbles:true}));});
   revoked=true;const form=input.closest('form');assert.ok(form);await act(async()=>form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
-  assert.equal(posts,1);assert.ok(document.querySelector('[data-company-locked="true"]').hidden);assert.match(document.body.textContent,/Company access removed or unavailable/);assert.equal(input.value,'Preserved synthetic draft');
+  assert.equal(posts,1);assert.match(form.textContent,/Refresh company access before continuing/);assert.ok(document.querySelector('[data-company-locked="true"]').hidden);assert.match(document.body.textContent,/Company access removed or unavailable/);assert.equal(input.value,'Preserved synthetic draft');
   revoked=false;role=restoredRole;await act(async()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Refresh company access').click());
-  assert.equal(document.querySelector('[data-company-locked]').hidden,false);assert.equal(input.value,'Preserved synthetic draft');assert.equal(input.isConnected,true);assert.equal(posts,1);assert.equal(input.closest('[inert]'),null);assert.equal([...document.querySelectorAll('button')].find(b=>b.textContent==='Save party').disabled,restoredRole==='viewer');
+  assert.equal(document.querySelector('[data-company-locked]').hidden,false);assert.equal(input.value,'Preserved synthetic draft');assert.equal(input.isConnected,true);assert.doesNotMatch(form.textContent,/Refresh company access before continuing/);assert.equal(posts,1);assert.equal(input.closest('[inert]'),null);assert.equal([...document.querySelectorAll('button')].find(b=>b.textContent==='Save party').disabled,restoredRole==='viewer');
  }finally{dom.window.close();await rm(temp,{recursive:true,force:true});}
 });

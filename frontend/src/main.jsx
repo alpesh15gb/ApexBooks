@@ -507,6 +507,7 @@ function App() {
     [reorderCreated, setReorderCreated] = useState(null),
     [accessLost, setAccessLost] = useState(false),
     [accessRecovering, setAccessRecovering] = useState(false),
+    [accessRecoveryRevision, setAccessRecoveryRevision] = useState(0),
     [detail, setDetail] = useState(null),
     [detailLoading, setDetailLoading] = useState(false),
     [detailError, setDetailError] = useState(""),
@@ -532,6 +533,8 @@ function App() {
     return () => { active = false; };
   }, [signed, capabilityRevision]);
   const company = companies.find((c) => c.id === companyId);
+  const ledgerDrafts = useRef(new Map());
+  useEffect(() => { if (!signed) ledgerDrafts.current.clear(); }, [signed]);
   const acceptedSession = useRef(localStorage.token);
   const activeCompany = useRef(companyId);
   activeCompany.current = companyId;
@@ -567,7 +570,7 @@ function App() {
       const rows = await loadRecords(id);
       if (activeCompany.current !== id || localStorage.token !== session) return;
       if (!rows) { blockCompanyAccess(id); return; }
-      setAccessLost(false); setError('');
+      setAccessLost(false); setError(''); setAccessRecoveryRevision(value => value + 1);
     } catch (reason) { if (activeCompany.current === id && localStorage.token === session) setError(reason.message); }
     finally { setAccessRecovering(false); }
   }
@@ -996,7 +999,7 @@ function App() {
   }
   useEffect(() => {
     const beforeUnload = event => {
-      if (hasPendingPostings()) { event.preventDefault(); event.returnValue = ""; }
+      if (hasPendingPostings() || [...ledgerDrafts.current.values()].some(draft => draft.dirty)) { event.preventDefault(); event.returnValue = ""; }
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
@@ -1004,6 +1007,7 @@ function App() {
   async function signOut() {
     if (postingNavigationBlocked()) return;
     if (document.querySelector(".overlay .modal")) return;
+    if ([...ledgerDrafts.current.values()].some(draft => draft.dirty) && !window.confirm("Sign out and discard your unsaved journal/account drafts? They are kept only in this tab.")) return;
     const token = acceptedSession.current;
     if (localStorage.token !== token) { setError("Your sign-in changed in another tab. Reload before signing out."); return; }
     if (token) {
@@ -1244,7 +1248,7 @@ function App() {
           ) : page === "reorder" ? (
             <ReorderWorkspace key={companyId} companyId={companyId} role={company.role} api={api} createdOrder={reorderCreated} onOpenOrder={beginDetail} onReview={startReorder} onBack={() => navigateWorkspace("item")} />
           ) : page === "ledger" ? (
-            <Ledger key={companyId} companyId={companyId} role={company?.role} onOpen={beginDetail} />
+            <Ledger key={companyId} drafts={ledgerDrafts.current} companyId={companyId} role={company?.role} onOpen={beginDetail} />
           ) : page === "bank_account" ? (
             <BankWorkspace
               key={companyId}
@@ -1860,6 +1864,7 @@ function App() {
         company &&
         (["party", "item"].includes(page) ? (
           <MasterForm
+            recoveryRevision={accessRecoveryRevision}
             readOnly={!["owner", "editor"].includes(company?.role)}
             features={features}
             kind={page}
@@ -2143,22 +2148,19 @@ function Members({ companyId, companyName, role }) {
   );
 }
 
-function Ledger({ companyId, role, onOpen }) {
+function Ledger({ companyId, role, onOpen, drafts }) {
+  if (!drafts.has(companyId)) drafts.set(companyId, { account: { code: "", name: "", category: "asset" }, entry: { date: today(), reference: "", memo: "", debit_account: "", credit_account: "", amount: "" }, dirty: false });
+  const draft = drafts.get(companyId);
   const canWrite = ["owner", "editor"].includes(role);
   const submitting = useRef(false);
+  const posting = useRef({ busy: false });
+  useEffect(() => registerPostingRequest(posting.current), []);
   const [busy, setBusy] = useState(false);
   const [accounts, setAccounts] = useState([]),
     [journals, setJournals] = useState([]),
-    [account, setAccount] = useState({ code: "", name: "", category: "asset" }),
-    [entry, setEntry] = useState({
-      date: today(),
-      reference: "",
-      memo: "",
-      debit_account: "",
-      credit_account: "",
-      amount: "",
-    }),
-    [error, setError] = useState(""),
+    [account, updateAccount] = useState(draft.account),
+    [entry, updateEntry] = useState(draft.entry),
+    [error, updateError] = useState(draft.error || ""),
     [through, setThrough] = useState(today()),
     [balance, setBalance] = useState(null),
     [reversing, setReversing] = useState(null),
@@ -2167,6 +2169,9 @@ function Ledger({ companyId, role, onOpen }) {
       reference: "",
       reason: "",
     });
+  function setError(value) { draft.error = value; updateError(value); }
+  function setAccount(value, saved = false) { draft.account = value; draft.accountDirty = !saved; draft.dirty = Boolean(draft.accountDirty || draft.entryDirty); updateAccount(value); }
+  function setEntry(value, saved = false) { draft.entry = value; draft.entryDirty = !saved; draft.dirty = Boolean(draft.accountDirty || draft.entryDirty); updateEntry(value); }
   const activeCompany = useRef(companyId);
   activeCompany.current = companyId;
   const workspaceScope = useRef(createRequestScope(companyId));
@@ -2195,13 +2200,12 @@ function Ledger({ companyId, role, onOpen }) {
     setAccounts([]);
     setJournals([]);
     setBalance(null);
-    setError("");
     load();
   }, [companyId, through]);
   async function addAccount(e) {
     e.preventDefault();
     if (!canWrite || submitting.current) return;
-    submitting.current = true;
+    submitting.current = true; posting.current.busy = true;
     setBusy(true);
     setError("");
     try {
@@ -2209,19 +2213,19 @@ function Ledger({ companyId, role, onOpen }) {
         method: "POST",
         body: JSON.stringify(account),
       });
-      setAccount({ code: "", name: "", category: "asset" });
+      setAccount({ code: "", name: "", category: "asset" }, true);
       await load();
     } catch (err) {
       setError(err.message + (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
     } finally {
-      submitting.current = false;
+      submitting.current = false; posting.current.busy = false;
       setBusy(false);
     }
   }
   async function postJournal(e) {
     e.preventDefault();
     if (!canWrite || submitting.current) return;
-    submitting.current = true;
+    submitting.current = true; posting.current.busy = true;
     setBusy(true);
     setError("");
     try {
@@ -2246,19 +2250,19 @@ function Ledger({ companyId, role, onOpen }) {
         debit_account: "",
         credit_account: "",
         amount: "",
-      });
+      }, true);
       await load();
     } catch (err) {
       setError(err.message + (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
     } finally {
-      submitting.current = false;
+      submitting.current = false; posting.current.busy = false;
       setBusy(false);
     }
   }
   async function reverseEntry(e) {
     e.preventDefault();
     if (!canWrite || submitting.current) return;
-    submitting.current = true;
+    submitting.current = true; posting.current.busy = true;
     setBusy(true);
     setError("");
     try {
@@ -2272,7 +2276,7 @@ function Ledger({ companyId, role, onOpen }) {
     } catch (err) {
       setError(err.message + (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
     } finally {
-      submitting.current = false;
+      submitting.current = false; posting.current.busy = false;
       setBusy(false);
     }
   }
@@ -2288,11 +2292,12 @@ function Ledger({ companyId, role, onOpen }) {
           <button className="button secondary" disabled={busy} onClick={load}>Refresh journal history</button>
         </div>
       </div>
-      {error && <div className="error banner">{error}</div>}
+      {error && <div className="error banner" role="alert">{error}</div>}
       <div className="info-box ledger-note">
         New invoices, bills, payments, notes, POS sales and expenses post to the
         ledger automatically. Older prototype records remain unposted.
       </div>
+      <p className="info-box">Unsaved journal and account drafts are kept separately for each company while you navigate in this tab. Reloading or signing out discards them.</p>
       <div className="ledger-grid">
         <section className="panel settings-panel">
           <h2>Chart of accounts</h2>

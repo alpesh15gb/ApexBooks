@@ -507,3 +507,26 @@ numeric JSON/XLSX parity are covered. These are synthetic tests, not browser/OS 
 screen-reader or statutory acceptance. PDFs remain untagged. Journal/account draft
 preservation and stale recovery wording remain next priorities. No production access,
 publication retry or deployment.
+
+### Ledger drafts and verified access-recovery wording (after 4dd8067)
+
+Ledger account/journal drafts now live in App-owned, company-scoped memory across
+screen unmounts and company switches. Successful posting clears only the posted form;
+validation and uncertain-result warnings retain the draft. No draft data is written
+to browser storage. Reload prompts while drafts remain, sign-out confirms discard,
+and signed-out state clears the cache. Pending ledger mutations register with the
+existing navigation guard and synchronous duplicate-submit guard. Ledger errors are
+alerts. Viewer roles cannot render/write the retained forms; editor recovery resumes.
+
+MasterForm clears only an identified company-access error after the App completes
+membership/record recovery. Drafts and unrelated validation errors remain; obsolete
+access errors from an earlier recovery generation are ignored.
+
+Validation: 13 rendered/synthetic tests passed, including actual Ledger component
+remount/company isolation, viewer/editor transitions, same-account validation,
+duplicate submit, separate account/journal clearing, uncertain-result preservation,
+actual App master and stock recovery, and unrelated-error preservation. Lint and
+production build/budgets passed. Full browser navigation/confirmation and assistive
+technology acceptance remain open. Drafts are intentionally memory-only; no automatic
+reposting or durable unknown-outcome recovery was added. Backend permissions remain
+authoritative. No publication retry, production access or deployment.
