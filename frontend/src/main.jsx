@@ -509,6 +509,7 @@ function App() {
     return () => { active = false; };
   }, [signed, capabilityRevision]);
   const company = companies.find((c) => c.id === companyId);
+  const acceptedSession = useRef(localStorage.token);
   const activeCompany = useRef(companyId);
   activeCompany.current = companyId;
   const workspaceScope = useRef(createRequestScope(companyId));
@@ -943,7 +944,8 @@ function App() {
   async function signOut() {
     if (postingNavigationBlocked()) return;
     if (document.querySelector(".overlay .modal")) return;
-    const token = localStorage.token;
+    const token = acceptedSession.current;
+    if (localStorage.token !== token) { setError("Your sign-in changed in another tab. Reload before signing out."); return; }
     if (token) {
       try {
         await fetch("/api/auth/logout", {
@@ -953,7 +955,9 @@ function App() {
         });
       } catch {}
     }
+    if (localStorage.token !== token) return;
     localStorage.removeItem("token");
+    acceptedSession.current = undefined;
     localStorage.removeItem("companyId");
     activeCompany.current = "";
     setRecords([]);
@@ -1043,7 +1047,7 @@ function App() {
     window.addEventListener("popstate", back);
     return () => window.removeEventListener("popstate", back);
   }, [page, modal, detail]);
-  if (!signed) return <Auth onLogin={() => setSigned(true)} />;
+  if (!signed) return <Auth onLogin={() => { acceptedSession.current = localStorage.token; setSigned(true); }} />;
   return (
     <div className="app">
       <a className="skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); document.getElementById('workspace-content')?.focus(); }}>Skip to content</a>
