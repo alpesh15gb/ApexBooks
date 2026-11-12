@@ -1377,3 +1377,29 @@ single zero byte is preserved. Logs: docs/evidence/encrypted-empty-stream-*.log.
 The guard proves only nonempty input, not a valid or restorable PostgreSQL archive.
 Restore verification remains mandatory. No actual database/remote/services,
 production, publication retry or deployment were used in this batch.
+
+### Real encrypted PostgreSQL integration rehearsal (2026-11-12)
+
+The populated PostgreSQL harness now accepts optional --age-bin pointing to
+separately authenticated age and age-keygen executables. With this option, real
+pg_dump output passes through the production nonempty-stream guard and age into
+0600 ciphertext files. Ephemeral private identities are also 0600 within the
+private temporary directory. No plaintext dump file is written. Every pipeline
+process exit status is checked.
+
+Before either database restore, wrong-identity decryption and bit-corrupted
+ciphertext fail the age/pg_restore --list preflight without database connection.
+Correct identity must pass both decryption and archive-listing status checks.
+A second streaming decryption feeds real single-transaction pg_restore. Both
+current and pre-upgrade encrypted snapshots restore and pass the existing exact
+report/record/attachment/receipt and scoped stored-row comparisons. The ordinary
+unencrypted mode was rerun and also passes. Logs: postgres-populated-encrypted.log
+and postgres-populated-plain-regression.log under docs/evidence.
+
+This closes the earlier separation between real encryption/mock database and
+real database/unencrypted archive checks. It exercises the actual PostgreSQL and
+age tools plus the production stream guard, not Docker wrappers, real offsite
+storage or operational writer-pause handling. No concurrent writers, commerce
+fixture or production data. Snapshot recovery still excludes later writes.
+Temporary cluster stopped and identities/data removed after completion. No
+publication retry or deployment.

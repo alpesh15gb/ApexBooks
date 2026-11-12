@@ -1,5 +1,6 @@
 """Populated loopback PostgreSQL upgrade and original-app snapshot recovery; no production URLs.
 Run with --pg-bin pointing to a separately authenticated PostgreSQL bin directory.
+Optional --age-bin uses authenticated age/age-keygen tools and no plaintext dump file.
 Creates its own temporary cluster; never connects to an existing server.
 """
 import argparse,hashlib,io,json,os,socket,subprocess,sys,tarfile,tempfile,time
@@ -89,16 +90,37 @@ def worker(folder,mode):
         else:assert not hasattr(main,'BankImportReceipt')
         print(json.dumps({'phase':mode,'tables_compared':len(observed['counts']),'stored_rows_compared_excluding_auth_usage_and_schema_version':sum(len(rows) for rows in observed['rows'].values()),'reports_exact':list(observed['reports']),'records':len(observed['records']),'bank_rows':len(observed['bankrows']),'attachment_bytes_exact':True,'master_receipt_exact':True,'bank_receipt_exact':mode=='verify','scope':'Synthetic populated PostgreSQL; rollback restores pre-upgrade snapshot and intentionally excludes later writes'},indent=2))
 
-def run(pg):
+def run(pg,age=None):
     import psycopg
     import getpass
     pg=pg.resolve();assert all((pg/name).is_file() for name in ('initdb','postgres','pg_dump','pg_restore'))
+    if age is not None:
+        age=age.resolve();assert all((age/name).is_file() for name in ('age','age-keygen'))
     with tempfile.TemporaryDirectory(prefix='apex-pg-rehearsal-') as temporary:
         folder=Path(temporary);data=folder/'data';user=getpass.getuser()
         baseline=folder/'baseline';baseline.mkdir()
         archive=subprocess.check_output(['git','archive',BASELINE,'backend'],cwd=ROOT)
         with tarfile.open(fileobj=io.BytesIO(archive)) as tar:tar.extractall(baseline,filter='data')
         env={'PATH':os.environ.get('PATH',''),'LANG':'C.UTF-8'}
+        identity=folder/'identity.key';wrong=folder/'wrong.key';recipient=None
+        if age is not None:
+            for key in (identity,wrong):
+                subprocess.run([str(age/'age-keygen'),'-o',str(key)],check=True,env=env,stderr=subprocess.DEVNULL)
+                assert key.stat().st_mode&0o777==0o600
+            recipient=subprocess.check_output([str(age/'age-keygen'),'-y',str(identity)],env=env,text=True).strip()
+        def pipeline(commands,output):
+            children=[]
+            try:
+                for index,command in enumerate(commands):
+                    previous=children[-1].stdout if children else None
+                    child=subprocess.Popen(command,stdin=previous,stdout=output if index==len(commands)-1 else subprocess.PIPE,stderr=subprocess.DEVNULL,env=env)
+                    children.append(child)
+                    if previous is not None:previous.close()
+                return [child.wait(timeout=60) for child in reversed(children)]
+            finally:
+                for child in children:
+                    if child.poll() is None:child.terminate();child.wait(timeout=10)
+
         subprocess.run([str(pg/'initdb'),'-D',str(data),'-A','trust','--no-locale','--encoding=UTF8'],check=True,env=env,stdout=subprocess.DEVNULL)
         with socket.socket() as listener:listener.bind(('127.0.0.1',0));port=listener.getsockname()[1]
         with (folder/'server.log').open('w') as log:
@@ -114,17 +136,35 @@ def run(pg):
                 with admin:
                     for name in ('source','restored','rollback'):admin.execute('CREATE DATABASE apex_recovery_'+name)
                 def dump(name,target):
-                    subprocess.run([str(pg/'pg_dump'),'-h','127.0.0.1','-p',str(port),'-U',user,'-Fc','-f',str(target),'apex_recovery_'+name],check=True,env=env)
+                    command=[str(pg/'pg_dump'),'-h','127.0.0.1','-p',str(port),'-U',user,'-Fc','apex_recovery_'+name]
+                    if age is None:subprocess.run(command+['-f',str(target)],check=True,env=env)
+                    else:
+                        with os.fdopen(os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600),'wb') as output:
+                            assert pipeline([command,[sys.executable,str(ROOT/'deploy/require_nonempty_stream.py')],[str(age/'age'),'-r',recipient]],output)==[0,0,0]
+                        assert target.stat().st_mode&0o777==0o600
                 def restore(name,archive):
-                    subprocess.run([str(pg/'pg_restore'),'-h','127.0.0.1','-p',str(port),'-U',user,'--no-owner','--single-transaction','-d','apex_recovery_'+name,str(archive)],check=True,env=env)
+                    command=[str(pg/'pg_restore'),'-h','127.0.0.1','-p',str(port),'-U',user,'--no-owner','--single-transaction','-d','apex_recovery_'+name]
+                    if age is None:subprocess.run(command+[str(archive)],check=True,env=env)
+                    else:
+                        # Listing never connects to a database. Both pipeline exit codes
+                        # must succeed, even if pg_restore parses before a late tag error.
+                        listing=[str(pg/'pg_restore'),'--list']
+                        assert any(pipeline([[str(age/'age'),'-d','-i',str(wrong),str(archive)],listing],subprocess.DEVNULL)), 'Wrong identity accepted'
+                        damaged=folder/'corrupt.age';content=bytearray(archive.read_bytes());content[len(content)//2]^=1;damaged.write_bytes(content)
+                        assert any(pipeline([[str(age/'age'),'-d','-i',str(identity),str(damaged)],listing],subprocess.DEVNULL)), 'Corrupt ciphertext accepted'
+                        damaged.unlink()
+                        decrypt=[str(age/'age'),'-d','-i',str(identity),str(archive)]
+                        assert pipeline([decrypt,listing],subprocess.DEVNULL)==[0,0]
+                        assert pipeline([decrypt,command],subprocess.DEVNULL)==[0,0]
+                suffix='.dump.age' if age is not None else '.dump'
                 for mode,name in [('seed','source'),('upgrade','source'),('verify','restored'),('rollback','rollback')]:
-                    if mode=='upgrade':dump('source',folder/'preupgrade.dump')
-                    if mode=='verify':dump('source',folder/'current.dump');restore('restored',folder/'current.dump')
-                    if mode=='rollback':restore('rollback',folder/'preupgrade.dump')
+                    if mode=='upgrade':dump('source',folder/('preupgrade'+suffix))
+                    if mode=='verify':dump('source',folder/('current'+suffix));restore('restored',folder/('current'+suffix))
+                    if mode=='rollback':restore('rollback',folder/('preupgrade'+suffix))
                     backend=(baseline if mode in ('seed','rollback') else ROOT)/'backend'
                     taskenv={**env,'PYTHONPATH':str(backend),'DATABASE_URL':f'postgresql+psycopg://{user}@127.0.0.1:{port}/apex_recovery_{name}','JWT_SECRET':'synthetic-postgres-rehearsal-secret-not-production'}
                     subprocess.run([sys.executable,str(Path(__file__).resolve()),'--worker',mode,str(folder)],check=True,env=taskenv,cwd=backend)
-                print(json.dumps({'baseline_commit':BASELINE,'current_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),'populated_migration_preserved_original_rows':True,'repeat_migration_unchanged':True,'preupgrade_backup_reopened_by_original_application':True,'production_access':False}))
+                print(json.dumps({'baseline_commit':BASELINE,'current_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),'populated_migration_preserved_original_rows':True,'repeat_migration_unchanged':True,'preupgrade_backup_reopened_by_original_application':True,'real_age_encryption':age is not None,'plaintext_dump_written':age is None,'wrong_identity_and_corruption_rejected_before_db_restore':age is not None,'production_access':False}))
             finally:process.terminate();process.wait(timeout=20)
 
 if __name__=='__main__':
@@ -133,4 +173,4 @@ if __name__=='__main__':
         folder=Path(sys.argv[3]).resolve();assert folder.parent==Path(tempfile.gettempdir()).resolve() and folder.name.startswith('apex-pg-rehearsal-')
         worker(folder,sys.argv[2])
     else:
-        parser=argparse.ArgumentParser();parser.add_argument('--pg-bin',required=True,type=Path);run(parser.parse_args().pg_bin)
+        parser=argparse.ArgumentParser();parser.add_argument('--pg-bin',required=True,type=Path);parser.add_argument('--age-bin',type=Path);args=parser.parse_args();run(args.pg_bin,args.age_bin)
