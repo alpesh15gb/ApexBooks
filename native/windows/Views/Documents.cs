@@ -220,15 +220,25 @@ public sealed partial class MainPage
         party.TextChanged+=(_,_)=>ShowAddParty();party.SuggestionChosen+=(_,_)=>ShowAddParty();ShowAddParty();
         if (kind == "purchase_bill")
         {
-            var ocr = AsyncButton("Scan purchase bill", async () =>
+            async Task ScanPurchase()
             {
-                var file = await ApexFiles.Pick(".png", ".jpg", ".jpeg", ".webp"); if (file is null) return;
-                var image = await ApexFiles.Image(file, 3000, 2_700_000); var result = await Api.Send(Api.CompanyPath(cid, "/ocr/purchase-draft"), HttpMethod.Post, new JsonObject { ["image_data_url"] = image }); var draft = result["draft"];
+                if(sourceLoading||!editorOpen||submission.Unresolved||!ScopedFileExport.Current(writeAccess))return;
+                var scanAccess=CaptureFileSaveAccess();var original=BodyValue().ToJsonString();
+                bool CurrentScan()=>editorOpen&&stamp==generation&&ScopedFileExport.Current(writeAccess)&&ScopedFileExport.Current(scanAccess)&&!submission.Unresolved;
+                bool Unchanged()=>BodyValue().ToJsonString()==original;
+                sourceLoading=true;
+                try{
+                var file = await ApexFiles.Pick(".png", ".jpg", ".jpeg", ".webp"); if (file is null||!CurrentScan()||!Unchanged()) return;
+                var image = await ApexFiles.Image(file, 3000, 2_700_000); if(!CurrentScan()||!Unchanged())return;var result = await Api.Send(Api.CompanyPath(cid, "/ocr/purchase-draft"), HttpMethod.Post, new JsonObject { ["image_data_url"] = image }); if(!CurrentScan()||!Unchanged())return;var draft = result["draft"];
                 partyId = ""; phone.Text = ""; shipping.Text = ""; due.Picker.Date = null; discount.Text = "0"; round.IsChecked = false;
                 party.Text = draft.Text("supplier_name"); number.Text = draft.Text("invoice_number"); address.Text = draft.Text("supplier_address"); gstin.Text = draft.Text("supplier_gstin"); supplierState.Text = gstin.Text.Length >= 2 ? gstin.Text[..2] : Company.Text("state_code"); supply.Text = draft.Text("place_of_supply").Length == 2 ? draft.Text("place_of_supply") : Company.Text("state_code");
                 if (DateTime.TryParse(draft.Text("invoice_date"), out var extractedDate)) date.Picker.Date = new DateTimeOffset(extractedDate);
                 ReplaceLines(draft?["items"].Array() ?? new(),true); info.Severity = InfoBarSeverity.Warning; info.Message = "Draft extracted. Bill total: " + draft.Text("total") + ". Linking stock keeps the scanned rate and GST. Review every field before posting."; info.IsOpen = true;
-            }, LocalError); panel.Children.Add(ocr);
+                }
+                catch(Exception e){if(CurrentScan())LocalError(e);}
+                finally{sourceLoading=false;}
+            }
+            var ocr = AsyncButton("Scan purchase bill", ScanPurchase, LocalError); panel.Children.Add(ocr);
         }
         panel.Children.Add(SectionHeading("02","Items & services","Select an item or enter a description. Tax and totals are calculated automatically."));
         panel.Children.Add(linesPanel); ReplaceLines(returnSource is not null && previous is null ? SourceLineChoices.DraftLines(returnSource["return_capacity_lines"] is JsonArray initialCapacity ? initialCapacity : data["lines"].Array()) : data["lines"].Array()); panel.Children.Add(Button("+ Add item", () => AddLine()));
