@@ -698,6 +698,12 @@ def calculate(data, company, tax_mode, kind, session, *, exclude_return_id=None)
     supply_values = {key: Decimal('0') for key in ('taxable', 'nil_rated', 'exempt', 'non_gst')}
     cleaned = []
     try:
+        document_discount = Decimal(str(data.get('document_discount_percent', 0)))
+        if not document_discount.is_finite() or not 0 <= document_discount <= 100 or document_discount.as_tuple().exponent < -2:
+            raise ValueError()
+    except (ValueError, TypeError, ArithmeticError):
+        raise HTTPException(422, 'Document discount must be between 0 and 100 percent with at most two decimal places')
+    try:
         for line in lines:
             if not isinstance(line, dict): raise ValueError()
             description = str(line.get('description', '')).strip()
@@ -739,8 +745,6 @@ def calculate(data, company, tax_mode, kind, session, *, exclude_return_id=None)
                 raise HTTPException(422, 'Choose whether supplier GST is pending input-credit review or ineligible')
             inclusive=line.get('price_includes_tax',False)
             if not isinstance(inclusive,bool):raise ValueError()
-            document_discount=Decimal(str(data.get('document_discount_percent',0)))
-            if not document_discount.is_finite() or not 0<=document_discount<=100 or document_discount.as_tuple().exponent < -2:raise ValueError()
             gross = money(qty * rate); discount = money(gross * discount_percent / 100)
             if 'discount_amount' in line:
                 fixed_discount = Decimal(str(line['discount_amount']))
@@ -2044,9 +2048,11 @@ def create_journal(company_id: str, body: JournalInput, user: User = Depends(cur
     return {'id': journal.id, 'date': journal.date.isoformat(), 'reference': journal.reference, 'memo': journal.memo}
 
 @app.get('/api/companies/{company_id}/journals')
-def list_journals(company_id: str, user: User = Depends(current_user), session: Session = Depends(db)):
+def list_journals(company_id: str, user: User = Depends(current_user), session: Session = Depends(db), reference: str | None = None):
     company_for(company_id, user, session)
-    entries = list(session.scalars(select(Journal).where(Journal.company_id == company_id).order_by(Journal.date.desc(), Journal.id)))
+    query = select(Journal).where(Journal.company_id == company_id)
+    if reference is not None: query = query.where(Journal.reference == reference.strip())
+    entries = list(session.scalars(query.order_by(Journal.date.desc(), Journal.id)))
     links = list(session.scalars(select(JournalReversal).where(JournalReversal.company_id == company_id)))
     originals = {link.original_id: link.reversal_id for link in links}
     reversals = {link.reversal_id: link.original_id for link in links}

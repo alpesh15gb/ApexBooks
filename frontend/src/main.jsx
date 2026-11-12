@@ -2156,6 +2156,12 @@ function Ledger({ companyId, role, onOpen, drafts }) {
   const posting = useRef({ busy: false });
   useEffect(() => registerPostingRequest(posting.current), []);
   const [busy, setBusy] = useState(false);
+  const [uncertainty, setUncertainty] = useState(draft.uncertainty || {});
+  function uncertain(operation, command, unresolved) { const previous = draft.uncertainty?.[operation] || []; draft.uncertainty = { ...draft.uncertainty, [operation]: unresolved ? [...new Set([...previous, command])] : previous.filter(value => value !== command) }; setUncertainty(draft.uncertainty); }
+  function failed(operation, err, command) {
+    if (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500) uncertain(operation, command, true);
+    setError(err.message);
+  }
   const [accounts, setAccounts] = useState([]),
     [journals, setJournals] = useState([]),
     [account, updateAccount] = useState(draft.account),
@@ -2213,36 +2219,41 @@ function Ledger({ companyId, role, onOpen, drafts }) {
         method: "POST",
         body: JSON.stringify(account),
       });
+      uncertain("account", JSON.stringify(account), false);
       setAccount({ code: "", name: "", category: "asset" }, true);
       await load();
     } catch (err) {
-      setError(err.message + (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
+      failed("account", err, JSON.stringify(account));
     } finally {
       submitting.current = false; posting.current.busy = false;
       setBusy(false);
     }
   }
-  async function postJournal(e) {
+  async function postJournal(e, retry = false) {
     e.preventDefault();
     if (!canWrite || submitting.current) return;
+    const pending = draft.uncertainty?.journal?.[0];
+    if (pending && !retry) { setError("Resolve or retry the original journal before posting another command."); return; }
+    const command = pending ? JSON.parse(pending) : entry;
     submitting.current = true; posting.current.busy = true;
     setBusy(true);
     setError("");
     try {
-      if (entry.debit_account === entry.credit_account)
+      if (command.debit_account === command.credit_account)
         throw new Error("Choose different accounts for debit and credit");
       await api(`/companies/${companyId}/journals`, {
         method: "POST",
         body: JSON.stringify({
-          date: entry.date,
-          reference: entry.reference,
-          memo: entry.memo,
+          date: command.date,
+          reference: command.reference,
+          memo: command.memo,
           lines: [
-            { account_id: entry.debit_account, debit: entry.amount },
-            { account_id: entry.credit_account, credit: entry.amount },
+            { account_id: command.debit_account, debit: command.amount },
+            { account_id: command.credit_account, credit: command.amount },
           ],
         }),
       });
+      uncertain("journal", JSON.stringify(command), false);
       setEntry({
         date: today(),
         reference: "",
@@ -2253,11 +2264,29 @@ function Ledger({ companyId, role, onOpen, drafts }) {
       }, true);
       await load();
     } catch (err) {
-      setError(err.message + (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
+      failed("journal", err, JSON.stringify(command));
     } finally {
       submitting.current = false; posting.current.busy = false;
       setBusy(false);
     }
+  }
+  async function checkOriginalJournal() {
+    const pending = draft.uncertainty?.journal?.[0];
+    if (!pending || submitting.current) return;
+    const command = JSON.parse(pending);
+    submitting.current = true; posting.current.busy = true; setBusy(true);
+    try {
+      const rows = await api(`/companies/${companyId}/journals?reference=${encodeURIComponent(command.reference.trim())}`);
+      const row = rows.find(value => value.reference === command.reference.trim());
+      const matches = row && !row.source_record_id && !row.reversal_of && row.date === command.date && (row.memo || '') === command.memo && row.lines.length === 2
+        && row.lines.some(line => line.account_id === command.debit_account && Number(line.debit) === Number(command.amount) && Number(line.credit) === 0)
+        && row.lines.some(line => line.account_id === command.credit_account && Number(line.credit) === Number(command.amount) && Number(line.debit) === 0);
+      if (!matches) { setError(row ? 'That reference belongs to a different journal. Keep this draft and review the original entry before continuing.' : 'The original journal is not visible yet. This does not prove the request failed. Retry only the original journal.'); return; }
+      uncertain('journal', pending, false);
+      setEntry({ date: today(), reference: '', memo: '', debit_account: '', credit_account: '', amount: '' }, true);
+      setError(''); await load();
+    } catch (err) { setError(err.message); }
+    finally { submitting.current = false; posting.current.busy = false; setBusy(false); }
   }
   async function reverseEntry(e) {
     e.preventDefault();
@@ -2270,11 +2299,12 @@ function Ledger({ companyId, role, onOpen, drafts }) {
         method: "POST",
         body: JSON.stringify(reversal),
       });
+      uncertain("reversal", JSON.stringify({ id: reversing.id, ...reversal }), false);
       setReversing(null);
       setReversal({ date: today(), reference: "", reason: "" });
       await load();
     } catch (err) {
-      setError(err.message + (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500 ? " Check journal history before changing the reference or posting again; the previous request may have completed." : ""));
+      failed("reversal", err, JSON.stringify({ id: reversing.id, ...reversal }));
     } finally {
       submitting.current = false; posting.current.busy = false;
       setBusy(false);
@@ -2293,6 +2323,7 @@ function Ledger({ companyId, role, onOpen, drafts }) {
         </div>
       </div>
       {error && <div className="error banner" role="alert">{error}</div>}
+      {Object.entries(uncertainty).filter(([,pending]) => pending.length).map(([operation]) => <div key={operation} className="info-box" role="alert" data-ledger-uncertainty={operation}><strong>{operation === 'account' ? 'Account creation' : operation === 'journal' ? 'Journal posting' : 'Journal reversal'} result not confirmed.</strong> Check {operation === 'account' ? 'the chart of accounts' : 'journal history'} before changing {operation === 'account' ? 'the account code or creating another account' : 'the reference or posting again'}; the previous request may have completed. Refreshing or submitting another form does not resolve this result.</div>)}
       <div className="info-box ledger-note">
         New invoices, bills, payments, notes, POS sales and expenses post to the
         ledger automatically. Older prototype records remain unposted.
@@ -2366,8 +2397,9 @@ function Ledger({ companyId, role, onOpen, drafts }) {
         {canWrite && <section className="panel settings-panel">
           <h2>New journal entry</h2>
           <p>Each entry has an equal debit and credit. Use linked documents for party balances and tracked inventory.</p>
+          {uncertainty.journal?.length > 0 && <div className="info-box"><p>The original journal is frozen until its outcome is confirmed. Retrying uses its original reference and values.</p><button type="button" className="button secondary" disabled={busy || !canWrite} onClick={checkOriginalJournal}>Check original journal</button> <button type="button" className="button secondary" disabled={busy || !canWrite} onClick={event => postJournal(event, true)}>Retry original journal</button></div>}
           <form className="form-grid ledger-form" onSubmit={postJournal}>
-            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy}>
+            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy || Boolean(uncertainty.journal?.length)}>
             <label>
               Date
               <input

@@ -530,3 +530,32 @@ production build/budgets passed. Full browser navigation/confirmation and assist
 technology acceptance remain open. Drafts are intentionally memory-only; no automatic
 reposting or durable unknown-outcome recovery was added. Backend permissions remain
 authoritative. No publication retry, production access or deployment.
+
+### Journal unknown outcomes, party export scope and discount feedback (after cb18b80)
+
+Independent review reproduced journal uncertainty being overwritten by unrelated
+account failure, and a changed-reference retry after unknown outcome. Uncertainty is
+now retained per operation and original command. Unknown journal commands freeze the
+editor; normal submission is blocked and explicit retry uses the original immutable
+values/reference. A company-scoped exact-reference lookup can confirm a matching
+manual journal (date, memo, accounts and amounts) and clear the draft. Missing or
+mismatched results remain unresolved, including a duplicate-reference 409. No absence
+claim is inferred from a history list. The API filters reference in SQL and retains
+company authorization; database reference uniqueness prevents identical retries from
+creating another journal. Unrelated account/reversal/read errors cannot clear the
+journal uncertainty. Account/reversal uncertainty banners remain distinct; their own
+full frozen-command recovery remains a separate coverage gap.
+
+Party statement modal exports had nine failing synthetic stale completion cases.
+Company, party, date, away/back and unmount now invalidate delayed downloads/errors;
+current results still download once, and session ownership is rechecked before save.
+Document-discount validation now identifies the 0–100 percent/two-decimal field in
+preview and create. Existing rounding/calculation behavior remains unchanged.
+
+Validation: 28 frontend tests passed (ledger draft/recovery, App master recovery,
+party export and report export scopes). Twelve backend tests passed (exact-reference
+lookup/auth/company isolation/unique retry, invalid-discount atomicity and boundary
+preview/save parity, purchase-return residuals). Lint/build/budgets passed. Synthetic
+requests and fake download sink only. Browser/native acceptance, PostgreSQL concurrent
+journal recovery and durable recovery across reload/sign-out remain open. Drafts and
+uncertainty are memory-only; no production access, upload retry or deployment.
