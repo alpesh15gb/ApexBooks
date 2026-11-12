@@ -862,3 +862,30 @@ callback and full import-method synthetic workflow pass. Existing portable suite
 passes (145 PASS lines). Android receipt/helper callback suites also pass. These
 are portable stubs and synthetic files, not full WinUI/Compose build or physical
 restart acceptance. No real communications, production, upload retry or deployment.
+
+
+### Receipt build readiness and recurring role recovery (2026-11-12)
+
+Receipt contract/CI integration is preserved in 77e79fa. Eight API tests and 257
+static native route matches pass. Windows locked restore succeeds; printing and
+backup-streaming compile, but full WinUI requires a Windows XAML compiler. Android
+AGP 8.13.1 remains unresolved here. Hosted exact-head CI and device acceptance are
+still open; no publication retry has occurred.
+
+Next feature-level review reproduced open recurring-generation and template-edit
+forms remaining writable after owner-to-viewer role recovery. RecurringAction now
+receives current write permission, disables its fields/save button, guards submit
+and announces read-only status while preserving inputs. Editor recovery enables
+the retained form. This is client-side prevention; no unauthorized backend write
+was demonstrated and server authorization is unchanged.
+
+Six rendered recurring tests pass, including two red-to-green role transitions,
+exact original occurrence/key retry, no automatic generation, converted-source
+exclusion and late refresh after unmount. Lint/build/bundle budgets pass. Synthetic
+React rendering only, not actual browser or native UI acceptance.
+
+Priority remaining coverage: recurring confirmed generation followed by failed
+record refresh and same-workspace navigation races; browser restart receipt
+recovery; full native import screen/picker flows after exact-head CI. Memory-only
+recurring command recovery across a complete reload remains a separate boundary.
+No production access, publication retry or deployment.

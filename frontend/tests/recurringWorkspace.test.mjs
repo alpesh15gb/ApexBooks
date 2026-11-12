@@ -47,3 +47,18 @@ test('template source picker excludes posted and already-converted documents',as
  await act(async()=>root.render(React.createElement(Recurring,{...props,api:apiRead,records:[{id:'valid',kind:'estimate',name:'Reviewed quote'},{id:'posted',kind:'sales_invoice',name:'Posted invoice'},{id:'converted',kind:'estimate',name:'Converted quote',converted_to:'invoice'}]})));
  await click('New template');const options=[...document.querySelector('select[name=source_record_id]').options].map(option=>option.value);assert.deepEqual(options,['','valid']);assert.match(document.body.textContent,/Dates are fixed after creating/);await act(async()=>root.unmount());
 });
+for(const mode of ['generate','edit'])test(`retained ${mode} dialog becomes read-only after role downgrade and resumes for editor`,async()=>{
+ const root=createRoot(document.getElementById('root'));let writes=0;
+ const api=async(path,options)=>{if(options?.method){writes++;return{};}return apiRead(path);};
+ const render=role=>root.render(React.createElement(Recurring,{...props,role,api}));
+ try{
+ await act(async()=>render('owner'));await click(mode==='generate'?'Create draft & review':'Review / edit');
+ await act(async()=>render('viewer'));
+ assert.equal(document.querySelector('fieldset').disabled,true);
+ await act(async()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
+ assert.equal(writes,0);assert.match(document.querySelector('[role=dialog]').textContent,/read-only/i);
+ await act(async()=>render('editor'));assert.equal(document.querySelector('fieldset').disabled,false);
+ await act(async()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
+ assert.equal(writes,1);
+ }finally{await act(async()=>root.unmount());}
+});
