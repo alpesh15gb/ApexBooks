@@ -101,7 +101,12 @@ export default function CompleteBackup({ companyId, api, onRestored }) {
     const id = upload.upload_id, digest = preview.digest;
     perform(async () => {
       const result = await posting.run(() => api(`/backups/uploads/${id}/commit`, { method: 'POST', body: JSON.stringify({ digest }) }));
-      if (result && alive.current) { setPreview(null); setUpload(null); setSuccess('Complete backup restored into a separate company, including retained receipts.'); await onRestored?.(result.value.company_id); }
+      if (result && alive.current) {
+        setPreview(null); setUpload(null); setRestoredCompany(result.value.company_id);
+        setSuccess('Complete backup restored into a separate company, including retained receipts.');
+        try { await onRestored?.(result.value.company_id); }
+        catch (failure) { if (alive.current) setError(`Restore completed, but opening the company failed: ${failure.message}. Use Open restored company to retry opening the existing result; do not upload or restore again.`); }
+      }
     });
   }
   function chooseTransfer(value) {

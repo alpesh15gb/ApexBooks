@@ -149,3 +149,18 @@ test('reopened lost commit recovers canonical completed company without repostin
  await act(async()=>find('Open restored company').click());assert.equal(opened,'canonical-restored-company');assert.equal(paths.length,1);assert.ok(paths.every(row=>!row.path.endsWith('/commit')));
  await act(async()=>root.unmount());
 });
+
+test('confirmed restore keeps existing result when company navigation fails; opening never reposts',async()=>{
+ let commits=0,opens=0;const root=await mount(async path=>{
+  if(path.endsWith('/commit')){commits++;return {company_id:'confirmed-company'};}
+  return {...job,...preview,state:'sealed'};
+ },{onRestored:async company=>{assert.equal(company,'confirmed-company');if(++opens===1)throw Error('Company list unavailable');}});
+ try {
+  await type('Transfer ID',id);await act(async()=>find('Recover transfer').click());
+  await act(async()=>find('Restore as separate company').click());
+  assert.equal(commits,1);assert.match(document.body.textContent,/restored into a separate company/);
+  assert.ok(find('Open restored company'));assert.equal(find('Restore as separate company'),undefined);
+  await act(async()=>{find('Open restored company').click();find('Open restored company').click();});
+  assert.equal(opens,2);assert.equal(commits,1);assert.doesNotMatch(document.body.textContent,/Company list unavailable/);
+ } finally {await act(async()=>root.unmount());}
+});

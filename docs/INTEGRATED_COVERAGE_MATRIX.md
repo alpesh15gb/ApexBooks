@@ -739,3 +739,18 @@ eight legacy commit cases. Actual App tests expose the real callback through a
 build-only test seam, not a real file-picker or backup restore. Lint, frontend build
 and bundle budgets pass. Native/device acceptance remains separate. No production,
 publication retry, merge or deployment.
+
+### Complete restore confirmed-result recovery (2026-11-12)
+
+Reproduced: commit succeeds, parent company-list navigation fails, and the screen
+has no direct action to open the confirmed result. CompleteBackup now retains that
+company ID before navigation and offers Open restored company. Navigation failure
+explicitly says restore completed and directs recovery of that existing result.
+The open action uses the guarded parent callback and does not repost restore.
+
+Validation: 32 tests pass across complete-backup, navigation helper and rendered
+App cases. New regression failed before fix; it verifies one commit, retained result,
+refresh-error feedback and double-click-safe reopen with no additional commit.
+Lint, frontend production build and bundle budgets pass. Synthetic staged transfer
+only; real encrypted ZIP, interruption/device and browser-picker acceptance remain
+separate. No production, publication retry or deployment.
