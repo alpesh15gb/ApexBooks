@@ -1,5 +1,6 @@
 import { businessDate } from "./businessDate.js";
 import React from "react";
+import FinancialFigure from "./FinancialFigure.jsx";
 import { CheckCheck, Clock3, FileText, Wallet } from "lucide-react";
 const money = (value) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(
@@ -93,7 +94,7 @@ export default function RegisterOverview({ page, records, filter, onFilter }) {
             </span>
             <div>
               <small>{label}</small>
-              <strong>{count ? value : money(value)}</strong>
+              {count ? <strong>{value}</strong> : <FinancialFigure>{money(value)}</FinancialFigure>}
             </div>
           </div>
         ))}

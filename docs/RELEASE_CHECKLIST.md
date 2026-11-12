@@ -65,3 +65,11 @@ SHA, tested backup/restore, migration compatibility, secrets/HTTPS, native versi
 compatibility, and a reviewed rollback strategy. Ordinary domestic GST workflows
 are not e-invoice/e-way-bill/portal-filing integrations and must not be advertised
 as such. Production backup monitoring and statutory review remain explicit gates.
+
+## Read-only live audit follow-up (2026-11-12)
+
+- Live GSTR-1 monthly → Sales register retained monthly dates under the financial-year label. Local Reports restores ordinary dates and has a passing rendered quarterly/company-switch regression. Verify the final integrated release on monthly and quarterly transitions; deployment has not occurred.
+- Live Sales invoice summary split paise onto a second line at 1200×790. RegisterOverview now uses the responsive nonbreaking FinancialFigure with wider adaptive cards. Run `cd frontend && node tests/registerFigures.browser.mjs` for synthetic seven-plus digit values at 1200, 768, 375 and 320px. Local Chromium execution is blocked by socket permissions, so visual acceptance is pending, not passed.
+- Bind displayed company/date/party and downloadable report scope to the successfully applied report snapshot, including delayed responses and failures.
+- Verify explicit period-lock date review; keyboard-only nine-line invoice entry; actionable validation linked to fields; dialog focus, return focus and status announcements; 320px reflow. These are acceptance criteria, not newly demonstrated defects.
+- Evaluate a server-calculated invoice subtotal/tax/discount/round-off bridge, a non-destructive negative historical cash explanation, searchable state-code/name choices, a compact party-ledger summary and unambiguous date hints. Preserve stored state codes, dates and imported balances. GST worksheets must remain distinct from filed returns.

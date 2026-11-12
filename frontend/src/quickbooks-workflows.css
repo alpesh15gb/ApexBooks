@@ -143,3 +143,9 @@ tbody tr:hover { background: #f6f8fa; }
 @media (max-width: 700px) {
   .commerce-workspace button { min-height: 44px; }
 }
+
+/* Keep complete rupee amounts readable in register summaries at every width. */
+.register-overview { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+.register-overview > div { min-width: 0; }
+.register-overview > div > div { container-type: inline-size; min-width: 0; flex: 1; flex-direction: column; align-items: stretch; }
+.register-overview .financial-figure { display: block; white-space: nowrap; font-size: clamp(13px, var(--figure-size), 26px); line-height: 1.3; letter-spacing: -.025em; }
