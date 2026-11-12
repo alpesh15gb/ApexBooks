@@ -2869,7 +2869,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
         'modern': (colors.HexColor('#1a6475'), colors.HexColor('#e7f2f5'), 12, False),
         'compact': (colors.HexColor('#343c45'), colors.HexColor('#f3f4f5'), 5, True),
         'bold': (colors.HexColor('#752f39'), colors.HexColor('#f8ecee'), 13, True),
-        'minimal': (colors.HexColor('#343c45'), colors.white, 10, False),
+        'minimal': (colors.HexColor('#343c45'), colors.white, 7, False),
     }
     if not template:
         preference = session.get(CompanyPreference, company_id)
