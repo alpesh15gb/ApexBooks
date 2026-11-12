@@ -1,3 +1,4 @@
+import {sessionFetch as fetch} from './sessionScope.js';
 import FinancialFigure from "./FinancialFigure.jsx";
 import { businessDate } from "./businessDate.js";
 import StatementImportPreview from "./StatementImportPreview.jsx";

@@ -1,3 +1,6 @@
+import SessionBoundary from './SessionBoundary.jsx';
+import {acceptLocalSession, requireCurrentSession} from './sessionScope.js';
+import {sessionFetch as fetch} from './sessionScope.js';
 import { businessDate, businessFinancialYear } from "./businessDate.js";
 import { CORE_ENHANCEMENTS, capabilityFeatures, supportsFeature, routeFeature, companyDisplayName } from "./capabilities.js";
 import { hasPendingPostings, postingNavigationMessage, registerPostingRequest } from "./postingRegistry.js";
@@ -154,6 +157,7 @@ const money = (value) =>
   }).format(Number(value || 0));
 const today = () => businessDate();
 const api = async (path, options = {}) => {
+  requireCurrentSession();
   const { rawResponse = false, ...fetchOptions } = options;
   const mutation = options.method && !["GET", "HEAD"].includes(options.method);
   let response;
@@ -203,7 +207,7 @@ function Auth({ onLogin }) {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
-      localStorage.token = result.token;
+      localStorage.token = result.token; acceptLocalSession();
       onLogin();
     } catch (err) {
       setError(err.message);
@@ -509,6 +513,7 @@ function App() {
     return () => { active = false; };
   }, [signed, capabilityRevision]);
   const company = companies.find((c) => c.id === companyId);
+  const acceptedSession = useRef(localStorage.token);
   const activeCompany = useRef(companyId);
   activeCompany.current = companyId;
   const workspaceScope = useRef(createRequestScope(companyId));
@@ -531,7 +536,7 @@ function App() {
     } catch (e) {
       if (localStorage.token !== requestToken) return;
       if (e.status === 401) {
-        localStorage.removeItem("token");
+        localStorage.removeItem("token"); acceptLocalSession();
         localStorage.removeItem("companyId");
         setRecords([]);
         setCompanies([]);
@@ -553,7 +558,9 @@ function App() {
     recordsAbort.current?.abort();
     const controller = new AbortController();
     recordsAbort.current = controller;
-    const isCurrent = workspaceScope.current.latest();
+    const contextCurrent = workspaceScope.current.latest();
+    const requestToken = localStorage.token;
+    const isCurrent = () => contextCurrent() && localStorage.token === requestToken;
     setRecordsLoadError("");
     setRecordsLoading(true);
     setRecordsProgress(0);
@@ -573,14 +580,14 @@ function App() {
       if (isCurrent() && !controller.signal.aborted) {
         if ([401, 403, 404].includes(e.status)) { setRecords([]); setRecordsCompanyId(""); }
         if (e.status === 401) {
-          localStorage.removeItem("token"); localStorage.removeItem("companyId");
+          localStorage.removeItem("token"); acceptLocalSession(); localStorage.removeItem("companyId");
           setCompanies([]); setCompanyId(""); setSigned(false);
         }
         setError(e.message);
         setRecordsLoadError(e.message);
       }
     } finally {
-      if (isCurrent()) setRecordsLoading(false);
+      if (contextCurrent()) setRecordsLoading(false);
     }
   }
   useEffect(() => {
@@ -943,7 +950,8 @@ function App() {
   async function signOut() {
     if (postingNavigationBlocked()) return;
     if (document.querySelector(".overlay .modal")) return;
-    const token = localStorage.token;
+    const token = acceptedSession.current;
+    if (localStorage.token !== token) { setError("Your sign-in changed in another tab. Reload before signing out."); return; }
     if (token) {
       try {
         await fetch("/api/auth/logout", {
@@ -953,7 +961,9 @@ function App() {
         });
       } catch {}
     }
-    localStorage.removeItem("token");
+    if (localStorage.token !== token) return;
+    localStorage.removeItem("token"); acceptLocalSession();
+    acceptedSession.current = undefined;
     localStorage.removeItem("companyId");
     activeCompany.current = "";
     setRecords([]);
@@ -1043,7 +1053,7 @@ function App() {
     window.addEventListener("popstate", back);
     return () => window.removeEventListener("popstate", back);
   }, [page, modal, detail]);
-  if (!signed) return <Auth onLogin={() => setSigned(true)} />;
+  if (!signed) return <Auth onLogin={() => { acceptedSession.current = localStorage.token; setSigned(true); }} />;
   return (
     <div className="app">
       <a className="skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); document.getElementById('workspace-content')?.focus(); }}>Skip to content</a>
@@ -2817,6 +2827,6 @@ function Empty({ title, text }) {
 createRoot(document.getElementById("root")).render(
   <WorkspaceBoundary>
     <DialogFocus />
-    <App />
+    <SessionBoundary><App /></SessionBoundary>
   </WorkspaceBoundary>,
 );

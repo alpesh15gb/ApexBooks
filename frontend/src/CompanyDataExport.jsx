@@ -1,3 +1,4 @@
+import {sessionFetch as fetch} from './sessionScope.js';
 import React, {useState} from 'react';
 import {Download} from 'lucide-react';
 

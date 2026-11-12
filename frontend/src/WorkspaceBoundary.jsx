@@ -24,7 +24,8 @@ export function DialogFocus() {
     const inertNodes = new Map();
     const restore = () => {
       for (const [node, wasInert] of inertNodes) {
-        if (wasInert) node.setAttribute('inert', '');
+        const owned = node.getAttribute('data-session-locked');
+        if (owned === 'true' || (owned === null && wasInert)) node.setAttribute('inert', '');
         else node.removeAttribute('inert');
       }
       inertNodes.clear();

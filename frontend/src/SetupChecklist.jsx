@@ -1,3 +1,4 @@
+import {sessionFetch as fetch} from './sessionScope.js';
 import React, { useEffect, useState } from 'react';
 import { ArrowUpRight, Building2, Check, ChevronDown, FileText, Landmark, Package, ShieldCheck, UsersRound, X } from 'lucide-react';
 import { setupSteps } from './setupSteps.js';
