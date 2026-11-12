@@ -188,3 +188,14 @@ recordsReady is false; no additional retained Day book access defect was establi
 The parent independently passed the preceding status fix, including restore and
 company-isolation probes. No publication retry, device permission change or
 deployment was performed.
+
+### Day book document keyboard action
+
+A rendered regression reproduced the absence of any focusable document-opening
+control in Day book. Document numbers now use named native buttons when the source
+record and callback are available; missing records and journals have no dead action.
+The table row itself is no longer a mouse-only action. The test failed before the
+change (zero controls instead of one), then all ten everyday-feature tests passed,
+along with lint, web build and bundle budgets. JSDOM verified focus and activation;
+real keyboard navigation and screen-reader/browser acceptance remain separate.
+No accounting/API mutation, publication retry or deployment was performed.

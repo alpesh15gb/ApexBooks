@@ -28,6 +28,7 @@ export default function DayBook({ companyId, records, api, labels, onOpen }) {
     return () => { active = false; };
   }, [companyId, day, records]);
   const totals = data?.totals;
+  const availableRecords = new Set(records.map(record => record.id));
   const open = (row) => {
     const record = records.find((r) => r.id === row.id);
     if (record && onOpen) onOpen(record);
@@ -55,9 +56,9 @@ export default function DayBook({ companyId, records, api, labels, onOpen }) {
               <thead><tr><th>TYPE</th><th>NUMBER / PARTY</th><th className="right">AMOUNT</th><th className="right">MONEY IN</th><th className="right">MONEY OUT</th></tr></thead>
               <tbody>
                 {data.rows.map((row) => (
-                  <tr key={row.id} className={row.cancelled ? "muted" : ""} onClick={() => open(row)} style={{ cursor: row.kind === "journal" ? "default" : "pointer" }}>
+                  <tr key={row.id} className={row.cancelled ? "muted" : ""}>
                     <td>{labels[row.kind] || row.kind.replaceAll("_", " ")}{row.cancelled ? " · cancelled" : row.status === "converted" ? " · converted" : !row.posted && row.kind !== "journal" ? row.status === "non_posting" ? " · non-posting" : " · unposted" : ""}</td>
-                    <td>{row.display_number || row.number || "—"}{row.display_number && row.display_number !== row.number && <details onClick={event => event.stopPropagation()}><summary>Technical reference</summary>{row.number}</details>}<small className="bank-ref">{row.name}</small></td>
+                    <td>{row.kind !== "journal" && onOpen && availableRecords.has(row.id) ? <button type="button" className="link" aria-label={`Open ${row.number || row.name || "document"}`} onClick={() => open(row)}>{row.number || row.name || "Open document"}</button> : row.display_number || row.number || "—"}{row.display_number && row.display_number !== row.number && <details><summary>Technical reference</summary>{row.number}</details>}<small className="bank-ref">{row.name}</small></td>
                     <td className="right">{rupees(row.amount)}{row.kind === "journal" && row.debit_total != null && <small className="bank-ref">Debit {rupees(row.debit_total)} · Credit {rupees(row.credit_total)}</small>}</td>
                     <td className="right positive">{Number(row.money_in) ? rupees(row.money_in) : ""}</td>
                     <td className="right negative">{Number(row.money_out) ? rupees(row.money_out) : ""}</td>

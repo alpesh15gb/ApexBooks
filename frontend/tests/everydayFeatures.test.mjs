@@ -98,3 +98,11 @@ test('day book distinguishes converted and non-posting rows and keeps journal di
  assert.equal(document.querySelector('details').open,false);assert.match(document.querySelector('details').textContent,/AUTO:synthetic-id/);assert.match(document.querySelector('tbody tr:last-child td:nth-child(2)').textContent,/Original posting · INV1/);
  await act(async()=>root.unmount());
 });
+test('day book offers focusable document actions and no dead action for missing or journal records', async()=>{
+ const DayBook=await component('DayBook');const root=createRoot(document.getElementById('root'));let opened;
+ const record={id:'invoice',number:'INV-KEY',kind:'sales_invoice'};
+ const rows=[record,{id:'missing',number:'INV-MISSING',kind:'sales_invoice'},{id:'journal',number:'MANUAL',kind:'journal'}].map(r=>({...r,name:'Synthetic',posted:true,amount:'100',money_in:'0',money_out:'0'}));
+ await act(async()=>root.render(React.createElement(DayBook,{companyId:'c1',records:[record],labels:{sales_invoice:'Invoice'},onOpen:r=>{opened=r;},api:async()=>({rows,totals:{},count:3})})));
+ const actions=document.querySelectorAll('tbody button');assert.equal(actions.length,1);assert.equal(actions[0].getAttribute('aria-label'),'Open INV-KEY');actions[0].focus();assert.equal(document.activeElement,actions[0]);await act(async()=>actions[0].click());assert.equal(opened,record);
+ await act(async()=>root.unmount());
+});
