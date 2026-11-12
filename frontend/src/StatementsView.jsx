@@ -87,7 +87,7 @@ export default function StatementsView({ data }) {
         </section>
       </div>
       <div className="info-box">
-        {data.basis} Depreciation, net realisable value write-downs and accruals are not calculated; review with your accountant before using these statements for filing or lending.
+        {data.basis} {data.limitations || 'Depreciation, net realisable value write-downs and accruals are not calculated; review with your accountant before using these statements for filing or lending.'}
       </div>
     </div>
   );

@@ -486,3 +486,24 @@ work remain open. No publication retry or deployment occurred.
 - Clear stale form-local access-denial wording only after verified recovery, retain draft.
 - Cash-book PDF readable labels/dates/currency and multi-page checks; announce invalid range.
 - Document discount preview error should identify the 0–100 document-discount field.
+
+### Report export basis and currency (after 5f49c9d)
+
+P&L/balance-sheet PDF and XLSX now retain the posted-ledger basis and the explicit
+uncalculated depreciation/NRV/accruals and accountant-review warning. Ageing exports
+retain document-date ageing and manual-adjustment limitations. Selected report PDF
+exports identify INR, use readable transaction labels/dates, Indian amount grouping,
+right-aligned amounts, embedded report fonts and repeated scope/currency/page footers.
+Cash-book ordering disclosure moves into report notes rather than a transaction row.
+XLSX retains numeric monetary cells, INR headers and a Report notes sheet; underlying
+Type identifiers remain unchanged in XLSX. UI uses the same server basis text, and
+cash-book errors are exposed as alerts.
+
+Validation: 15 backend tests (report export basis, statements, party ledger and party
+chronology), 51 frontend accounting-safety/export-scope tests, lint and production
+build/budgets passed. Visually inspected all five pages across populated statements,
+three-page ageing and cash-book samples; no clipping observed. Empty reports and
+numeric JSON/XLSX parity are covered. These are synthetic tests, not browser/OS print,
+screen-reader or statutory acceptance. PDFs remain untagged. Journal/account draft
+preservation and stale recovery wording remain next priorities. No production access,
+publication retry or deployment.

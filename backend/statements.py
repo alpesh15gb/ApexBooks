@@ -1,4 +1,5 @@
 """Formatted Profit & Loss and Balance Sheet statements derived only from posted ledger journals."""
+from report_basis import STATEMENT_LIMITATIONS
 from decimal import Decimal
 from datetime import date as DateType
 from fastapi import Depends, HTTPException
@@ -105,7 +106,7 @@ def install(app, m):
         company = m.company_for(company_id, user, session)
         return {'company': company.name, 'from_date': from_date.isoformat(), 'to_date': to_date.isoformat(),
                 'basis': 'Posted ledger journals. Cancelled documents are reversed. Input GST is shown as an asset pending review.',
-                'profit_loss': profit_loss, 'balance_sheet': balance_sheet}
+                'limitations':STATEMENT_LIMITATIONS, 'profit_loss': profit_loss, 'balance_sheet': balance_sheet}
 
     @app.get('/api/companies/{company_id}/reports/statements')
     def statements(company_id: str, from_date: DateType, to_date: DateType, user=Depends(m.current_user), session: Session = Depends(m.db)):
@@ -145,4 +146,4 @@ def install(app, m):
         head('Equity'); lines(bs['equity']['lines']); rows.append(['TOTAL EQUITY', bs['equity']['total']])
         rows.append(['TOTAL LIABILITIES AND EQUITY', bs['total_liabilities_and_equity']])
         company = m.company_for(company_id, user, session)
-        return m.export_table(company.name, 'Profit and loss and balance sheet %s to %s' % (from_date, to_date), ['Particulars', 'Amount'], rows, fmt, 'financial-statements')
+        return m.export_table(company.name, 'Profit and loss and balance sheet %s to %s' % (from_date, to_date), ['Particulars', 'Amount'], rows, fmt, 'financial-statements', notes=[data['basis'],data['limitations']], currency_columns=['Amount'])

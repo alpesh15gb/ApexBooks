@@ -509,7 +509,7 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
         selected account. Payment suggestions use amount, date, reference and
         party name; confirm every allocation.
       </div>
-      {error && <div className="error banner">{error}</div>}
+      {error && <div className="error banner" role="alert">{error}</div>}
       {summary && (
         <div className="summary-grid bank-summary">
           <Metric

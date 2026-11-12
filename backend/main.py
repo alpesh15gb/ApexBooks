@@ -1,3 +1,4 @@
+from report_basis import AGEING_BASIS
 from gst_identifiers import require_gstin
 from business_calendar import business_today, financial_year_start
 from invoice_requirements import validate_outward_invoice_fields
@@ -2247,15 +2248,18 @@ def ageing_report(company_id: str, as_of: DateType, party: str = Query(default='
             'overdue_days': max(0, (as_of - due_date).days) if due_date else None,
             'bucket': bucket, 'original_amount': str(document.amount), 'applied_amount': str(settled),
             'outstanding': str(remaining)})
-    return {'as_of': as_of.isoformat(), 'party': party.strip(), 'rows': rows,
+    return {'as_of': as_of.isoformat(), 'party': party.strip(), 'rows': rows, 'basis': AGEING_BASIS,
         'totals': {side: str(value) for side, value in totals.items()},
         'buckets': {side: {name: str(value) for name, value in amounts.items()} for side, amounts in buckets.items()}}
 
-def export_table(company_name, title, headers, rows, fmt, filename, *, notes=()):
+def export_table(company_name, title, headers, rows, fmt, filename, *, notes=(), currency_columns=()):
     out = io.BytesIO()
+    currency_columns=set(currency_columns)
+    display_headers=[header+' (INR)' if header in currency_columns else header for header in headers]
+    if currency_columns: notes=('Currency: INR. Monetary columns are denominated in Indian rupees.',*notes)
     if fmt == 'xlsx':
         book = Workbook(); sheet = book.active; sheet.title = re.sub(r'[\\/*?:\[\]]', ' ', title)[:31] or 'Report'
-        sheet.append([company_name]); sheet.append([title]); sheet.append(headers)
+        sheet.append([company_name]); sheet.append([title]); sheet.append(display_headers)
         text_columns = {'Name', 'Description', 'Code', 'HSN', 'HSN / SAC', 'GSTIN', 'Phone', 'Email', 'Number', 'Document', 'Date', 'Type', 'Party', 'Account', 'Unit', 'Bucket', 'Category', 'Item', 'Reference', 'Particulars', 'Vch Type', 'Vch No.', 'Barcode', 'HSN/SAC', 'Address', 'Item type', 'Tax treatment', 'Metric', 'Stock tracked'}
         for row in rows:
             prepared = []
@@ -2282,7 +2286,7 @@ def export_table(company_name, title, headers, rows, fmt, filename, *, notes=())
         for row in sheet.iter_rows(min_row=4):
             for cell in row:
                 if isinstance(cell.value, (int, float)):
-                    cell.number_format = '#,##0.00' if isinstance(cell.value, float) else '0'
+                    cell.number_format = '#,##0.00' if isinstance(cell.value, float) or headers[cell.column-1] in currency_columns else '0'
                     cell.alignment = Alignment(horizontal='right')
                 if cell.row % 2 == 0:
                     cell.fill = PatternFill('solid', fgColor='F5F8F5')
@@ -2302,21 +2306,42 @@ def export_table(company_name, title, headers, rows, fmt, filename, *, notes=())
         from html import escape
         page = landscape(A4) if len(headers) > 6 else A4
         width = page[0] - 50
-        first = min(145, width * .27)
+        first = width*.72 if len(headers)==2 else min(145, width * .27)
         column_widths = [first] + [(width - first) / (len(headers) - 1)] * (len(headers) - 1)
-        body_style = ParagraphStyle('ReportCell', fontName='Helvetica', fontSize=7, leading=9)
-        heading_style = ParagraphStyle('ReportHeading', parent=body_style, fontName='Helvetica-Bold', textColor=colors.white)
+        if headers == ['Party', 'Type', 'Document', 'Date', 'Age days', 'Original', 'Applied', 'Outstanding', 'Bucket', 'Due date', 'Overdue days']:
+            weights = [1.8, 1.1, 1.4, 1.1, .7, 1.05, .95, 1.2, .7, 1.1, .8]
+            column_widths = [width * weight / sum(weights) for weight in weights]
+        regular_font,bold_font='Helvetica','Helvetica-Bold'
+        if currency_columns:
+            import party_report_pdf  # Register the bundled, embedded report fonts.
+            regular_font,bold_font='ApexReport','ApexReportBold'
+        body_style = ParagraphStyle('ReportCell', fontName=regular_font, fontSize=8 if currency_columns else 7, leading=11 if currency_columns else 9)
+        heading_style = ParagraphStyle('ReportHeading', parent=body_style, fontName=bold_font, textColor=colors.white)
         def cell(value, style): return Paragraph(escape(str(value if value is not None else '')), style)
-        table_rows = [[cell(value, heading_style) for value in headers]]
-        table_rows += [[cell(value, body_style) for value in row] for row in rows]
+        from currency import format_inr
+        from reportlab.lib.enums import TA_RIGHT
+        numeric_style=ParagraphStyle('ReportNumber',parent=body_style,alignment=TA_RIGHT)
+        def presented(header,value):
+            if not currency_columns or value in ('',None):return value
+            if header in currency_columns:return format_inr(value)
+            if header in {'Date','Due date'}:
+                try:return DateType.fromisoformat(str(value)).strftime('%d-%b-%Y')
+                except ValueError:return value
+            if header=='Type':return {'payment_in':'Receipt','payment_out':'Payment','bank_transfer':'Bank transfer'}.get(str(value),str(value).replace('_',' ').capitalize())
+            return value
+        table_rows = [[cell(value, heading_style) for value in display_headers]]
+        table_rows += [[cell(presented(header,value),numeric_style if header in currency_columns else body_style) for header,value in zip(headers,row)] for row in rows]
         table = LongTable(table_rows, colWidths=column_widths, repeatRows=1)
         table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#244f43')),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'), ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f8f5')]),
             ('LINEBELOW', (0, 0), (-1, -1), .2, colors.HexColor('#dde6de')), ('LEFTPADDING', (0, 0), (-1, -1), 5),
             ('RIGHTPADDING', (0, 0), (-1, -1), 5), ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5)]))
         document = SimpleDocTemplate(out, pagesize=page, leftMargin=25, rightMargin=25, topMargin=30, bottomMargin=30, title=title)
-        document.build([Paragraph(escape(company_name), ParagraphStyle('ReportTitle', fontName='Helvetica-Bold', fontSize=12, leading=16)),
-                        Paragraph(escape(title), body_style), Spacer(1, 12), table]+[Paragraph(escape(str(note)),body_style) for note in notes])
+        def footer(canvas,doc):
+            if currency_columns:
+                canvas.saveState();canvas.setFont(regular_font,7);canvas.drawString(25,15,title+' | INR');canvas.drawRightString(page[0]-25,15,'Page '+str(doc.page));canvas.restoreState()
+        document.build([Paragraph(escape(company_name), ParagraphStyle('ReportTitle', fontName=bold_font, fontSize=12, leading=16)),
+                        Paragraph(escape(title), body_style)]+[Paragraph(escape(str(note)),body_style) for note in notes]+[Spacer(1, 12), table], onFirstPage=footer, onLaterPages=footer)
         media = 'application/pdf'
     else: raise HTTPException(404, 'Unsupported export format')
     return Response(out.getvalue(), media_type=media, headers={'Content-Disposition': f'attachment; filename="{filename}.{fmt}"'})
@@ -2409,9 +2434,8 @@ def export_cash_book(company_id: str, fmt: str, from_date: DateType, to_date: Da
     rows = [['', '', 'Opening balance', '', '', '', data['opening']['cash'], data['opening']['bank']]]
     rows += [[row[key] for key in ('date', 'reference', 'description', 'kind', 'cash', 'bank', 'cash_balance', 'bank_balance')] for row in data['rows']]
     rows.append(['', '', 'Closing balance', '', '', '', data['closing']['cash'], data['closing']['bank']])
-    rows.append(['', '', data['ordering_note'], '', '', '', '', ''])
     return export_table(company.name, f"Cash and {data['bank_name']} book {from_date} to {to_date}",
-        ['Date', 'Reference', 'Description', 'Type', 'Cash movement', 'Bank movement', 'Cash balance', 'Bank balance'], rows, fmt, 'cash-bank-book')
+        ['Date', 'Reference', 'Description', 'Type', 'Cash movement', 'Bank movement', 'Cash balance', 'Bank balance'], rows, fmt, 'cash-bank-book', notes=[data['ordering_note']], currency_columns=['Cash movement','Bank movement','Cash balance','Bank balance'])
 
 @app.get('/api/companies/{company_id}/reports/financial.{fmt}')
 def export_financial(company_id: str, fmt: str, from_date: DateType, to_date: DateType, user: User = Depends(current_user), session: Session = Depends(db)):
@@ -2443,7 +2467,7 @@ def export_ageing(company_id: str, fmt: str, as_of: DateType, party: str = Query
              ['', 'Total payable', '', '', '', '', '', data['totals']['payable'], '', '', '']]
     return export_table(company.name, f'Document ageing as of {as_of}',
         ['Party', 'Type', 'Document', 'Date', 'Age days', 'Original', 'Applied', 'Outstanding', 'Bucket', 'Due date', 'Overdue days'],
-        rows, fmt, 'document-ageing')
+        rows, fmt, 'document-ageing', notes=[AGEING_BASIS], currency_columns=['Original','Applied','Outstanding'])
 
 @app.get('/api/companies/{company_id}/reports/gst')
 def gst_report(company_id: str, from_date: DateType, to_date: DateType,

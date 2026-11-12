@@ -689,10 +689,7 @@ export default function Reports({ companyId, records }) {
             </div>
           </section>
           <div className="info-box">
-            Age buckets use the document date. Where entered, the due date and
-            days overdue are shown separately. Payments and linked notes dated
-            through the selected day reduce open amounts. Manual ledger
-            adjustments are not allocated to individual documents.
+            {data.basis || 'Age buckets use the document date. Where entered, the due date and days overdue are shown separately. Payments and linked notes dated through the selected day reduce open amounts. Manual ledger adjustments are not allocated to individual documents.'}
           </div>
         </>
       )}
