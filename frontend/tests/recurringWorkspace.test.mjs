@@ -85,3 +85,23 @@ for(const fails of [false,true])test(`late confirmed refresh ${fails?'error':'su
  assert.equal(document.querySelector('fieldset').disabled,true);
  }finally{await act(async()=>root.unmount());}
 });
+for(const missing of [false,true])test(`fresh viewer session uses GET-only occurrence recovery: ${missing?'missing remains uncertain':'saved found'}`,async()=>{
+ const root=createRoot(document.getElementById('root'));const methods=[];let opened;
+ const api=async(path,options)=>{methods.push(options?.method||'GET');if(path.includes('/occurrences/')){if(missing)throw Error('Not found');return{record:{id:'saved',kind:'sales_order',number:'SO-1',date:'2026-11-02'}};}return apiRead(path);};
+ try{
+ await act(async()=>root.render(React.createElement(Recurring,{...props,role:'viewer',api,onOpen:record=>{opened=record;}})));await click('Inspect template');await click('Check saved occurrence');
+ assert.ok(methods.every(method=>method==='GET'));
+ if(missing)assert.match(document.body.textContent,/does not prove an earlier request failed/);
+ else{assert.match(document.body.textContent,/SO-1/);await click('View saved document');assert.equal(opened.id,'saved');}
+ }finally{await act(async()=>root.unmount());}
+});
+test('occurrence lookup is single-flight and suppresses late result after access change',async()=>{
+ const root=createRoot(document.getElementById('root'));let finish,lookups=0;
+ const api=async path=>{if(path.includes('/occurrences/')){lookups++;return new Promise(resolve=>{finish=resolve;});}return apiRead(path);};
+ try{
+ await act(async()=>root.render(React.createElement(Recurring,{...props,api})));await click('Review / edit');
+ const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Check saved occurrence');await act(async()=>{button.click();button.click();});assert.equal(lookups,1);
+ await act(async()=>root.render(React.createElement(Recurring,{...props,role:'viewer',api})));
+ await act(async()=>finish({record:{id:'obsolete',number:'OBSOLETE',kind:'sales_order'}}));assert.doesNotMatch(document.body.textContent,/OBSOLETE/);
+ }finally{await act(async()=>root.unmount());}
+});

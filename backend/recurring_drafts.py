@@ -105,6 +105,15 @@ def install(app,m):
     @app.get('/api/companies/{company_id}/recurring-templates/{template_id}')
     def get_template(company_id:str,template_id:str,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
         m.company_for(company_id,user,session);return detail(template(company_id,template_id,session))
+    @app.get('/api/companies/{company_id}/recurring-templates/{template_id}/occurrences/{occurrence_date}')
+    def find_occurrence(company_id:str,template_id:str,occurrence_date:date,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
+        m.company_for(company_id,user,session)
+        template(company_id,template_id,session)
+        rows=session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind.in_(DRAFT_KINDS),m.Record.data['recurring_template_id'].as_string()==template_id,m.Record.data['recurring_occurrence_date'].as_string()==occurrence_date.isoformat()).limit(2)).all()
+        if not rows:raise HTTPException(404,'No saved occurrence was found. This does not prove that an in-flight request failed.')
+        if len(rows)!=1:raise HTTPException(409,'Multiple saved occurrences need review; no draft was selected.')
+        return result(rows[0],template_id,occurrence_date,True,user,session)
+
     @app.post('/api/companies/{company_id}/recurring-templates')
     def create(company_id:str,body:TemplateCreate,request:Request,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
         company=m.lock_company(company_id,user,session)

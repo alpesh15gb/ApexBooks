@@ -199,4 +199,28 @@ class RecurringDraftTest(unittest.TestCase):
         forged=c.post(b+'/records',headers=h,json={'kind':'estimate','name':p['name'],'data':{'recurring_template_id':t['id'],'recurring_occurrence_date':'2026-01-31','lines':[{'description':'Service','quantity':1,'rate':10,'gst_rate':0}]}})
         self.assertEqual(forged.status_code,200,forged.text);self.assertNotIn('recurring_template_id',forged.json()['data'])
 
+
+    def test_read_only_occurrence_recovery_after_interruption_and_restore(self):
+        c,h,b,p,item,source=self.setup_source();t=self.create(c,h,b,source)
+        path=b+'/recurring-templates/'+t['id']+'/occurrences/2026-01-31'
+        self.assertEqual(c.get(path,headers=h).status_code,404)
+        first=self.generate(c,h,b,t,'2026-01-31').json()['record']
+        for _ in range(2):self.assertEqual(c.get(path,headers=h).json()['record']['id'],first['id'])
+        self.assertEqual(c.get(b+'/recurring-templates/'+t['id'],headers=h).json()['generated_count'],1)
+        creds={'email':uuid4().hex+'@recurring.invalid','password':'Synthetic-recurring-password'}
+        c.post('/api/auth/register',json=creds).raise_for_status();viewer={'Authorization':'Bearer '+c.post('/api/auth/login',json=creds).json()['token']}
+        self.assertEqual(c.get(path,headers=viewer).status_code,404)
+        c.post(b+'/members',headers=h,json={'email':creds['email'],'role':'viewer'}).raise_for_status()
+        self.assertEqual(c.get(path,headers=viewer).json()['record']['id'],first['id'])
+        self.assertEqual(c.get(path.replace('2026-01-31','not-a-date'),headers=h).status_code,422)
+        payload=c.get(b+'/data-export.json',headers=h).json()
+        body={'company_name':'Occurrence recovery restore','backup_base64':base64.b64encode(json.dumps(payload).encode()).decode()}
+        preview=c.post('/api/backups/restore/preview',headers=h,json=body).json()
+        restored=c.post('/api/backups/restore/commit',headers=h,json={**body,'digest':preview['digest']});self.assertEqual(restored.status_code,200,restored.text)
+        rb='/api/companies/'+restored.json()['company_id'];rt=c.get(rb+'/recurring-templates',headers=h).json()['templates'][0]
+        recovered=c.get(rb+'/recurring-templates/'+rt['id']+'/occurrences/2026-01-31',headers=h)
+        self.assertEqual(recovered.status_code,200,recovered.text);self.assertNotEqual(recovered.json()['record']['id'],first['id'])
+        self.assertEqual(c.get(rb+'/recurring-templates/'+t['id']+'/occurrences/2026-01-31',headers=h).status_code,404)
+        self.assertEqual(c.get(b+'/journals',headers=h).json(),[])
+
 if __name__=='__main__':unittest.main()

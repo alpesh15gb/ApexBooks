@@ -907,3 +907,25 @@ pass. No backend changes. Actual browser and full-App recovery acceptance remain
 open; unknown requests and confirmed recovery are still memory-only across a
 complete workspace unmount/reload. No durable recurring recovery claim is made.
 No production access, publication retry or deployment.
+
+### Read-only recurring occurrence recovery after interruption (2026-11-12)
+
+Audit confirmed server identity already deduplicates a template/date across keys,
+but a fresh recurring screen had no direct saved-occurrence lookup. Template
+inspection/edit now offers an original scheduled-date lookup and a read-only
+saved-document link. It does not persist payloads or automatically create on a
+missing result. Missing/unsupported results explicitly do not prove failure.
+
+New company-authorized GET selects the exact template/date and rejects ambiguous
+matches. Viewer reads are permitted, unauthorized companies return 404. The
+response follows current record status rather than caching a pre-conversion copy.
+The shared API contract includes the additive route. No migration required.
+
+Validation: 11 recurring API lifecycle tests and 12 rendered UI tests pass,
+including repeat GET with unchanged generated count/no journals, viewer isolation,
+invalid date, restored IDs, fresh mount lookup, missing result, single-flight and
+late access-change suppression. Lint/build/bundle budgets pass. Fresh synthetic
+mount is not a real browser restart test. Unknown template create/edit payloads
+remain memory-only; this lookup resolves saved occurrences only and never treats
+absence as evidence that another POST is safe. Native adoption, full browser
+acceptance and full build/device gates remain open. No production or publication.
