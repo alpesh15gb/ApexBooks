@@ -119,6 +119,7 @@ jobs:
           python3 native/tests/AndroidImportCompletion/check.py
           python3 native/tests/AndroidEntryCompletion/check.py
           python3 native/tests/AndroidEntryScan/check.py
+          python3 native/tests/AndroidQuickMaster/check.py
           python3 native/tests/AndroidRecurringCompletion/check.py
           python3 native/tests/AndroidRecurringAccess/check.py
           python3 native/tests/AndroidRecurringReload/check.py

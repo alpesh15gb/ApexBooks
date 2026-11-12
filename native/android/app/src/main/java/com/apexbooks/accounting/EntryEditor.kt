@@ -104,27 +104,32 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     private suspend fun createMaster(masterKind:String,name:String,data:JSONObject):JSONObject=
         vm.api.request(vm.api.company(companyId,"/records"),"POST",JSONObject().put("kind",masterKind).put("name",name.trim()).put("date",today()).put("amount","0").put("data",data)) as JSONObject
     fun quickAddParty(){
-        if(!vm.canWrite)return
-        val access=vm.readStamp()
+        if(!canEdit||!canQuickAdd||vm.editor!==this||!vm.inWorkspace(companyId,workspaceStamp))return
+        val access=vm.readStamp();val session=vm.api.captureSession()
+        fun current()=vm.editor===this&&vm.inWorkspace(companyId,workspaceStamp)&&vm.canRead(companyId,access)&&vm.canWrite&&runCatching{session();true}.getOrDefault(false)
         val name=get("name").trim();if(name.isBlank()||get("party_id").isNotBlank()||quickAdding.isNotBlank())return
+        val original=fields.toMap()
         quickAdding="party"
         vm.task{try{
             val created=createMaster("party",name,JSONObject().put("party_type",if(purchase)"supplier" else "customer").put("phone",get("party_phone").trim()).put("gstin",get("party_gstin").trim().uppercase()).put("address",get("party_address")).put("shipping_address",get("shipping_address")))
-            if(!vm.inWorkspace(companyId,workspaceStamp)||!vm.canRead(companyId,access))return@task
-            vm.rememberMaster(created);fields["name"]=created.s("name");fields["party_id"]=created.s("id");vm.notice="Saved ${created.s("name")} as a new ${if(purchase)"supplier" else "customer"}."
-        }finally{quickAdding=""}}
+            if(!current())return@task
+            vm.rememberMaster(created);if(fields.toMap()!=original){vm.notice="Master saved. Your draft changed; select the saved party explicitly if needed.";return@task};fields["name"]=created.s("name");fields["party_id"]=created.s("id");vm.notice="Saved ${created.s("name")} as a new ${if(purchase)"supplier" else "customer"}."
+        }catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;if(current())throw e}finally{quickAdding=""}}
     }
     fun quickAddItem(line:LineState){
-        if(!vm.canWrite)return
-        val access=vm.readStamp()
+        if(!canEdit||!canQuickAdd||vm.editor!==this||!vm.inWorkspace(companyId,workspaceStamp))return
+        val access=vm.readStamp();val session=vm.api.captureSession()
+        fun current()=vm.editor===this&&vm.inWorkspace(companyId,workspaceStamp)&&vm.canRead(companyId,access)&&vm.canWrite&&runCatching{session();true}.getOrDefault(false)
         val name=line.get("description").trim();if(name.isBlank()||line.get("item_id").isNotBlank()||quickAdding.isNotBlank())return
+        if(line !in lines)return
+        val original=line.json().toString()
         quickAdding=line.uiKey
         vm.task{try{
             fun amount(value:String)=(value.toBigDecimalOrNull()?:BigDecimal.ZERO).setScale(2,java.math.RoundingMode.HALF_UP).toPlainString()
             val created=createMaster("item",name,JSONObject().put("item_type","goods").put("hsn",line.get("hsn")).put("unit",line.get("unit")).put(if(purchase)"purchase_rate" else "sale_rate",amount(line.get("rate"))).put("gst_rate",amount(line.get("gst_rate"))).put("tax_treatment",line.get("tax_treatment").ifBlank{"taxable"}))
-            if(!vm.inWorkspace(companyId,workspaceStamp)||!vm.canRead(companyId,access))return@task
-            vm.rememberMaster(created);line.set("item_id",created.s("id"));line.set("description",created.s("name"));vm.notice="Saved ${created.s("name")} as a new item."
-        }finally{quickAdding=""}}
+            if(!current())return@task
+            vm.rememberMaster(created);if(line !in lines||line.json().toString()!=original){vm.notice="Master saved. Your line changed or was removed; select the saved item explicitly if needed.";return@task};line.set("item_id",created.s("id"));line.set("description",created.s("name"));vm.notice="Saved ${created.s("name")} as a new item."
+        }catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;if(current())throw e}finally{quickAdding=""}}
     }
     fun targets():List<JSONObject> = vm.records.filter{r->r.optBoolean("posted")&&when(kind){"payment_in"->r.s("kind")in setOf("sales_invoice","opening_receivable");"payment_out"->r.s("kind")in setOf("purchase_bill","opening_payable");"credit_note"->r.s("kind")in setOf("sales_invoice","pos");"debit_note"->r.s("kind")=="purchase_bill";else->false}&&(!payment||available(r)>BigDecimal.ZERO||originalAllocations.any{it.s("document_id")==r.s("id")})}
     fun available(row:JSONObject)=row.decimal("outstanding")+originalAllocations.filter{it.s("document_id")==row.s("id")}.fold(BigDecimal.ZERO){sum,a->sum+a.decimal("amount")}
