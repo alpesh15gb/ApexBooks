@@ -5,5 +5,6 @@
   <Compile Include="../../windows/Services/WhatsAppShare.cs" Link="WhatsAppShare.cs" /><Compile Include="../../windows/Services/SourceLineChoices.cs" Link="SourceLineChoices.cs" /><Compile Include="../../windows/Services/Csv.cs" Link="Csv.cs" />  <Compile Include="../../windows/Services/SourceSelectionRequest.cs" Link="SourceSelectionRequest.cs" />
 <Compile Include="../../windows/Services/ScopedExternalAction.cs" Link="ScopedExternalAction.cs" />
 <Compile Include="../../windows/Services/ScopedCoreRefresh.cs" Link="ScopedCoreRefresh.cs" />
+<Compile Include="../../windows/Services/ScopedFileExport.cs" Link="ScopedFileExport.cs" />
 </ItemGroup>
 </Project>

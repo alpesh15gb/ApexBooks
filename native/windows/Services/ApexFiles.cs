@@ -19,9 +19,9 @@ public static class ApexFiles
         return await picker.PickSingleFileAsync();
     }
 
-    public static async Task<bool> Save(byte[] bytes, string name)
+    public static async Task<bool> Save(byte[] bytes, string name, Action? originalAccess=null)
     {
-        var verify=CaptureSaveAccess?.Invoke()??throw new InvalidOperationException("Save ownership is unavailable.");verify();
+        var verify=originalAccess??CaptureSaveAccess?.Invoke()??throw new InvalidOperationException("Save ownership is unavailable.");verify();
         var clean = string.Concat(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
         var picker = new FileSavePicker { SuggestedFileName = Path.GetFileNameWithoutExtension(clean) };
         picker.FileTypeChoices.Add("Apex Books " + Path.GetExtension(clean).Trim('.').ToUpperInvariant(), new List<string> { Path.GetExtension(clean) });
@@ -30,9 +30,9 @@ public static class ApexFiles
         verify();await FileIO.WriteBytesAsync(file, bytes);verify();return true;
     }
 
-    public static async Task<bool> SaveStream(Stream source,string name)
+    public static async Task<bool> SaveStream(Stream source,string name,Action? originalAccess=null)
     {
-        var verify=CaptureSaveAccess?.Invoke()??throw new InvalidOperationException("Save ownership is unavailable.");verify();
+        var verify=originalAccess??CaptureSaveAccess?.Invoke()??throw new InvalidOperationException("Save ownership is unavailable.");verify();
         var clean=string.Concat(name.Select(c=>Path.GetInvalidFileNameChars().Contains(c)?'_':c));var picker=new FileSavePicker{SuggestedFileName=Path.GetFileNameWithoutExtension(clean)};picker.FileTypeChoices.Add("Apex Books backup",new List<string>{Path.GetExtension(clean)});WinRT.Interop.InitializeWithWindow.Initialize(picker,App.WindowHandle);var file=await picker.PickSaveFileAsync();if(file is null)return false;
         verify();using var output=await file.OpenStreamForWriteAsync();verify();output.SetLength(0);source.Position=0;var buffer=new byte[32768];int count;
         while((count=await source.ReadAsync(buffer))>0){verify();await output.WriteAsync(buffer.AsMemory(0,count));}

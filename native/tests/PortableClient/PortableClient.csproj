@@ -11,5 +11,7 @@
 <Compile Include="../../windows/Services/ScopedCoreRefresh.cs" Link="ScopedCoreRefresh.cs" />
 <Compile Include="../WindowsClient/CoreRefreshRegression.cs" Link="CoreRefreshRegression.cs" />
 <Compile Include="../WindowsClient/ResponseSessionRegression.cs" Link="ResponseSessionRegression.cs" />
+<Compile Include="../../windows/Services/ScopedFileExport.cs" Link="ScopedFileExport.cs" />
+<Compile Include="../WindowsClient/FileExportRegression.cs" Link="FileExportRegression.cs" />
 </ItemGroup>
 </Project>

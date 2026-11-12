@@ -142,6 +142,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python native/tests/WindowsSaveOwnership/check.py
+      - run: python native/tests/WindowsExportContext/check.py
       - name: Verify streaming encrypted backups with a 64 MiB managed heap
         shell: pwsh
         run: |

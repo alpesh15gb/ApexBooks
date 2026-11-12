@@ -146,3 +146,33 @@ before invoking Save need their original context checked before entering the
 picker; a guard captured only at Save cannot establish the origin of old bytes.
 Full native builds, real picker/runtime and final sharing/printing acceptance
 remain open.
+
+## Windows pre-picker caller correction
+
+Independent bc11103 review confirmed that the picker guard alone did not cover
+legacy backup/data export and cash-book downloads, or complete-backup asynchronous
+encryption. These four callers now capture original MainPage ownership when the
+flow opens, retain it through download/encryption and pass that same verifier to
+Save/SaveStream. `ScopedFileExport` suppresses stale successes/failures, preserves
+current errors, and distinguishes stale work (null) from picker cancellation
+(false). Backup progress updates also require original ownership. No operation
+is retried or submitted automatically.
+
+Evidence:
+
+- Full portable Windows client suite passed with 11 added scoped export cases
+  (delayed fetch/transform, current/stale errors, cancellation and stale entry).
+  `/tmp/apex-windows-export-context.log`.
+- Actual callback bodies from Settings, Accounting and CompleteBackups compiled
+  in a synthetic control/transport/crypto harness: 24 cases passed, including
+  company-context loss during complete and legacy backup encryption with no file
+  side effect. `/tmp/apex-windows-export-callbacks.log`.
+- Fourteen actual picker/wiring cases passed again with the optional original
+  verifier parameter. `/tmp/apex-windows-picker-export-followup.log`.
+
+The callback harness does not compile the surrounding WinUI pages or use real
+cryptography. Exact full builds and device/provider acceptance remain open. Other
+report/PDF/recovery-code/attachment callers have separate existing generation
+checks, but their retained read-access epoch/final external-side-effect coverage
+still needs review; these four corrected flows are not a blanket closure of all
+native export paths. No production action, CI dispatch or publication occurred.

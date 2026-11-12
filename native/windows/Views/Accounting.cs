@@ -75,12 +75,12 @@ public sealed partial class MainPage
     }
     private async Task CashBook()
     {
-        var cid=CompanyId;var from=new DateInput("From",J.FinancialStart);var to=new DateInput("To",J.Today);var account=BankChoice("Bank account · cash is included");var panel=Stack();var result=Stack();
+        var cid=CompanyId;var exportAccess=CaptureFileSaveAccess();var from=new DateInput("From",J.FinancialStart);var to=new DateInput("To",J.Today);var account=BankChoice("Bank account · cash is included");var panel=Stack();var result=Stack();
         string? appliedQuery=null;var requestVersion=0;
         string DraftQuery()=>$"?from_date={from.Value}&to_date={to.Value}&bank_account_id={Uri.EscapeDataString(Value(account))}";
         async Task Load(){var version=++requestVersion;var query=DraftQuery();var value=await Api.Send(Api.CompanyPath(cid,"/cash-book"+query));if(version!=requestVersion)return;result.Children.Clear();if(value.Text("ordering_note").Length>0)result.Children.Add(Text(value.Text("ordering_note"),12));RenderReport(result,value);appliedQuery=query;}
         string ExportPath(string extension){if(appliedQuery is null)throw new InvalidOperationException("Apply filters successfully before exporting.");return Api.CompanyPath(cid,"/cash-book"+extension+appliedQuery);}
-        panel.Children.Add(Text("Exports use the filters of the displayed report. Apply edited filters to update it."));panel.Children.Add(Columns(from.View,to.View,account));panel.Children.Add(AsyncButton("Apply",Load,Error,true));foreach(var fmt in new[]{"pdf","xlsx"})panel.Children.Add(AsyncButton("Export "+fmt,async()=>{await ApexFiles.Save(await Api.Download(ExportPath("."+fmt)),"cash-book."+fmt);},Error));panel.Children.Add(result);await Load();await Dialog("Cash and bank book",panel,()=>Task.CompletedTask,"Done");
+        panel.Children.Add(Text("Exports use the filters of the displayed report. Apply edited filters to update it."));panel.Children.Add(Columns(from.View,to.View,account));panel.Children.Add(AsyncButton("Apply",Load,Error,true));foreach(var fmt in new[]{"pdf","xlsx"})panel.Children.Add(AsyncButton("Export "+fmt,async()=>{await ScopedFileExport.Download(exportAccess,()=>Api.Download(ExportPath("."+fmt)),null,(bytes,verify)=>ApexFiles.Save(bytes,"cash-book."+fmt,verify));},Error));panel.Children.Add(result);await Load();await Dialog("Cash and bank book",panel,()=>Task.CompletedTask,"Done");
     }
 
     private async Task LedgerPage()
