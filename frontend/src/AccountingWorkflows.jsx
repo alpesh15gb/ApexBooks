@@ -261,7 +261,7 @@ export function OpeningBalances({ companyId, records, api, refresh, role }) {
       live = false;
     };
   }, [companyId, api]);
-  if (role !== "owner") return null;
+  if (role !== "owner") return pending ? <section className="member-settings"><h2>Opening balance result not confirmed</h2><p role="status">{pendingPostingMessage} Owner access is required to retry the original opening balance.</p></section> : null;
   async function submit(e) {
     e.preventDefault();
     if (role !== "owner" || flow.current || balanceRefresh.busy) return;

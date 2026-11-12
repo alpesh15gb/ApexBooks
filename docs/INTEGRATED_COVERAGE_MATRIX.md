@@ -640,3 +640,26 @@ semantics. Four backend SQLite tests passed, including customer/supplier advance
 refund replay with identical record ID, changed-payload rejection and unchanged books.
 Lint/build/budgets passed. These are synthetic DOM/API checks; real browser/native
 acceptance remains open. No production, denied publication retry or deployment.
+
+### Period-lock unknown outcome and memory boundary (after 734654c)
+
+Synthetic period-lock tests reproduced a lost-response save leaving the prior date
+presented as current and allowing review cancellation. Unknown/time-out/server/conflict
+outcomes now freeze the reviewed date, mark current state unverified, and register a
+pending operation. Read-only Check current lock resolves only a verified date at or
+beyond the reviewed date; an older date or failed read stays unresolved. Owner-only
+explicit retry uses the original reviewed date and is single-flight. Viewer access can
+verify current state but cannot retry the write. No backend locking rules changed.
+
+Shared uncertain-posting and manual-ledger UI now explicitly discloses tab-memory-only
+recovery and warns against reload/close/sign-out. An unresolved opening balance remains
+visible after owner role loss, while retry requires owner access. The actual durable
+boundary and interruption limits are documented in UNCONFIRMED_POSTING_RECOVERY.md;
+this is disclosure, not an implementation of cross-session recovery.
+
+Validation: 18 frontend tests passed, including old/failed/later lock reads, viewer
+verification, original-date retries, double clicks, stale-company response protection,
+opening owner/viewer recovery and existing posting/ledger recovery checks. Two backend
+matrices passed covering posting-family period-lock enforcement and company write-role
+restrictions. Lint/build/budgets passed. Real browser/unload prompts, native parity and
+durable process-loss recovery remain open. No production, upload retry or deployment.

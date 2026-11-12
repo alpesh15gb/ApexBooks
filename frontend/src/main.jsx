@@ -5,7 +5,7 @@ import {acceptLocalSession, requireCurrentSession} from './sessionScope.js';
 import {sessionFetch as fetch} from './sessionScope.js';
 import { businessDate, businessFinancialYear } from "./businessDate.js";
 import { CORE_ENHANCEMENTS, capabilityFeatures, supportsFeature, routeFeature, companyDisplayName } from "./capabilities.js";
-import { hasPendingPostings, postingNavigationMessage, registerPostingRequest } from "./postingRegistry.js";
+import { hasPendingPostings, postingNavigationMessage, registerPostingRequest, memoryPostingRecoveryMessage } from "./postingRegistry.js";
 import { apiErrorMessage } from "./apiErrors.js";
 import { fetchCompanyRecords } from "./companyRecords.js";
 import TransactionDetail from "./TransactionDetail.jsx";
@@ -2355,7 +2355,7 @@ function Ledger({ companyId, role, onOpen, drafts }) {
         </div>
       </div>
       {error && <div className="error banner" role="alert">{error}</div>}
-      {Object.entries(uncertainty).filter(([,pending]) => pending.length).map(([operation]) => <div key={operation} className="info-box" role="alert" data-ledger-uncertainty={operation}><strong>{operation === 'account' ? 'Account creation' : operation === 'journal' ? 'Journal posting' : 'Journal reversal'} result not confirmed.</strong> Check {operation === 'account' ? 'the chart of accounts' : 'journal history'} before changing {operation === 'account' ? 'the account code or creating another account' : 'the reference or posting again'}; the previous request may have completed. Refreshing or submitting another form does not resolve this result.</div>)}
+      {Object.entries(uncertainty).filter(([,pending]) => pending.length).map(([operation]) => <div key={operation} className="info-box" role="alert" data-ledger-uncertainty={operation}><strong>{operation === 'account' ? 'Account creation' : operation === 'journal' ? 'Journal posting' : 'Journal reversal'} result not confirmed.</strong> Check {operation === 'account' ? 'the chart of accounts' : 'journal history'} before changing {operation === 'account' ? 'the account code or creating another account' : 'the reference or posting again'}; the previous request may have completed. Refreshing or submitting another form does not resolve this result. {memoryPostingRecoveryMessage}</div>)}
       <div className="info-box ledger-note">
         New invoices, bills, payments, notes, POS sales and expenses post to the
         ledger automatically. Older prototype records remain unposted.

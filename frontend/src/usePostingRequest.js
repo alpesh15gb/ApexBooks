@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPostingRequest } from './postingRequest.js';
-import { registerPostingRequest } from './postingRegistry.js';
+import { registerPostingRequest, memoryPostingRecoveryMessage } from './postingRegistry.js';
 
 export function usePostingRequest(options) {
   const request = useRef(null);
@@ -15,4 +15,4 @@ export function usePostingRequest(options) {
   };
   return { busy: request.current.busy, pending: request.current.pending, run };
 }
-export const pendingPostingMessage = 'The previous response was not confirmed. Your submitted details are locked. Retry the same save to recover its result; do not create another transaction.';
+export const pendingPostingMessage = 'The previous response was not confirmed. Your submitted details are locked. Retry the same save to recover its result; do not create another transaction. ' + memoryPostingRecoveryMessage;

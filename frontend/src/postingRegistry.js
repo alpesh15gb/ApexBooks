@@ -9,3 +9,5 @@ export function hasPendingPostings() {
   return [...requests].some(request => request.busy || request.pending);
 }
 export const postingNavigationMessage = 'Finish or retry the pending save before leaving this workspace. Its result is not yet confirmed; keeping this form open preserves the original request and prevents a duplicate.';
+
+export const memoryPostingRecoveryMessage = 'Recovery is kept only in this tab. Do not reload, close the tab or sign out until the result is confirmed. After interruption, verify the original result before trying again.';
