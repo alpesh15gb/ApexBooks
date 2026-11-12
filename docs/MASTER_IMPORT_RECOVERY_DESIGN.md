@@ -101,3 +101,25 @@ restore parity passed. This does not certify deployment or device behavior.
 Web/Windows/Android still need capability-gated adoption, frozen request keys and
 read-only receipt recovery. Existing clients do not gain exact replay merely because
 the API supports it. No sensitive browser-storage persistence was added.
+
+## Web adoption (local candidate)
+
+MasterImport now receives the advertised capability from App. Supported commits
+save an opaque operation key, import kind and SHA-256 payload fingerprint to
+sessionStorage before dispatch, namespaced by token subject and company. The JWT
+subject is a storage namespace only; authorization remains server-enforced. No
+CSV, row values, filename, password or bearer token is persisted. Storage failure
+blocks dispatch. Legacy servers receive no receipt key and show a limitation.
+
+An uncertain response freezes the operation and ordinary import action. Same-tab
+retry sends its original key/body. After tab reload/remount, GET receipt recovery
+can confirm the original result without a POST. A missing receipt remains unknown;
+selecting an unchanged original CSV verifies the stored fingerprint before retrying
+that same key. Changed files reject. Initial definitive rejection may permit
+correction; rejection after an unknown attempt does not silently discard recovery.
+Current viewer role cannot dispatch recovery writes. No automatic retry occurs.
+
+This is same-tab reload recovery, not closed-tab/cross-device recovery. Closing a
+tab can lose sessionStorage; keep the displayed operation reference. Browser data
+clearing is not addressed. Native adoption is still pending, and real browser
+acceptance is separate from rendered synthetic tests.

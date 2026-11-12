@@ -817,3 +817,19 @@ Disposable loopback databases only; server stopped afterward.
 
 Remaining: capability-gated web/native adoption and reload recovery; no automatic
 client protection claim. No production migration, publication retry or deployment.
+
+### Capability-gated web master-import recovery (2026-11-12)
+
+Web imports now adopt receipt keys only when advertised. Unknown outcomes retain
+an original in-memory body and block changed/new commit; reload recovery persists
+only key/kind/hash in actor/company-scoped sessionStorage. GET confirms the receipt;
+missing receipt stays unresolved; original-file fingerprint enables same-key retry
+without persisting CSV contents. Storage failure blocks initial POST. Legacy
+servers receive no key and an explicit exact-recovery limitation.
+
+Validation: 32 focused tests and all 406 frontend tests pass. Lost response/remount,
+GET-only recovery, original-file mismatch, double-click retry, rejection before vs
+after uncertainty, storage failure, actor/company isolation and legacy server
+behavior covered. Lint/build/bundle budgets pass. No real browser or native UI
+acceptance claim; closing the tab can lose its recovery reference. Native adoption
+remains pending. No production, publication retry or deployment.

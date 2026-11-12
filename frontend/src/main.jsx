@@ -1481,6 +1481,7 @@ function App() {
                       <MasterImport
                         companyId={companyId}
                         role={company?.role}
+                        receiptSupport={supportsFeature(features, 'master_import_receipts')}
                         onImported={refreshPostedRecords}
                       />
                     </div>
