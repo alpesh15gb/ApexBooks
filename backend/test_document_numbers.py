@@ -26,7 +26,7 @@ class DocumentNumberTest(unittest.TestCase):
             self.assertEqual(client.post('/api/auth/register', json=credentials).status_code, 200)
             headers = {'Authorization': 'Bearer ' + client.post('/api/auth/login', json=credentials).json()['token']}
             result = client.post('/api/companies', headers=headers, json={
-                'name': 'Serial QA', 'gstin': '27AAAAA0000A1Z5', 'state_code': '27', 'tax_mode': 'regular', 'address': 'Synthetic supplier address'})
+                'name': 'Serial QA', 'gstin': '27AAAAA0000A1Z2', 'state_code': '27', 'tax_mode': 'regular', 'address': 'Synthetic supplier address'})
             self.assertEqual(result.status_code, 200, result.text)
             base = '/api/companies/' + result.json()['id']
             body = {'kind': 'sales_invoice', 'name': 'Synthetic buyer', 'number': 'BAD@NUMBER', 'date': '2026-11-01',

@@ -11,7 +11,7 @@ class PurchaseReturnLinesTest(unittest.TestCase):
     post=guards.ControlGuardTest.post
 
     def bill(self, mixed=True, tracked=False):
-        self.cid=self.client.post('/api/companies',headers=self.headers,json={'name':'Source lines','tax_mode':'regular','gstin':'27AAAAA0000A1Z5','state_code':'27'}).json()['id']
+        self.cid=self.client.post('/api/companies',headers=self.headers,json={'name':'Source lines','tax_mode':'regular','gstin':'27AAAAA0000A1Z2','state_code':'27'}).json()['id']
         self.base='/api/companies/'+self.cid
         lines=[{'description':'Identical service','quantity':2,'rate':100,'gst_rate':18,'itc_treatment':t} for t in ['ineligible','pending_review' if mixed else 'ineligible']]
         if tracked:

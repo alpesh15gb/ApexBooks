@@ -78,6 +78,11 @@ def install(app,m):
         for row in inward if kind == 'gstr2a' else outward:
             v=sections[row['section']];v['documents']+=1;v['taxable']+=Decimal(row['taxable']);v['tax']+=sum((Decimal(row[k]) for k in KEYS),ZERO)
         result={'title':title,'standard':standard,'from_date':start.isoformat(),'to_date':end.isoformat(),'applicable':bool(profile and profile.mode=='regular'),'columns':[{'key':k,'label':v} for k,v in columns],'rows':rows,'output':{k:str(v) for k,v in output.items()},'book_itc':{k:str(v) for k,v in credit.items()},'ineligible':str(ineligible),**estimate,'sections':{k:{f:str(v) if isinstance(v,Decimal) else v for f,v in value.items()} for k,value in sections.items()},'hsn':[{'hsn':key[0],'rate':key[1],**{k:str(v) for k,v in value.items()}} for key,value in hsn.items()],'note':'Prepared from app entries. Purchase-derived 2A is not the portal GSTR-2A. Book ITC is provisional until eligibility and GSTR-2B verification; these reports do not file returns.'}
+        missing_gstin = [row for row in inward if not str(row['gstin'] or '').strip() and Decimal(row['proposed_itc']) != ZERO]
+        result['itc_review_warnings'] = [{'code':'missing_supplier_gstin', 'number':row['number'], 'date':row['date'], 'party':row['party'], 'book_itc':row['proposed_itc']} for row in missing_gstin]
+        if missing_gstin:
+            result['itc_review_note'] = f"{len(missing_gstin)} purchase/expense/return document(s) contributing to provisional book ITC have no supplier GSTIN. Review the source invoices, supplier registration and applicable eligibility rules, and verify GSTR-2B where applicable before relying on this credit or estimated cash offset. No eligibility decision or amount adjustment has been made."
+            result['note'] += ' ' + result['itc_review_note']
         from gst_exports import prepare
         documents=[]
         for record in records:

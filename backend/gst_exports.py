@@ -4,6 +4,7 @@ GSTR-1 sheet headers are pinned to GSTN's downloaded V2.2 workbook. JSON is
 an unsigned preparation file for review in the current GST offline utility.
 GSTR-2A is supplier-generated: our inward workbook is explicitly book-derived.
 """
+from gst_identifiers import gstin_valid
 import calendar
 import json
 import re
@@ -43,17 +44,6 @@ def number(value):
     return float(rounded(value))
 
 
-def gstin_valid(value):
-    if not re.fullmatch(r'[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]', value):
-        return False
-    alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    total = 0
-    for i, char in enumerate(reversed(value[:-1])):
-        product = alphabet.index(char) * (2 if i % 2 == 0 else 1)
-        total += product // 36 + product % 36
-    return value[-1] == alphabet[(36 - total % 36) % 36]
-
-
 def full_period(start, end):
     a, b = date.fromisoformat(start), date.fromisoformat(end)
     months = (b.year - a.year) * 12 + b.month - a.month + 1
@@ -87,7 +77,7 @@ def document_lines(record):
 
 def prepare(kind, data, company, records):
     issues = []
-    warnings = []
+    warnings = [data['itc_review_note']] if data.get('itc_review_note') else []
 
     def issue(record, message):
         item = {'document': record.get('number', 'Company / period'), 'message': message}

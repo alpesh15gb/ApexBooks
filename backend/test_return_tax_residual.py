@@ -13,7 +13,7 @@ class ReturnTaxResidualTest(unittest.TestCase):
     note=source_tests.PurchaseReturnLinesTest.note
 
     def source(self,treatments,interstate=False):
-        company=self.client.post('/api/companies',headers=self.headers,json={'name':'Tax residuals','tax_mode':'regular','gstin':'27AAAAA0000A1Z5','state_code':'27'}).json()
+        company=self.client.post('/api/companies',headers=self.headers,json={'name':'Tax residuals','tax_mode':'regular','gstin':'27AAAAA0000A1Z2','state_code':'27'}).json()
         self.base='/api/companies/'+company['id']
         result=self.post('/records',{'kind':'purchase_bill','name':'Supplier','date':'2026-11-01','data':{'place_of_supply':'29' if interstate else '27','supplier_state':'27','lines':[{'description':'Tiny identical service','quantity':3,'rate':'.03','gst_rate':18,'itc_treatment':t} for t in treatments]}})
         self.assertEqual(result.status_code,200,result.text);return result.json()

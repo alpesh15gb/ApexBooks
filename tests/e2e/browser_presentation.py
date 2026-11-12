@@ -193,7 +193,7 @@ with sync_playwright() as p:
         # Registered books expose the additional GST columns and working papers.
         gst_company = client.request('POST', '/api/companies', {
             'name': 'Synthetic GST presentation company', 'tax_mode': 'regular',
-            'state_code': '27', 'gstin': '27AAAAA0000A1Z5',
+            'state_code': '27', 'gstin': '27AAAAA0000A1Z2',
         })
         page.reload(wait_until='domcontentloaded')
         page.get_by_role('combobox', name='Choose company', exact=True).select_option(gst_company['id'])

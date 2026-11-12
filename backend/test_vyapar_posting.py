@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 def fixture():
     def txn(i,kind,party,cash,balance,status=1):return {'txn_id':i,'txn_type':kind,'txn_status':status,'txn_name_id':party,'txn_date':'2026-04-01','txn_cash_amount':cash,'txn_balance_amount':balance,'txn_ref_number_char':str(i),'txn_place_of_supply':'Telangana'}
     def line(i,txn,item,qty,total,tax):return {'lineitem_id':i,'lineitem_txn_id':txn,'item_id':item,'quantity':qty,'total_amount':total,'lineitem_tax_amount':tax,'lineitem_tax_id':24,'priceperunit':total/qty}
-    return {'kb_firms':[{'firm_id':1,'firm_name':'Synthetic source','firm_gstin_number':'36AAAAA0000A1Z5','firm_address':'Synthetic source address'}],
+    return {'kb_firms':[{'firm_id':1,'firm_name':'Synthetic source','firm_gstin_number':'36AAAAA0000A1Z3','firm_address':'Synthetic source address'}],
         'kb_names':[{'name_id':1,'name_type':1,'full_name':'Synthetic buyer','amount':86},{'name_id':2,'name_type':1,'full_name':'Synthetic supplier','amount':0}],
         'kb_items':[{'item_id':1,'item_type':1,'item_name':'Synthetic legacy negative item','item_stock_quantity':-2,'item_stock_value':0,'item_tax_id':24},
                     {'item_id':2,'item_type':1,'item_name':'Synthetic purchased item','item_stock_quantity':3,'item_stock_value':150,'item_tax_id':24}],

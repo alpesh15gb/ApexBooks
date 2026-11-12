@@ -21,7 +21,7 @@ class InvoiceRequirementsTest(unittest.TestCase):
     def test_b2b_blank_hsn_rejected_without_posting(self):
         c,h,b = self.context()
         before = c.get(b+'/journals', headers=h).json()
-        r,_ = self.invoice(c,h,b,party_gstin='36ABCDE1234F1Z5',lines=[{'description':'Service','quantity':1,'rate':100,'gst_rate':18,'hsn':''}])
+        r,_ = self.invoice(c,h,b,party_gstin='36ABCDE1234F1Z1',lines=[{'description':'Service','quantity':1,'rate':100,'gst_rate':18,'hsn':''}])
         self.assertEqual(r.status_code,422,r.text)
         self.assertIn('HSN/SAC',r.text)
         self.assertEqual(c.get(b+'/journals',headers=h).json(),before)
@@ -37,7 +37,7 @@ class InvoiceRequirementsTest(unittest.TestCase):
 
     def test_header_amendment_cannot_remove_hsn(self):
         c,h,b=self.context()
-        r,p=self.invoice(c,h,b,party_gstin='36ABCDE1234F1Z5');self.assertEqual(r.status_code,200,r.text)
+        r,p=self.invoice(c,h,b,party_gstin='36ABCDE1234F1Z1');self.assertEqual(r.status_code,200,r.text)
         doc=r.json();p['number']=doc['number'];p['data']['version']=0;p['data']['lines'][0]['hsn']=''
         r=c.put(b+'/documents/'+doc['id'],headers={**h,'Idempotency-Key':uuid4().hex},json=p)
         self.assertEqual(r.status_code,422,r.text)
@@ -53,7 +53,7 @@ class InvoiceRequirementsTest(unittest.TestCase):
         self.assertEqual(r.status_code,422,r.text)
 
     def test_scope_does_not_infer_turnover_or_rewrite_history(self):
-        data={'party_gstin':'36ABCDE1234F1Z5','lines':[{'hsn':''}],'taxable_supply_value':'100'}
+        data={'party_gstin':'36ABCDE1234F1Z1','lines':[{'hsn':''}],'taxable_supply_value':'100'}
         for kind,mode,day in [('purchase_bill','regular',date(2026,11,12)),('sales_invoice','unregistered',date(2026,11,12)),('estimate','regular',date(2026,11,12)),('sales_invoice','regular',date(2020,11,12))]:
             validate_outward_invoice_fields(kind,mode,data,day)
         validate_outward_invoice_fields('sales_invoice','regular',{**data,'party_gstin':''},date(2026,11,12))

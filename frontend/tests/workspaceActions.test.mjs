@@ -257,3 +257,19 @@ test('company GSTIN/state mismatch is actionable, announced and linked to both i
   await change(field('State code'),'27');assert.equal(field('State code').hasAttribute('aria-invalid'),false);assert.equal(document.querySelector('#company-validation-error'),null);
  });
 });
+
+for (const mode of ['unregistered', 'composition']) test(`changing tax mode to ${mode} clears obsolete GSTIN/state errors`,async()=>{
+ await workspace('owner',async({click,dom})=>{
+  await click('Add company');
+  const field=text=>[...document.querySelectorAll('.modal label')].find(n=>n.textContent.trim().startsWith(text)).querySelector('input,select');
+  async function change(el,value){const proto=el.tagName==='SELECT'?dom.window.HTMLSelectElement.prototype:dom.window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(el,value);await act(async()=>el.dispatchEvent(new dom.window.Event(el.tagName==='SELECT'?'change':'input',{bubbles:true})));}
+  await change(field('Tax registration'),'regular');await change(field('GSTIN'),'27AAAAA0000A1Z2');await change(field('State code'),'36');
+  await act(async()=>document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})));
+  assert.equal(field('State code').getAttribute('aria-invalid'),'true');
+  await change(field('Tax registration'),mode);
+  assert.equal(document.querySelector('#company-validation-error'),null);
+  assert.equal(field('State code').hasAttribute('aria-invalid'),false);
+  assert.equal(field('State code').hasAttribute('aria-describedby'),false);
+  if(mode==='composition') assert.equal(field('GSTIN').value,'');
+ });
+});

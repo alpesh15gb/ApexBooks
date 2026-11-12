@@ -74,10 +74,10 @@ class CompletionTest(unittest.TestCase):
         created=client.post(base+'/records',headers=h,json=payload).json()
         # Model an already posted imported document, without recalculating its journal.
         with Session(engine) as session:
-            row=session.get(Record,created['id']);row.data={**row.data,'party_gstin':'36AAAAA0000A1Z5'};session.commit()
-        response=client.put(base+'/documents/'+created['id'],headers={**h,'Idempotency-Key':uuid4().hex},json={**payload,'number':created['number'],'data':{'version':0,'party_gstin':'36AAAAA0000A1Z5','notes':'Reviewed legacy header'}})
+            row=session.get(Record,created['id']);row.data={**row.data,'party_gstin':'36AAAAA0000A1Z3'};session.commit()
+        response=client.put(base+'/documents/'+created['id'],headers={**h,'Idempotency-Key':uuid4().hex},json={**payload,'number':created['number'],'data':{'version':0,'party_gstin':'36AAAAA0000A1Z3','notes':'Reviewed legacy header'}})
         self.assertEqual(response.status_code,200,response.text)
-        self.assertEqual(response.json()['data']['party_gstin'],'36AAAAA0000A1Z5')
+        self.assertEqual(response.json()['data']['party_gstin'],'36AAAAA0000A1Z3')
         self.assertEqual(Decimal(response.json()['amount']),168)
 
     def test_header_gstin_cannot_reclassify_mixed_sale(self):
@@ -87,7 +87,7 @@ class CompletionTest(unittest.TestCase):
             {'description':'Exempt service','hsn':'9983','quantity':1,'rate':50,'gst_rate':0,'tax_treatment':'exempt'}]}}
         created=client.post(base+'/records',headers=h,json=payload)
         self.assertEqual(created.status_code,200,created.text);original=created.json()
-        edit={**payload,'number':original['number'],'data':{'version':0,'party_gstin':'36AAAAA0000A1Z5'}}
+        edit={**payload,'number':original['number'],'data':{'version':0,'party_gstin':'36AAAAA0000A1Z3'}}
         rejected=client.put(base+'/documents/'+original['id'],headers={**h,'Idempotency-Key':uuid4().hex},json=edit)
         self.assertEqual(rejected.status_code,422,rejected.text)
         saved=client.get(base+'/records/'+original['id'],headers=h).json()
@@ -95,7 +95,7 @@ class CompletionTest(unittest.TestCase):
         self.assertEqual(Decimal(saved['amount']),168)
         single=client.post(base+'/records',headers=h,json={**payload,'data':{'place_of_supply':'36','lines':payload['data']['lines'][:1]}}).json()
         allowed=client.put(base+'/documents/'+single['id'],headers={**h,'Idempotency-Key':uuid4().hex},json={**edit,'number':single['number']})
-        self.assertEqual(allowed.status_code,200,allowed.text);self.assertEqual(allowed.json()['data']['party_gstin'],'36AAAAA0000A1Z5')
+        self.assertEqual(allowed.status_code,200,allowed.text);self.assertEqual(allowed.json()['data']['party_gstin'],'36AAAAA0000A1Z3')
 
     def test_amend_discount_supply_and_rounding_reposts_tax(self):
         client,h,base=self.client_context('regular')
@@ -140,7 +140,7 @@ class CompletionTest(unittest.TestCase):
         from PIL import Image
         if os.getenv('ACCEPTANCE_BASE'):self.skipTest('Provider mock is an isolated unit test')
         client,h,base=self.client_context('regular');buf=io.BytesIO();Image.new('RGB',(20,20),'white').save(buf,format='PNG')
-        draft={'supplier_name':'Synthetic supplier','supplier_gstin':'27AAAAA0000A1Z5','supplier_address':'Synthetic address','place_of_supply':'36','invoice_number':'OCR-TEST','invoice_date':'2026-04-02','total':'118','items':[{'description':'Service','hsn':'9983','quantity':'1','rate':'100','gst_rate':'18','hsn':'9983'}]}
+        draft={'supplier_name':'Synthetic supplier','supplier_gstin':'27AAAAA0000A1Z2','supplier_address':'Synthetic address','place_of_supply':'36','invoice_number':'OCR-TEST','invoice_date':'2026-04-02','total':'118','items':[{'description':'Service','hsn':'9983','quantity':'1','rate':'100','gst_rate':'18','hsn':'9983'}]}
         response=Mock();response.json.return_value={'output':[{'type':'message','content':[{'type':'output_text','text':__import__('json').dumps(draft)}]}]}
         with patch.dict(os.environ,{'OMNIROUTE_API_KEY':'synthetic-provider-key','OCR_BASE_URL':'https://synthetic-provider.invalid/v1'}),patch('main.httpx.post',return_value=response) as provider:
             result=client.post(base+'/ocr/purchase-draft',headers=h,json={'image_data_url':'data:image/png;base64,'+base64.b64encode(buf.getvalue()).decode()})
@@ -149,7 +149,7 @@ class CompletionTest(unittest.TestCase):
 
     def test_posted_amendment_party_statement_and_gst_reports(self):
         client,h,base=self.client_context('regular')
-        party=client.post(base+'/records',headers=h,json={'kind':'party','name':'Amend buyer','data':{'gstin':'36AAAAA0000A1Z5','address':'Synthetic address'}}).json()
+        party=client.post(base+'/records',headers=h,json={'kind':'party','name':'Amend buyer','data':{'gstin':'36AAAAA0000A1Z3','address':'Synthetic address'}}).json()
         payload={'kind':'sales_invoice','name':party['name'],'date':'2026-04-02','data':{'place_of_supply':'36','lines':[{'description':'Service','hsn':'9983','quantity':1,'rate':100,'gst_rate':18}]}}
         invoice=client.post(base+'/records',headers=h,json=payload).json()
         updated={**payload,'number':invoice['number'],'data':{**payload['data'],'version':0,'lines':[{'description':'Service','hsn':'9983','quantity':1,'rate':200,'gst_rate':18}]}}
@@ -191,7 +191,7 @@ class CompletionTest(unittest.TestCase):
         self.credentials=credentials
         client.post('/api/auth/register',json=credentials)
         headers={'Authorization':'Bearer '+client.post('/api/auth/login',json=credentials).json()['token']}
-        company=client.post('/api/companies',headers=headers,json={'name':'Synthetic completion','tax_mode':mode,'state_code':'36','gstin':'36AAAAA0000A1Z5' if mode=='regular' else ''}).json()
+        company=client.post('/api/companies',headers=headers,json={'name':'Synthetic completion','tax_mode':mode,'state_code':'36','gstin':'36AAAAA0000A1Z3' if mode=='regular' else ''}).json()
         return client,headers,'/api/companies/'+company['id']
 
     def test_paid_invoice_credit_application_refund_and_supplier_return(self):
@@ -304,7 +304,7 @@ class CompletionTest(unittest.TestCase):
 
     def test_purchase_gst_uses_supplier_origin_and_delivery_state(self):
         client,h,base=self.client_context('regular')
-        bill=client.post(base+'/records',headers=h,json={'kind':'purchase_bill','name':'Interstate supplier','date':'2026-04-02','data':{'party_gstin':'27AAAAA0000A1Z5','place_of_supply':'36','lines':[{'description':'Supplies','quantity':1,'rate':100,'gst_rate':18}]}})
+        bill=client.post(base+'/records',headers=h,json={'kind':'purchase_bill','name':'Interstate supplier','date':'2026-04-02','data':{'party_gstin':'27AAAAA0000A1Z2','place_of_supply':'36','lines':[{'description':'Supplies','quantity':1,'rate':100,'gst_rate':18}]}})
         self.assertEqual(bill.status_code,200,bill.text);self.assertEqual(Decimal(bill.json()['data']['igst']),18);self.assertEqual(Decimal(bill.json()['data']['cgst']),0)
 
     def test_bank_transfer_both_legs_reconcile_and_restore(self):

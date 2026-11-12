@@ -31,7 +31,7 @@ class CompleteBackupHttpTest {
         println("PASS ANDROID FIXED DISCOUNT: API draft90 survives reopen/edit/save; inclusive plus document discount remains97.20")
         val quotation=JSONObject(requireNotNull(javaClass.classLoader!!.getResourceAsStream("quotation-nine-lines.json")).bufferedReader().use{it.readText()})
         val expected=quotation.getJSONObject("expected");quotation.remove("expected")
-        val quoteCompany=api.request("/api/companies","POST",JSONObject().put("name","Android synthetic quotation").put("tax_mode","regular").put("state_code","27").put("gstin","27AAAAA0000A1Z5"))as JSONObject
+        val quoteCompany=api.request("/api/companies","POST",JSONObject().put("name","Android synthetic quotation").put("tax_mode","regular").put("state_code","27").put("gstin","27AAAAA0000A1Z2"))as JSONObject
         val quoteCid=quoteCompany.s("id");val quoteRoot=api.company(quoteCid)
         quotation.put("kind","estimate");val quote=api.saveRecord(quoteCid,quotation,UUID.randomUUID().toString())
         assertEquals(0,(api.request("$quoteRoot/journals")as org.json.JSONArray).length())

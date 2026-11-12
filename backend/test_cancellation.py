@@ -95,7 +95,7 @@ if __name__ == '__main__':
 
 
 class ReportingAfterCancellationTest(unittest.TestCase):
-    def test_cash_book_names_cancelled_documents_and_items_report_skips_services(self):
+    def test_cash_book_names_cancelled_documents_and_items_report_includes_service_document_net(self):
         client, h, base = test_completion.CompletionTest.client_context(self, 'unregistered')
         invoice = client.post(base + '/records', headers=h, json={'kind': 'sales_invoice', 'name': 'Report buyer', 'date': '2026-04-02', 'data': {'lines': [{'description': 'Advice', 'quantity': 1, 'rate': 100, 'gst_rate': 0}]}}).json()
         receipt = client.post(base + '/records', headers=h, json={'kind': 'payment_in', 'name': 'Report buyer', 'date': '2026-04-03', 'amount': 100, 'data': {'applied_to': invoice['id'], 'payment_account': 'cash'}}).json()
@@ -110,7 +110,7 @@ class ReportingAfterCancellationTest(unittest.TestCase):
         items = client.get(base + '/reports/items', headers=h, params={'from_date': '2026-04-01', 'to_date': '2026-04-30'}).json()['rows']
         advice = next(r for r in items if r['name'] == 'Advice')
         self.assertEqual(Decimal(advice['sold_quantity']), 1)
-        self.assertEqual(Decimal(advice['closing_quantity']), 0)
+        self.assertEqual(Decimal(advice['closing_quantity']), -1)  # Document net, not stock on hand.
 
 
 class LinkedItemHsnTest(unittest.TestCase):

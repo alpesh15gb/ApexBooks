@@ -145,7 +145,7 @@ try{
     var evidenceBill=await Post($"/api/companies/{cid}/records",new(){["kind"]="purchase_bill",["name"]="Synthetic UI Evidence Supplier",["date"]=date,["data"]=new JsonObject{["lines"]=new JsonArray(new JsonObject{["description"]="Receipt evidence fixture",["quantity"]="1",["rate"]="75",["gst_rate"]="0"})}});
     var evidenceBytes=Encoding.ASCII.GetBytes("%PDF-1.4\n% Deliberately synthetic Windows UI receipt\n%%EOF\n");var evidenceFile=Path.Combine(evidence,"synthetic-ui-receipt.pdf");await File.WriteAllBytesAsync(evidenceFile,evidenceBytes);
     var quotationFixture=JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory,"quotation-nine-lines.json")))!.AsObject();
-    var quoteCompany=await Post("/api/companies",new(){["name"]="Windows UI Quotation",["tax_mode"]="regular",["gstin"]="27AAAAA0000A1Z5",["state_code"]="27"});var quoteCid=quoteCompany["id"]!.ToString();
+    var quoteCompany=await Post("/api/companies",new(){["name"]="Windows UI Quotation",["tax_mode"]="regular",["gstin"]="27AAAAA0000A1Z2",["state_code"]="27"});var quoteCid=quoteCompany["id"]!.ToString();
     var quoteBody=quotationFixture.DeepClone().AsObject();quoteBody.Remove("expected");quoteBody["kind"]="estimate";quoteBody["date"]=date;
     var seededQuote=await Post($"/api/companies/{quoteCid}/records",quoteBody);
     Check("synthetic loopback companies and invoice seeded");

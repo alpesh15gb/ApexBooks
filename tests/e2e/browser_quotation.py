@@ -24,7 +24,7 @@ api.request('POST', '/api/auth/register', credentials)
 api.token = api.request('POST', '/api/auth/login', credentials)['token']
 company = api.request('POST', '/api/companies', {
     'name': 'Synthetic Harbour Electricals', 'tax_mode': 'regular',
-    'state_code': '27', 'gstin': '27AAAAA0000A1Z5', 'address': 'Synthetic Mumbai test address',
+    'state_code': '27', 'gstin': '27AAAAA0000A1Z2', 'address': 'Synthetic Mumbai test address',
 })
 root = '/api/companies/' + company['id']
 day = datetime.now(timezone(timedelta(hours=5, minutes=30))).date().isoformat()

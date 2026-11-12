@@ -39,7 +39,7 @@ def run():
             response.raise_for_status()
             return response.json()
         company = request('POST', '/api/companies', {'name': 'Synthetic PostgreSQL load books',
-            'tax_mode': 'regular', 'state_code': '27', 'gstin': '27AAAAA0000A1Z5'})
+            'tax_mode': 'regular', 'state_code': '27', 'gstin': '27AAAAA0000A1Z2'})
         base = '/api/companies/' + company['id']
         item = request('POST', base + '/records', {'kind': 'item', 'name': 'Synthetic stock',
             'data': {'track_stock': True, 'gst_rate': 18, 'sale_rate': 100, 'purchase_rate': 60}})

@@ -65,7 +65,7 @@ class ControlGuardTest(__import__('unittest').TestCase):
             self.assertEqual(__import__('decimal').Decimal(report['closing_'+side]),0)
 
     def test_supplier_return_inherits_source_itc_for_full_and_partial_mixed_lines(self):
-        self.cid=self.client.post('/api/companies',headers=self.headers,json={'name':'ITC QA','tax_mode':'regular','gstin':'27AAAAA0000A1Z5','state_code':'27'}).json()['id']
+        self.cid=self.client.post('/api/companies',headers=self.headers,json={'name':'ITC QA','tax_mode':'regular','gstin':'27AAAAA0000A1Z2','state_code':'27'}).json()['id']
         self.base='/api/companies/'+self.cid
         lines=[{'description':'Ineligible','quantity':2,'rate':100,'gst_rate':18,'itc_treatment':'ineligible'}, {'description':'Pending','quantity':2,'rate':100,'gst_rate':18,'itc_treatment':'pending_review'}]
         source=self.post('/records',{'kind':'purchase_bill','name':'Supplier','date':'2026-11-01','data':{'place_of_supply':'27','lines':lines}}).json()
@@ -91,7 +91,7 @@ class ControlGuardTest(__import__('unittest').TestCase):
             self.assertEqual(self.client.get(self.base+'/journals',headers=self.headers).json(),journals)
 
     def test_client_advance_event_flag_is_not_retained_on_invoice(self):
-        self.cid=self.client.post('/api/companies',headers=self.headers,json={'name':'GST spoof QA','tax_mode':'regular','gstin':'27AAAAA0000A1Z5','state_code':'27'}).json()['id']
+        self.cid=self.client.post('/api/companies',headers=self.headers,json={'name':'GST spoof QA','tax_mode':'regular','gstin':'27AAAAA0000A1Z2','state_code':'27'}).json()['id']
         self.base='/api/companies/'+self.cid
         response=self.post('/records',{'kind':'sales_invoice','name':'Buyer','date':'2026-11-01','data':{'place_of_supply':'27','advance_tax_event':True,'advance_tax':{'cgst':'999'},'advance_tax_released':{'cgst':'999'},'lines':[{'description':'Service','hsn':'9983','quantity':1,'rate':100,'gst_rate':18}]}})
         self.assertEqual(response.status_code,200,response.text)

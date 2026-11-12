@@ -18,7 +18,7 @@ class QuotationAcceptanceTest(unittest.TestCase):
 
     def test_nine_line_quote_all_pdfs_and_conversion_preserve_values(self):
         f=json.loads(FIXTURE.read_text())
-        company=self.client.post('/api/companies',headers=self.headers,json={'name':'Synthetic Workshop Electricals','tax_mode':'regular','gstin':'27AAAAA0000A1Z5','state_code':'27','address':'Synthetic Mumbai test address'}).json();self.base='/api/companies/'+company['id']
+        company=self.client.post('/api/companies',headers=self.headers,json={'name':'Synthetic Workshop Electricals','tax_mode':'regular','gstin':'27AAAAA0000A1Z2','state_code':'27','address':'Synthetic Mumbai test address'}).json();self.base='/api/companies/'+company['id']
         quote_body={k:v for k,v in f.items() if k!='expected'}|{'kind':'estimate'}
         preview=self.post('/documents/preview',quote_body);self.assertEqual(preview.status_code,200,preview.text)
         result=self.post('/records',quote_body);self.assertEqual(result.status_code,200,result.text);quote=result.json()

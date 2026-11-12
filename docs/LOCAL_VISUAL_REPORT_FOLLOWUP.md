@@ -22,3 +22,21 @@ Working browser acceptance belongs to the isolated desktop reviewer and must use
 - Journal history voucher metadata/source links, stock-specific detail presentation and a server-calculated invoice totals bridge remain follow-up UX tasks.
 
 Final integrated local verification: 343 backend tests passed in 110.830 seconds (/tmp/apex-report-integrated-backend.log); 181 frontend tests passed (/tmp/apex-report-integrated-frontend.log), lint passed and build budgets passed. PostgreSQL evidence for the Day book changes: /tmp/apex-postgres-daybook. Real-browser drawer/filter scenarios remain unexecuted here; Python syntax checks alone are not visual acceptance.
+
+## Follow-up: GST entry and report regressions
+
+- Item activity now computes purchase/sales document nets for untracked goods, services and unlinked descriptions too. A purchase of 7 before the period and sale of 2 in the period yields 7 before / 5 through end in API and XLSX. Tracked-stock quantities and valuation are unchanged.
+- Changing company tax registration to unregistered or composition clears the obsolete GSTIN/state mismatch alert and field error associations. Both transitions have rendered React regressions.
+- Company creation, changed company GSTIN/state, new party creation, changed party GSTIN and ordinary master imports share the existing export checksum algorithm, with supported state-code validation. Lowercase/whitespace normalize. Blank party GSTIN remains permitted. Synthetic fixtures that previously used invalid check digits now use internally valid synthetic identifiers; these are not verified registrations.
+- Safe header edits retaining an unchanged legacy company/party GSTIN are allowed. Changing an invalid identifier requires correction. Historical restore and Vyapar archive ingestion are not retroactively rejected or repaired, and existing transaction snapshots are not rewritten. Direct document snapshot validation remains a separate scope; existing export preparation checks continue to flag invalid identifiers.
+- GST working papers specifically warn when purchase/expense/return rows contributing nonzero provisional book ITC lack supplier GSTIN. API includes affected document number/date/party and signed book ITC; the summary note appears in the existing UI note and PDF/XLSX preparation warnings. No book credit, cash estimate or eligibility decision is changed. All pre-existing statutory warnings remain.
+- Offline checksum validation does not verify registration status, supplier filing, entity applicability or ITC eligibility. No compliance/filing certification is implied.
+
+New review backlog retained from the independent browser audit:
+
+- Preserve cancelled invoice conversion history in reopened estimate/source details, while allowing reconversion.
+- Both invoice credit-note and purchase-bill debit-note reverse links are missing from the overview trail. Review supported credit apply/refund action discoverability, without inventing unsupported operations.
+- Same-day cash-book receipt/transfer order can imply an incorrect interim negative balance; investigate posting order and restored/legacy ties.
+- Final integrated browser and native acceptance remains outstanding; synthetic helper/build coverage is not device acceptance.
+
+Follow-up verification: 348 backend tests passed in 104.060 seconds (`/tmp/apex-gstin-final-backend.log`); 183 frontend tests passed (`/tmp/apex-gstin-full-frontend.log`), lint and build/bundle budgets passed. New GST tests include company/master entry, CSV import preview/commit atomicity, legacy safe edits/correction, tenant isolation and missing-supplier warning preservation in PDF/XLSX. The earlier full run exposed the old service-net expectation and a lowercase fixture mismatch; both were corrected before the passing full run. PostgreSQL and native UI/browser acceptance have not been rerun for this follow-up.

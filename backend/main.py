@@ -1,3 +1,4 @@
+from gst_identifiers import require_gstin
 from business_calendar import business_today, financial_year_start
 from invoice_requirements import validate_outward_invoice_fields
 from build_info import BUILD_REVISION
@@ -1022,13 +1023,13 @@ def companies(user: User = Depends(current_user), session: Session = Depends(db)
 @app.post('/api/companies')
 def create_company(body: CompanyInput, user: User = Depends(current_user), session: Session = Depends(db)):
     if body.tax_mode not in {'regular', 'composition', 'unregistered'}: raise HTTPException(422, 'Unsupported tax profile')
-    if body.gstin and not re.fullmatch(r'\d{2}[A-Z0-9]{13}', body.gstin.upper()): raise HTTPException(422, 'GSTIN must contain 15 characters beginning with a state code')
+    body.gstin = require_gstin(body.gstin, 'Company GSTIN')
     if body.tax_mode == 'unregistered' and body.gstin: raise HTTPException(422, 'An unregistered company cannot have a GSTIN')
     if body.tax_mode in {'regular','composition'} and not body.gstin:raise HTTPException(422,'A GST registered company needs its GSTIN')
     if body.state_code and not re.fullmatch(r'\d{2}', body.state_code): raise HTTPException(422, 'State code must contain two digits')
     if body.gstin and body.state_code != body.gstin[:2]: raise HTTPException(422, 'GSTIN and state code must match')
     if body.tax_mode in {'regular', 'composition'} and not body.state_code: raise HTTPException(422, 'State code is required for GST registered companies')
-    values = body.model_dump(exclude={'tax_mode'}); values['gstin'] = body.gstin.upper(); values['book_label']=body.book_label.strip()
+    values = body.model_dump(exclude={'tax_mode'}); values['gstin'] = body.gstin.strip().upper(); values['book_label']=body.book_label.strip()
     c = Company(owner_id=user.id, **values); session.add(c); session.flush(); session.add(CompanyTaxProfile(company_id=c.id, mode=body.tax_mode)); session.add(CompanyPreference(company_id=c.id,document_template='modern')); audit(session, c.id, user, 'company.created', 'company', c.id, {'tax_mode': body.tax_mode}); session.commit(); session.refresh(c); return company_obj(c, session)
 
 @app.patch('/api/companies/{company_id}')
@@ -1040,7 +1041,7 @@ def update_company(company_id: str, body: CompanyUpdate, user: User = Depends(cu
     gstin = body.gstin.strip().upper()
     state = body.state_code.strip()
     if not body.name.strip(): raise HTTPException(422, 'Company name is required')
-    if gstin and not re.fullmatch(r'\d{2}[A-Z0-9]{13}', gstin): raise HTTPException(422, 'GSTIN must contain 15 characters beginning with a state code')
+    gstin = require_gstin(gstin, 'Company GSTIN', unchanged=company.gstin if state == company.state_code else None)
     if state and not re.fullmatch(r'\d{2}', state): raise HTTPException(422, 'State code must contain two digits')
     if gstin and gstin[:2] != state: raise HTTPException(422, 'GSTIN and state code must match')
     if mode in {'regular', 'composition'} and not state: raise HTTPException(422, 'State code is required for GST registered companies')
@@ -1468,11 +1469,12 @@ def import_masters(company_id: str, body: MasterImport, user: User = Depends(cur
         if body.kind == 'party':
             if row.party_type not in {'customer', 'supplier', 'both'}:
                 errors.append({'row': index, 'message': 'Party type must be customer, supplier or both'}); continue
-            if row.gstin and not re.fullmatch(r'\d{2}[A-Z0-9]{13}', row.gstin.upper()):
-                errors.append({'row': index, 'message': 'GSTIN must contain 15 characters'}); continue
+            try:require_gstin(row.gstin, 'Party GSTIN')
+            except HTTPException as exc:
+                errors.append({'row': index, 'message': exc.detail});continue
             if row.email.strip() and not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', row.email.strip()):
                 errors.append({'row': index, 'message': 'Enter a valid email'}); continue
-            data = {'party_type': row.party_type, 'gstin': row.gstin.upper(), 'address': row.address, 'phone': row.phone.strip(), 'email': row.email.strip(), 'payment_terms_days': row.payment_terms_days, 'credit_limit':str(row.credit_limit) if row.credit_limit is not None else None, 'is_active':row.is_active, 'shipping_address':row.shipping_address}
+            data = {'party_type': row.party_type, 'gstin': row.gstin.strip().upper(), 'address': row.address, 'phone': row.phone.strip(), 'email': row.email.strip(), 'payment_terms_days': row.payment_terms_days, 'credit_limit':str(row.credit_limit) if row.credit_limit is not None else None, 'is_active':row.is_active, 'shipping_address':row.shipping_address}
         else:
             data = {key: data[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold','is_active')}
         seen.add(key)
@@ -1502,9 +1504,9 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
     if body.name.strip() != master.name: raise HTTPException(422, 'Names cannot be changed after creation')
     if master.kind == 'party':
         if body.party_type not in {'customer', 'supplier', 'both'}: raise HTTPException(422, 'Choose a valid party type')
-        if body.gstin and not re.fullmatch(r'\d{2}[A-Z0-9]{13}', body.gstin.upper()): raise HTTPException(422, 'GSTIN must contain 15 characters')
+        require_gstin(body.gstin, 'Party GSTIN', unchanged=before.get('gstin',''))
         if body.email.strip() and not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', body.email.strip()): raise HTTPException(422, 'Enter a valid email')
-        master.data = {**(master.data or {}), 'party_type': body.party_type, 'gstin': body.gstin.upper(), 'address': body.address,
+        master.data = {**(master.data or {}), 'party_type': body.party_type, 'gstin': body.gstin.strip().upper(), 'address': body.address,
                        'phone': body.phone.strip(), 'email': body.email.strip()}
         if 'payment_terms_days' in body.model_fields_set:master.data={**master.data,'payment_terms_days':body.payment_terms_days}
         if 'credit_limit' in body.model_fields_set:master.data={**master.data,'credit_limit':str(body.credit_limit) if body.credit_limit is not None else None}
@@ -1646,9 +1648,9 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             raise HTTPException(409, 'A party or item with this name already exists')
         if body.kind == 'party':
             if master.party_type not in {'customer', 'supplier', 'both'}: raise HTTPException(422, 'Party type must be customer, supplier or both')
-            if master.gstin and not re.fullmatch(r'\d{2}[A-Z0-9]{13}', master.gstin.upper()): raise HTTPException(422, 'GSTIN must contain 15 characters')
+            require_gstin(master.gstin, 'Party GSTIN')
             if master.email.strip() and not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', master.email.strip()): raise HTTPException(422, 'Enter a valid email')
-            data = {'party_type': master.party_type, 'gstin': master.gstin.upper(), 'address': master.address, 'phone': master.phone.strip(), 'email': master.email.strip(), 'payment_terms_days': master.payment_terms_days, 'credit_limit':str(master.credit_limit) if master.credit_limit is not None else None, 'is_active':master.is_active, 'shipping_address':master.shipping_address}
+            data = {'party_type': master.party_type, 'gstin': master.gstin.strip().upper(), 'address': master.address, 'phone': master.phone.strip(), 'email': master.email.strip(), 'payment_terms_days': master.payment_terms_days, 'credit_limit':str(master.credit_limit) if master.credit_limit is not None else None, 'is_active':master.is_active, 'shipping_address':master.shipping_address}
         else:
             data = {key: value for key, value in master.model_dump(mode='json').items() if key in {'hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold','is_active'}}
         body.name = master.name.strip()
@@ -2452,9 +2454,6 @@ def item_report(company_id: str, from_date: DateType, to_date: DateType, user: U
     kinds = {'sales_invoice', 'pos', 'credit_note', 'purchase_bill', 'debit_note'}
     records = list(session.scalars(select(Record).where(Record.company_id == company_id, Record.id.in_(postings), Record.kind.in_(kinds), Record.date <= to_date)))
     values = {}
-    # Decide tracking in Python from the few linked items: JSON boolean SQL differs between SQLite and PostgreSQL.
-    linked_ids = {line.get('item_id') for record in records for line in record.data.get('lines', []) if isinstance(line.get('item_id'), str)}
-    tracked_items = {item.id for item in session.scalars(select(Record).where(Record.company_id == company_id, Record.kind == 'item', Record.id.in_(linked_ids))) if item.data.get('track_stock')} if linked_ids else set()
     for record in records:
         for line in record.data.get('lines', []):
             name = str(line.get('description', '')).strip()
@@ -2469,9 +2468,8 @@ def item_report(company_id: str, from_date: DateType, to_date: DateType, user: U
             movement = qty if record.kind in {'purchase_bill', 'credit_note'} else -qty
             # These legacy quantity keys represent document movement, not stock on hand.
             # Stock introductions and adjustments are intentionally in the tracked-stock report.
-            carries_stock = line.get('item_id') in tracked_items
             if record.date < from_date:
-                if carries_stock: item['opening_quantity'] += movement
+                item['opening_quantity'] += movement
             else:
                 if record.kind == 'purchase_bill':
                     item['purchased_quantity'] += qty; item['purchase_value'] += taxable
@@ -2481,7 +2479,7 @@ def item_report(company_id: str, from_date: DateType, to_date: DateType, user: U
                     item['sold_quantity'] += qty; item['sales_value'] += taxable
                 else:
                     item['sold_quantity'] -= qty; item['sales_value'] -= taxable
-            if carries_stock: item['closing_quantity'] += movement
+            item['closing_quantity'] += movement
     return {'from_date': from_date.isoformat(), 'to_date': to_date.isoformat(),
             'quantity_basis':'purchase_sales_documents_only',
             'quantity_note':'Document movement only; excludes stock introductions and adjustments. Use tracked stock for on-hand quantities.',

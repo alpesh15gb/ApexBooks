@@ -27,7 +27,7 @@ class ApiTest(unittest.TestCase):
             headers = {'Authorization': 'Bearer ' + client.post('/api/auth/login', json=credentials).json()['token']}
             for mode in ('regular', 'composition'):
                 original = {'name': mode + ' company', 'tax_mode': mode,
-                            'state_code': '27', 'gstin': '27AAAAA0000A1Z5'}
+                            'state_code': '27', 'gstin': '27AAAAA0000A1Z2'}
                 company = client.post('/api/companies', headers=headers, json=original).json()
                 for blank in ('', '   '):
                     response = client.patch('/api/companies/' + company['id'], headers=headers,
@@ -155,7 +155,7 @@ class ApiTest(unittest.TestCase):
             credentials={'email':'reference-pdf@example.com','password':'strong-password'}
             client.post('/api/auth/register',json=credentials)
             headers={'Authorization':'Bearer '+client.post('/api/auth/login',json=credentials).json()['token']}
-            company=client.post('/api/companies',headers=headers,json={'name':'Reference documents','tax_mode':'regular','state_code':'27', 'gstin':'27AAAAA0000A1Z5'}).json()
+            company=client.post('/api/companies',headers=headers,json={'name':'Reference documents','tax_mode':'regular','state_code':'27', 'gstin':'27AAAAA0000A1Z2'}).json()
             base='/api/companies/'+company['id']
             brand={'phone':'0000000000','bank_name':'Synthetic Bank','upi_id':'synthetic@example','notes':'Thank you for your business','terms':'Synthetic test terms'}
             self.assertEqual(client.put(base+'/document-branding',headers=headers,json=brand).status_code,200)
@@ -417,7 +417,7 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(client.post('/api/auth/register', json=credentials).status_code, 200)
             headers = {'Authorization': 'Bearer ' + client.post('/api/auth/login', json=credentials).json()['token']}
             company = client.post('/api/companies', headers=headers, json={
-                'name': 'GST analysis test', 'tax_mode': 'regular', 'state_code': '27', 'gstin':'27AAAAA0000A1Z5'}).json()
+                'name': 'GST analysis test', 'tax_mode': 'regular', 'state_code': '27', 'gstin':'27AAAAA0000A1Z2'}).json()
             base = '/api/companies/' + company['id']
             def post(kind, name, amount, treatment='pending_review', applied_to=None):
                 data = {'place_of_supply': '27', 'lines': [{'description': 'Service', 'quantity': 1,
@@ -517,7 +517,7 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(client.post('/api/auth/register', json=credentials).status_code, 200)
             headers = {'Authorization': 'Bearer ' + client.post('/api/auth/login', json=credentials).json()['token']}
             company = client.post('/api/companies', headers=headers, json={
-                'name': 'Classification test', 'tax_mode': 'regular', 'state_code': '27', 'gstin':'27AAAAA0000A1Z5'}).json()
+                'name': 'Classification test', 'tax_mode': 'regular', 'state_code': '27', 'gstin':'27AAAAA0000A1Z2'}).json()
             base = '/api/companies/' + company['id']
             def sale(treatment, amount, gst_rate=0):
                 return {'kind': 'sales_invoice', 'name': 'Customer', 'date': '2026-10-30', 'data': {
@@ -537,7 +537,7 @@ class ApiTest(unittest.TestCase):
             mixed = sale('taxable', 100, 18)
             mixed['data']['lines'].append({'description': 'exempt', 'quantity': 1, 'rate': 20,
                 'gst_rate': 0, 'tax_treatment': 'exempt'})
-            mixed['data']['party_gstin']='36AAAAA0000A1Z5' # Registered recipients require separate supply documents.
+            mixed['data']['party_gstin']='36AAAAA0000A1Z3' # Registered recipients require separate supply documents.
             self.assertEqual(client.post(base + '/records', headers=headers, json=mixed).status_code, 422)
             taxable = client.post(base + '/records', headers=headers, json=sale('taxable', 100, 18))
             self.assertEqual(taxable.status_code, 200, taxable.text)
@@ -553,7 +553,7 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(client.post('/api/auth/register', json=credentials).status_code, 200)
             headers = {'Authorization': 'Bearer ' + client.post('/api/auth/login', json=credentials).json()['token']}
             company = client.post('/api/companies', headers=headers, json={
-                'name': 'ITC cost test', 'tax_mode': 'regular', 'state_code': '27', 'gstin':'27AAAAA0000A1Z5'}).json()
+                'name': 'ITC cost test', 'tax_mode': 'regular', 'state_code': '27', 'gstin':'27AAAAA0000A1Z2'}).json()
             base = '/api/companies/' + company['id']
             item = client.post(base + '/records', headers=headers, json={'kind': 'item', 'name': 'Cartons',
                 'data': {'track_stock': True}}).json()
@@ -588,7 +588,7 @@ class ApiTest(unittest.TestCase):
             credentials = {'email': 'discount@example.com', 'password': 'strong-password'}
             self.assertEqual(client.post('/api/auth/register', json=credentials).status_code, 200)
             headers = {'Authorization': 'Bearer ' + client.post('/api/auth/login', json=credentials).json()['token']}
-            company = client.post('/api/companies', headers=headers, json={'name': 'Discount test', 'tax_mode': 'regular', 'state_code': '27', 'gstin':'27AAAAA0000A1Z5'}).json()
+            company = client.post('/api/companies', headers=headers, json={'name': 'Discount test', 'tax_mode': 'regular', 'state_code': '27', 'gstin':'27AAAAA0000A1Z2'}).json()
             base = '/api/companies/' + company['id']
             payload = {'kind': 'sales_invoice', 'name': 'Customer', 'date': '2026-10-30', 'data': {
                 'place_of_supply': '27', 'lines': [{'description': 'Service', 'quantity': 2, 'rate': 100,
@@ -764,12 +764,12 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(client.post('/api/companies', headers=headers, json={
                 'name': 'Missing registration', 'tax_mode': 'composition', 'state_code': '27'}).status_code, 422)
             company = client.post('/api/companies', headers=headers, json={
-                'name': 'Composition test', 'tax_mode': 'composition', 'state_code': '27', 'gstin': '27ABCDE1234F1Z5'})
+                'name': 'Composition test', 'tax_mode': 'composition', 'state_code': '27', 'gstin': '27ABCDE1234F1Z0'})
             self.assertEqual(company.status_code, 200, company.text)
             base = '/api/companies/' + company.json()['id']
             invalid_update = client.patch(base, headers=headers, json={'name': 'Composition test', 'gstin': '', 'state_code': '', 'address': ''})
             self.assertEqual(invalid_update.status_code, 422, invalid_update.text)
-            self.assertEqual(client.get('/api/companies', headers=headers).json()[0]['gstin'], '27ABCDE1234F1Z5')
+            self.assertEqual(client.get('/api/companies', headers=headers).json()[0]['gstin'], '27ABCDE1234F1Z0')
             sale = {'kind': 'sales_invoice', 'name': 'Customer', 'date': '2026-10-30', 'data': {
                 'place_of_supply': '27', 'lines': [{'description': 'Goods', 'quantity': 1, 'rate': 100, 'gst_rate': 0}]}}
             bad_tax = {**sale, 'data': {**sale['data'], 'lines': [{**sale['data']['lines'][0], 'gst_rate': 5}]}}
@@ -1205,7 +1205,7 @@ class ApiTest(unittest.TestCase):
                 token = client.post('/api/auth/login', json=credentials).json()['token']
                 return {'Authorization': 'Bearer ' + token}
             first, second = account('first@example.com'), account('second@example.com')
-            company = client.post('/api/companies', headers=first, json={'name': 'Test', 'state_code': '27', 'gstin':'27AAAAA0000A1Z5'}).json()
+            company = client.post('/api/companies', headers=first, json={'name': 'Test', 'state_code': '27', 'gstin':'27AAAAA0000A1Z2'}).json()
             base = '/api/companies/' + company['id']
             self.assertEqual(client.get(base + '/records', headers=second).status_code, 404)
             payload = {'kind': 'sales_invoice', 'name': 'Customer', 'number': 'INV-1', 'date': '2026-10-30', 'data': {'place_of_supply': '27', 'lines': [{'description': 'Service', 'quantity': 2, 'rate': 100, 'gst_rate': 18}]}}
@@ -1231,7 +1231,7 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(sale.json()['data']['igst'], '0.00')
             payload['number'] = 'NG-2'; payload['data']['lines'][0]['gst_rate'] = 18
             self.assertEqual(client.post(non_gst_base + '/records', headers=first, json=payload).status_code, 422)
-            self.assertEqual(client.post('/api/companies', headers=first, json={'name': 'Invalid', 'tax_mode': 'unregistered', 'gstin': '27ABCDE1234F1Z5'}).status_code, 422)
+            self.assertEqual(client.post('/api/companies', headers=first, json={'name': 'Invalid', 'tax_mode': 'unregistered', 'gstin': '27ABCDE1234F1Z0'}).status_code, 422)
             buyer = client.post('/api/companies', headers=first, json={'name': 'Buyer', 'tax_mode': 'unregistered', 'state_code': '27'}).json()
             payload['kind'] = 'purchase_bill'; payload['number'] = 'PUR-1'; payload['data']['place_of_supply'] = '27'
             purchase = client.post('/api/companies/' + buyer['id'] + '/records', headers=first, json=payload)

@@ -387,7 +387,7 @@ function CompanyModal({ close, save, features = [] }) {
             className="form-select"
             value={form.tax_mode}
             onChange={(e) =>
-              setForm({ ...form, tax_mode: e.target.value, gstin: "" })
+              { setForm({ ...form, tax_mode: e.target.value, gstin: "" }); setStateMismatch(false); setError(""); }
             }
           >
             <option value="unregistered">Not GST registered</option>
