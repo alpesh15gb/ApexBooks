@@ -89,7 +89,7 @@ import org.json.JSONObject
                         if (editor.document && step > 0) OutlinedButton(enabled = idle, onClick = { step-- }, modifier = Modifier.weight(1f)) { Text("Back") }
                         if (editor.document && step < 2) Button(enabled = idle, onClick = { next() }, modifier = Modifier.weight(1f)) { Text(if (step == 0) "Next: add items" else "Review document"); Icon(Icons.Outlined.ChevronRight, null) }
                         else {
-                            if (!editor.document && editor.canSaveAndNew) OutlinedButton(onClick = { editor.save(true) }, enabled = idle && vm.busy == 0, modifier = Modifier.weight(1f)) { Text("Save & new") }
+                            if (editor.document && step == 2 && editor.canSaveAndNew) OutlinedButton(onClick = { editor.save(true) }, enabled = editor.canEdit && vm.busy == 0 && previewReady && editor.preview != null && editor.previewError.isBlank(), modifier = Modifier.weight(1f)) { Text("Save & new") }
                             Button(onClick = { editor.save() }, enabled = idle && vm.busy == 0 && (editor.retryPending || !editor.document || editor.preview != null), modifier = Modifier.weight(1f)) {
                                 if (editor.saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                                 else Text(if(editor.retryPending) "Retry original save" else if (editor.sourceLoading) "Loading source…" else if (editor.previous != null) "Save changes" else "Save ${when (editor.kind) { "sales_invoice" -> "invoice"; "purchase_bill" -> "bill"; "payment_in" -> "receipt"; "payment_out" -> "payment"; else -> "record" }}")
@@ -188,7 +188,6 @@ import org.json.JSONObject
                             if (editor.get("pay_account") == "bank") Choice("Bank", editor.get("pay_bank").ifBlank { "default" }, vm.banks.map { it.s("id") to it.s("name") }, { change("pay_bank", it) })
                         }
                     }
-                    if (editor.document && step == 2 && editor.canSaveAndNew) TextButton(enabled = editor.canEdit && vm.busy == 0 && editor.preview != null, onClick = { editor.save(true) }, modifier = Modifier.fillMaxWidth()) { Text("Save & create another") }
                     if (editor.payment) PaymentFields(editor)
                     if ((!editor.document || step == 2) && editor.kind in setOf("payment_in", "payment_out", "expense", "pos")) Section("Payment account") {
                         Choice("Paid through", editor.get("payment_account"), listOf("cash" to "Cash", "bank" to "Bank / UPI / card"), { change("payment_account", it) })
@@ -201,6 +200,7 @@ import org.json.JSONObject
         }
     }
     }
+    if (editor.requestedSource != null) AlertDialog(onDismissRequest = { editor.cancelSourceChange() }, title = { Text("Replace return source?") }, text = { Text("Changing the source replaces the party and item lines after the new source loads successfully. Your current draft stays unchanged if loading fails.") }, confirmButton = { TextButton(onClick = { editor.confirmSourceChange() }) { Text("Load selected source") } }, dismissButton = { TextButton(onClick = { editor.cancelSourceChange() }) { Text("Keep editing") } })
     if (discard && !editor.retryPending) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard unsaved changes?") }, text = { Text("This draft has not been saved.") }, confirmButton = { TextButton(onClick = { discard = false; vm.error = ""; vm.notice = ""; vm.editor = null }) { Text("Discard draft") } }, dismissButton = { TextButton(onClick = { discard = false }) { Text("Keep editing") } })
 }
 
@@ -246,6 +246,7 @@ val supplyChoices=listOf("taxable" to "Taxable","nil_rated" to "Nil rated","exem
             if(editor.canQuickAdd&&line.get("description").isNotBlank())TextButton(enabled=editor.canEdit,onClick={editor.quickAddItem(line)}){Icon(Icons.Outlined.AddBox,null,Modifier.size(18.dp));Text(if(editor.quickAdding==line.uiKey)" Saving…" else " Save as item")}
         }
         else Text(if(line.importedFromOcr)"Product linked · scanned rate and GST kept" else "Product selected · ${line.get("unit")}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        if(editor.previous==null&&editor.kind in setOf("credit_note","debit_note")) Text(if(line.returnCapacity.isNotBlank())"Additional return quantity at load: ${line.returnCapacity}. Server limits still apply." else line.returnCapacityReason.ifBlank{"Remaining quantity needs review."},style=MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
             Field("Quantity",line.get("quantity"),{line.set("quantity",it)},Modifier.weight(1f),number=true)
             Field("Rate (₹)",line.get("rate"),{line.set("rate",it)},Modifier.weight(1f),number=true)

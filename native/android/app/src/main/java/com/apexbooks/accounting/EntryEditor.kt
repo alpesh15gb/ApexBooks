@@ -13,11 +13,13 @@ class LineState(initial:JSONObject=JSONObject(),regular:Boolean=false,val import
     val values=mutableStateMapOf<String,String>()
     var discountMode by mutableStateOf(if(initial.has("discount_amount")&&!initial.isNull("discount_amount"))"amount" else "percent");private set
     var discountRevision by mutableIntStateOf(0);private set
+    var returnCapacity by mutableStateOf(initial.s("remaining_return_quantity"));private set
+    var returnCapacityReason by mutableStateOf(initial.s("return_capacity_reason"));private set
     init { for(key in listOf("source_line_id","source_document_id","source_line_number","description","item_id","quantity","rate","hsn","unit","mrp","discount_percent","discount_amount","gst_rate","tax_treatment","itc_treatment"))values[key]=initial.s(key)
         if(get("quantity").isBlank())values["quantity"]="1";if(get("rate").isBlank())values["rate"]="0";if(get("gst_rate").isBlank())values["gst_rate"]=if(regular)"18" else "0";if(get("tax_treatment").isBlank())values["tax_treatment"]="taxable";if(get("itc_treatment").isBlank())values["itc_treatment"]="pending_review";values["price_includes_tax"]=initial.optBoolean("price_includes_tax").toString() }
     fun get(key:String)=values[key]?:""
     fun set(key:String,value:String){if(key in setOf("quantity","discount_amount","discount_percent")&&get(key)!=value)discountRevision++;values[key]=value}
-    fun selectSource(source:JSONObject){val selected=LineState(source);values.clear();values.putAll(selected.values);discountMode=selected.discountMode;discountRevision++}
+    fun selectSource(source:JSONObject){val selected=LineState(source);values.clear();values.putAll(selected.values);discountMode=selected.discountMode;returnCapacity=source.s("remaining_return_quantity");returnCapacityReason=source.s("return_capacity_reason");set("quantity",additionalReturnQuantity(source.s("return_capacity_scope"),returnCapacity));discountRevision++}
     fun chooseDiscountMode(mode:String){require(mode in setOf("percent","amount"));if(mode!=discountMode){discountMode=mode;values["discount_percent"]="";values["discount_amount"]="";discountRevision++}}
     fun linkProduct(item:JSONObject,purchase:Boolean,regular:Boolean){
         val data=item.o("data");set("item_id",item.s("id"));set("description",item.s("name"))
@@ -54,6 +56,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     val fixedReturnReviewNeeded get()=hasFixedLinkedReturn&&reviewedReturnSignature!=returnSignature
     fun acknowledgeReturnDiscount(checked:Boolean){reviewedReturnSignature=if(checked)returnSignature else ""}
     private var sourceSequence=0
+    var requestedSource by mutableStateOf<String?>(null);private set
     var retryKey=vm.key();private set
     private var initialSignature=""
     private var initialMasterFields:Map<String,String> = emptyMap()
@@ -135,12 +138,42 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         row.amount=available.min(remaining).toPlainString()
     }
     val returnSourceLines=mutableStateListOf<JSONObject>()
-    fun setReturnSourceLines(source:JSONObject){returnSourceLines.clear();returnSourceLines.addAll(source.o("data").a("lines").objects())}
+    fun setReturnSourceLines(source:JSONObject){returnSourceLines.clear();returnSourceLines.addAll(source.a("return_capacity_lines").objects().ifEmpty{source.o("data").a("lines").objects()})}
     fun chooseReturnLine(line:LineState,id:String){
         val source=returnSourceLines.find{it.s("source_line_id")==id}?:return
         if(lines.contains(line))line.selectSource(source)
     }
-    fun chooseSource(id:String){returnSourceLines.clear();lines.clear();set("name","");set("applied_to",id);if(id.isBlank()){sourceSequence++;sourceLoading=false;return};sourceLoading=true;val request=++sourceSequence;vm.task{try{val row=vm.api.record(companyId,id);if(vm.editor!==this||sourceSequence!=request)return@task;setReturnSourceLines(row);set("name",row.s("name"));val data=row.o("data");for(key in listOf("party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","supplier_state"))set(key,data.s(key));if(purchase)set("supplier_state",supplierOrigin(data));set("document_discount_percent",data.s("document_discount_percent").ifBlank{"0"});lines.clear();data.a("lines").objects().forEach{lines.add(LineState(it,regular))}}finally{if(request==sourceSequence)sourceLoading=false}}}
+    fun chooseSource(id:String){
+        if(!canEdit||id==get("applied_to"))return
+        if(changed()){requestedSource=id;return}
+        loadSource(id)
+    }
+    fun cancelSourceChange(){requestedSource=null}
+    fun confirmSourceChange(){val id=requestedSource?:return;requestedSource=null;if(canEdit)loadSource(id)}
+    private fun loadSource(id:String){
+        val request=++sourceSequence
+        if(id.isBlank()){set("applied_to","");returnSourceLines.clear();return}
+        val originalDraft=body().toString()
+        sourceLoading=true
+        vm.task{
+            try{
+                val row=vm.api.record(companyId,id)
+                if(vm.editor!==this||sourceSequence!=request||!vm.inWorkspace(companyId,workspaceStamp))return@task
+                if(body().toString()!=originalDraft){vm.notice="Draft changed while source loaded. Review it and choose the source again.";return@task}
+                val data=row.o("data")
+                val stagedLines=row.a("return_capacity_lines").objects().ifEmpty{data.a("lines").objects()}.filter{additionalReturnQuantity(it.s("return_capacity_scope"),it.s("remaining_return_quantity")).toBigDecimalOrNull()?.signum()!=0}.map{row->LineState(row,regular).also{it.set("quantity",additionalReturnQuantity(row.s("return_capacity_scope"),row.s("remaining_return_quantity")))}}
+                val stagedFields=mutableMapOf("applied_to" to id,"name" to row.s("name"),"document_discount_percent" to data.s("document_discount_percent").ifBlank{"0"})
+                for(key in listOf("party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","supplier_state"))stagedFields[key]=data.s(key)
+                if(purchase)stagedFields["supplier_state"]=supplierOrigin(data)
+                setReturnSourceLines(row)
+                stagedFields.forEach{(key,value)->set(key,value)}
+                lines.clear();lines.addAll(stagedLines);preview=null;previewError=""
+            }catch(e:Exception){
+                if(e is kotlinx.coroutines.CancellationException)throw e
+                if(vm.editor===this&&sourceSequence==request&&vm.inWorkspace(companyId,workspaceStamp))throw e
+            }finally{if(request==sourceSequence)sourceLoading=false}
+        }
+    }
     fun body():JSONObject {
         val values=JSONObject()
         if(master){values.put("is_active",flag("is_active"));if(kind=="party")values.put("credit_limit",get("credit_limit").ifBlank{null}?:JSONObject.NULL);for(key in if(kind=="party")listOf("gstin","address","shipping_address","phone","email","party_type")else listOf("hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))values.put(key,get(key));if(kind=="item"){values.put("track_stock",flag("track_stock"));values.put("low_stock_threshold",get("low_stock_threshold").ifBlank{null}?:JSONObject.NULL)}else values.put("payment_terms_days",if(get("payment_terms_days").isBlank())JSONObject.NULL else get("payment_terms_days").toIntOrNull()?:get("payment_terms_days"))}

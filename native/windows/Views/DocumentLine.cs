@@ -32,7 +32,7 @@ public sealed class DocumentLine
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(selector,"DocumentLineItemSelector");
         var current = items.FirstOrDefault(r => r.Text("id") == itemId); selector.Text = current is null?data.Text("description"):current.Text("name");
         Description = Input("Item / service description", data.Text("description"));Description.IsReadOnly=itemId.Length>0;
-        Quantity = Input("Quantity", data.Text("quantity") is { Length: > 0 } q ? q : "1");
+        Quantity = Input("Quantity", data.Flag("_return_draft") ? data.Text("quantity") : data.Text("quantity") is { Length: > 0 } q ? q : "1");
         Rate = Input("Rate (₹)", data.Text("rate")); hsn = Input("HSN / SAC", data.Text("hsn")); unit = Input("Unit", data.Text("unit"));
         mrp = Input("MRP · reference only", data.Text("mrp"));discountState=new(data);discount=Input(discountState.Mode=="amount"?"Discount (₹)":"Discount (%)",discountState.Value);discountMode=Select("Discount type",[("percent","% of line"),("amount","₹ fixed per line")],discountState.Mode);var discountControls=Stack(6);discountControls.Children.Add(discountMode);discountControls.Children.Add(discount);ToolTipService.SetToolTip(discountControls,"Choose percentage or a fixed rupee amount for the whole line. Changing quantity does not prorate a fixed discount; review it explicitly.");
         gst = Input("GST rate (%)", data.Text("gst_rate") is { Length: > 0 } g ? g : regular ? "18" : "0");
@@ -66,6 +66,7 @@ public sealed class DocumentLine
         }
         ArrangeFields(1000);cells.SizeChanged+=(_,args)=>ArrangeFields(args.NewSize.Width);
         panel.Children.Add(cells);panel.Children.Add(link);
+        if(data.Flag("_return_draft"))panel.Children.Add(Text(data.Text("remaining_return_quantity").Length>0?$"Additional return quantity at load: {data.Text("remaining_return_quantity")}. Server limits still apply.":"Remaining quantity needs review.",12));
         var details = Stack(12); details.Children.Add(Columns(hsn, mrp)); details.Children.Add(inclusive);
         if (regular || purchase) { details.Children.Add(treatment); if (regular && purchase) details.Children.Add(credit); }
         panel.Children.Add(new Expander { Header = "Tax, HSN and discount", Content = details, HorizontalContentAlignment = HorizontalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Stretch });
@@ -96,7 +97,7 @@ public sealed class DocumentLine
                 if(sourceChoice.Items[0] is ComboBoxItem placeholder && placeholder.Tag?.ToString()=="")sourceChoice.Items.Remove(placeholder);
                 sourceLineId=selected.Text("source_line_id");sourceDocumentId=selected.Text("source_document_id");sourceLineNumber=selected.Text("source_line_number");
                 itemId=selected.Text("item_id");selector.Text=Description.Text=selected.Text("description");Description.IsReadOnly=itemId.Length>0;
-                Quantity.Text=selected.Text("quantity");Rate.Text=selected.Text("rate");hsn.Text=selected.Text("hsn");unit.Text=selected.Text("unit");
+                Quantity.Text=SourceLineChoices.AdditionalQuantity(selected);Rate.Text=selected.Text("rate");hsn.Text=selected.Text("hsn");unit.Text=selected.Text("unit");
                 var mode=selected.ContainsKey("discount_amount")?"amount":"percent";SelectValue(discountMode,mode);discount.Text=selected.Text(mode=="amount"?"discount_amount":"discount_percent");
                 SelectValue(treatment,selected.Text("tax_treatment"));SelectValue(credit,selected.Text("itc_treatment"));gst.Text=selected.Text("gst_rate");inclusive.IsChecked=selected.Flag("price_includes_tax");
                 LockSourceTax();Changed?.Invoke();

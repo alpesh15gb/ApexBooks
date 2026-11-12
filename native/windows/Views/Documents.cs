@@ -177,7 +177,7 @@ public sealed partial class MainPage
             target.SelectionChanged += async (_, _) =>
             {
                 var id = Value(target); appliedTo = id; party.Text="";lines.Clear();linesPanel.Children.Clear();if(kind=="debit_note")returnOptions=new(); if (id.Length == 0) return; target.IsEnabled = false;sourceLoading=true;
-                try { var original = await Api.Record(cid, id); if (stamp!=generation || cid!=CompanyId || appliedTo != id) return; party.Text = original.Text("name"); var values = original["data"]; partyId = values.Text("party_id"); address.Text = values.Text("party_address"); gstin.Text = values.Text("party_gstin"); phone.Text = values.Text("party_phone"); supply.Text = values.Text("place_of_supply"); supplierState.Text = values.Text("supplier_state") is { Length: > 0 } state ? state : values.Text("party_gstin").Length >= 2 ? values.Text("party_gstin")[..2] : Company.Text("state_code"); if(kind=="debit_note")returnOptions=values?["lines"].Array()??new(); discount.Text=values.Text("document_discount_percent") is {Length:>0} sourceDiscount?sourceDiscount:"0"; ReplaceLines(values?["lines"].Array() ?? new()); }
+                try { var original = await Api.Record(cid, id); if (stamp!=generation || cid!=CompanyId || appliedTo != id) return; party.Text = original.Text("name"); var values = original["data"]; partyId = values.Text("party_id"); address.Text = values.Text("party_address"); gstin.Text = values.Text("party_gstin"); phone.Text = values.Text("party_phone"); supply.Text = values.Text("place_of_supply"); supplierState.Text = values.Text("supplier_state") is { Length: > 0 } state ? state : values.Text("party_gstin").Length >= 2 ? values.Text("party_gstin")[..2] : Company.Text("state_code"); if(kind=="debit_note")returnOptions=values?["lines"].Array()??new(); discount.Text=values.Text("document_discount_percent") is {Length:>0} sourceDiscount?sourceDiscount:"0"; ReplaceLines(SourceLineChoices.DraftLines(original["return_capacity_lines"] is JsonArray selectedCapacity ? selectedCapacity : values?["lines"].Array() ?? new())); }
                 catch (Exception e) { LocalError(e); } finally { target.IsEnabled = true;sourceLoading=false; }
             };
             panel.Children.Add(target);
@@ -200,7 +200,7 @@ public sealed partial class MainPage
             }, LocalError); panel.Children.Add(ocr);
         }
         panel.Children.Add(SectionHeading("02","Items & services","Select an item or enter a description. Tax and totals are calculated automatically."));
-        panel.Children.Add(linesPanel); ReplaceLines(data["lines"].Array()); panel.Children.Add(Button("+ Add item", () => AddLine()));
+        panel.Children.Add(linesPanel); ReplaceLines(returnSource is not null && previous is null ? SourceLineChoices.DraftLines(returnSource["return_capacity_lines"] is JsonArray initialCapacity ? initialCapacity : data["lines"].Array()) : data["lines"].Array()); panel.Children.Add(Button("+ Add item", () => AddLine()));
         panel.Children.Add(SectionHeading("03","Adjustments & notes","Review the final amounts before saving."));
         if(kind is "credit_note" or "debit_note"){
             fixedReviewBox=new CheckBox{Content="I reviewed the fixed ₹ line discounts against the quantities being returned"};panel.Children.Add(Text("Fixed ₹ discounts are copied unchanged from the source. They are not automatically prorated when return quantities change; review each affected line.",12));panel.Children.Add(fixedReviewBox);

@@ -1,3 +1,4 @@
+import { remainingReturnDraftLines } from './returnDefaults.js';
 import { lineDiscountMode } from "./lineDiscount.js";
 import React, { useEffect, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
@@ -255,6 +256,7 @@ export function DocumentIdentity({
 }
 
 export function DocumentItems({
+  showReturnCapacity = false,
   returnSourceLines = null,
   onPriceHistory,
   onQuickAddItem,
@@ -318,7 +320,7 @@ export function DocumentItems({
             {returnSourceLines && <label className="full">Source purchase line
               <select aria-label={`Item ${index + 1} source purchase line`} value={line.source_line_id || ""} onChange={event => {
                 const selected = returnSourceLines.find(row => row.source_line_id === event.target.value);
-                if (selected) setLines(lines.map((row, i) => i === index ? { ...emptyLine(), ...selected } : row));
+                if (selected) setLines(lines.map((row, i) => i === index ? { ...emptyLine(), ...(remainingReturnDraftLines([selected])[0] || {...selected,quantity:""}) } : row));
               }}>
                 {!line.source_line_id && <option value="">Choose a source line or match by item/description</option>}
                 {line.source_line_id && !returnSourceLines.some(row => row.source_line_id === line.source_line_id) && <option value={line.source_line_id}>Saved source line {line.source_line_number || ""}</option>}
@@ -365,6 +367,7 @@ export function DocumentItems({
                 value={line.quantity}
                 onChange={(e) => changeLine(index, e)}
               />
+              {showReturnCapacity && line.return_capacity_scope === 'additional_returns' && <small>{line.remaining_return_quantity == null ? line.return_capacity_reason || 'Remaining quantity needs review' : `${line.remaining_return_quantity} additional return quantity (snapshot)`}</small>}
               <input
                 className="line-unit"
                 name="unit"

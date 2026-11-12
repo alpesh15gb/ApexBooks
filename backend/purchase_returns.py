@@ -237,19 +237,20 @@ def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
 def remaining_source_lines(m, source, session):
     """A single-query snapshot of capacity for additional returns, never a reservation."""
     from sqlalchemy import or_, and_
+    note_kind = 'debit_note' if source.kind == 'purchase_bill' else 'credit_note'
     posted = select(m.RecordPosting.record_id).where(m.RecordPosting.company_id == source.company_id)
     rows = list(session.execute(select(m.Record, m.Record.id.in_(posted)).where(
         m.Record.company_id == source.company_id,
-        or_(m.Record.id == source.id, and_(m.Record.kind == 'debit_note',
+        or_(m.Record.id == source.id, and_(m.Record.kind == note_kind,
             m.Record.id.in_(posted), m.Record.data['applied_to'].as_string() == source.id)))
         .execution_options(populate_existing=True)))
     current = next(((row, active) for row, active in rows if row.id == source.id), None)
-    if not current: raise HTTPException(404, 'Source bill no longer exists')
+    if not current: raise HTTPException(404, 'Source document no longer exists')
     source, active = current
-    lines = source_lines(source)
+    lines = source_lines(source) if source.kind == 'purchase_bill' else source.data.get('lines', [])
     used = defaultdict(lambda: Decimal(0)); unknown = {}
     if not active or source.data.get('cancelled'):
-        unknown = {i: 'Source bill is not posted' for i in range(len(lines))}
+        unknown = {i: 'Source document is not posted' for i in range(len(lines))}
     for note, unused in rows:
         if note.id == source.id: continue
         for line in note.data.get('lines', []):

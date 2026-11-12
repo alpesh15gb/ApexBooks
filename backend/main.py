@@ -1302,11 +1302,13 @@ def get_record(company_id:str,record_id:str,user:User=Depends(current_user),sess
     credit_used = sum((r.amount for r in settlements if r.data.get('credit_note_id')==row.id), Decimal('0'))
     converted_to = session.scalar(select(DocumentConversion.target_record_id).where(DocumentConversion.company_id==company_id, DocumentConversion.source_record_id==row.id))
     capacity = None
-    if row.kind == 'purchase_bill':
+    if row.kind in {'purchase_bill','sales_invoice','pos'}:
         from purchase_returns import remaining_source_lines
         capacity = remaining_source_lines(sys.modules[__name__], row, session)
     serialized = obj(row)
-    if capacity is not None: serialized['data'] = {**serialized['data'], 'lines': capacity}
+    if capacity is not None:
+        serialized['return_capacity_lines'] = capacity
+        if row.kind == 'purchase_bill': serialized['data'] = {**serialized['data'], 'lines': capacity}
     from record_trail import document_trail
     trail = document_trail(sys.modules[__name__], session, company_id, row)
     return {**serialized, **record_status(row, posted, applied=applied_total(company_id,row.id,session),
@@ -2313,13 +2315,17 @@ def cash_book(company_id: str, from_date: DateType, to_date: DateType, bank_acco
             .where(Journal.company_id == company_id, Journal.date <= to_date, JournalLine.account_id.in_(ids))
             .order_by(Journal.date, Journal.id, JournalLine.id))
         origin_cache = {}
+        reversal_pairs=list(session.execute(select(JournalReversal.original_id,JournalReversal.reversal_id).where(JournalReversal.company_id==company_id)))
+        reversed_originals={pair[0] for pair in reversal_pairs};reversal_ids={pair[1] for pair in reversal_pairs}
         for journal, line, record in session.execute(query):
             cancelled_from = None
             if record is None and journal.reference.startswith(('AUTO:', 'CANCEL:')):
                 # A cancelled document keeps its journals but no longer has a posting; show its number, not a raw id.
                 origin_id = journal.reference.split(':', 1)[1]
                 if origin_id not in origin_cache: origin_cache[origin_id] = session.scalar(select(Record).where(Record.company_id == company_id, Record.id == origin_id))
-                cancelled_from = origin_cache[origin_id]
+                candidate = origin_cache[origin_id]
+                is_reversal=journal.reference.startswith('CANCEL:')
+                if candidate and candidate.data.get('cancelled') and journal.id in (reversal_ids if is_reversal else reversed_originals):cancelled_from=candidate
             if journal.id not in grouped and cancelled_from is not None:
                 label = 'Cancelled · ' if journal.reference.startswith('CANCEL:') else 'Cancelled document · '
                 grouped[journal.id] = {'id': journal.id, 'date': journal.date, 'reference': cancelled_from.number or journal.reference,
@@ -2329,22 +2335,28 @@ def cash_book(company_id: str, from_date: DateType, to_date: DateType, bank_acco
                     'reference': record.number if record and record.number else journal.reference,
                     'description': record.name if record else journal.memo,
                     'kind': record.kind if record else 'journal', 'cash': Decimal('0'), 'bank': Decimal('0')}
+            origin=record or cancelled_from
+            grouped[journal.id]['_record_id']=origin.id if origin else None
+            grouped[journal.id]['_created_at']=origin.data.get('created_at') if origin else None
+            grouped[journal.id]['_reversal']=cancelled_from is not None and journal.reference.startswith('CANCEL:')
             side = 'cash' if line.account_id == cash_id else 'bank'
             grouped[journal.id][side] += line.debit - line.credit
+    from cash_book_order import order_rows, ORDERING_NOTE
+    ordered = order_rows(sys.modules[__name__],session,company_id,grouped)
     opening = {'cash': Decimal('0'), 'bank': Decimal('0')}
-    for row in grouped.values():
+    for row in ordered:
         if row['date'] < from_date:
             for side in opening: opening[side] += row[side]
     balances = dict(opening)
     rows = []
-    for row in grouped.values():
+    for row in ordered:
         if row['date'] < from_date or (row['cash'] == 0 and row['bank'] == 0): continue
         for side in balances: balances[side] += row[side]
         rows.append({'id': row['id'], 'date': row['date'].isoformat(), 'reference': row['reference'],
             'description': row['description'], 'kind': row['kind'], 'cash': str(row['cash']), 'bank': str(row['bank']),
-            'cash_balance': str(balances['cash']), 'bank_balance': str(balances['bank'])})
+            'cash_balance': str(balances['cash']), 'bank_balance': str(balances['bank']), 'posting_timestamp':row['posting_timestamp']})
     return {'from_date': from_date.isoformat(), 'to_date': to_date.isoformat(),
-            'bank_account_id': bank_account_id, 'bank_name': bank.name if bank else 'Bank clearing',
+            'ordering_note':ORDERING_NOTE, 'bank_account_id': bank_account_id, 'bank_name': bank.name if bank else 'Bank clearing',
             'opening': {key: str(value) for key, value in opening.items()},
             'closing': {key: str(value) for key, value in balances.items()}, 'rows': rows}
 
@@ -2356,6 +2368,7 @@ def export_cash_book(company_id: str, fmt: str, from_date: DateType, to_date: Da
     rows = [['', '', 'Opening balance', '', '', '', data['opening']['cash'], data['opening']['bank']]]
     rows += [[row[key] for key in ('date', 'reference', 'description', 'kind', 'cash', 'bank', 'cash_balance', 'bank_balance')] for row in data['rows']]
     rows.append(['', '', 'Closing balance', '', '', '', data['closing']['cash'], data['closing']['bank']])
+    rows.append(['', '', data['ordering_note'], '', '', '', '', ''])
     return export_table(company.name, f"Cash and {data['bank_name']} book {from_date} to {to_date}",
         ['Date', 'Reference', 'Description', 'Type', 'Cash movement', 'Bank movement', 'Cash balance', 'Bank balance'], rows, fmt, 'cash-bank-book')
 

@@ -75,6 +75,7 @@ import org.json.JSONObject
             val snapshot=applied?:return@OutlinedButton
             vm.task { vm.files.save(vm.api.bytes(vm.api.company(cid,"/cash-book.$fmt"+query(snapshot))),"cash-book.$fmt") }
         }) { Text("Export ${fmt.uppercase()}") }
+        (report as? JSONObject)?.s("ordering_note")?.takeIf{it.isNotBlank()}?.let{Text(it)}
         ReportContent(report)
     }
 }

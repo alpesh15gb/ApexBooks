@@ -27,7 +27,7 @@ test('conversion keeps fixed/inclusive/document discount inputs unchanged withou
  await submit();assert.equal(view.saved.data.document_discount_percent,'10');assert.equal(view.saved.data.lines[0].discount_amount,'10');assert.equal(view.saved.data.lines[0].price_includes_tax,true);assert.equal(view.saved.data.source_document_id,'quote1');await act(async()=>view.root.unmount());
 });
 test('manual source selection and contextual return copy identical fixed plus document discount inputs',async()=>{
- const source={id:'invoice-discount',kind:'sales_invoice',posted:true,name:'Buyer',number:'INV1',data:{document_discount_percent:'10',place_of_supply:'27',lines:[line]}};
+ const source={id:'invoice-discount',kind:'sales_invoice',posted:true,name:'Buyer',number:'INV1',data:{document_discount_percent:'10',place_of_supply:'27',lines:[{...line,return_capacity_scope:'additional_returns',remaining_return_quantity:'1'}]}};
  const outputs=[];
  for(const contextual of [false,true]){
   const view=await mount({kind:'credit_note',edit:false,source:undefined,relatedSource:contextual?source:undefined,records:[source],labels:{credit_note:'Credit notes'},api:async path=>path.endsWith('bank-accounts')?[]:path.endsWith('/records/invoice-discount')?source:{amount:'81',data:{lines:[]}}});
@@ -130,4 +130,14 @@ test('source banner names the edited or converted target document',async()=>{
  const view=await mount({kind:'sales_invoice',labels,edit:false,source:{id:'quote',kind:'estimate',number:'EST-9',name:'Buyer',date:'2026-11-02',data:{lines:[line]}}});
  const banner=[...document.querySelectorAll('.info-box')].find(node=>node.textContent.includes('Converting EST-9'));
  assert.ok(banner.textContent.includes('Review the sales invoice before saving.'));await act(async()=>view.root.unmount());
+});
+
+test('repeat linked return submits only remaining quantity and retains visible allowance',async()=>{
+ for(const separate of [false,true]){
+  const capacity=[{...line,discount_amount:undefined,quantity:'2',remaining_return_quantity:'1',return_capacity_scope:'additional_returns'},{...line,description:'Fully returned',remaining_return_quantity:'0',return_capacity_scope:'additional_returns'}];
+  const relatedSource={id:'original',name:'Buyer',data:{lines:separate?[{...line,quantity:'2'}]:capacity},...(separate?{return_capacity_lines:capacity}:{})};
+  const view=await mount({kind:'credit_note',edit:false,source:undefined,relatedSource,labels:{credit_note:'Credit notes'}});
+  assert.equal(document.querySelector('[name=quantity]').value,'1');assert.equal(document.querySelectorAll('[name=quantity]').length,1);assert.match(document.body.textContent,/1 units remaining/);
+  await submit();assert.equal(view.saved.data.lines.length,1);assert.equal(view.saved.data.lines[0].quantity,'1');await act(async()=>view.root.unmount());
+ }
 });

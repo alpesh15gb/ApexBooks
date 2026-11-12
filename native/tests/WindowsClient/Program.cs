@@ -6,6 +6,10 @@ using System.Text.Json.Nodes;
 
 CsvRegression.Run();
 
+var returnRows=new JsonArray(new JsonObject{["quantity"]="2",["rate"]="100",["discount_amount"]="7",["return_capacity_scope"]="additional_returns",["remaining_return_quantity"]="1"},new JsonObject{["quantity"]="2",["return_capacity_scope"]="additional_returns",["remaining_return_quantity"]="0"},new JsonObject{["quantity"]="2"});
+var returnDraft=SourceLineChoices.DraftLines(returnRows);
+if(returnDraft.Count!=2||returnDraft[0].Text("quantity")!="1"||returnDraft[0].Text("discount_amount")!="7"||returnDraft[1].Text("quantity")!=""||returnRows[0].Text("quantity")!="2")throw new Exception("Return drafts must use remaining quantities, omit exhausted lines and preserve source prices/discounts");
+
 var sourceChoiceRows=new[]{new JsonObject{["source_line_id"]="0:first",["remaining_return_quantity"]="0",["source_line_number"]=1,["description"]="Same service",["quantity"]="2",["itc_treatment"]="ineligible"},new JsonObject{["source_line_id"]="1:second",["source_line_number"]=2,["description"]="Same service",["quantity"]="2",["itc_treatment"]="pending_review"}};
 var unselectedSourceChoices=SourceLineChoices.Build(sourceChoiceRows,"","");
 if(unselectedSourceChoices.Count!=3||unselectedSourceChoices[0].Key!="")throw new Exception("New legacy row must expose matching placeholder");

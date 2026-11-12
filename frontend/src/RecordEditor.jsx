@@ -1,3 +1,4 @@
+import { remainingReturnDraftLines } from './returnDefaults.js';
 import { changeLineDiscount, serializeLineDiscount, lineDiscountMode } from "./lineDiscount.js";
 import { supportsFeature } from "./capabilities.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
@@ -47,6 +48,8 @@ export default function RecordEditor({
     ].includes(kind),
     showTax = company.tax_mode === "regular" || purchase;
   const initial = source || relatedSource || draftSeed;
+  const linkedReturn = !edit && relatedSource && ["credit_note", "debit_note"].includes(kind);
+  const initialLines = linkedReturn ? remainingReturnDraftLines(initial?.return_capacity_lines || initial?.data?.lines || []) : initial?.data?.lines;
   const [priceLine, setPriceLine] = useState(null), [termsSuggestion, setTermsSuggestion] = useState(null), [termsError, setTermsError] = useState("");
   const lastShippingDefault = useRef("");
   const retainedParties = edit || relatedSource ? [initial?.data?.party_id].filter(Boolean) : [];
@@ -163,7 +166,7 @@ export default function RecordEditor({
       party_gstin: initial?.data?.party_gstin || "",
     }),
     [lines, setLines] = useState(
-      initial?.data?.lines?.map((line) => ({
+      initialLines?.map((line) => ({
         ...line,
         source_line_id: kind === "debit_note" ? line.source_line_id : undefined,
         source_document_id: kind === "debit_note" ? line.source_document_id : undefined,
@@ -171,7 +174,7 @@ export default function RecordEditor({
         description: line.description || "",
         item_id: line.item_id || "",
         hsn: line.hsn || "",
-        quantity: String(line.quantity || "1"),
+        quantity: linkedReturn ? String(line.quantity ?? "") : String(line.quantity || "1"),
         rate: String(line.rate || ""),
         discount_percent: String(line.discount_percent || "0"),
         gst_rate: String(line.gst_rate || "0"),
@@ -440,9 +443,8 @@ export default function RecordEditor({
   async function selectSource(id) {
     const request = ++sourceRequest.current;
     setError("");
-    setForm((current) => ({ ...current, applied_to: id, name: "" }));
-    setLines([emptyLine()]);
     if (!id) {
+      setForm((current) => ({ ...current, applied_to: "" }));
       setLoadingSource(false);
       return;
     }
@@ -467,7 +469,7 @@ export default function RecordEditor({
         party_gstin: target.data?.party_gstin || "",
       }));
       setLines(
-        (target.data?.lines || []).map((line) => ({
+        remainingReturnDraftLines(target.return_capacity_lines || target.data?.lines || []).map((line) => ({
           ...emptyLine(),
           ...line,
           quantity: String(line.quantity),
@@ -873,10 +875,12 @@ export default function RecordEditor({
                     <option key={r.id} value={r.name} />
                   ))}
               </datalist>
+              {linkedReturn && <div className="info-box full" role="status"><strong>Additional return quantity</strong><p>Known remaining quantities are prefilled; fully returned lines are omitted. This snapshot does not reserve stock or credit. Review prices, discounts and taxes; the server checks current limits when saving.</p>{(relatedSource.return_capacity_lines || relatedSource.data?.lines || []).map((line,index) => <p key={index}>{line.description}: {line.return_capacity_scope === 'additional_returns' && line.remaining_return_quantity != null ? `${line.remaining_return_quantity} ${line.unit || 'units'} remaining` : line.return_capacity_reason || 'Remaining quantity needs review'}</p>)}{!lines.length && <p>No source lines have a known positive remaining quantity.</p>}</div>}
               {!edit && (source || relatedSource || form.applied_to) && lines.some(line => lineDiscountMode(line) === "amount") && <p className="info-box full">Fixed rupee discounts were copied unchanged from the source. They are not automatically prorated when you change quantities. Review each discount against the quantities being converted or returned before saving.</p>}
               {requiresDiscountReview && <label className="checkbox full"><input type="checkbox" required checked={reviewedReturnDiscounts === returnDiscountReviewKey} onChange={event => setReviewedReturnDiscounts(event.target.checked ? returnDiscountReviewKey : "")} />I reviewed the copied fixed discounts for these returned quantities.</label>}
               {kind === "debit_note" && returnSourceError && <p className="error full" role="alert">{returnSourceError} <button type="button" onClick={() => setReturnSourceRetry(value => value + 1)}>Retry source lines</button></p>}
               <DocumentItems
+                showReturnCapacity={!edit && ["credit_note", "debit_note"].includes(kind)}
                 returnSourceLines={kind === "debit_note" ? returnSourceLines : null}
                 lines={lines}
                 setLines={(next) => {
