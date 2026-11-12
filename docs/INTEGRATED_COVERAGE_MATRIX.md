@@ -1240,3 +1240,32 @@ integrated browser import/reload and access recovery, full Android/Windows build
 actual native file-picker/import/process-restart flows, and verified release
 backup/restore/writer-pause/rollback gates. Publication remains blocked and was
 not retried; production and deployment remain untouched.
+
+### Post-reconnect release rehearsal (2026-11-12)
+
+Checkout a544263 and its complete-history bundle survived reconnection unchanged.
+No rehearsal process survived; temporary Python/.NET/Kotlin/age toolchains were
+lost. Recreated isolated Python dependencies from requirements-dev.txt. No native
+CI or deployment was dispatched and publication was not retried.
+
+Passed nine mocked backup-target tests, 35 mocked VPS controller/updater tests,
+the simulated database transactional-backup/restore shell test, and 14 synthetic
+complete-backup lifecycle/transport/schema-readiness tests. No Docker production
+commands or remote storage operations were executed.
+
+The legacy upgrade rehearsal initially failed because it asserted an obsolete
+hardcoded migration head, then because new explanatory report metadata changed
+whole-object equality. Harness now verifies the single current Alembic head and
+excludes only basis, ordering_note and posting_timestamp metadata from canonical
+comparisons. All financial fields and original row/ID comparisons remain exact.
+Rehearsal passes from baseline 1e8d981 at schema e674ab031c58 to j129ab697c14:
+old-schema readiness 503 becomes 200, repeated migration is unchanged, six
+canonical reports match, complete-backup financials/attachment bytes restore,
+replayed restore returns the same company, and the original application reopens
+the pre-upgrade SQLite backup with matching books.
+
+Evidence: docs/evidence/release-rehearsal-*.log. This is a synthetic repository
+baseline, not a production clone or PostgreSQL recovery proof. Real age-encrypted
+backup rehearsal was not rerun after the toolchain loss. Native full builds and
+device acceptance, real writer inventory/pause, production backup/restore and
+rollback verification remain release gates for the operator. Production untouched.

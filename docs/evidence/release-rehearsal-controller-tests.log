@@ -1,0 +1,26 @@
+...........No Atria containers found; no Atria services or data were changed
+Only Apex Books Nginx files restored; existing containers were left intact
+Only Apex Books Nginx files restored; existing containers were left intact
+Atria services stopped. Database volumes, images and /opt/atria-server are retained.
+Apex Books HTTPS sites active; rollback snapshot: /tmp/tmpihk7niw9/app/backups/nginx-20261112T193106Z
+Waiting for HTTPS readiness: old worker returned HTTP 404
+.....................Both HTTPS domains serve verified Apex Books 1.5.0 source aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with certificate validation
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Verified upgrade activated. Previous marker and recovery plan retained at /tmp/tmp0athdjqp/backups/upgrade-20261112T193106838512Z; schema rollback remains a separate reviewed recovery operation.
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Verified upgrade activated. Previous marker and recovery plan retained at /tmp/tmpfpm8xh22/backups/upgrade-20261112T193106841740Z; schema rollback remains a separate reviewed recovery operation.
+Proceeding with the recorded operator backup waiver; no backup or restore rehearsal is claimed.
+Applying versioned migrations to the existing database.
+..Building api from aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Building web from aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+.
+----------------------------------------------------------------------
+Ran 35 tests in 0.052s
+
+OK
+Staged /tmp/tmp66po8z0i/releases/1.5.0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa. Running services have not been restarted.

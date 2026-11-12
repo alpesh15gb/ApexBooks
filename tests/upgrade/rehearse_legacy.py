@@ -76,7 +76,9 @@ def worker(stage,folder):
         assert first['rows']==fixture['snapshot']['rows'],'Migration changed original row values or IDs'
         run_migrations()
         assert snapshot(database,fixture['snapshot']['columns'])==first,'Second migration was not idempotent'
-        assert first['revision']=='h907ef475a92'
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+        assert first['revision']==ScriptDirectory.from_config(Config('alembic.ini')).get_current_head(), 'Upgrade did not reach the single current migration head'
         req('GET','/api/ready')
         current=reports(req,h,b,fixture['buyer_id'],fixture['supplier_id'])
         assert current==fixture['reports'],'Canonical reports differ across the upgrade: '+json.dumps({key:{'before':fixture['reports'][key],'after':current[key]} for key in current if current[key]!=fixture['reports'][key]})
@@ -123,6 +125,15 @@ def reports(req,h,b,buyer,supplier):
         for row in result[key]['transactions']:
             if 'converted_to' in row:
                 assert row.pop('converted_to') is None
+    # Additive explanatory metadata does not change canonical accounting values.
+    def strip_metadata(value):
+        if isinstance(value,dict):
+            for field in ('basis','ordering_note','posting_timestamp'):
+                value.pop(field,None)
+            for child in value.values():strip_metadata(child)
+        elif isinstance(value,list):
+            for child in value:strip_metadata(child)
+    strip_metadata(result)
     return result
 
 
