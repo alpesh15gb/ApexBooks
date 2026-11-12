@@ -488,6 +488,7 @@ function App() {
     [conversionSource, setConversionSource] = useState(null),
     [relatedSource, setRelatedSource] = useState(null),
     [draftSeed, setDraftSeed] = useState(null),
+    [reorderCreated, setReorderCreated] = useState(null),
     [detail, setDetail] = useState(null),
     [detailLoading, setDetailLoading] = useState(false),
     [detailError, setDetailError] = useState(""),
@@ -735,6 +736,9 @@ function App() {
       },
     );
     if (!isCurrent()) return;
+    if (body.kind === "purchase_order" && draftSeed && editorReturn?.page === "reorder" && saved?.id) {
+      setReorderCreated({ companyId, id: saved.id, number: saved.number, name: saved.name, kind: saved.kind });
+    }
     const refreshed = await loadRecords();
     if (!isCurrent()) return;
     if (keepOpen && !editingDraft && !conversionSource && !relatedSource) {
@@ -1188,7 +1192,7 @@ function App() {
           ) : page === "recurring" ? (
             <RecurringWorkspace key={companyId} companyId={companyId} role={company.role} records={records} api={api} Modal={Modal} onReview={beginEdit} onRefresh={loadRecords} />
           ) : page === "reorder" ? (
-            <ReorderWorkspace key={companyId} companyId={companyId} role={company.role} api={api} onReview={startReorder} onBack={() => navigateWorkspace("item")} />
+            <ReorderWorkspace key={companyId} companyId={companyId} role={company.role} api={api} createdOrder={reorderCreated} onOpenOrder={beginDetail} onReview={startReorder} onBack={() => navigateWorkspace("item")} />
           ) : page === "ledger" ? (
             <Ledger key={companyId} companyId={companyId} role={company?.role} />
           ) : page === "bank_account" ? (

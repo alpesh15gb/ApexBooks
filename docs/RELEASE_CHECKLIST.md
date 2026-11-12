@@ -81,3 +81,5 @@ as such. Production backup monitoring and statutory review remain explicit gates
 - Journal-history voucher labels/source links remain a follow-up UX task. Preserve authorization and correct cancellation/missing-source handling when implementing it.
 
 These fixes still need final integrated visual acceptance; the isolated desktop reviewer was previously exercising 71aca43.
+
+- Reorder now retains a company-scoped PO-created confirmation and an Open purchase order action after saving, including refresh. It explicitly keeps the low-stock recommendation because a draft does not add stock. Twenty-six rendered accounting/editor/workspace tests and lint passed. Confirm this save-to-worklist path in the integrated desktop preview. Pending incoming quantity is not inferred from draft POs; any later quantity display must distinguish unconverted drafts from confirmed or partially received orders.

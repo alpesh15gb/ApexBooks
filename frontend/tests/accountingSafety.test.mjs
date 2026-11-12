@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm} from 'node:fs/promises';import {resolve} from 'node:path';import {pathToFileURL} from 'node:url';import {build} from 'esbuild';import {JSDOM} from 'jsdom';import React,{act} from 'react';
 const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});Object.assign(globalThis,{window:dom.window,document:dom.window.document,localStorage:dom.window.localStorage,IS_REACT_ACT_ENVIRONMENT:true});window.scrollTo=()=>{};
 const {createRoot}=await import('react-dom/client');const tmp=await mkdtemp(resolve('node_modules/.accounting-safety-'));const components={};
-for(const name of ['BankWorkspace','CommerceMoneyForm','Reports']){const outfile=resolve(tmp,name+'.mjs');await build({entryPoints:['src/'+name+'.jsx'],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','lucide-react']});components[name]=(await import(pathToFileURL(outfile))).default;}
+for(const name of ['BankWorkspace','CommerceMoneyForm','Reports','ReorderWorkspace']){const outfile=resolve(tmp,name+'.mjs');await build({entryPoints:['src/'+name+'.jsx'],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','lucide-react']});components[name]=(await import(pathToFileURL(outfile))).default;}
 const response=data=>({ok:true,json:async()=>data});const label=text=>[...document.querySelectorAll('label')].find(x=>x.textContent.trim().startsWith(text));
 async function change(node,value){const proto=node.tagName==='SELECT'?window.HTMLSelectElement.prototype:window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(node,value);await act(async()=>node.dispatchEvent(new window.Event(node.tagName==='SELECT'?'change':'input',{bubbles:true})));}
 const submit=form=>form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));
@@ -29,5 +29,15 @@ test('GST transitions restore ordinary dates and company changes clear party req
  await act(async()=>[...document.querySelectorAll('button')].find(x=>x.textContent.includes('Sales register')).click());const start=document.querySelector('[aria-label="From date"]').value,end=document.querySelector('[aria-label="To date"]').value;
  await change(label('Report').querySelector('select'),'gstr1');await change(label('Return frequency').querySelector('select'),'quarter');assert.match(urls.at(-1),/gst-returns/);await change(label('Report').querySelector('select'),'sales');assert.equal(document.querySelector('[aria-label="From date"]').value,start);assert.equal(document.querySelector('[aria-label="To date"]').value,end);
  await change(label('Report').querySelector('select'),'parties');await change(label('Party').querySelector('select'),'Alice');assert.match(urls.at(-1),/party=Alice/);await act(async()=>render('b'));assert.match(urls.at(-1),/\/companies\/b\//);assert.doesNotMatch(urls.at(-1),/Alice/);assert.equal(label('Party').querySelector('select').value,'');await act(async()=>root.unmount());
+});
+test('reorder keeps saved purchase-order confirmation across refresh and scopes it to its company',async()=>{
+ const root=createRoot(document.getElementById('root'));let opened,reads=0;
+ const order={companyId:'a',id:'po-1',kind:'purchase_order',number:'PO-007',name:'Supplier'};
+ const api=async()=>{reads++;return {total_low_stock:1,rows:[{item_id:'item',name:'Synthetic goods',on_hand:'5',low_stock_threshold:'12',suggested_quantity:'7'}]};};
+ const render=companyId=>root.render(React.createElement(components.ReorderWorkspace,{companyId,role:'owner',api,createdOrder:order,onOpenOrder:value=>{opened=value;},onReview:()=>{},onBack:()=>{}}));
+ await act(async()=>render('a'));assert.match(document.body.textContent,/Purchase order PO-007 created/);assert.match(document.body.textContent,/Synthetic goods/);
+ await act(async()=>[...document.querySelectorAll('button')].find(x=>x.textContent==='Open purchase order PO-007').click());assert.equal(opened.id,'po-1');
+ await act(async()=>[...document.querySelectorAll('button')].find(x=>x.textContent==='Refresh').click());assert.equal(reads,2);assert.match(document.body.textContent,/Purchase order PO-007 created/);assert.match(document.body.textContent,/Synthetic goods/);
+ await act(async()=>render('b'));assert.doesNotMatch(document.body.textContent,/PO-007/);await act(async()=>root.unmount());
 });
 test.after(async()=>{dom.window.close();await rm(tmp,{recursive:true,force:true});});
