@@ -9,6 +9,7 @@ fi
 PYTHON="${PYTHON:-python}"
 "$PYTHON" -m unittest discover -s backend -p 'test_*.py' -v
 (cd frontend && node --test tests/*.test.mjs && npm run lint && npm run build)
+"$PYTHON" tests/stock_overview_acceptance.py -v
 APEX_COMPLETE_BACKUP=1 APEX_PYTHON="$PYTHON" bash tests/e2e/run-local.sh
 contract_dir="$(mktemp -d /tmp/apex-contract-XXXXXXXX)"
 trap 'rm -rf -- "$contract_dir"' EXIT

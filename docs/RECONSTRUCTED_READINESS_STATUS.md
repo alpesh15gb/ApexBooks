@@ -1,5 +1,7 @@
 # Reconstructed release readiness checkpoint
 
+Current integrated status and exact evidence are maintained in [INTEGRATED_COVERAGE_MATRIX.md](INTEGRATED_COVERAGE_MATRIX.md). The earlier checkpoint details below are historical.
+
 This is a scoped engineering checkpoint, not a delivery commitment or a declaration of comprehensive Indian accounting compliance.
 
 ## Highest priority remaining work
@@ -17,4 +19,4 @@ A scoped release should explicitly list supported accounting/GST workflows and e
 
 ## Isolated visual environment
 
-The launcher /tmp/apex-visual-instance.py created /tmp/apex-visual-isolated-47ca5yyv with a disposable SQLite database and synthetic credentials/records. Initial web URL was http://127.0.0.1:59087 and API http://127.0.0.1:53837; command session 20847 remains open. Subsequent separate execution calls could not reach these loopback ports, so external/browser reachability is NOT confirmed. Do not infer that a URL valid inside one execution context is reachable in another. The launcher is available to run in the visual reviewer's execution context; it selects fresh ports and prints its access manifest. Production secrets are excluded by an explicit environment allowlist.
+The launcher /tmp/apex-visual-instance.py created /tmp/apex-visual-isolated-47ca5yyv with a disposable SQLite database and synthetic credentials/records. Initial web URL was http://127.0.0.1:59087 and API http://127.0.0.1:53837; command session 20847 was open at that earlier checkpoint; its current availability is not asserted. Subsequent separate execution calls could not reach these loopback ports, so external/browser reachability is NOT confirmed. Do not infer that a URL valid inside one execution context is reachable in another. The launcher is available to run in the visual reviewer's execution context; it selects fresh ports and prints its access manifest. Production secrets are excluded by an explicit environment allowlist.
