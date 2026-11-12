@@ -10,5 +10,6 @@
 <Compile Include="../../windows/Services/ScopedExternalAction.cs" Link="ScopedExternalAction.cs" />
 <Compile Include="../../windows/Services/ScopedCoreRefresh.cs" Link="ScopedCoreRefresh.cs" />
 <Compile Include="../WindowsClient/CoreRefreshRegression.cs" Link="CoreRefreshRegression.cs" />
+<Compile Include="../WindowsClient/ResponseSessionRegression.cs" Link="ResponseSessionRegression.cs" />
 </ItemGroup>
 </Project>

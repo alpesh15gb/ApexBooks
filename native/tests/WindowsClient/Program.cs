@@ -16,6 +16,7 @@ foreach(var scenario in new[]{"current","stale-success","stale-failure","current
 }
 Console.WriteLine("PASS external action scoped before/after delayed branding and immediately before synthetic launch");
 
+await ResponseSessionRegression.Run();
 await CoreRefreshRegression.Run();
 CsvRegression.Run();
 
