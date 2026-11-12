@@ -67,3 +67,10 @@ APEX_TEST_DATABASE_URL=postgresql://test-user:test-password@127.0.0.1:5432/apex_
 
 The database name and loopback hostname are enforced by the test script. That
 entry point does not create or destroy the database; CI must own its lifecycle.
+
+Add `--reconstructed-regressions` to execute the reconstructed restore, stock,
+source-return and rounding scenarios against the owned PostgreSQL app/engine.
+The runner supplies these helpers with the PostgreSQL fixture instead of importing
+their SQLite bootstrap, asserts the database dialect, and retains results in
+`reconstructed-regressions.log`. These checks do not prove native UI acceptance
+or production capacity.

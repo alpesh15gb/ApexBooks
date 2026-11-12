@@ -35,6 +35,7 @@ def run():
     parser.add_argument('--invoices', type=int, default=300)
     parser.add_argument('--browser-business', action='store_true', help='Build the web bundle and exercise the trading journey through Chromium on PostgreSQL')
     parser.add_argument('--diagnostics', action='store_true', help='Capture slow-run database waits and Python stacks')
+    parser.add_argument('--reconstructed-regressions', action='store_true', help='Run reconstructed restore and return regressions against the owned PostgreSQL database')
     args = parser.parse_args()
     binary = args.pg_bin.resolve()
     suffix = '.exe' if os.name == 'nt' else ''
@@ -114,6 +115,9 @@ def run():
         print('Testing ' + version + ' in isolated cluster ' + str(work), flush=True)
         check([sys.executable, 'tests/concurrency/test_postgres.py'], 'concurrency.log')
         print('PostgreSQL concurrency tests passed.', flush=True)
+        if args.reconstructed_regressions:
+            check([sys.executable, 'tests/concurrency/test_reconstructed_restore.py'], 'reconstructed-regressions.log')
+            print('Reconstructed restore and return PostgreSQL regressions passed.', flush=True)
         with (artifacts / 'api.log').open('w', encoding='utf-8') as api_log:
             server_env = dict(env)
             if args.diagnostics:
