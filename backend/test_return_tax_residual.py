@@ -141,3 +141,20 @@ class ReturnTaxResidualTest(unittest.TestCase):
                 self.assertEqual(sum(D(n['amount']) for n in notes),D('.35'))
                 for key in FIELDS:self.assertEqual(sum(D(n['data'][key]) for n in notes),D(source['data'][key]),key)
                 self.note(source,[{**source['data']['lines'][0],'quantity':1}],422)
+
+    def test_unchanged_line_discount_residuals_preserve_each_source_component(self):
+        for rate,document_discount,expected in [('.37',0,'1.03'),('.03',5,'.08')]:
+            self.source(['pending_review'])
+            response=self.post('/records',{'kind':'purchase_bill','name':'Supplier','date':'2026-11-01','data':{'place_of_supply':'27','document_discount_percent':document_discount,'lines':[{'description':'Line discount residual','quantity':3,'rate':rate,'discount_percent':7,'gst_rate':18,'price_includes_tax':True}]}})
+            self.assertEqual(response.status_code,200,response.text);source=response.json();notes=[]
+            for unused in range(3):
+                body=self.body(source,[{**source['data']['lines'][0],'quantity':1}]);body['data']['document_discount_percent']=document_discount
+                preview=self.post('/documents/preview',body);saved=self.post('/records',body)
+                self.assertEqual(saved.status_code,200,saved.text);self.assertEqual(preview.status_code,200,preview.text)
+                self.assertEqual(preview.json()['amount'],saved.json()['amount']);self.assertEqual(preview.json()['data']['lines'][0],{k:v for k,v in saved.json()['data']['lines'][0].items() if k!='inventory_cost'})
+                notes.append(saved.json())
+            self.assertEqual(sum(D(n['amount']) for n in notes),D(expected))
+            for key in ('gross','discount','document_discount','taxable','tax'):
+                self.assertEqual(sum(D(n['data']['lines'][0][key]) for n in notes),D(source['data']['lines'][0][key]),key)
+            for key in FIELDS:self.assertEqual(sum(D(n['data'][key]) for n in notes),D(source['data'][key]),key)
+            self.note(source,[{**source['data']['lines'][0],'quantity':1}],422)

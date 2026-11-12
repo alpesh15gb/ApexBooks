@@ -139,6 +139,7 @@ def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
         base = Decimal(line['taxable'])
         original_base = sum((verified_value(source.data['lines'][i], 'taxable') for i in indexes), Decimal(0))
         original_tax = sum((verified_value(source.data['lines'][i], 'tax') for i in indexes), Decimal(0))
+        unchanged_source_terms = False
         if line.get('price_includes_tax'):
             # Price-inclusive return gross is a user-entered amount. Reallocating
             # tax must never increase it or strand the source's base residual.
@@ -165,10 +166,26 @@ def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
                 allocated_gross = cumulative - (original_gross - gross_left)
                 if allocated_gross < 0 or abs(allocated_gross - gross) > Decimal('.01'):
                     raise HTTPException(409, 'Source gross residual exceeds a rounding adjustment; review the source returns')
-                adjusted_discount = Decimal(line.get('document_discount', '0')) + gross - allocated_gross
-                if adjusted_discount < 0:
-                    raise HTTPException(409, 'Source discount residual needs review')
-                line = {**line, 'document_discount': str(adjusted_discount)}
+                # Allocate both discount components from their own source
+                # budgets; a line discount must not become a document discount.
+                original = source.data['lines'][indexes[0]]
+                prior_rows = [old for note in previous for old in note.data.get('lines', [])
+                              if set(candidates(old, source)) & set(indexes)]
+                prior_rows += [old for old in result if tuple(candidates(old, source)) == indexes]
+                discounts = {}
+                for field in ('discount', 'document_discount'):
+                    used = sum((verified_value(old, field) for old in prior_rows), Decimal(0))
+                    total = verified_value(original, field)
+                    value = m.money(total * (original_quantity - quantity_left + quantity) / original_quantity) - used
+                    if value < 0 or value > total - used or abs(value - Decimal(line.get(field, '0'))) > Decimal('.01'):
+                        raise HTTPException(409, 'Source discount residual needs review')
+                    discounts[field] = value
+                allocated_before_discount = allocated_gross + sum(discounts.values())
+                if abs(allocated_before_discount - Decimal(line['gross'])) > Decimal('.01'):
+                    raise HTTPException(409, 'Source price residual needs review')
+                line = {**line, **{key: str(value) for key, value in discounts.items()},
+                        'gross': str(allocated_before_discount)}
+                unchanged_source_terms = True
                 gross = allocated_gross
             if gross > gross_left:
                 raise HTTPException(422, 'Returned gross exceeds the remaining source purchase line')
@@ -181,7 +198,7 @@ def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
                 raise HTTPException(422, 'Returned taxable exceeds the remaining source purchase line')
             desired = m.money(original_tax * (original_base - base_left + base) / original_base) if original_base else Decimal(0)
             tax = tax_left if base == base_left else max(Decimal(0), min(tax_left, desired - (original_tax - tax_left)))
-        if max(abs(tax - Decimal(line['tax'])), abs(base - Decimal(line['taxable']))) > Decimal('.01'):
+        if max(abs(tax - Decimal(line['tax'])), abs(base - Decimal(line['taxable']))) > (Decimal('.02') if unchanged_source_terms else Decimal('.01')):
             raise HTTPException(409, 'Historical tax residual exceeds a rounding adjustment; review the source returns')
         result.append({**line, 'taxable': str(base), 'tax': str(tax)})
         remaining[indexes] = [base_left - base, tax_left - tax, quantity_left - verified_value(line, 'quantity')]
