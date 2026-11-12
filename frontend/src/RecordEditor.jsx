@@ -60,6 +60,9 @@ export default function RecordEditor({
   // Parties and items created from inside this editor (quick-add), until the parent list reloads.
   const [addedMasters, setAddedMasters] = useState([]), [quickAdding, setQuickAdding] = useState("");
   const quickFlight = useRef(false);
+  const quickPosting = usePostingRequest();
+  const quickPending = quickPosting.pending;
+  const quickSupported = supported("master_create_idempotency");
   const editorScope = `${companyId}:${kind}:${source?.id || ""}`;
   const activeEditor = useRef(editorScope);
   activeEditor.current = editorScope;
@@ -68,11 +71,13 @@ export default function RecordEditor({
   const partyChoices = availableMasters(masters, "party", ["payment_in", "payment_out"].includes(kind) ? masters.filter(record => record.kind === "party").map(record => record.id) : retainedParties);
   const itemChoices = availableMasters(masters, "item", retainedItems);
   const canWrite = ["owner", "editor"].includes(company.role);
+  const quickAuthority = useRef(null);
+  quickAuthority.current = { canWrite, supported: quickSupported, scope: editorScope };
   const isPayment = ["payment_in", "payment_out"].includes(kind);
   const [dirty, setDirty] = useState(false),
     [confirmClose, setConfirmClose] = useState(false);
   const requestClose = () => {
-    if (saving || scanning || pending || quickFlight.current) return;
+    if (saving || scanning || pending || quickPending || quickFlight.current) return;
     if (dirty) setConfirmClose(true);
     else close();
   };
@@ -249,13 +254,13 @@ export default function RecordEditor({
   const { busy: saving, pending } = posting;
   useEffect(() => {
     const unload = event => {
-      if (dirty || saving || pending || quickFlight.current) { event.preventDefault(); event.returnValue = ""; }
+      if (dirty || saving || pending || quickPending || quickFlight.current) { event.preventDefault(); event.returnValue = ""; }
     };
     const back = () => requestClose();
     window.addEventListener("beforeunload", unload);
     window.addEventListener("apex-close-editor", back);
     return () => { window.removeEventListener("beforeunload", unload); window.removeEventListener("apex-close-editor", back); };
-  }, [dirty, saving, pending, scanning]);
+  }, [dirty, saving, pending, scanning, quickPending]);
 
   const scanFlight = useRef(null);
   const scanContext = useRef(null);
@@ -265,7 +270,7 @@ export default function RecordEditor({
   scanDraft.current = JSON.stringify([form, lines]);
   async function scan(e) {
     const file = e.target.files?.[0];
-    if (!file || !canWrite || saving || pending || loadingSource || quickFlight.current || scanFlight.current) return;
+    if (!file || !canWrite || saving || pending || loadingSource || quickPending || quickFlight.current || scanFlight.current) return;
     const flight = {}, context = scanContext.current, draft = scanDraft.current, input = e.target;
     scanFlight.current = flight;
     let verifySession, access;
@@ -327,7 +332,7 @@ export default function RecordEditor({
     return () => { active = false; };
   }, [companyId, form.party_id, form.date, kind, termsSupported]);
   const change = (e) => {
-    if (quickFlight.current) return;
+    if (quickFlight.current || quickPending) return;
     const value = e.target.value;
     const matched =
       e.target.name === "name" && (doc || isPayment)
@@ -375,7 +380,7 @@ export default function RecordEditor({
     });
   };
   const changeLine = (index, e) =>
-    !quickFlight.current && setLines(
+    !quickFlight.current && !quickPending && setLines(
       lines.map((line, i) => {
         if (i !== index) return line;
         let next = ["discount_mode", "discount_amount", "discount_percent"].includes(e.target.name)
@@ -402,59 +407,61 @@ export default function RecordEditor({
       }),
     );
   // Quick-add (Vyapar / MyBillBook style): save the typed customer or line as a master without leaving the invoice.
-  async function createMaster(kindToAdd, name, data) {
-    const created = await api(`/companies/${companyId}/records`, {
-      method: "POST",
-      body: JSON.stringify({ kind: kindToAdd, name: name.trim(), date: today(), amount: 0, data }),
-    });
-    if (activeEditor.current !== editorScope) throw Error("Editor changed while adding the master.");
-    setAddedMasters((current) => [...current, created]);
-    return created;
+  async function runQuickMaster(command) {
+    if (!command && !quickPosting.isPending()) return;
+    if (activeEditor.current !== editorScope || quickFlight.current || !quickAuthority.current.canWrite || !quickAuthority.current.supported || quickAuthority.current.scope !== editorScope || saving || scanning || loadingSource || pending || (quickPosting.isPending() && command)) return;
+    quickFlight.current = true;
+    const context = scanContext.current;
+    let verifySession, access;
+    const current = () => {
+      if (activeEditor.current !== editorScope || scanContext.current !== context) return false;
+      try { verifySession?.(); access?.verify(); return true; } catch { return false; }
+    };
+    setError(""); setQuickAdding(command?.label || "recovery");
+    try {
+      verifySession = captureSession();
+      access = captureCompanyAccess(`/companies/${companyId}/records`);
+      const response = await quickPosting.run(async () => ({
+        created: await api(`/companies/${companyId}/records`, {
+          method: "POST", headers: { "Idempotency-Key": command.key }, body: command.body,
+        }), command,
+      }));
+      if (!response || !current()) return;
+      const { created, command: original } = response.value;
+      setAddedMasters(rows => [...rows, created]);
+      setDirty(true);
+      if (scanDraft.current !== original.draft) {
+        setError("Master saved. Your document changed; choose the saved master explicitly if needed.");
+        return;
+      }
+      if (original.kind === "party") setForm(row => ({ ...row, name: created.name, party_id: created.id }));
+      else setLines(rows => rows.map(row => row === original.line ? { ...row, description: created.name, item_id: created.id } : row));
+    } catch (err) {
+      if (current()) setError(`Could not confirm master creation: ${err.message}`);
+    } finally {
+      quickFlight.current = false;
+      if (activeEditor.current === editorScope) setQuickAdding("");
+    }
+  }
+  function quickCommand(kindToAdd, name, data, line) {
+    return { kind: kindToAdd, label: kindToAdd, line, draft: scanDraft.current, key: crypto.randomUUID(),
+      body: JSON.stringify({ kind: kindToAdd, name: name.trim(), date: today(), amount: 0, data }) };
   }
   async function quickAddParty() {
-    if (quickFlight.current || !form.name.trim()) return;
-    quickFlight.current = true;
-    setError(""); setQuickAdding("party");
-    try {
-      const created = await createMaster("party", form.name, {
-        party_type: purchase ? "supplier" : "customer",
-        phone: form.party_phone.trim(),
-        gstin: (form.party_gstin || "").trim().toUpperCase(),
-        address: form.party_address || "",
-        shipping_address: form.shipping_address || "",
-      });
-      setDirty(true);
-      setForm((current) => ({ ...current, name: created.name, party_id: created.id }));
-    } catch (err) {
-      if (activeEditor.current === editorScope) setError(`Could not add the party: ${err.message}`);
-    } finally {
-      quickFlight.current = false;
-      if (activeEditor.current === editorScope) setQuickAdding("");
-    }
+    if (!form.name.trim()) return;
+    await runQuickMaster(quickCommand("party", form.name, {
+      party_type: purchase ? "supplier" : "customer", phone: form.party_phone.trim(),
+      gstin: (form.party_gstin || "").trim().toUpperCase(), address: form.party_address || "", shipping_address: form.shipping_address || "",
+    }));
   }
   async function quickAddItem(index) {
-    const line = lines[index];
-    if (quickFlight.current || !line?.description.trim()) return;
-    quickFlight.current = true;
-    setError(""); setQuickAdding(`item-${index}`);
-    try {
-      const rate = Number(line.rate || 0);
-      const created = await createMaster("item", line.description, {
-        item_type: "goods",
-        hsn: line.hsn || "",
-        unit: line.unit || "",
-        [purchase ? "purchase_rate" : "sale_rate"]: Number.isFinite(rate) ? rate.toFixed(2) : "0.00",
-        gst_rate: Number(line.gst_rate || 0).toFixed(2),
-        tax_treatment: line.tax_treatment || "taxable",
-      });
-      setDirty(true);
-      setLines((current) => current.map((row) => (row === line ? { ...row, description: created.name, item_id: created.id } : row)));
-    } catch (err) {
-      if (activeEditor.current === editorScope) setError(`Could not add the item: ${err.message}`);
-    } finally {
-      quickFlight.current = false;
-      if (activeEditor.current === editorScope) setQuickAdding("");
-    }
+    const line = lines[index]; if (!line?.description.trim()) return;
+    const rate = Number(line.rate || 0);
+    await runQuickMaster(quickCommand("item", line.description, {
+      item_type: "goods", hsn: line.hsn || "", unit: line.unit || "",
+      [purchase ? "purchase_rate" : "sale_rate"]: Number.isFinite(rate) ? rate.toFixed(2) : "0.00",
+      gst_rate: Number(line.gst_rate || 0).toFixed(2), tax_treatment: line.tax_treatment || "taxable",
+    }, line));
   }
   const sourceRequest = useRef(0);
   const [loadingSource, setLoadingSource] = useState(false);
@@ -510,7 +517,7 @@ export default function RecordEditor({
   const canPayNow = !edit && ["sales_invoice", "purchase_bill"].includes(kind) && supported("payment_at_entry");
   async function submit(e) {
     e.preventDefault();
-    if (!canWrite || saving || scanning || loadingSource || quickFlight.current) return;
+    if (!canWrite || saving || scanning || loadingSource || quickPending || quickFlight.current) return;
     setError("");
     try {
       if (requiresDiscountReview && reviewedReturnDiscounts !== returnDiscountReviewKey) throw Error("Review the fixed discounts for the returned quantities before saving.");
@@ -631,7 +638,12 @@ export default function RecordEditor({
             }
           }}
         >
-          <fieldset className="form-grid full submission-fields" disabled={!canWrite || saving || scanning || pending || !!quickAdding}>
+          {quickPending && <div className="full info-box" role="alert">
+            <p>Master creation may already have succeeded. Recover the original request before saving or closing this document. Keep this tab open; restarting loses this recovery request.</p>
+            {!quickSupported && <p>This server has not confirmed safe master-create retry support. Upgrade the API and refresh capabilities; the original request is preserved.</p>}
+            <button type="button" disabled={!canWrite || !quickSupported || !!quickAdding} onClick={() => runQuickMaster(null)}>Recover original master creation</button>
+          </div>}
+          <fieldset className="form-grid full submission-fields" disabled={!canWrite || saving || scanning || pending || quickPending || !!quickAdding}>
           {!canWrite && <p className="info-box full">You have read-only access to this company.</p>}
           {relatedSource && (
             <p className="info-box full">Linked to {relatedSource.number || relatedSource.name}. {isPayment ? "Review the amount and allocation before posting; this does not mark the bank statement as matched." : "Review the quantities and tax before posting a linked return. The original document stays in history."}</p>
@@ -883,7 +895,7 @@ export default function RecordEditor({
                 company={company}
                 targets={targets}
                 onSelectSource={selectSource}
-                onQuickAddParty={canWrite && !["credit_note", "debit_note"].includes(kind) ? quickAddParty : null}
+                onQuickAddParty={canWrite && quickSupported && !["credit_note", "debit_note"].includes(kind) ? quickAddParty : null}
                 quickAdding={quickAdding}
               />
               <datalist id="apex-party-options">
@@ -907,12 +919,12 @@ export default function RecordEditor({
                 returnSourceLines={kind === "debit_note" ? returnSourceLines : null}
                 lines={lines}
                 setLines={(next) => {
-                  if (quickFlight.current) return;
+                  if (quickFlight.current || quickPending) return;
                   setDirty(true);
                   setLines(next);
                 }}
                 changeLine={changeLine}
-                onQuickAddItem={canWrite && !["credit_note", "debit_note"].includes(kind) ? quickAddItem : null}
+                onQuickAddItem={canWrite && quickSupported && !["credit_note", "debit_note"].includes(kind) ? quickAddItem : null}
                 quickAdding={quickAdding}
                 onPriceHistory={supported("party_price_history") && form.party_id && !source && !relatedSource ? index => setPriceLine({ index, item: { ...lines[index] }, party: { id: form.party_id, name: form.name } }) : null}
                 emptyLine={emptyLine}
@@ -1130,7 +1142,7 @@ export default function RecordEditor({
             <button
               type="button"
               className="button secondary"
-              disabled={saving || scanning || pending || !!quickAdding}
+              disabled={saving || scanning || pending || quickPending || !!quickAdding}
               onClick={requestClose}
             >
               Cancel
@@ -1144,14 +1156,14 @@ export default function RecordEditor({
                   e.currentTarget.form.requestSubmit();
                   saveAction.current = "close";
                 }}
-                disabled={!canWrite || !!quickAdding || saving || scanning || loadingSource || pending}
+                disabled={!canWrite || quickPending || !!quickAdding || saving || scanning || loadingSource || pending}
               >
                 Save & new
               </button>
             )}
             <button
               className="button primary"
-              disabled={!canWrite || !!quickAdding || saving || scanning || loadingSource}
+              disabled={!canWrite || quickPending || !!quickAdding || saving || scanning || loadingSource}
             >
               {loadingSource
                 ? "Loading document…"

@@ -1,0 +1,47 @@
+✔ reopened fixed discount remains visible and a nonfinancial edit preserves exact input (142.246716ms)
+✔ switching percent and rupee modes cannot submit both inputs (107.428191ms)
+✔ linked return retains fixed amount and requires review again after quantity changes (73.976996ms)
+✔ conversion keeps fixed/inclusive/document discount inputs unchanged without mandatory return acknowledgement (29.448518ms)
+✔ manual source selection and contextual return copy identical fixed plus document discount inputs (86.505973ms)
+✔ reopening financial-only credit and debit notes preserves false stock-return flag (105.445521ms)
+✔ quick-add item freezes line removal, submit and close until its request resolves (62.656678ms)
+✔ quick-add party cannot replace an edited name or submit while pending (44.756641ms)
+✔ linked debit-note preview includes the source bill required for inherited ITC (434.431807ms)
+✔ duplicate purchase descriptions select distinct source lines and preserve the reference on reopen (180.257089ms)
+✔ source-option load failure and retry preserve the edited return draft (54.497891ms)
+✔ debit-note amendment preview identifies the edited note without sending preview context to save (443.325886ms)
+✔ nine-line quotation reopen and invoice conversion preserve all entry fields (159.041354ms)
+✔ source banner names the edited or converted target document (107.495012ms)
+✔ repeat linked return submits only remaining quantity and retains visible allowance (29.648049ms)
+✔ party unknown uses original key/body and survives capability/role recovery (215.232985ms)
+✔ item unknown uses original key/body and survives capability/role recovery (91.767668ms)
+✔ definitive rejection unlocks corrected command with a new key (68.233467ms)
+✔ unsupported API exposes no quick-add mutation actions (39.679972ms)
+✔ scan image current success (127.392576ms)
+✔ scan image current failure (75.982096ms)
+✔ scan image company success (48.22214ms)
+✔ scan image company failure (53.330002ms)
+✔ scan image role-roundtrip success (74.025629ms)
+✔ scan image role-roundtrip failure (62.808947ms)
+✔ scan image token success (38.858649ms)
+✔ scan image token failure (34.86171ms)
+✔ scan image unmount success (32.725002ms)
+✔ scan image unmount failure (24.477242ms)
+✔ scan ocr current success (28.310865ms)
+✔ scan ocr current failure (48.368791ms)
+✔ scan ocr company success (46.58901ms)
+✔ scan ocr company failure (28.124565ms)
+✔ scan ocr role-roundtrip success (24.033122ms)
+✔ scan ocr role-roundtrip failure (23.641192ms)
+✔ scan ocr token success (13.613521ms)
+✔ scan ocr token failure (13.181872ms)
+✔ scan ocr unmount success (15.698091ms)
+✔ scan ocr unmount failure (14.084681ms)
+ℹ tests 39
+ℹ suites 0
+ℹ pass 39
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3326.376174
