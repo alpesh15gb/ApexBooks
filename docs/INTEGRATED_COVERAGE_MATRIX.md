@@ -364,3 +364,12 @@ still performs its normal projection. All 18 commerce backend tests passed, incl
 this regression and existing lifecycle cases. No external store worker, production
 access, publication retry or deployment was used. PostgreSQL concurrency and actual
 store delivery remain separate acceptance gates for this change.
+
+### Committed activation response metadata
+
+Independent review found genuine transitions returned pre-update version/timestamp.
+The endpoint now reloads the scoped committed row before building its public response.
+All 19 commerce backend tests passed, including four concurrent SQLite activations
+(one projection) and four concurrent no-op repeats (no further mutations), with
+response metadata checked against committed storage. PostgreSQL remains unverified.
+No external store calls or production actions were performed.

@@ -48,9 +48,32 @@ class CommerceTest(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.text);self.assertEqual(snapshot(),active)
         self.client.put(self.path+'/state',headers=self.headers,json={'status':'paused'}).raise_for_status()
         paused=snapshot();self.client.put(self.path+'/state',headers=self.headers,json={'status':'paused'}).raise_for_status();self.assertEqual(snapshot(),paused)
-        self.client.put(self.path+'/state',headers=self.headers,json={'status':'active'}).raise_for_status()
+        response=self.client.put(self.path+'/state',headers=self.headers,json={'status':'active'})
+        response.raise_for_status()
         reactivated=snapshot();self.assertEqual(len(reactivated[2]),len(active[2])+1)
+        self.assertEqual((response.json()['version'],response.json()['updated_at']),reactivated[:2])
         self.client.put(self.path+'/state',headers=self.headers,json={'status':'active'}).raise_for_status();self.assertEqual(snapshot(),reactivated)
+
+    def test_concurrent_activation_returns_committed_state_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        self.client.put(self.path+'/state',headers=self.headers,json={'status':'paused'}).raise_for_status()
+        def snapshot():
+            with Session(engine) as session:
+                row=m.commerce.scoped(session,session.get(m.Company,self.a),self.c['id'])
+                ids=set(session.scalars(select(m.commerce.t['outbox'].c.id).where(m.commerce.t['outbox'].c.connection_id==self.c['id'])).all())
+                return row,ids
+        before,ids=snapshot()
+        def activate(_):
+            with TestClient(app) as client:return client.put(self.path+'/state',headers=self.headers,json={'status':'active'})
+        with ThreadPoolExecutor(max_workers=4) as pool: responses=list(pool.map(activate,range(4)))
+        after,new_ids=snapshot()
+        self.assertEqual(after['version'],before['version']+1);self.assertEqual(len(new_ids-ids),1)
+        for response in responses:
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual((response.json()['status'],response.json()['version'],response.json()['updated_at']),('active',after['version'],after['updated_at']))
+        with ThreadPoolExecutor(max_workers=4) as pool: repeated=list(pool.map(activate,range(4)))
+        final,final_ids=snapshot();self.assertEqual(final,after);self.assertEqual(final_ids,new_ids)
+        self.assertTrue(all(response.status_code==200 for response in repeated))
 
     def test_lost_connection_setup_response_cannot_be_recovered_by_reposting(self):
         body={'name':'Synthetic lost setup','base_url':'http://127.0.0.1:18082','channel':self.tag+'-lost'}

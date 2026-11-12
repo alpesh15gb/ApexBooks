@@ -562,7 +562,7 @@ def install(app, m):
         session.execute(update(service.t['connections']).where(service.t['connections'].c.id == c['id']).values(status=body.status, updated_at=now()))
         if body.status == 'active': service.stock_changed(company_id, session)
         m.audit(session, co.id, user, 'commerce.' + body.status, 'commerce', connection_id); session.commit()
-        return service.public_connection(dict(c) | {'status': body.status})
+        return service.public_connection(service.scoped(session, co, connection_id))
     @app.get(root + '/connections/{connection_id}/workspace')
     def workspace(company_id: str, connection_id: str, user=Depends(m.current_user), session: Session=Depends(m.db)):
         c = service.scoped(session, company(company_id, user, session), connection_id)
