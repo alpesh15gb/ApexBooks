@@ -643,11 +643,28 @@ def posting_lines(kind, amount, data, tax_mode):
         raise HTTPException(422, 'Transaction does not balance; check tax amounts')
     return lines
 def money(value): return Decimal(str(value)).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
+def normalize_document_tax_identifiers(data, purchase):
+    """Validate identifier format, without inferring place-of-supply law."""
+    result = dict(data)
+    for field, label in (('party_gstin', 'party GSTIN'), ('place_of_supply', 'place-of-supply state code'),
+                         ('supplier_state', 'supplier state code')):
+        raw = data.get(field)
+        value = '' if raw is None else str(raw).strip().upper()
+        pattern = r'[0-9]{2}[A-Z0-9]{13}' if field == 'party_gstin' else r'[0-9]{2}'
+        if value and not re.fullmatch(pattern, value):
+            raise HTTPException(422, 'Enter a valid ' + label)
+        result[field] = value
+    if (purchase and result['party_gstin'] and result['supplier_state']
+            and result['supplier_state'] != result['party_gstin'][:2]):
+        raise HTTPException(422, 'Supplier state code must match the supplier GSTIN; use place of supply for the delivery state')
+    return result
+
 def calculate(data, company, tax_mode, kind, session):
+    purchase = kind in {'purchase_bill', 'purchase_order', 'debit_note','expense'}
+    data = normalize_document_tax_identifiers(data, purchase)
     lines = data.get('lines', [])
     if not isinstance(lines, list) or not 1 <= len(lines) <= 100: raise HTTPException(422, 'Add 1 to 100 items')
     state = str(data.get('place_of_supply', ''))
-    purchase = kind in {'purchase_bill', 'purchase_order', 'debit_note','expense'}
     tax_applies = tax_mode == 'regular' or purchase
     taxable = tax = pending_input_tax = Decimal('0')
     supply_values = {key: Decimal('0') for key in ('taxable', 'nil_rated', 'exempt', 'non_gst')}
@@ -725,6 +742,7 @@ def calculate(data, company, tax_mode, kind, session):
         raise HTTPException(422, 'Issue separate taxable and non-taxable outward documents in this workflow')
     origin_state = str(data.get('supplier_state') or str(data.get('party_gstin') or '')[:2] or company.state_code) if purchase else company.state_code
     if origin_state and not re.fullmatch(r'\d{2}',origin_state):raise HTTPException(422,'Enter a valid supplier state')
+    if purchase: data = {**data, 'supplier_state': origin_state}
     unclassified_supplier_tax = tax_mode != 'regular' and purchase and tax > 0 and (not origin_state or not state)
     intra = tax_applies and origin_state == state and not unclassified_supplier_tax
     cgst = money(tax / 2) if intra else Decimal('0')

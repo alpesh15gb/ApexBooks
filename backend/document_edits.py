@@ -109,6 +109,7 @@ def install(app,m):
             gstin=str(data.get('party_gstin') or '').strip().upper()
             if gstin and not re.fullmatch(r'\d{2}[A-Z0-9]{13}',gstin):raise HTTPException(422,'Enter a valid 15-character party GSTIN')
             data['party_gstin']=gstin
+            data = m.normalize_document_tax_identifiers(data, purchase)
             if (gstin and gstin!=str(record.data.get('party_gstin') or '').strip().upper()
                     and (profile.mode if profile else 'regular')=='regular'
                     and record.kind in {'sales_invoice','pos','credit_note'}

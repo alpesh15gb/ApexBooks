@@ -32,17 +32,27 @@ all possible defects have been eliminated. No production books were changed.
   cannot replace another company's bank/signature form state.
 - The portable PostgreSQL runner uses loopback TCP without depending on a
   system-owned Unix socket directory or a socket-capable workspace mount.
+- A follow-up rejects malformed party GSTIN/state-code inputs before posting,
+  normalizes surrounding whitespace/case and rejects disagreement between a
+  registered supplier's GSTIN prefix and supplier-origin state. Purchases retain
+  the effective origin in their snapshot. Header amendments cannot silently
+  switch supplier identity to another state while retaining the old tax split;
+  an explicit origin correction follows the normal financial amendment path.
+  A buyer's GSTIN state is not forced to equal the delivery/place-of-supply state.
+  These are format/consistency checks, not government GST-registration verification.
 
 ## Independent local evidence
 
 All accounting data used below is synthetic and disposable.
 
-- Final `scripts/check.sh` passed: 262 backend tests, 154 frontend tests, ESLint,
+- Final `scripts/check.sh` passed: 267 backend tests, 154 frontend tests, ESLint,
   production build/bundle budgets, five live local HTTP workflows, current native
   route contract checks, nine backup-target tests, 32 deployment-controller tests,
   and simulated database/backup safety checks, including encryption.
 - Five new backend regressions cover GSTIN edits, serial validation and audit
   changes. Five more cover invoice requirements and scope boundaries.
+  A further five cover malformed tax locations, normalized identifiers,
+  supplier-state consistency and safe financial amendments.
 - Ten new frontend component regressions cover company editing, period locks
   and branding.
 - PostgreSQL 17.11: 16 concurrency tests and five HTTP accounting lifecycle tests
