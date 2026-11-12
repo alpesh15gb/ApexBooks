@@ -88,6 +88,36 @@ class CommerceTest(unittest.TestCase):
         row=self.client.get(self.path+'/workspace',headers=self.headers).json()['stock'][0]
         self.assertEqual(Decimal(row['available_quantity']),9);self.assertIs(row['is_active'],True)
 
+    def test_projection_retry_preserves_packet_across_later_archival(self):
+        from fastapi import HTTPException
+        from decimal import Decimal
+        item=self.mapped_item()
+        with Session(engine) as session:
+            outbox=m.commerce.t['outbox']
+            session.execute(update(outbox).where(outbox.c.connection_id==self.c['id']).values(status='done'))
+            connection=m.commerce.scoped(session,session.get(m.Company,self.a),self.c['id'])
+            queued=m.commerce.enqueue(session,connection,'synthetic-frozen-projection','stock.project',{})
+            session.commit()
+        with patch('commerce_worker.remote',side_effect=HTTPException(503,'Synthetic lost response')) as delivery:
+            self.assertTrue(process_one('outbox',self.c['id']));original=delivery.call_args.args[-1]
+        self.assertEqual(Decimal(original['payload']['stock'][0]['available_quantity']),10)
+        self.client.put(self.base+'/masters/'+item['id'],headers=self.headers,json={'name':item['name'],'track_stock':True,'is_active':False}).raise_for_status()
+        with Session(engine) as session:
+            session.execute(update(outbox).where(outbox.c.id==queued['id']).values(available_at='2999-01-01'));session.commit()
+        with patch('commerce_worker.remote',return_value={'status':'done'}) as delivery:
+            self.assertTrue(process_one('outbox',self.c['id']));newer=delivery.call_args.args[-1]
+        self.assertGreater(newer['payload']['projection_version'],original['payload']['projection_version'])
+        self.assertEqual(Decimal(newer['payload']['stock'][0]['available_quantity']),0)
+        with Session(engine) as session:
+            session.execute(update(outbox).where(outbox.c.id==queued['id']).values(available_at='2000-01-01'));session.commit()
+        with patch('commerce_worker.remote',return_value={'status':'done','ignored':'stale_projection'}) as delivery:
+            self.assertTrue(process_one('outbox',self.c['id']));self.assertEqual(delivery.call_args.args[-1],original)
+        with Session(engine) as session:
+            finished=m.commerce.one(session,outbox,outbox.c.id==queued['id'])
+            self.assertEqual(finished['status'],'done');self.assertEqual(finished['result']['ignored'],'stale_projection')
+        row=self.client.get(self.path+'/workspace',headers=self.headers).json()['stock'][0]
+        self.assertEqual(Decimal(row['book_quantity']),10);self.assertEqual(Decimal(row['available_quantity']),0)
+
     def test_repeated_connection_state_put_does_not_repeat_activation_side_effects(self):
         def snapshot():
             with Session(engine) as session:

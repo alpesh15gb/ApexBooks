@@ -421,3 +421,15 @@ listed in Bagisto; the authoritative new-checkout archived-item rejection still
 applies. Real-store and PostgreSQL acceptance remain open. 9ad0079 remains in HEAD
 ancestry; its Daybook conversion-status visual recheck remains on the final matrix.
 No publication retry or deployment was performed.
+
+### Projection retry across archival
+
+Added a synthetic worker lifecycle regression: freeze a positive-stock projection
+on a simulated lost response, archive the item, deliver its newer zero-stock
+projection, then retry the earlier packet. The retry retains its exact command and
+payload; the newer projection has a higher version, and book stock is unchanged.
+All 23 commerce tests passed. No new API/worker defect was reproduced. The final
+stale_projection result was mocked; this verifies local packet ordering/retention,
+not actual Bagisto execution. Source inspection confirms the bridge's older-version
+ignore rule and whole-unit stock restriction; full bridge integration remains open.
+No production access, external delivery, publication retry or deployment occurred.
