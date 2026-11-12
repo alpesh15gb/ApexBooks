@@ -26,3 +26,12 @@ Tracked-item restore validates active note references in the exported ID namespa
 Partial supplier returns now apportion source tax by cumulative returned taxable value, with the remaining source tax exhausted on the final value return. CGST, SGST, IGST and unclassified supplier tax use remaining source-component budgets, separately for pending and ineligible ITC. Rounding adjustments larger than one paise per line require historical review. Amendment previews identify the edited note so its previous posting is excluded from the preview calculation; POST does not trust this preview-only field. Save still rechecks all capacities under the company lock.
 
 After an explicit source line is selected, no client offers a blank choice that appears to clear it. New or legacy rows can still use matching by item/description where the API permits it. Native choice-contract tests and the web submitted-payload tests cover the distinction.
+
+
+Inclusive-price residual correction: a three-unit source at INR 0.03 inclusive
+of 18% has INR 0.08 base and INR 0.01 tax. Three one-unit notes now remain INR
+0.03 each, with base 0.03/0.02/0.03 and tax 0/0.01/0. Gross is preserved while
+base and tax consume their own cumulative source residuals. Headers and stock
+valuation use the reconciled base. Quantity, gross, base and component caps
+remain strict; discrepancies larger than one paise require historical review.
+This does not automatically prorate copied fixed discounts or rewrite prior notes.

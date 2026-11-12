@@ -114,7 +114,8 @@ def validate_capacity(m, source, data, previous_notes, fields=('quantity', 'taxa
 def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
     """Allocate source tax residuals, then split each ITC class by remaining components.
 
-    Quantity/taxable limits stay strict; rounding may change only the tax paise.
+    Quantity and source-value limits stay strict. Inclusive prices allocate base
+    and tax within the unchanged gross return amount; exclusive prices allocate tax.
     Preview passes a validated editing ID; posting never trusts that input.
     """
     source = session.get(m.Record, data['applied_to'])
@@ -122,7 +123,7 @@ def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
     previous = [r for r in session.scalars(select(m.Record).where(m.Record.company_id == company_id,
         m.Record.kind == 'debit_note', m.Record.id.in_(posted)))
         if r.id != exclude_return_id and r.data.get('applied_to') == source.id]
-    validate_capacity(m, source, data, previous, fields=('quantity', 'taxable'))
+    validate_capacity(m, source, data, previous, fields=('quantity',))
     remaining = {}
     result = []
     for line in data['lines']:
@@ -133,15 +134,30 @@ def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
             remaining[indexes] = [sum((verified_value(source.data['lines'][i], field) for i in indexes), Decimal(0)) -
                 sum((verified_value(old, field) for old in prior), Decimal(0)) for field in ('taxable', 'tax')]
         base_left, tax_left = remaining[indexes]
-        if tax_left < 0: raise HTTPException(409, 'Earlier return tax exceeds source; review historical allocation')
+        if min(base_left, tax_left) < 0:
+            raise HTTPException(409, 'Earlier return values exceed source; review historical allocation')
         base = Decimal(line['taxable'])
         original_base = sum((verified_value(source.data['lines'][i], 'taxable') for i in indexes), Decimal(0))
         original_tax = sum((verified_value(source.data['lines'][i], 'tax') for i in indexes), Decimal(0))
-        desired = m.money(original_tax * (original_base - base_left + base) / original_base) if original_base else Decimal(0)
-        tax = tax_left if base == base_left else max(Decimal(0), min(tax_left, desired - (original_tax - tax_left)))
-        if abs(tax - Decimal(line['tax'])) > Decimal('.01'):
+        if line.get('price_includes_tax'):
+            # Price-inclusive return gross is a user-entered amount. Reallocating
+            # tax must never increase it or strand the source's base residual.
+            gross = base + Decimal(line['tax'])
+            gross_left, original_gross = base_left + tax_left, original_base + original_tax
+            if gross > gross_left:
+                raise HTTPException(422, 'Returned gross exceeds the remaining source purchase line')
+            desired = m.money(original_base * (original_gross - gross_left + gross) / original_gross) if original_gross else Decimal(0)
+            base = base_left if gross == gross_left else min(base_left, gross, max(Decimal(0), desired - (original_base - base_left)))
+            base = max(base, gross - tax_left)
+            tax = gross - base
+        else:
+            if base > base_left:
+                raise HTTPException(422, 'Returned taxable exceeds the remaining source purchase line')
+            desired = m.money(original_tax * (original_base - base_left + base) / original_base) if original_base else Decimal(0)
+            tax = tax_left if base == base_left else max(Decimal(0), min(tax_left, desired - (original_tax - tax_left)))
+        if max(abs(tax - Decimal(line['tax'])), abs(base - Decimal(line['taxable']))) > Decimal('.01'):
             raise HTTPException(409, 'Historical tax residual exceeds a rounding adjustment; review the source returns')
-        result.append({**line, 'tax': str(tax)})
+        result.append({**line, 'taxable': str(base), 'tax': str(tax)})
         remaining[indexes] = [base_left - base, tax_left - tax]
     validate_capacity(m, source, {**data, 'lines': result}, previous)
     keys = ('cgst', 'sgst', 'igst', 'supplier_tax')
@@ -168,7 +184,9 @@ def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
         if left: raise HTTPException(409, 'Source tax residual cannot be allocated')
         allocated.append(values)
     pending, ineligible = allocated
-    return {**data, 'lines': result, **{key: str(pending[key] + ineligible[key]) for key in keys},
+    supply_keys = {'taxable': 'taxable_supply_value', 'nil_rated': 'nil_rated_value', 'exempt': 'exempt_value', 'non_gst': 'non_gst_value'}
+    bases = {key: str(sum((Decimal(line['taxable']) for line in result if line.get('tax_treatment') == treatment), Decimal(0))) for treatment, key in supply_keys.items()}
+    return {**data, **bases, 'taxable': str(sum((Decimal(line['taxable']) for line in result), Decimal(0))), 'lines': result, **{key: str(pending[key] + ineligible[key]) for key in keys},
             **{'pending_input_' + key: str(pending[key]) for key in keys if key != 'supplier_tax'},
             'input_tax_ineligible': str(sum(ineligible.values()))}
 

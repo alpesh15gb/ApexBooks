@@ -72,3 +72,53 @@ class ReturnTaxResidualTest(unittest.TestCase):
             self.assertEqual(note.status_code,200,note.text);returned.append(note.json())
         for key in FIELDS:self.assertEqual(sum(D(n['data'][key]) for n in returned),D(source['data'][key]),key)
         self.assertLessEqual(max(D(n['data']['lines'][0]['tax']) for n in returned),D('.01'))
+
+
+    def test_inclusive_partial_returns_preserve_gross_and_exhaust_base_tax(self):
+        for interstate in (False,True):
+            for treatment in ('pending_review','ineligible'):
+                source=self.source([treatment],interstate)
+                response=self.post('/records',{'kind':'purchase_bill','name':'Supplier','date':'2026-11-01','data':{'place_of_supply':'29' if interstate else '27','supplier_state':'27','lines':[{'description':'Inclusive tiny units','quantity':3,'rate':'.03','gst_rate':18,'itc_treatment':treatment,'price_includes_tax':True}]}})
+                self.assertEqual(response.status_code,200,response.text);source=response.json()
+                notes=[self.return_one(source) for unused in range(3)]
+                self.assertEqual([D(n['amount']) for n in notes],[D('.03')]*3)
+                self.assertEqual([D(n['data']['taxable']) for n in notes],[D('.03'),D('.02'),D('.03')])
+                for key in FIELDS:self.assertEqual(sum(D(n['data'][key]) for n in notes),D(source['data'][key]),key)
+                self.note(source,[{**source['data']['lines'][0],'quantity':1}],422)
+
+    def test_inclusive_mixed_lines_discounts_and_amendment_preview_residual(self):
+        self.source(['pending_review'])
+        for discount in (False,True):
+            response=self.post('/records',{'kind':'purchase_bill','name':'Supplier','date':'2026-11-01','data':{'place_of_supply':'27','document_discount_percent':10 if discount else 0,'lines':[{'description':t,'quantity':3,'rate':'.13','gst_rate':18,'itc_treatment':t,'price_includes_tax':True} for t in ('pending_review','ineligible')]}})
+            self.assertEqual(response.status_code,200,response.text);source=response.json()
+            # Divide into 1+2 units; preserve the exact calculated gross after
+            # discounts. Third-paise differences may reside in document discount.
+            rows=source['data']['lines'];body=self.body(source,[{**r,'quantity':1} for r in rows]);body['data']['document_discount_percent']=10 if discount else 0
+            first=self.post('/records',body);self.assertEqual(first.status_code,200,first.text);first=first.json()
+            remainder=self.body(source,[{**r,'quantity':2} for r in rows]);remainder['data']['document_discount_percent']=10 if discount else 0
+            preview=self.post('/documents/preview',remainder);self.assertEqual(preview.status_code,200,preview.text)
+            last=self.post('/records',remainder);self.assertEqual(last.status_code,200,last.text);last=last.json()
+            self.assertEqual(preview.json()['amount'],last['amount'])
+            for key in FIELDS:self.assertEqual(D(first['data'][key])+D(last['data'][key]),D(source['data'][key]),key)
+            same={**body,'number':first['number'],'data':{**body['data'],'editing_record_id':first['id']}}
+            preview=self.post('/documents/preview',same);self.assertEqual(preview.status_code,200,preview.text);self.assertEqual(preview.json()['amount'],first['amount'])
+
+
+    def test_inclusive_tracked_returns_clear_inventory_and_tax_without_weakening_caps(self):
+        for treatment in ('pending_review','ineligible'):
+            self.source([treatment])
+            before={r['code']:D(r['closing_balance']) for r in self.client.get(self.base+'/reports/financial?from_date=2026-11-01&to_date=2026-11-30',headers=self.headers).json()['accounts']}
+            item=self.post('/records',{'kind':'item','name':'Tiny tracked goods','data':{'track_stock':True}}).json()
+            response=self.post('/records',{'kind':'purchase_bill','name':'Supplier','date':'2026-11-01','data':{'place_of_supply':'27','lines':[{'item_id':item['id'],'description':item['name'],'quantity':3,'rate':'.03','gst_rate':18,'itc_treatment':treatment,'price_includes_tax':True}]}})
+            self.assertEqual(response.status_code,200,response.text);source=response.json()
+            oversized=self.body(source,[{**source['data']['lines'][0],'quantity':1,'rate':'.10'}])
+            response=self.post('/records',oversized);self.assertEqual(response.status_code,422,response.text)
+            for unused in range(3):
+                body=self.body(source,[{**source['data']['lines'][0],'quantity':1}]);body['data']['return_stock']=True
+                preview=self.post('/documents/preview',body);response=self.post('/records',body)
+                self.assertEqual(response.status_code,200,response.text);self.assertEqual(preview.json()['amount'],response.json()['amount']);self.assertEqual(D(response.json()['amount']),D('.03'))
+            report=self.client.get(self.base+'/reports/financial?from_date=2026-11-01&to_date=2026-11-30',headers=self.headers).json()
+            for row in report['accounts']:
+                if row['code'] in {'SYS-AP','SYS-PURCHASE','SYS-INVENTORY','SYS-IN-CGST','SYS-IN-SGST'}:self.assertEqual(D(row['closing_balance']),before.get(row['code'],D(0)),row['code'])
+            stock=self.client.get(self.base+'/reports/stock?from_date=2026-11-01&to_date=2026-11-30',headers=self.headers).json()['rows'][0]
+            self.assertEqual(D(stock['closing_quantity']),0);self.assertEqual(D(stock['closing_value']),0)
