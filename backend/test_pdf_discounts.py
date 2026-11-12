@@ -37,11 +37,12 @@ class PdfDiscountTest(unittest.TestCase):
             line={'description':'Combined discount service','hsn':'9983','quantity':1,'rate':'118','gst_rate':18,'price_includes_tax':inclusive,**({'discount_amount':'10'} if fixed else {'discount_percent':'10'})}
             response=c.post(b+'/records',headers=h,json={'kind':'sales_invoice','name':'Combined discount buyer','date':'2026-04-02','data':{'place_of_supply':'36','document_discount_percent':document_discount,'lines':[line]}})
             self.assertEqual(response.status_code,200,response.text);record=response.json();self.assertEqual(Decimal(record['amount']),Decimal(expected))
-            for template in ('classic','modern','mrp_discount','thermal_58','thermal_80'):
+            for template in ('classic','compact','bold','minimal','modern','mrp_discount','thermal_58','thermal_80'):
                 text=self.pdf_text(c,h,b,record,template)
                 self.assertIn('INR 10.00' if fixed else '10%',text)
                 self.assertIn(expected,text)
-                if template!='classic':self.assertIn('Document discount: INR',text)
+                self.assertIn('Document discount: INR',text)
+                self.assertNotIn('Gross value',text)
                 if inclusive and template in THERMAL:self.assertIn('Rate includes GST',text)
         self.assertEqual(line_discount_label({'discount_amount':'0','discount_percent':'0'}),'INR 0.00')
         self.assertEqual(line_discount_label({'discount_percent':'12.5'}),'12.5%')

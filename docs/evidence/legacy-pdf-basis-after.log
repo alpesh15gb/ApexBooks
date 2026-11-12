@@ -1,0 +1,37 @@
+/tmp/apex-rehearsal-venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 7eb3f7cfeafd, initial_schema
+INFO  [alembic.runtime.migration] Running upgrade 7eb3f7cfeafd -> 7442341b1871, auth_sessions
+INFO  [alembic.runtime.migration] Running upgrade 7442341b1871 -> a6d6f192e59b, bank_accounts
+INFO  [alembic.runtime.migration] Running upgrade a6d6f192e59b -> c321f06d1a48, Persist dated bank reconciliation reviews.
+INFO  [alembic.runtime.migration] Running upgrade c321f06d1a48 -> e49b0ce93d31, Track quantities for explicitly linked stock items.
+INFO  [alembic.runtime.migration] Running upgrade e49b0ce93d31 -> f81703c47a62, Record moving-average cost for new tracked stock movements.
+INFO  [alembic.runtime.migration] Running upgrade f81703c47a62 -> a70e29b0f6bc, Allow partial and many-to-many bank statement matching.
+INFO  [alembic.runtime.migration] Running upgrade a70e29b0f6bc -> b3486c812f14, Store split payment allocations alongside existing single allocations.
+INFO  [alembic.runtime.migration] Running upgrade b3486c812f14 -> c4527f019a21, Add one-use account recovery codes and persistent auth throttles.
+INFO  [alembic.runtime.migration] Running upgrade c4527f019a21 -> d5639a021b47, Tenant/company scoped Bagisto connections, durable delivery and stock holds.
+INFO  [alembic.runtime.migration] Running upgrade d5639a021b47 -> e674ab031c58, Use 64-bit source versions for durable event ordering.
+INFO  [alembic.runtime.migration] Running upgrade e674ab031c58 -> f785bc142d69, Add an owner-chosen book label separate from the legal company name.
+INFO  [alembic.runtime.migration] Running upgrade f785bc142d69 -> g896cd253e70, Add immutable company-scoped evidence, without changing existing book rows.
+INFO  [alembic.runtime.migration] Running upgrade g896cd253e70 -> h907ef475a92, Add durable bounded import/export staging, separate from retained evidence.
+INFO  [alembic.runtime.migration] Running upgrade h907ef475a92 -> i018fa586b03, Persist exact keyed master import results independently of company backups.
+INFO  [alembic.runtime.migration] Running upgrade i018fa586b03 -> j129ab697c14, Persist exact keyed bank import results independently of company backups.
+test_fixed_discount_prints_amount_not_computed_zero_percent_in_every_layout (test_pdf_discounts.PdfDiscountTest.test_fixed_discount_prints_amount_not_computed_zero_percent_in_every_layout) ... ok
+test_inclusive_and_document_discount_combinations_preserve_printed_input_and_total (test_pdf_discounts.PdfDiscountTest.test_inclusive_and_document_discount_combinations_preserve_printed_input_and_total) ... ok
+test_available_credit_and_partial_refund_are_not_balance_due (test_thermal_settlements.ThermalSettlementTest.test_available_credit_and_partial_refund_are_not_balance_due) ... ok
+test_legacy_a4_separates_offsets_and_unused_credit (test_thermal_settlements.ThermalSettlementTest.test_legacy_a4_separates_offsets_and_unused_credit) ... ok
+test_non_cash_note_offset_is_separate_from_payments (test_thermal_settlements.ThermalSettlementTest.test_non_cash_note_offset_is_separate_from_payments) ... ok
+test_all_templates_and_no_book_mutation (test_note_pdf_source.NotePdfSourceTest.test_all_templates_and_no_book_mutation) ... ok
+test_long_reference_escape_and_tail (test_note_pdf_source.NotePdfSourceTest.test_long_reference_escape_and_tail) ... ok
+test_regular_gst_totals_and_cancelled_note_export (test_note_pdf_source.NotePdfSourceTest.test_regular_gst_totals_and_cancelled_note_export) ... ok
+test_two_restores (test_note_pdf_source.NotePdfSourceTest.test_two_restores) ... ok
+test_unlinked_missing_foreign_wrong_kind_and_cancelled (test_note_pdf_source.NotePdfSourceTest.test_unlinked_missing_foreign_wrong_kind_and_cancelled) ... ok
+test_visible_text_embeds_fonts_in_all_layouts (test_document_fonts.DocumentFontTest.test_visible_text_embeds_fonts_in_all_layouts) ... ok
+test_nine_line_quote_all_pdfs_and_conversion_preserve_values (test_quotation_acceptance.QuotationAcceptanceTest.test_nine_line_quote_all_pdfs_and_conversion_preserve_values) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 9.011s
+
+OK

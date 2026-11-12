@@ -3005,6 +3005,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     if record.data.get('cancelled'):
         raise HTTPException(409, 'Cancelled documents cannot be exported as active originals; review the retained document and cancellation audit history')
     from types import SimpleNamespace
+    from currency import format_inr
     current_brand=branding_for(company_id,session);document_data=dict(record.data)
     # Resolve PDF traceability from this tenant's stored source, never submitted display metadata.
     source_reference = ''
@@ -3124,6 +3125,8 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     for line in data.get('lines', []):
         description = safe(line.get('description'))
         if line.get('unit'): description += '<br/>Unit: ' + safe(line['unit'])
+        if line.get('price_includes_tax'): description += '<br/>Rate includes GST'
+        if Decimal(str(line.get('document_discount', 0))): description += '<br/>Document discount: INR ' + safe(format_inr(line['document_discount']))
         if line.get('tax_treatment') in {'nil_rated', 'exempt', 'non_gst'}:
             description += '<br/><font size="7" color="#52605b">' + {'nil_rated': 'Nil-rated supply', 'exempt': 'Exempt supply', 'non_gst': 'Non-GST supply'}[line['tax_treatment']] + '</font>'
         if tax_mode == 'regular' and record.kind in {'purchase_bill', 'purchase_order', 'debit_note'} and Decimal(str(line.get('tax', 0))) > 0:
@@ -3138,11 +3141,8 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     table_style = [('FONTNAME', (0, 0), (-1, -1), REGULAR_FONT), ('BACKGROUND', (0, 0), (-1, 0), accent), ('TEXTCOLOR', (0, 0), (-1, 0), colors.white), ('VALIGN', (0, 0), (-1, -1), 'TOP'), ('TOPPADDING', (0, 0), (-1, -1), padding), ('BOTTOMPADDING', (0, 0), (-1, -1), padding)]
     if grid: table_style.append(('LINEBELOW', (0, 0), (-1, -1), .3, colors.HexColor('#dce4df')))
     table.setStyle(TableStyle(table_style)); elements += [table, Spacer(1, 18)]
-    total_discount = sum((Decimal(str(line.get('discount', 0))) for line in data.get('lines', [])), Decimal('0'))
-    totals = []
-    if total_discount > 0:
-        totals += [('Gross value', money(Decimal(str(data.get('taxable', 0))) + total_discount)), ('Discount', total_discount)]
-    totals += [('Subtotal', data.get('taxable', record.amount))]
+    discounted = any(Decimal(str(line.get(key, 0))) for line in data.get('lines', []) for key in ('discount', 'document_discount'))
+    totals = [('Subtotal after discounts' if discounted else 'Subtotal', data.get('taxable', record.amount))]
     if has_gst:
         totals += [(key.upper(), data.get(key, '0.00')) for key in ('cgst', 'sgst', 'igst') if Decimal(str(data.get(key, 0))) > 0]
         if Decimal(str(data.get('supplier_tax', 0))) > 0: totals.append(('Supplier tax (unclassified)', data['supplier_tax']))
@@ -3158,6 +3158,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     if voucher: brand = {**brand, 'upi_id': ''}
     bank_lines = [safe(label) + ': ' + safe(brand[key]) for key, label in [('bank_name', 'Bank'), ('account_number', 'Account #'), ('ifsc', 'IFSC'), ('branch', 'Branch')] if brand.get(key)]
     if record.kind in {'sales_invoice', 'purchase_bill'}: legacy_paid = applied_total(company_id, record.id, session)
+    elif record.kind in {'credit_note', 'debit_note'}: legacy_paid = record.amount - available_credit(sys.modules[__name__], company_id, record, session)
     elif record.kind in {'pos', 'expense'} or voucher: legacy_paid = record.amount
     else: legacy_paid = Decimal('0')
     payable = max(Decimal('0'), record.amount - legacy_paid)
@@ -3170,8 +3171,17 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
         x0, y0, x1, y1 = code.getBounds(); side = 78
         drawing = Drawing(side, side, transform=[side / (x1 - x0), 0, 0, side / (y1 - y0), 0, 0]); drawing.add(code)
         qr_cell = [Paragraph('<b>Pay using UPI</b>', styles['ApexBody']), drawing, Paragraph(safe(brand['upi_id']), styles['ApexSmall'])]
-    if record.kind in {'sales_invoice', 'purchase_bill'} and legacy_paid:
-        elements += [Paragraph(f'Amount paid: INR {legacy_paid} · Balance due: INR {payable}', styles['ApexBody']), Spacer(1, 8)]
+    if record.kind in {'sales_invoice', 'purchase_bill'}:
+        payments = Decimal(str(data.get('payments_applied', legacy_paid)))
+        adjustments = max(Decimal('0'), legacy_paid - payments)
+        settlement = [('Payments received' if record.kind == 'sales_invoice' else 'Payments made', payments)]
+        if adjustments: settlement.append(('Credit notes / adjustments' if record.kind == 'sales_invoice' else 'Debit notes / adjustments', adjustments))
+        settlement.append(('Balance due', payable))
+    elif record.kind in {'credit_note', 'debit_note'}:
+        settlement = [('Credit used / refunded', legacy_paid), ('Credit remaining', payable)]
+    else: settlement = []
+    if settlement:
+        elements += [Paragraph('<br/>'.join(safe(label) + ': INR ' + safe(format_inr(value)) for label, value in settlement), styles['ApexBody']), Spacer(1, 8)]
     signature_cell = [Paragraph('For ' + safe(supplier.get('name')), styles['ApexBody'])]
     if brand.get('signature'):
         from reportlab.platypus import Image as PdfImage

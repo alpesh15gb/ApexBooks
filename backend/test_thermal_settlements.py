@@ -34,3 +34,15 @@ class ThermalSettlementTest(unittest.TestCase):
                     text=self.pdf(note,template,'settlement-'+note_kind+str(amount))
                     self.assertIn(f'Credit used / refunded {amount}.00',text)
                     self.assertIn(f'Credit remaining INR {remaining}.00',text);self.assertNotIn('Balance due',text)
+
+    def test_legacy_a4_separates_offsets_and_unused_credit(self):
+        for source_kind,payment,note_kind,label in [('sales_invoice','payment_in','credit_note','Payments received'),('purchase_bill','payment_out','debit_note','Payments made')]:
+            source=self.create(source_kind);note=self.create(note_kind,source)
+            for template in ('classic','compact','bold','minimal'):
+                text=self.pdf(source,template);self.assertIn(label+': INR 0.00',text);self.assertIn('notes / adjustments: INR 100.00',text)
+                text=self.pdf(note,template);self.assertIn('Credit used / refunded: INR 100.00',text);self.assertIn('Credit remaining: INR 0.00',text)
+            paid_source=self.create(source_kind)
+            r=self.post('/records',{'kind':payment,'name':paid_source['name'],'date':'2026-04-01','amount':100,'data':{'applied_to':paid_source['id']}});self.assertEqual(r.status_code,200,r.text)
+            credit=self.create(note_kind,paid_source)
+            for template in ('classic','compact','bold','minimal'):
+                text=self.pdf(credit,template,'legacy-credit-'+note_kind);self.assertIn('Credit used / refunded: INR 0.00',text);self.assertIn('Credit remaining: INR 100.00',text);self.assertNotIn('Balance due',text)
