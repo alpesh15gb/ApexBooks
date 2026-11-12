@@ -1966,9 +1966,11 @@ def post_stock_adjustment(company_id: str, body: StockAdjustmentInput, request: 
     return {**obj(record), 'posted': True}
 
 @app.get('/api/companies/{company_id}/accounts')
-def list_accounts(company_id: str, user: User = Depends(current_user), session: Session = Depends(db)):
+def list_accounts(company_id: str, user: User = Depends(current_user), session: Session = Depends(db), code: str | None = None):
     company_for(company_id, user, session)
-    accounts = session.scalars(select(LedgerAccount).where(LedgerAccount.company_id == company_id).order_by(LedgerAccount.code))
+    query = select(LedgerAccount).where(LedgerAccount.company_id == company_id)
+    if code is not None: query = query.where(LedgerAccount.code == code)
+    accounts = session.scalars(query.order_by(LedgerAccount.code))
     return [{'id': a.id, 'code': a.code, 'name': a.name, 'category': a.category} for a in accounts]
 
 @app.get('/api/companies/{company_id}/bank-accounts')

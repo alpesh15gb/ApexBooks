@@ -2157,7 +2157,7 @@ function Ledger({ companyId, role, onOpen, drafts }) {
   useEffect(() => registerPostingRequest(posting.current), []);
   const [busy, setBusy] = useState(false);
   const [uncertainty, setUncertainty] = useState(draft.uncertainty || {});
-  function uncertain(operation, command, unresolved) { const previous = draft.uncertainty?.[operation] || []; draft.uncertainty = { ...draft.uncertainty, [operation]: unresolved ? [...new Set([...previous, command])] : previous.filter(value => value !== command) }; setUncertainty(draft.uncertainty); }
+  function uncertain(operation, command, unresolved) { const previous = draft.uncertainty?.[operation] || []; draft.uncertainty = { ...draft.uncertainty, [operation]: unresolved ? [...new Set([...previous, command])] : previous.filter(value => value !== command) }; draft.dirty = Boolean(draft.accountDirty || draft.entryDirty || Object.values(draft.uncertainty).some(values => values.length)); setUncertainty(draft.uncertainty); }
   function failed(operation, err, command) {
     if (err instanceof TypeError || err.status === 0 || err.status === 408 || err.status >= 500) uncertain(operation, command, true);
     setError(err.message);
@@ -2176,8 +2176,8 @@ function Ledger({ companyId, role, onOpen, drafts }) {
       reason: "",
     });
   function setError(value) { draft.error = value; updateError(value); }
-  function setAccount(value, saved = false) { draft.account = value; draft.accountDirty = !saved; draft.dirty = Boolean(draft.accountDirty || draft.entryDirty); updateAccount(value); }
-  function setEntry(value, saved = false) { draft.entry = value; draft.entryDirty = !saved; draft.dirty = Boolean(draft.accountDirty || draft.entryDirty); updateEntry(value); }
+  function setAccount(value, saved = false) { draft.account = value; draft.accountDirty = !saved; draft.dirty = Boolean(draft.accountDirty || draft.entryDirty || Object.values(draft.uncertainty || {}).some(values => values.length)); updateAccount(value); }
+  function setEntry(value, saved = false) { draft.entry = value; draft.entryDirty = !saved; draft.dirty = Boolean(draft.accountDirty || draft.entryDirty || Object.values(draft.uncertainty || {}).some(values => values.length)); updateEntry(value); }
   const activeCompany = useRef(companyId);
   activeCompany.current = companyId;
   const workspaceScope = useRef(createRequestScope(companyId));
@@ -2208,22 +2208,25 @@ function Ledger({ companyId, role, onOpen, drafts }) {
     setBalance(null);
     load();
   }, [companyId, through]);
-  async function addAccount(e) {
+  async function addAccount(e, retry = false) {
     e.preventDefault();
     if (!canWrite || submitting.current) return;
+    const pending = draft.uncertainty?.account?.[0];
+    if (pending && !retry) { setError("Resolve or retry the original account before starting another."); return; }
+    const command = pending ? JSON.parse(pending) : account;
     submitting.current = true; posting.current.busy = true;
     setBusy(true);
     setError("");
     try {
       await api(`/companies/${companyId}/accounts`, {
         method: "POST",
-        body: JSON.stringify(account),
+        body: JSON.stringify(command),
       });
-      uncertain("account", JSON.stringify(account), false);
+      uncertain("account", JSON.stringify(command), false);
       setAccount({ code: "", name: "", category: "asset" }, true);
       await load();
     } catch (err) {
-      failed("account", err, JSON.stringify(account));
+      failed("account", err, JSON.stringify(command));
     } finally {
       submitting.current = false; posting.current.busy = false;
       setBusy(false);
@@ -2288,28 +2291,50 @@ function Ledger({ companyId, role, onOpen, drafts }) {
     } catch (err) { setError(err.message); }
     finally { submitting.current = false; posting.current.busy = false; setBusy(false); }
   }
-  async function reverseEntry(e) {
+  async function reverseEntry(e, retry = false) {
     e.preventDefault();
     if (!canWrite || submitting.current) return;
+    const pending = draft.uncertainty?.reversal?.[0];
+    if (pending && !retry) { setError("Resolve or retry the original reversal before starting another."); return; }
+    const command = pending ? JSON.parse(pending) : { id: reversing.id, ...reversal };
     submitting.current = true; posting.current.busy = true;
     setBusy(true);
     setError("");
     try {
-      await api(`/companies/${companyId}/journals/${reversing.id}/reverse`, {
+      await api(`/companies/${companyId}/journals/${command.id}/reverse`, {
         method: "POST",
-        body: JSON.stringify(reversal),
+        body: JSON.stringify({date: command.date, reference: command.reference, reason: command.reason}),
       });
-      uncertain("reversal", JSON.stringify({ id: reversing.id, ...reversal }), false);
+      uncertain("reversal", JSON.stringify(command), false);
       setReversing(null);
       setReversal({ date: today(), reference: "", reason: "" });
       await load();
     } catch (err) {
-      failed("reversal", err, JSON.stringify({ id: reversing.id, ...reversal }));
+      failed("reversal", err, JSON.stringify(command));
     } finally {
       submitting.current = false; posting.current.busy = false;
       setBusy(false);
     }
   }
+  async function checkOriginalOperation(operation) {
+    const pending = draft.uncertainty?.[operation]?.[0];
+    if (!pending || submitting.current) return;
+    const command = JSON.parse(pending);
+    submitting.current = true; posting.current.busy = true; setBusy(true);
+    try {
+      const isAccount = operation === 'account';
+      const rows = await api(`/companies/${companyId}/${isAccount ? 'accounts?code=' + encodeURIComponent(command.code) : 'journals?reference=' + encodeURIComponent(command.reference.trim())}`);
+      const row = rows.find(value => isAccount ? value.code === command.code : value.reference === command.reference.trim());
+      const matches = row && (isAccount ? row.name === command.name.trim() && row.category === command.category : row.reversal_of === command.id && row.date === command.date && row.memo === command.reason.trim());
+      if (!matches) { setError(row ? 'The original identifier belongs to a different result. Keep the draft and review it before continuing.' : 'The original result is not visible yet. This does not prove the request failed. Retry only the original command.'); return; }
+      uncertain(operation, pending, false);
+      if (isAccount) setAccount({ code: '', name: '', category: 'asset' }, true);
+      else { setReversing(null); setReversal({ date: today(), reference: '', reason: '' }); }
+      setError(''); await load();
+    } catch (err) { setError(err.message); }
+    finally { submitting.current = false; posting.current.busy = false; setBusy(false); }
+  }
+  const reversalRecovery = uncertainty.reversal?.length > 0 && canWrite && <div className="info-box"><p>The original reversal is frozen until its outcome is confirmed.</p><button type="button" disabled={busy} onClick={() => checkOriginalOperation('reversal')}>Check original reversal</button> <button type="button" disabled={busy} onClick={event => reverseEntry(event, true)}>Retry original reversal</button></div>;
   const accountName = (id) =>
     accounts.find((a) => a.id === id)?.name || "Account";
   return (
@@ -2329,12 +2354,14 @@ function Ledger({ companyId, role, onOpen, drafts }) {
         ledger automatically. Older prototype records remain unposted.
       </div>
       <p className="info-box">Unsaved journal and account drafts are kept separately for each company while you navigate in this tab. Reloading or signing out discards them.</p>
+      {!reversing && reversalRecovery}
       <div className="ledger-grid">
         <section className="panel settings-panel">
           <h2>Chart of accounts</h2>
           <p>{canWrite ? "Add the accounts you need for manual entries." : "Accounts used by your company’s posted transactions."}</p>
+          {canWrite && uncertainty.account?.length > 0 && <div className="info-box"><p>The original account is frozen until its outcome is confirmed.</p><button type="button" disabled={busy} onClick={() => checkOriginalOperation('account')}>Check original account</button> <button type="button" disabled={busy} onClick={event => addAccount(event, true)}>Retry original account</button></div>}
           {canWrite && <form className="form-grid ledger-form" onSubmit={addAccount}>
-            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy}>
+            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy || Boolean(uncertainty.account?.length)}>
             <label>
               Account code
               <input
@@ -2488,7 +2515,7 @@ function Ledger({ companyId, role, onOpen, drafts }) {
                     : ""}
               </span>
               {canWrite && !j.reversed_by && !j.reversal_of && !j.source_record_id && (
-                <button className="link" onClick={() => setReversing(j)}>
+                <button className="link" disabled={busy || Boolean(uncertainty.reversal?.length)} onClick={() => setReversing(j)}>
                   Reverse entry
                 </button>
               )}
@@ -2567,8 +2594,9 @@ function Ledger({ companyId, role, onOpen, drafts }) {
           subtitle={`Create an opposite entry for ${reversing.reference}. The original stays in history.`}
           close={() => { if (!busy) setReversing(null); }}
         >
+          {reversalRecovery}
           <form className="form-grid" onSubmit={reverseEntry}>
-            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy}>
+            <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy || Boolean(uncertainty.reversal?.length)}>
             <label>
               Date
               <input

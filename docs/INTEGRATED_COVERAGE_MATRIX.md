@@ -559,3 +559,32 @@ preview/save parity, purchase-return residuals). Lint/build/budgets passed. Synt
 requests and fake download sink only. Browser/native acceptance, PostgreSQL concurrent
 journal recovery and durable recovery across reload/sign-out remain open. Drafts and
 uncertainty are memory-only; no production access, upload retry or deployment.
+
+### Account/reversal frozen recovery and PostgreSQL (after d721f72)
+
+Unknown account creation and journal reversal now freeze their original commands.
+Normal/changed submissions are blocked; explicit retries use the original code or
+journal ID/reference/date/reason. Recovery survives screen remount/company switching
+in company-scoped memory and is unavailable to viewers. Account lookup filters exact
+code in SQL; reversal lookup requires the original journal's reversal lineage plus
+matching date/reason/reference. Missing, conflicting and 409 outcomes stay unresolved.
+Uncertainty alone marks the workspace dirty for reload/sign-out warnings. No automatic
+retry, destructive reset or durable storage of draft data was added.
+
+Validation: six rendered tests passed, including account/reversal lost responses,
+double submit, changed code, remount, company/role boundaries, original-only retry and
+missing/conflicting/matching result checks; existing journal and master recovery tests
+also passed. Four SQLite tests passed (three concurrency scenarios and reference lookup).
+Lint/build/budgets passed.
+
+A fresh official Debian PostgreSQL 17.11 toolchain was downloaded and SHA256-verified,
+extracted under /tmp without system installation. Disposable loopback-only PostgreSQL
+ran all migrations and three HTTP concurrency tests: four same-code account creates
+(one 201, three 409), four identical-reference journals (one 201, three 409), and four
+different-reference reversals of one original (one 201, three 409). Exact lookup matched
+the winning result and reversal returned trial-balance totals to zero. The server was
+stopped in a finally block. Evidence: evidence/manual-recovery-postgres-2026-11-12.log.
+The environment disallowed Unix sockets; loopback TCP worked when server and tests
+ran in the same execution namespace. This is bounded synthetic consistency evidence,
+not load testing or production recovery validation. Browser/native acceptance and
+memory loss across reload/sign-out remain open. No upload retry or deployment.
