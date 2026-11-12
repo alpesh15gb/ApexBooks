@@ -1269,3 +1269,37 @@ baseline, not a production clone or PostgreSQL recovery proof. Real age-encrypte
 backup rehearsal was not rerun after the toolchain loss. Native full builds and
 device acceptance, real writer inventory/pause, production backup/restore and
 rollback verification remain release gates for the operator. Production untouched.
+
+### Encrypted and PostgreSQL full-database rehearsal (2026-11-12)
+
+Real age encryption/decryption rehearsal passed again with official Debian age
+1.2.1 package, matched to the previously authenticated package SHA256. Wrong key,
+failed dump/upload, corrupted mock remote, private archive permissions and mocked
+stop/restore/start are covered. Database and remote commands remain mocked in
+this encrypted-script test; no real remote storage or production keys were used.
+
+New tests/upgrade/rehearse_postgres_receipts.py initializes its own temporary
+loopback PostgreSQL cluster, never accepts an existing database URL, and terminates
+the server in finally. Official PostgreSQL 17.11 packages were authenticated by
+APT signed Debian metadata and extracted under /tmp. The initial empty previous
+head i018fa586b03 rejects readiness and writes, then upgrades to current head.
+Fixtures are seeded after upgrade: buyer, tracked item/opening stock, invoice,
+partial cash payment, bank statement row and master/bank import receipts.
+
+A real custom-format pg_dump and single-transaction pg_restore into a second
+disposable database preserve all 41 table counts, five full reports (financial,
+stock, parties, ageing, party statement), all five record outputs, one bank row
+and both exact receipt responses. The restored synthetic session is reused to
+avoid creating an extra login row during comparison. Repeated migration remains
+ready; nonempty receipt downgrade refuses deletion and the receipt remains usable.
+
+Evidence and toolchain hashes: docs/evidence/postgres-full-rehearsal.log,
+encrypted-rehearsal-current.log and rehearsal-toolchain-provenance.json.
+Re-run with the isolated Python environment and --pg-bin pointing to separately
+authenticated PostgreSQL binaries. No system installation or CI dispatch occurred.
+
+Limits: small synthetic fixture, no commerce rows or concurrent writers, no live
+operator pause/resume, no populated PostgreSQL pre-upgrade migration or rollback
+of post-upgrade writes. Populated legacy migration remains separately checked on
+SQLite. This does not establish production recoverability. No production access,
+publication retry or deployment.

@@ -1,0 +1,15 @@
+{
+  "source": "Official Debian https://deb.debian.org/debian",
+  "postgres_version": "17.11-0+deb13u1",
+  "postgres_authentication": "APT signed trixie InRelease/package metadata using installed Debian archive keyring; no unauthenticated options",
+  "age_version": "1.2.1-1+b5",
+  "age_authentication": "Exact SHA256 matched previously signed-metadata-verified package recorded in encrypted-backup-2026-11-12.json",
+  "sha256": {
+    "postgresql-client-17_17.11-0+deb13u1_amd64.deb": "9d8558f8dd57c8e92e218a20698383575d53742ca3f9e7c2b7fe5f246d5216ae",
+    "postgresql-17_17.11-0+deb13u1_amd64.deb": "d2ce1ddffafa783f9acda4c92c86fc21e8288bff3782d739294f14fa797d7886",
+    "libpq5_17.11-0+deb13u1_amd64.deb": "20a4c9ef58b4baf90deda67cfb2cc062871c062830dddc234d28f5ac7931b86b",
+    "age.deb": "a87ab5ba69a99bc6d8c95935ae467fa877daef50d11d9dabe0520ae01411f85c"
+  },
+  "installation": "Extracted under /tmp only; no system services or configuration installed",
+  "scope": "Temporary synthetic identities, local ephemeral PostgreSQL cluster; encrypted script database/remote mocked"
+}
