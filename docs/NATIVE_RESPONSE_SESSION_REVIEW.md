@@ -176,3 +176,42 @@ report/PDF/recovery-code/attachment callers have separate existing generation
 checks, but their retained read-access epoch/final external-side-effect coverage
 still needs review; these four corrected flows are not a blanket closure of all
 native export paths. No production action, CI dispatch or publication occurred.
+
+## Retained PDF and report export follow-up
+
+The previous committed Windows ShowPdf method failed a compiled regression after
+access denial: its retained image was not cleared (`/tmp/apex-windows-pdf-red.log`).
+Report, party-statement and document-PDF downloads now retain their original access
+verifier into preview/save. A preview retains that guard plus its own lifetime;
+closed or denied previews cannot use old Save handlers. A current core-access
+denial clears the PDF image and disables/removes its controls without discarding
+financial editor drafts. Recovery requires reopening the preview. Late page and
+format results/errors do not publish into a closed or denied preview. Failed
+format selection restores the selector to the format matching retained bytes.
+
+Share preparation rechecks before the external process launch; a stale private
+staging file/folder is cleaned up. Print preparation rechecks after rasterization
+and before calling the print bridge. No real share/print was launched in tests.
+An external flow already handed to the OS cannot be retroactively revoked.
+
+Evidence:
+
+- Six actual ShowPdf compiled scenarios: current/denied retained Save, successful
+  and failed format response, denial during format fetch and closing during fetch,
+  including invocation of an old Save handler. `/tmp/apex-windows-pdf-ownership.log`.
+- Four actual ApexShare/ApexPrinter preparation cases with a fake filesystem,
+  process launcher, rasterizer and print bridge. `/tmp/apex-windows-pdf-external.log`.
+- Forty actual callback cases across reports, party/document PDFs and prior
+  backup/data/cashbook exports. `/tmp/apex-windows-report-context.log`.
+- Android actual-method PDF, cash-book and save-ownership checks rerun separately;
+  their logs are `/tmp/apex-retained-AndroidPdfLoading.log`,
+  `/tmp/apex-retained-AndroidCashBook.log` and
+  `/tmp/apex-retained-AndroidSaveOwnership.log`. No new Android behavior change is
+  claimed in this follow-up.
+
+The Windows harness compiles the actual preview/callback bodies but substitutes
+WinUI controls, rendering and external-launch boundaries. It does not establish
+full application compilation, OS picker/print/share behavior, accessibility or
+physical-device acceptance. Retained attachment and recovery-code views remain
+separate review items. Final native CI on the exact commit remains required;
+no workflow dispatch, publication or production action occurred.

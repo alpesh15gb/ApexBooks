@@ -17,7 +17,7 @@ public sealed partial class MainPage
 {
     private async Task ReportsPage()
     {
-        var cid=CompanyId;var stamp=generation;var sequence=0;
+        var cid=CompanyId;var stamp=generation;var exportAccess=CaptureFileSaveAccess();var sequence=0;
         void Library()
         {
             ++sequence;Body.Children.Clear();var search=Input("Find a report · sales, GST, stock, balances…");var group=Select("Report category",new[]{("all","All reports")}.Concat(FeatureCatalog.Reports.Select(r=>r.Group).Distinct().Select(g=>(g,g))));var list=Stack(14);
@@ -30,7 +30,7 @@ public sealed partial class MainPage
             string Path(){var query=key is "ageing" or "credits" or "advances"?$"as_of={to.Value}":$"from_date={from.Value}&to_date={to.Value}";if(key is "parties" or "ageing")query+="&party="+Uri.EscapeDataString(party.Text);return Api.CompanyPath(cid,feature.Path+(feature.Path.Contains('?')?"&":"?")+query);}
             void Dates(){var custom=Value(mode)=="custom";period.View.Visibility=custom?Visibility.Collapsed:Visibility.Visible;from.View.Visibility=to.View.Visibility=custom?Visibility.Visible:Visibility.Collapsed;if(!custom){if(!DateTime.TryParseExact(period.Value,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out var date))return;var months=Value(mode)=="quarter"?3:1;var first=new DateTime(date.Year,months==3?((date.Month-1)/3)*3+1:date.Month,1);from.Picker.Date=new DateTimeOffset(first);to.Picker.Date=new DateTimeOffset(first.AddMonths(months).AddDays(-1));}}
             async Task Load(){if(gst&&Value(mode)!="custom"&&period.Value.Length==0)throw new Exception("Choose a date within the GST month or quarter.");if(gst)Dates();var request=++sequence;var url=Path();ready="";loaded=null;if(jsonExport is not null)jsonExport.IsEnabled=false;results.Children.Clear();results.Children.Add(Text("Loading report…"));try{var data=await Api.Send(url);if(stamp!=generation||request!=sequence||!Body.Children.Contains(results))return;ready=url;loaded=data.Object();if(jsonExport is not null)jsonExport.IsEnabled=loaded["export_info"].Flag("json_available")==true;filename=(key=="gstr2a"?"gstr2a-purchase-books":gst?key+"-preparation":key)+"-"+from.Value+"-"+to.Value;results.Children.Clear();if(gst)RenderGstReport(results,loaded);else if(key=="statements"&&data["profit_loss"] is not null)RenderStatements(results,data.Object());else RenderReport(results,data);}catch{if(Body.Children.Contains(results)){results.Children.Clear();results.Children.Add(Card(Text("This report could not be loaded. Review the message and apply again.")));}throw;}}
-            async Task Export(string format){if(gst&&Value(mode)!="custom"&&period.Value.Length==0)throw new Exception("Choose a date within the GST month or quarter.");if(gst)Dates();if(ready.Length==0||ready!=Path())throw new Exception("Apply the selected dates before exporting.");if(format=="json"&&loaded?["export_info"].Flag("json_available")!=true)throw new Exception("Resolve the preparation checks before exporting draft JSON.");var parts=ready.Split('?',2);var bytes=await Api.Download(parts[0]+"."+format+"?"+parts[1]);if(stamp!=generation||cid!=CompanyId||!Body.Children.Contains(results))return;if(format=="pdf")await ShowPdf(bytes,filename+".pdf");else await ApexFiles.Save(bytes,filename+"."+format);}
+            async Task Export(string format){if(gst&&Value(mode)!="custom"&&period.Value.Length==0)throw new Exception("Choose a date within the GST month or quarter.");if(gst)Dates();if(ready.Length==0||ready!=Path())throw new Exception("Apply the selected dates before exporting.");if(format=="json"&&loaded?["export_info"].Flag("json_available")!=true)throw new Exception("Resolve the preparation checks before exporting draft JSON.");var parts=ready.Split('?',2);await ScopedFileExport.Download(exportAccess,()=>Api.Download(parts[0]+"."+format+"?"+parts[1]),null,async(bytes,verify)=>{if(stamp!=generation||cid!=CompanyId||!Body.Children.Contains(results))return false;if(format=="pdf"){await ShowPdf(bytes,filename+".pdf",originalAccess:verify);return true;}return await ApexFiles.Save(bytes,filename+"."+format,verify);});}
             var back=Button("← Report library",Library);Body.Children.Add(back);Body.Children.Add(Text(feature.Title,26,true));Body.Children.Add(Text(feature.Description));var controls=Stack();if(gst){controls.Children.Add(Columns(mode,period.View));mode.SelectionChanged+=(_,_)=>Dates();period.Picker.DateChanged+=(_,_)=>Dates();Dates();}controls.Children.Add(Columns(from.View,to.View));if(key is "parties" or "ageing")controls.Children.Add(party);actions.Children.Add(AsyncButton("Apply period",Load,Error,true));actions.Children.Add(AsyncButton("PDF / print",()=>Export("pdf"),Error));actions.Children.Add(AsyncButton("Export XLSX",()=>Export("xlsx"),Error));if(key=="gstr1"){jsonExport=AsyncButton("Draft JSON",()=>Export("json"),Error);jsonExport.IsEnabled=false;actions.Children.Add(jsonExport);}var reportActions=actions.Children.Cast<UIElement>().ToArray();actions.Children.Clear();controls.Children.Add(ResponsiveGrid(170,reportActions));Body.Children.Add(Card(controls));Body.Children.Add(results);await Load();
         }
         Library();await Task.CompletedTask;
@@ -60,7 +60,7 @@ public sealed partial class MainPage
 
     private async Task PartyStatement(JsonObject party)
     {
-        var cid=CompanyId;var stamp=generation;var panel=Stack(18);panel.MinWidth=850;var from=new DateInput("From",J.FinancialStart);var to=new DateInput("To",J.Today);var rows=Stack(16);var sequence=0;
+        var cid=CompanyId;var stamp=generation;var exportAccess=CaptureFileSaveAccess();var panel=Stack(18);panel.MinWidth=850;var from=new DateInput("From",J.FinancialStart);var to=new DateInput("To",J.Today);var rows=Stack(16);var sequence=0;
         string Query()=>"?from_date="+from.Value+"&to_date="+to.Value;
         string Path()=>Api.CompanyPath(cid,$"/parties/{party.Text("id")}/statement");
         async Task Load()
@@ -82,35 +82,41 @@ public sealed partial class MainPage
             else Table(rows,result["transactions"].Array(),"Transactions");
         }
         var actions=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};actions.Children.Add(AsyncButton("Apply dates",Load,Error,true));
-        foreach(var format in new[]{"pdf","xlsx"})actions.Children.Add(AsyncButton("Export "+format.ToUpperInvariant(),async()=>{var bytes=await Api.Download(Path()+"."+format+Query());if(stamp!=generation||cid!=CompanyId)return;await ApexFiles.Save(bytes,"party-statement."+format);},Error));
+        foreach(var format in new[]{"pdf","xlsx"})actions.Children.Add(AsyncButton("Export "+format.ToUpperInvariant(),async()=>{await ScopedFileExport.Download(exportAccess,()=>Api.Download(Path()+"."+format+Query()),null,async(bytes,verify)=>{if(stamp!=generation||cid!=CompanyId)return false;return await ApexFiles.Save(bytes,"party-statement."+format,verify);});},Error));
         panel.Children.Add(Columns(from.View,to.View));panel.Children.Add(actions);panel.Children.Add(rows);await Load();if(stamp!=generation||cid!=CompanyId)return;await Dialog(party.Text("name")+" · statement",panel,()=>Task.CompletedTask,"Done");
     }
 
     private Task PreviewDocument(JsonObject row)=>ShowDocumentPdf(row,"");
     private async Task ShowDocumentPdf(JsonObject row,string template)
     {
-        var cid=CompanyId;var stamp=generation;var path=Api.CompanyPath(cid,$"/documents/{row.Text("id")}.pdf")+(template.Length>0?"?template="+template:"");var bytes=await Api.Download(path);if(stamp!=generation||cid!=CompanyId)return;await ShowPdf(bytes,Friendly(row.Text("kind"))+" "+row.Text("number")+".pdf",row);
+        var cid=CompanyId;var stamp=generation;var exportAccess=CaptureFileSaveAccess();var path=Api.CompanyPath(cid,$"/documents/{row.Text("id")}.pdf")+(template.Length>0?"?template="+template:"");await ScopedFileExport.Download(exportAccess,()=>Api.Download(path),null,async(bytes,verify)=>{if(stamp!=generation||cid!=CompanyId)return false;await ShowPdf(bytes,Friendly(row.Text("kind"))+" "+row.Text("number")+".pdf",row,verify);return true;});
     }
 
-    private async Task ShowPdf(byte[] bytes,string filename,JsonObject? record=null)
+    private async Task ShowPdf(byte[] bytes,string filename,JsonObject? record=null,Action? originalAccess=null)
     {
         async Task<BitmapImage> Render(byte[] source,int page){var png=(await ApexPrinter.Raster(source,1400,page))[0];using var bitmapStream=new InMemoryRandomAccessStream();using(var writer=new DataWriter(bitmapStream)){writer.WriteBytes(png);await writer.StoreAsync();writer.DetachStream();}bitmapStream.Seek(0);var bitmap=new BitmapImage();await bitmap.SetSourceAsync(bitmapStream);return bitmap;}
-        var cid=CompanyId;var stamp=generation;
-        var count=await ApexPrinter.PageCount(bytes);var image=new Image{Source=await Render(bytes,0),Width=720,Stretch=Stretch.Uniform};var caption=Text($"Page 1 of {count}");var index=0;var renderSequence=0;var panel=Stack();panel.MinWidth=760;var toolbar=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};
+        var cid=CompanyId;var stamp=generation;var exportAccess=originalAccess??CaptureFileSaveAccess();bool closed=false;
+        void PreviewAccess(){exportAccess();if(closed||stamp!=generation||cid!=CompanyId)throw new InvalidOperationException("This PDF preview is no longer active.");}
+        bool Current()=>ScopedFileExport.Current(PreviewAccess);
+        if(!Current())return;
+        var count=await ApexPrinter.PageCount(bytes);if(!Current())return;var image=new Image{Source=await Render(bytes,0),Width=720,Stretch=Stretch.Uniform};var caption=Text($"Page 1 of {count}");var index=0;var renderSequence=0;var panel=Stack();panel.MinWidth=760;var toolbar=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};
         Button? previousButton=null,nextButton=null;string? externalAction=null;
         void Paging(){if(previousButton is not null)previousButton.IsEnabled=index>0;if(nextButton is not null)nextButton.IsEnabled=index+1<count;}
-        async Task Draw(){var current=++renderSequence;var result=await Render(bytes,index);if(current!=renderSequence)return;image.Source=result;caption.Text=$"Page {index+1} of {count}";Paging();}
+        async Task Draw(){if(!Current())return;var current=++renderSequence;try{var result=await Render(bytes,index);if(current!=renderSequence||!Current())return;image.Source=result;caption.Text=$"Page {index+1} of {count}";Paging();}catch(Exception)when(!Current()) {}}
         previousButton=AsyncButton("Previous",async()=>{if(index>0){index--;await Draw();}},Error);nextButton=AsyncButton("Next",async()=>{if(index+1<count){index++;await Draw();}},Error);
         toolbar.Children.Add(previousButton);toolbar.Children.Add(caption);toolbar.Children.Add(nextButton);Paging();
-        toolbar.Children.Add(AsyncButton("Save PDF",async()=>{await ApexFiles.Save(bytes,filename);},Error));
-        toolbar.Children.Add(Button("Share PDF",()=>{externalAction="share";CloseDialog();}));
-        toolbar.Children.Add(Button("Print",()=>{externalAction="print";CloseDialog();}));panel.Children.Add(toolbar);
-        if(record is not null){var template=Select("Document format",[("","Company default"),("modern","Modern"),("vintage","Vintage"),("mrp_discount","MRP + discount"),("elegant","Elegant"),("evergreen","Evergreen")]);panel.Children.Add(template);template.SelectionChanged+=async(_,_)=>{template.IsEnabled=false;++renderSequence;foreach(var action in toolbar.Children.OfType<Button>())action.IsEnabled=false;caption.Text="Loading format…";try{var selection=Value(template);var next=await Api.Download(Api.CompanyPath(cid,$"/documents/{record.Text("id")}.pdf")+(selection.Length>0?"?template="+selection:""));var bitmap=await Render(next,0);var pageCount=await ApexPrinter.PageCount(next);bytes=next;count=pageCount;index=0;image.Source=bitmap;}catch(Exception e){Error(e);}finally{template.IsEnabled=true;caption.Text=$"Page {index+1} of {count}";foreach(var action in toolbar.Children.OfType<Button>())action.IsEnabled=true;Paging();}};}
-        panel.Children.Add(image);if(stamp!=generation||cid!=CompanyId)return;await Dialog(filename,panel,()=>Task.CompletedTask,"Done");
+        toolbar.Children.Add(AsyncButton("Save PDF",async()=>{await ScopedFileExport.Run(PreviewAccess,()=>ApexFiles.Save(bytes,filename,PreviewAccess));},Error));
+        toolbar.Children.Add(Button("Share PDF",()=>{if(!Current())return;externalAction="share";CloseDialog();}));
+        toolbar.Children.Add(Button("Print",()=>{if(!Current())return;externalAction="print";CloseDialog();}));panel.Children.Add(toolbar);
+        if(record is not null){var template=Select("Document format",[("","Company default"),("modern","Modern"),("vintage","Vintage"),("mrp_discount","MRP + discount"),("elegant","Elegant"),("evergreen","Evergreen")]);panel.Children.Add(template);var loadedIndex=template.SelectedIndex;var reverting=false;template.SelectionChanged+=async(_,_)=>{if(reverting||!Current())return;template.IsEnabled=false;++renderSequence;foreach(var action in toolbar.Children.OfType<Button>())action.IsEnabled=false;caption.Text="Loading format…";try{var selection=Value(template);var next=await Api.Download(Api.CompanyPath(cid,$"/documents/{record.Text("id")}.pdf")+(selection.Length>0?"?template="+selection:""));if(!Current())return;var bitmap=await Render(next,0);if(!Current())return;var pageCount=await ApexPrinter.PageCount(next);if(!Current())return;loadedIndex=template.SelectedIndex;bytes=next;count=pageCount;index=0;image.Source=bitmap;}catch(Exception e){if(Current()){reverting=true;template.SelectedIndex=loadedIndex;reverting=false;Error(e);}}finally{if(Current()){template.IsEnabled=true;caption.Text=$"Page {index+1} of {count}";foreach(var action in toolbar.Children.OfType<Button>())action.IsEnabled=true;Paging();}}};}
+        panel.Children.Add(image);if(!Current())return;
+        void Invalidate(){++renderSequence;bytes=Array.Empty<byte>();image.Source=null;toolbar.IsEnabled=false;panel.Children.Clear();panel.Children.Add(Text("Company access removed or unavailable. Close this preview and reopen it after access is restored."));}
+        ReadAccessInvalidated+=Invalidate;
+        try{await Dialog(filename,panel,()=>Task.CompletedTask,"Done");}finally{closed=true;ReadAccessInvalidated-=Invalidate;}
         // Release the WinUI modal before opening a separate OS modal surface.
-        if(stamp!=generation||cid!=CompanyId)return;
-        if(externalAction=="share")await ApexShare.Show(bytes,filename);
-        else if(externalAction=="print")await ApexPrinter.Print(bytes,filename);
+        if(stamp!=generation||cid!=CompanyId||!ScopedFileExport.Current(exportAccess))return;
+        if(externalAction=="share")await ScopedFileExport.Run(exportAccess,async()=>{await ApexShare.Show(bytes,filename,exportAccess);return true;});
+        else if(externalAction=="print")await ScopedFileExport.Run(exportAccess,async()=>{await ApexPrinter.Print(bytes,filename,exportAccess);return true;});
     }
 
 }

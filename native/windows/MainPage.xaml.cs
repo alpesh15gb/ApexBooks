@@ -16,6 +16,7 @@ public sealed partial class MainPage : Page
     internal JsonObject Company = new();
     internal string CompanyId = "", CurrentPage = "dashboard";
     private bool recordsReady;
+    private event Action? ReadAccessInvalidated;
     internal bool CanWrite => recordsReady && Company.Text("role") is ("owner" or "editor");
     internal bool IsOwner => Company.Text("role") == "owner";
     private NavigationView navigation = new();
@@ -181,7 +182,7 @@ public sealed partial class MainPage : Page
         var current=workspaceGeneration;var session=Api.SessionGeneration;var request=++refreshSequence;
         await ScopedCoreRefresh.Run(Api.Records(cid),Api.Send(Api.CompanyPath(cid,"/bank-accounts")),
             ()=>Api.SignedIn&&session==Api.SessionGeneration&&cid==CompanyId&&current==workspaceGeneration&&request==refreshSequence,
-            ()=>{saveAccessEpoch++;Records=new();Banks=new();recordsReady=false;},
+            ()=>{saveAccessEpoch++;Records=new();Banks=new();recordsReady=false;ReadAccessInvalidated?.Invoke();},
             (rows,banks)=>{Records=rows;Banks=banks.Array();recordsReady=true;},
             ()=>Navigate(CurrentPage));
     }

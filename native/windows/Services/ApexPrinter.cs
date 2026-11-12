@@ -12,9 +12,9 @@ public static class ApexPrinter
         using var stream=new InMemoryRandomAccessStream();using(var writer=new DataWriter(stream)){writer.WriteBytes(bytes);await writer.StoreAsync();writer.DetachStream();}stream.Seek(0);var pdf=await PdfDocument.LoadFromStreamAsync(stream);var pages=new List<byte[]>();
         for(uint i=(uint)(selectedPage??0);i<pdf.PageCount&&(!selectedPage.HasValue||i==selectedPage.Value);i++){using var page=pdf.GetPage(i);using var output=new InMemoryRandomAccessStream();await page.RenderToStreamAsync(output,new PdfPageRenderOptions{DestinationWidth=width});using var reader=new DataReader(output.GetInputStreamAt(0));await reader.LoadAsync((uint)output.Size);var png=new byte[checked((int)output.Size)];reader.ReadBytes(png);pages.Add(png);}return pages;
     }
-    public static async Task Print(byte[] bytes,string title)
+    public static async Task Print(byte[] bytes,string title,Action? verify=null)
     {
-        var pages=await Raster(bytes);if(pages.Count==0)throw new Exception("This document has no pages to print.");
+        verify?.Invoke();var pages=await Raster(bytes);verify?.Invoke();if(pages.Count==0)throw new Exception("This document has no pages to print.");
         ApexBooks.NativePrinting.NativePrintBridge.Print(pages,title,App.WindowHandle);
     }
 }
