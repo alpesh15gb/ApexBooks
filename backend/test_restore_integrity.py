@@ -75,6 +75,12 @@ class RestoreIntegrityTest(unittest.TestCase):
         applied=client.post(base+'/advances/'+advance.json()['id']+'/apply',headers={**headers,'Idempotency-Key':uuid4().hex},json={'kind':'advance_application','name':'Buyer','date':'2026-04-03','amount':50,'data':{'applied_to':invoice['id']}});self.assertEqual(applied.status_code,200,applied.text)
         payload=client.get(base+'/data-export.json',headers=headers).json()
         self.assertEqual(self.preview(client,headers,payload).status_code,200)
+        forged=copy.deepcopy(payload)
+        allocation=next(a for a in forged['payment_allocations'] if a['payment_id']==applied.json()['id'])
+        allocation['amount']='25.00'
+        other=next(r for r in forged['records'] if r['kind']=='sales_invoice' and r['id']!=invoice['id'])
+        forged['payment_allocations'].append({**allocation,'document_id':other['id'],'amount':'25.00'})
+        response=self.preview(client,headers,forged);self.assertEqual(response.status_code,422,response.text)
         for field,value in [('advance_id',pid),('advance_id',['invalid']),('payment_kind','payment_out')]:
             forged=copy.deepcopy(payload);next(r for r in forged['records'] if r['id']==applied.json()['id'])['data'][field]=value
             response=self.preview(client,headers,forged);self.assertEqual(response.status_code,422,response.text)

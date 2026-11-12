@@ -57,6 +57,8 @@ def validate(payload):
         rows=groups[key];ids=[r.get('id') for r in rows]
         if any(not isinstance(i,str) or not i or len(i)>100 for i in ids) or len(set(ids))!=len(ids):raise ValueError('Invalid or duplicate IDs in '+key)
         indexes[key]={r['id']:r for r in rows}
+    all_ids=[value for index in indexes.values() for value in index]
+    if len(set(all_ids))!=len(all_ids) or payload['company']['id'] in all_ids:raise ValueError('Overlapping IDs across backup entities')
     def number(value,precision=2,signed=False):
         n=Decimal(str(value));q=Decimal(1).scaleb(-precision)
         if not n.is_finite() or abs(n)>Decimal('9999999999999.99' if precision==2 else '999999999999.999') or n!=n.quantize(q) or not signed and n<0:raise ValueError('Invalid financial amount')
@@ -164,7 +166,7 @@ def validate(payload):
             if not isinstance(target_id,str) or target_id not in posted:raise ValueError('Application requires posted target')
             target=indexes['records'][target_id]
             if target['kind']!={'payment_in':'sales_invoice','payment_out':'purchase_bill'}[direction] or target['name'].strip().casefold()!=row['name'].strip().casefold() or row['date']<target['date']:raise ValueError('Application target type, party or date mismatch')
-            if (row['id'],target_id) not in links or payment_totals[row['id']]!=amount:raise ValueError('Application allocation does not match amount')
+            if [(a['document_id'],number(a['amount'])) for a in groups['payment_allocations'] if a['payment_id']==row['id']] != [(target_id,amount)]:raise ValueError('Application allocation must match its single target and amount')
     sources=set();targets=set()
     for row in groups['document_conversions']:
         src,dst=row.get('source_record_id'),row.get('target_record_id')
@@ -211,6 +213,8 @@ def validate(payload):
         key=(row['source_record_id'],row['line_index'])
         if key in movements:raise ValueError('Duplicate stock movement')
         movements.add(key)
+    from restore_stock_integrity import validate_stock
+    validate_stock(groups,indexes,posted,number)
     # Active explicit return references must be valid in the exported namespace
     # before any IDs are remapped. Never turn a stale/forged token into a valid one.
     from types import SimpleNamespace
@@ -265,6 +269,7 @@ def restore_payload(m,user,session,payload,digest,company_name,*,action='commit'
         report={'digest':digest,'company_name':source.get('name',''),'target_name':company_name.strip(),'counts':{k:len(v) for k,v in groups.items()},'warnings':['Team members and account credentials are not restored. The restored company belongs only to you.'],'ready':True}
         commerce_sources=sorted({str(r['data']['commerce_connection_id']) for r in groups['records'] if r['data'].get('commerce_connection_id')})
         if commerce_sources:report['warnings'].append('Commerce audit references are retained. Store credentials, connections and delivery queues are not copied into a new company; reconcile source identities before activating a live store.')
+        if any(row.get('cost_value') is None for row in groups['stock_movements']):report['warnings'].append('Legacy unvalued stock movements are retained; known source costs are checked, but missing historical valuation cannot be reconstructed.')
         known_ids={source['id']}
         for rows in indexes.values():known_ids.update(rows)
         if any(old_id in known_ids for old_id in extra_ids):raise ValueError('Extra restore IDs overlap accounting IDs')
