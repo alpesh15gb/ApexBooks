@@ -1263,7 +1263,7 @@ function App() {
           ) : routeFeature[page] && !supported(routeFeature[page]) ? (
             <section className="panel settings-panel"><h1>{labels[page]}</h1><p>{capabilities ? "This workflow needs an updated connected API." : "Checking connected API support…"} Core records and existing transactions remain available.</p><button className="button secondary" onClick={() => setCapabilityRevision(value => value + 1)}>Check API support again</button></section>
           ) : page === "recurring" ? (
-            <RecurringWorkspace key={companyId} companyId={companyId} role={company.role} records={records} api={api} Modal={Modal} onReview={beginEdit} onRefresh={loadRecords} />
+            <RecurringWorkspace key={companyId} companyId={companyId} role={company.role} records={records} api={api} Modal={Modal} onReview={beginEdit} onRefresh={refreshPostedRecords} />
           ) : page === "reorder" ? (
             <ReorderWorkspace key={companyId} companyId={companyId} role={company.role} api={api} createdOrder={reorderCreated} onOpenOrder={beginDetail} onReview={startReorder} onBack={() => navigateWorkspace("item")} />
           ) : page === "ledger" ? (

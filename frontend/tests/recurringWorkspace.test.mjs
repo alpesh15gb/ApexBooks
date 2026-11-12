@@ -62,3 +62,26 @@ for(const mode of ['generate','edit'])test(`retained ${mode} dialog becomes read
  assert.equal(writes,1);
  }finally{await act(async()=>root.unmount());}
 });
+test('confirmed occurrence survives refresh failure and retries only refresh single-flight',async()=>{
+ const root=createRoot(document.getElementById('root'));let writes=0,reads=0,reviewed=0,finish;
+ const api=async(path,options)=>{if(options?.method==='POST'){writes++;return{record:{id:'confirmed-draft'}};}return apiRead(path);};
+ try{
+ await act(async()=>root.render(React.createElement(Recurring,{...props,api,onReview:()=>{reviewed++;},onRefresh:()=>{reads++;if(reads===1)throw Error('Refresh unavailable');return new Promise(resolve=>{finish=resolve;});}})));
+ await click('Create draft & review');const submit=()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));
+ await act(async()=>submit());assert.match(document.body.textContent,/draft was created/i);assert.match(document.body.textContent,/Refresh unavailable/);
+ await act(async()=>{submit();submit();});assert.equal(writes,1);assert.equal(reads,2);assert.equal(reviewed,0);
+ await act(async()=>finish());assert.equal(reviewed,1);assert.equal(document.querySelector('[role=dialog]'),null);
+ }finally{await act(async()=>root.unmount());}
+});
+for(const fails of [false,true])test(`late confirmed refresh ${fails?'error':'success'} after role change does not open draft`,async()=>{
+ const root=createRoot(document.getElementById('root'));let finish,reviewed=0,writes=0;
+ const api=async(path,options)=>{if(options?.method==='POST'){writes++;return{record:{id:'saved'}};}return apiRead(path);};
+ const base={...props,api,onReview:()=>{reviewed++;},onRefresh:()=>new Promise((resolve,reject)=>{finish=fails?()=>reject(Error('Obsolete refresh error')):resolve;})};
+ try{
+ await act(async()=>root.render(React.createElement(Recurring,base)));await click('Create draft & review');
+ await act(async()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
+ await act(async()=>root.render(React.createElement(Recurring,{...base,role:'viewer'})));
+ await act(async()=>finish());assert.equal(reviewed,0);assert.equal(writes,1);assert.match(document.body.textContent,/draft was created/);assert.doesNotMatch(document.body.textContent,/Obsolete refresh error/);
+ assert.equal(document.querySelector('fieldset').disabled,true);
+ }finally{await act(async()=>root.unmount());}
+});

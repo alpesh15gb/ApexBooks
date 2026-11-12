@@ -889,3 +889,21 @@ record refresh and same-workspace navigation races; browser restart receipt
 recovery; full native import screen/picker flows after exact-head CI. Memory-only
 recurring command recovery across a complete reload remains a separate boundary.
 No production access, publication retry or deployment.
+
+### Recurring confirmed draft refresh recovery (2026-11-12)
+
+Reproduced successful occurrence creation followed by failed records refresh:
+previous code closed the dialog first and lost the failure/recovery state. The
+confirmed result now stays in the dialog with frozen inputs and a single-flight
+Refresh & open saved draft action. It retries reads/navigation only, never the
+occurrence POST. App passes refreshPostedRecords so caught load failures surface.
+Late refresh success/failure after role change cannot open an editor or display
+obsolete errors; unmounted mutation callbacks do not refresh another workspace.
+
+Nine rendered recurring tests pass, including the red-to-green failure, duplicate
+recovery submits (one POST total), role-change success/error, original unknown
+request key/date retry and retained viewer/editor forms. Lint/build/bundle budgets
+pass. No backend changes. Actual browser and full-App recovery acceptance remain
+open; unknown requests and confirmed recovery are still memory-only across a
+complete workspace unmount/reload. No durable recurring recovery claim is made.
+No production access, publication retry or deployment.
