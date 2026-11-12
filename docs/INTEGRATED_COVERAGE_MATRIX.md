@@ -1056,3 +1056,24 @@ strict CSV/replacement/unknown original-payload tests remain green. Lint/build a
 bundle checks pass. Native import dialogs still warrant equivalent current-role
 handler review; full-App/browser revocation acceptance remains separate. No real
 bank data, production access, publication retry or deployment.
+
+### Native bank import current-role parity and actual-App wiring (2026-11-12)
+
+Android ImportTool previously applied the explicit canWrite condition only to
+master imports. It now applies to bank-statement import button and save callback
+as well. Windows bank import checks CanWrite before picker entry and within the
+shared Verify used by preview/build/commit, preserving the dialog with an actionable
+error after role loss. Read/session/context ownership guards remain in force.
+
+Compiled actual Android save and Windows Verify/save bodies pass viewer blocking,
+editor resume and stale/closed rejection with zero unauthorized dispatch. Existing
+Android master-import callback replay/unknown/422/role/stale-error tests pass after
+the common callback change. No full native UI claim: Windows picker/dialog and
+Compose recomposition still need device acceptance.
+
+One actual-App synthetic test passes: bank file selection and preview, company-role
+notification to viewer, same retained dialog disabled, then editor recovery and
+one commit. This verifies real App/BankWorkspace/dialog wiring using a simulated
+role notification, not a real backend revocation or physical browser. No production,
+publication retry or deployment. Added portable BankImportRole checker and retained
+self-contained bundle for review.
