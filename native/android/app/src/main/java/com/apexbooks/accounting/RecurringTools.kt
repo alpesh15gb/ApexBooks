@@ -96,11 +96,29 @@ private suspend fun recurringWrite(vm:AppModel,command:RecurringCommand,path:Str
 @Composable private fun RecurringEdit(vm:AppModel,row:JSONObject){
     val cid=vm.companyId;val stamp=vm.workspaceStamp();val scope="edit:${row.s("id")}";val command=remember(cid,scope){vm.recurringCommand(scope)}
     var name by remember{mutableStateOf(row.s("name"))};var active by remember{mutableStateOf(row.optBoolean("is_active"))};var source by remember{mutableStateOf("")}
+    var loading by remember{mutableStateOf(false)};var confirmReload by remember{mutableStateOf(false)}
     val options=vm.records.filter{it.s("kind")==row.s("draft_kind")&&it.s("converted_to").isBlank()}
     fun changed()=name!=row.s("name")||active!=row.optBoolean("is_active")||source.isNotBlank()
-    fun close(){if(!vm.inWorkspace(cid,stamp)||vm.tool!="recurring_edit"||vm.toolData!==row)return;check(!command.unresolved){"The previous save may already have completed. Restore editor access and retry the original request before closing."};vm.finishRecurring(scope);vm.toolData=null;vm.tool="recurring"}
-    ActionDialog("Manage recurring schedule",vm,enabled=vm.canWrite||(!command.unresolved&&!changed()),confirm=if(!vm.canWrite)"Done"else if(command.unresolved)"Retry original request"else"Save schedule",unresolved={command.unresolved},hasChanges=::changed,onDismiss=::close,onSave={
+    fun close(){if(!vm.inWorkspace(cid,stamp)||vm.tool!="recurring_edit"||vm.toolData!==row)return;check(!loading){"Wait for the schedule reload to finish."};check(!command.unresolved){"The previous save may already have completed. Restore editor access and retry the original request before closing."};vm.finishRecurring(scope);vm.toolData=null;vm.tool="recurring"}
+    fun reload(){
+        if(loading||vm.busy>0||command.unresolved)return
+        val current=vm.captureReadOwner("recurring_edit",row);if(!current())return
+        val requested=listOf(name,active,source);loading=true
+        vm.task{
+            try{
+                val fresh=vm.api.request(vm.api.company(cid,"/recurring-templates/${encode(row.s("id"))}"))as JSONObject
+                if(!current()||command.unresolved)return@task
+                if(listOf(name,active,source)!=requested){vm.notice="Newer schedule edits were kept. Reload again when you are ready to replace them.";return@task}
+                if(fresh.optInt("version")!=row.optInt("version"))vm.finishRecurring(scope)
+                name=fresh.s("name");active=fresh.optBoolean("is_active");source="";vm.toolData=fresh
+            }catch(e:Exception){if(e is kotlinx.coroutines.CancellationException||current())throw e}
+            finally{loading=false}
+        }
+    }
+    fun requestReload(){if(loading||vm.busy>0||command.unresolved)return;if(changed())confirmReload=true else reload()}
+    ActionDialog("Manage recurring schedule",vm,enabled=!loading&&(vm.canWrite||(!command.unresolved&&!changed())),working={loading},confirm=if(!vm.canWrite)"Done"else if(command.unresolved)"Retry original request"else"Save schedule",unresolved={command.unresolved},hasChanges=::changed,onDismiss=::close,onSave={
         if(!vm.inWorkspace(cid,stamp)||vm.tool!="recurring_edit"||vm.toolData!==row)return@ActionDialog
+        check(!loading){"Wait for the schedule reload to finish; your inputs are preserved."}
         if(!vm.canWrite){check(!command.unresolved&&!changed()){"Read-only access: your draft and any unresolved request are preserved. Restore editor access to retry or save; do not create a replacement."};close();return@ActionDialog}
         if(!command.unresolved)require(name.isNotBlank()&&name.length<=120){"Enter a schedule name of up to 120 characters."}
         val body=JSONObject().put("version",row.optInt("version")).put("name",name).put("is_active",active);if(source.isNotBlank())body.put("source_record_id",source)
@@ -108,13 +126,14 @@ private suspend fun recurringWrite(vm:AppModel,command:RecurringCommand,path:Str
         if(vm.inWorkspace(cid,stamp)){close();vm.notice="Future schedule settings updated; previously generated drafts are unchanged."}
     }){
         if(!vm.canWrite&&(command.unresolved||changed()))Text("Read-only access: your inputs are preserved. Restore editor access to retry the original request or save. An unresolved result must be recovered before closing.")
-        RecurringPending(command);Field("Schedule name",name,{name=it},maximum=120,readOnly=!vm.canWrite);Toggle("Active · available to create due drafts",active,{active=it},enabled=vm.canWrite);Text("Start ${row.s("start_date")} · every ${row.s("interval")} ${row.s("frequency")} · end ${row.s("end_date").ifBlank{"none"}}",style=MaterialTheme.typography.bodySmall)
+        RecurringPending(command);Field("Schedule name",name,{name=it},maximum=120,readOnly=!vm.canWrite||loading);Toggle("Active · available to create due drafts",active,{active=it},enabled=vm.canWrite&&!loading);Text("Start ${row.s("start_date")} · every ${row.s("interval")} ${row.s("frequency")} · end ${row.s("end_date").ifBlank{"none"}}",style=MaterialTheme.typography.bodySmall)
         Text("Cadence is immutable. Pause this schedule and create another to change dates or frequency.")
-        Choice("Future draft snapshot",source,listOf("" to "Keep current saved snapshot")+options.map{it.s("id")to "${it.s("number")} · ${it.s("name")}"},{source=it},enabled=vm.canWrite)
+        Choice("Future draft snapshot",source,listOf("" to "Keep current saved snapshot")+options.map{it.s("id")to "${it.s("number")} · ${it.s("name")}"},{source=it},enabled=vm.canWrite&&!loading)
         Text("Choosing a source explicitly replaces only the future draft snapshot; already generated drafts are retained.",style=MaterialTheme.typography.bodySmall)
         Section("Saved future draft snapshot"){Text(row.o("draft").s("name"));for(line in row.o("draft").o("data").a("lines").objects().take(100))Text("${line.s("description")} · ${line.s("quantity")} × ${money(line.s("rate"))}",style=MaterialTheme.typography.bodySmall)}
-        TextButton(enabled=!command.unresolved&&vm.busy==0,onClick={vm.task{val fresh=vm.api.request(vm.api.company(cid,"/recurring-templates/${encode(row.s("id"))}"))as JSONObject;if(vm.inWorkspace(cid,stamp)){if(fresh.optInt("version")!=row.optInt("version"))vm.finishRecurring(scope);name=fresh.s("name");active=fresh.optBoolean("is_active");source="";vm.toolData=fresh}}}){Text("Reload latest schedule")}
+        TextButton(enabled=!command.unresolved&&!loading&&vm.busy==0,onClick=::requestReload){Text("Reload latest schedule")}
     }
+    if(confirmReload)AlertDialog(onDismissRequest={confirmReload=false},title={Text("Replace unsaved schedule edits?")},text={Text("Your current inputs will be replaced only after the latest schedule loads successfully. A failed reload keeps them unchanged.")},confirmButton={TextButton(onClick={confirmReload=false;reload()}){Text("Reload and replace edits")}},dismissButton={TextButton(onClick={confirmReload=false}){Text("Keep editing")}})
 }
 @Composable private fun RecurringOccurrence(vm:AppModel,row:JSONObject){
     val cid=vm.companyId;val stamp=vm.workspaceStamp();val occurrence=row.s("next_due");val scope="occurrence:${row.s("id")}:$occurrence";val command=remember(cid,scope){vm.recurringCommand(scope)}

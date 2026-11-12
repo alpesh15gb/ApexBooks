@@ -4,7 +4,7 @@ root=Path(__file__).resolve().parents[3];sys.path.insert(0,str(root/'native/test
 from kotlin_toolchain import add_arguments,run_proof
 p=argparse.ArgumentParser();add_arguments(p);args=p.parse_args()
 s=(root/'native/android/app/src/main/java/com/apexbooks/accounting/RecurringTools.kt').read_text();edit=s.split('@Composable private fun RecurringEdit(',1)[1].split('@Composable private fun RecurringOccurrence(',1)[0]
-assert 'enabled=vm.canWrite||(!command.unresolved&&!changed())' in edit
+assert 'enabled=!loading&&(vm.canWrite||(!command.unresolved&&!changed()))' in edit
 assert 'hasChanges=::changed' in edit
 callback=edit.split('onSave={',1)[1].split('\n    })',1)[0];close=next(line.strip() for line in edit.splitlines() if 'fun close()' in line)
 command=s[s.index('class RecurringCommand {'):s.index('fun recurringBusinessDate')]
@@ -27,7 +27,7 @@ class AppModel{val api=Api();var canWrite=true;var companyId="a";var generation=
 WRITE
 suspend fun ActionDialog(onSave:suspend()->Unit){onSave()}
 class Screen(val vm:AppModel=AppModel()){
- val cid=vm.companyId;val stamp=vm.workspaceStamp();val scope="edit:template";val command=RecurringCommand();val row=JSONObject().put("id","template").put("name","Original").put("is_active",true).put("version",1);var name="Original";var active=true;var source=""
+ val cid=vm.companyId;val stamp=vm.workspaceStamp();val scope="edit:template";val command=RecurringCommand();val row=JSONObject().put("id","template").put("name","Original").put("is_active",true).put("version",1);var name="Original";var active=true;var source="";var loading=false
  init{vm.toolData=row}
  fun changed()=name!=row.s("name")||active!=row.optBoolean("is_active")||source.isNotBlank()
  CLOSE
