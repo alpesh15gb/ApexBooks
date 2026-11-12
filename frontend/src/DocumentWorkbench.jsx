@@ -253,6 +253,7 @@ export function DocumentIdentity({
 }
 
 export function DocumentItems({
+  returnSourceLines = null,
   onPriceHistory,
   onQuickAddItem,
   quickAdding,
@@ -312,6 +313,16 @@ export function DocumentItems({
             className={`document-item-row ${showTax ? "with-tax" : "without-tax"}`}
             key={index}
           >
+            {returnSourceLines && <label className="full">Source purchase line
+              <select aria-label={`Item ${index + 1} source purchase line`} value={line.source_line_id || ""} onChange={event => {
+                const selected = returnSourceLines.find(row => row.source_line_id === event.target.value);
+                if (selected) setLines(lines.map((row, i) => i === index ? { ...emptyLine(), ...selected } : row));
+              }}>
+                <option value="">{line.source_line_id ? "Saved source line · reload bill to change" : "Choose a source line (legacy match if omitted)"}</option>
+                {line.source_line_id && !returnSourceLines.some(row => row.source_line_id === line.source_line_id) && <option value={line.source_line_id}>Saved source line {line.source_line_number || ""}</option>}
+                {returnSourceLines.filter(row => row.source_line_id).map(row => <option key={row.source_line_id} value={row.source_line_id}>Line {row.source_line_number} · {row.description} · source qty {row.quantity} · GST {row.gst_rate}% · {row.itc_treatment === "ineligible" ? "Ineligible ITC" : "ITC pending review"}</option>)}
+              </select>
+            </label>}
             <label className="item-description">
               <span className="mobile-field-label">
                 Item / service {index + 1}
@@ -322,6 +333,7 @@ export function DocumentItems({
                 required
                 maxLength={200}
                 aria-label={`Item ${index + 1} description`}
+                readOnly={!!line.source_line_id}
                 value={line.description}
                 onChange={(e) => changeLine(index, e)}
                 placeholder="Search item or enter description"
@@ -403,7 +415,7 @@ export function DocumentItems({
                   step="0.01"
                   required
                   disabled={
-                    company.tax_mode === "regular" &&
+                    !!line.source_line_id || company.tax_mode === "regular" &&
                     line.tax_treatment !== "taxable"
                   }
                   aria-label={`Item ${index + 1} GST rate`}
@@ -482,6 +494,7 @@ export function DocumentItems({
                     <select
                       className="form-select"
                       name="tax_treatment"
+                      disabled={!!line.source_line_id}
                       value={line.tax_treatment || "taxable"}
                       onChange={(e) => changeLine(index, e)}
                     >
@@ -498,6 +511,7 @@ export function DocumentItems({
                     <select
                       className="form-select"
                       name="itc_treatment"
+                      disabled={!!line.source_line_id}
                       value={line.itc_treatment || "pending_review"}
                       onChange={(e) => changeLine(index, e)}
                     >

@@ -234,11 +234,16 @@ val supplyChoices=listOf("taxable" to "Taxable","nil_rated" to "Nil rated","exem
     Section("Item ${index+1}"){
         val calculated=editor.preview?.o("data")?.a("lines")?.optJSONObject(index)
         if(calculated!=null){val amount=(calculated.s("taxable").toBigDecimalOrNull()?:java.math.BigDecimal.ZERO)+(calculated.s("tax").toBigDecimalOrNull()?:java.math.BigDecimal.ZERO);Text(money(amount),style=MaterialTheme.typography.titleMedium,color=ApexGreen)}
+        if(editor.kind=="debit_note"){
+            val options=editor.returnSourceLines.filter{it.s("source_line_id").isNotBlank()}.map{it.s("source_line_id") to "Line ${it.s("source_line_number")} · ${it.s("description")} · source qty ${it.s("quantity")} · GST ${it.s("gst_rate")}% · ${it.s("itc_treatment")}"}
+            Choice("Source purchase line",line.get("source_line_id"),listOf("" to "Choose source line / legacy match")+options,{editor.chooseReturnLine(line,it)})
+            if(line.get("source_line_id").isNotBlank())Text("GST and ITC treatment follow the selected source line.",style=MaterialTheme.typography.bodySmall)
+        }
         val products=editor.items(line)
-        Choice("Item / service",line.get("item_id"),listOf("" to "Enter a description")+products.map{it.s("id") to it.s("name")},{if(it.isBlank())line.set("item_id","")else editor.chooseItem(line,it)})
+        if(editor.kind!="debit_note"||line.get("source_line_id").isBlank())Choice("Item / service",line.get("item_id"),listOf("" to "Enter a description")+products.map{it.s("id") to it.s("name")},{if(it.isBlank())line.set("item_id","")else editor.chooseItem(line,it)})
         ItemPriceSuggestion(editor,line)
         if(line.get("item_id").isBlank()){
-            Field("Description",line.get("description"),{line.set("description",it)},maximum=200)
+            if(editor.kind=="debit_note"&&line.get("source_line_id").isNotBlank())Text(line.get("description"))else Field("Description",line.get("description"),{line.set("description",it)},maximum=200)
             if(editor.canQuickAdd&&line.get("description").isNotBlank())TextButton(enabled=editor.canEdit,onClick={editor.quickAddItem(line)}){Icon(Icons.Outlined.AddBox,null,Modifier.size(18.dp));Text(if(editor.quickAdding==line.uiKey)" Saving…" else " Save as item")}
         }
         else Text(if(line.importedFromOcr)"Product linked · scanned rate and GST kept" else "Product selected · ${line.get("unit")}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -248,7 +253,7 @@ val supplyChoices=listOf("taxable" to "Taxable","nil_rated" to "Nil rated","exem
         }
         Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
             Column(Modifier.weight(1f)){Choice("Line discount",line.discountMode,listOf("percent" to "Percentage (%)","amount" to "Fixed amount (₹)"),{line.chooseDiscountMode(it)});val discountKey=if(line.discountMode=="amount")"discount_amount"else"discount_percent";Field(if(line.discountMode=="amount")"Discount (₹)"else"Discount (%)",line.get(discountKey),{line.set(discountKey,it)},number=true)}
-            if(editor.regular||editor.purchase)Field("GST (%)",line.get("gst_rate"),{line.set("gst_rate",it)},Modifier.weight(1f),number=true)
+            if((editor.kind!="debit_note"||line.get("source_line_id").isBlank())&&(editor.regular||editor.purchase))Field("GST (%)",line.get("gst_rate"),{line.set("gst_rate",it)},Modifier.weight(1f),number=true)
         }
         var expanded by remember{mutableStateOf(false)}
         TextButton(onClick={expanded=!expanded}){Text(if(expanded)"Hide item options"else"HSN, MRP & tax options");Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,null)}
@@ -257,7 +262,7 @@ val supplyChoices=listOf("taxable" to "Taxable","nil_rated" to "Nil rated","exem
             Field("Unit",line.get("unit"),{line.set("unit",it)},maximum=24)
             Field("MRP · reference only (₹)",line.get("mrp"),{line.set("mrp",it)},number=true)
             Toggle("Price includes GST",line.get("price_includes_tax")=="true",{line.set("price_includes_tax",it.toString())})
-            if(editor.regular||editor.purchase){
+            if((editor.kind!="debit_note"||line.get("source_line_id").isBlank())&&(editor.regular||editor.purchase)){
                 Choice("Supply classification",line.get("tax_treatment"),supplyChoices,{line.set("tax_treatment",it);if(it!="taxable")line.set("gst_rate","0")})
                 if(editor.regular&&editor.purchase)Choice("Supplier GST treatment",line.get("itc_treatment"),listOf("pending_review" to "Input credit pending review","ineligible" to "Ineligible · include GST in cost"),{line.set("itc_treatment",it)})
             }

@@ -324,7 +324,11 @@ def audit_changes(before, after):
     return {'changes': {key: {'before': value(key, before.get(key)), 'after': value(key, after.get(key))}
                         for key in sorted(before.keys() | after.keys()) if before.get(key) != after.get(key)}}
 def obj(record):
-    return {'id': record.id, 'kind': record.kind, 'name': record.name, 'number': record.number, 'date': record.date.isoformat(), 'amount': str(record.amount), 'data': record.data}
+    data = record.data
+    if record.kind == 'purchase_bill':
+        from purchase_returns import source_lines
+        data = {**data, 'lines': source_lines(record)}
+    return {'id': record.id, 'kind': record.kind, 'name': record.name, 'number': record.number, 'date': record.date.isoformat(), 'amount': str(record.amount), 'data': data}
 def company_obj(c, session, user=None):
     profile = session.get(CompanyTaxProfile, c.id)
     return {'id': c.id, 'name': c.name, 'book_label':c.book_label, 'gstin': c.gstin, 'state_code': c.state_code, 'address': c.address, 'tax_mode': profile.mode if profile else 'regular', 'role': member_role(c, user, session) if user else 'owner'}
@@ -664,30 +668,13 @@ def normalize_document_tax_identifiers(data, purchase):
     return result
 
 def source_return_itc(data, company_id, session):
-    """A supplier return reverses its source's reviewed input-tax treatment."""
-    if not isinstance(data.get('applied_to'), str): raise HTTPException(422, 'Choose a source purchase bill')
-    lines = data.get('lines', [])
-    if not isinstance(lines, list) or not 1 <= len(lines) <= 100: raise HTTPException(422, 'Add 1 to 100 items')
-    source = session.scalar(select(Record).where(Record.company_id == company_id,
-        Record.id == data.get('applied_to'), Record.kind == 'purchase_bill'))
-    if not source: raise HTTPException(422, 'Choose a source purchase bill before returning it')
-    originals = source.data.get('lines', [])
-    result = []
-    for line in data.get('lines', []):
-        if not isinstance(line, dict): raise HTTPException(422, 'Invalid return line')
-        candidates = [row for row in originals if
-            (row.get('item_id') == line.get('item_id') if line.get('item_id') else
-             str(row.get('description', '')).strip().casefold() == str(line.get('description', '')).strip().casefold())]
-        treatments = {row.get('itc_treatment', 'pending_review') for row in candidates}
-        if len(treatments) != 1:
-            raise HTTPException(422, 'Return lines must identify a source purchase line with an unambiguous input-tax treatment')
-        result.append({**line, 'itc_treatment': treatments.pop()})
-    return {**data, 'lines': result}
+    from purchase_returns import prepare
+    return prepare(sys.modules[__name__], data, company_id, session)
 
 def calculate(data, company, tax_mode, kind, session):
     purchase = kind in {'purchase_bill', 'purchase_order', 'debit_note','expense'}
     data = normalize_document_tax_identifiers(data, purchase)
-    if kind == 'debit_note' and tax_mode == 'regular':
+    if kind == 'debit_note':
         data = source_return_itc(data, company.id, session)
     lines = data.get('lines', [])
     if not isinstance(lines, list) or not 1 <= len(lines) <= 100: raise HTTPException(422, 'Add 1 to 100 items')
@@ -756,6 +743,7 @@ def calculate(data, company, tax_mode, kind, session):
             if itc_treatment == 'pending_review': pending_input_tax += line_tax
             # Valuation is derived from stock movements, never accepted from a client.
             line = {key: value for key, value in line.items() if key not in {'inventory_cost', 'legacy_shortage_cost', 'shortage_cost', 'shortage_quantity', 'stock_cost_provisional', 'return_cost_basis', 'return_purchase_variance', 'return_cost_reconciliation'}}
+            if kind != 'debit_note': line = {key: value for key, value in line.items() if key not in {'source_line_id', 'source_document_id', 'source_line_number'}}
             cleaned.append({**line, 'description': description, 'hsn': hsn, 'gross': str(gross),
                             'discount_percent': str(discount_percent), 'discount': str(discount),'document_discount':str(document_discount_value),
                             'taxable': str(base), 'tax': str(line_tax), 'itc_treatment': itc_treatment,
@@ -1709,6 +1697,9 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
         previous_notes = list(session.scalars(select(Record).where(
             Record.company_id == company_id, Record.kind == body.kind, Record.id.in_(posted_notes))))
         previous_notes = [note for note in previous_notes if note.data.get('applied_to') == target.id]
+        if body.kind == 'debit_note':
+            from purchase_returns import validate_capacity
+            validate_capacity(sys.modules[__name__], target, data, previous_notes)
         if amount + sum((note.amount for note in previous_notes), Decimal('0')) > target.amount:
             raise HTTPException(422, 'Notes exceed the original document amount')
         for tax_key in ('cgst', 'sgst', 'igst', 'supplier_tax', 'pending_input_cgst', 'pending_input_sgst', 'pending_input_igst', 'input_tax_ineligible'):

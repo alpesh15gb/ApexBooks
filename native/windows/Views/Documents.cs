@@ -16,6 +16,14 @@ public sealed partial class MainPage
         var cid = CompanyId; var stamp = generation;
         if (conversion is not null) conversion = (await Api.Record(cid, conversion.Text("id"))).Object();
         if (stamp != generation) return;
+        if(returnSource is not null) returnSource=(await Api.Record(cid,returnSource.Text("id"))).Object();
+        JsonArray? returnOptions=null;
+        if(kind=="debit_note"){
+            var sourceId=previous?["data"].Text("applied_to")??returnSource.Text("id");
+            if(sourceId.Length>0)returnOptions=(await Api.Record(cid,sourceId))["data"]?["lines"].Array()??new();
+            else returnOptions=new();
+        }
+        if(stamp!=generation)return;
         var source = previous ?? conversion ?? returnSource ?? draftSeed; var data = source?["data"].Object() ?? new();
         var regular = Company.Text("tax_mode") == "regular"; var purchase = kind is "purchase_bill" or "purchase_order" or "debit_note" or "expense";
         var panel = Stack(10); panel.Width = Math.Clamp(((App.Window.Content as FrameworkElement)?.ActualWidth ?? 1240) - 112, 420, 1320);
@@ -99,7 +107,7 @@ public sealed partial class MainPage
         }
         void AddLine(JsonObject? initial = null, bool preserveImportedValues = false)
         {
-            var line = new DocumentLine(Records.OfType<JsonObject>().Where(r => r.Text("kind") == "item" && (WorkflowMasterValues.IsActive(r)||previous is not null&&r.Text("id")==initial.Text("item_id"))), purchase, regular, initial, preserveImportedValues); var holder = Stack(6); holder.Children.Add(line.View);
+            var line = new DocumentLine(Records.OfType<JsonObject>().Where(r => r.Text("kind") == "item" && (WorkflowMasterValues.IsActive(r)||previous is not null&&r.Text("id")==initial.Text("item_id"))), purchase, regular, initial, preserveImportedValues, returnOptions?.OfType<JsonObject>()); var holder = Stack(6); holder.Children.Add(line.View);
             var history=Stack(8);
             if(Supports("party_price_history")&&kind is "sales_invoice" or "purchase_bill" or "estimate" or "proforma" or "sales_order" or "purchase_order"){
                 holder.Children.Add(AsyncButton("Party price history / suggestion",async()=>{
@@ -168,8 +176,8 @@ public sealed partial class MainPage
             var target = Select("Original invoice / bill", new[] { ("", "Choose a posted document") }.Concat(Records.OfType<JsonObject>().Where(r => r.Flag("posted") && (r.Text("kind") == targetKind || kind == "credit_note" && r.Text("kind") == "pos")).Select(r => (r.Text("id"), r.Text("number") + " · " + r.Text("name")))), appliedTo);
             target.SelectionChanged += async (_, _) =>
             {
-                var id = Value(target); appliedTo = id; if (id.Length == 0) return; target.IsEnabled = false;sourceLoading=true;
-                try { var original = await Api.Record(cid, id); if (appliedTo != id) return; party.Text = original.Text("name"); var values = original["data"]; partyId = values.Text("party_id"); address.Text = values.Text("party_address"); gstin.Text = values.Text("party_gstin"); phone.Text = values.Text("party_phone"); supply.Text = values.Text("place_of_supply"); supplierState.Text = values.Text("supplier_state") is { Length: > 0 } state ? state : values.Text("party_gstin").Length >= 2 ? values.Text("party_gstin")[..2] : Company.Text("state_code"); ReplaceLines(values?["lines"].Array() ?? new()); }
+                var id = Value(target); appliedTo = id; party.Text="";lines.Clear();linesPanel.Children.Clear();if(kind=="debit_note")returnOptions=new(); if (id.Length == 0) return; target.IsEnabled = false;sourceLoading=true;
+                try { var original = await Api.Record(cid, id); if (appliedTo != id) return; party.Text = original.Text("name"); var values = original["data"]; partyId = values.Text("party_id"); address.Text = values.Text("party_address"); gstin.Text = values.Text("party_gstin"); phone.Text = values.Text("party_phone"); supply.Text = values.Text("place_of_supply"); supplierState.Text = values.Text("supplier_state") is { Length: > 0 } state ? state : values.Text("party_gstin").Length >= 2 ? values.Text("party_gstin")[..2] : Company.Text("state_code"); if(kind=="debit_note")returnOptions=values?["lines"].Array()??new(); discount.Text=values.Text("document_discount_percent") is {Length:>0} sourceDiscount?sourceDiscount:"0"; ReplaceLines(values?["lines"].Array() ?? new()); }
                 catch (Exception e) { LocalError(e); } finally { target.IsEnabled = true;sourceLoading=false; }
             };
             panel.Children.Add(target);

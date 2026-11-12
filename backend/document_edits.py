@@ -37,6 +37,7 @@ def install(app,m):
         m.validate_outward_document_number(record.kind, profile.mode if profile else 'regular', body.number.strip())
         purchase=record.kind in {'purchase_bill','debit_note','expense'}
         fields=('item_id','quantity','rate','gst_rate','discount_percent','discount_amount','tax_treatment','price_includes_tax')+ (('itc_treatment',) if purchase and (profile.mode if profile else 'regular')=='regular' else ())
+        if record.kind == 'debit_note': fields += ('source_line_id', 'source_document_id')
         numeric={'quantity','rate','gst_rate','discount_percent','discount_amount','document_discount_percent','advance_gst_rate'}
         def normalize(key,value):
             if key in {'bank_account_id','to_bank_account_id'}:return str(value or 'default')
