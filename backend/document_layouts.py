@@ -245,8 +245,17 @@ def render_thermal(record, supplier, branding, template, title, paid=Decimal('0'
         els += [pair('Cash tendered', format_inr(data.get('tender_amount', record.amount))), pair('Change', format_inr(data.get('change_amount', '0')))]
     elif record.kind == 'pos':
         els.append(pair('Paid by', 'Bank / UPI / card'))
+    elif record.kind in {'credit_note', 'debit_note'}:
+        els += [pair('Credit used / refunded', format_inr(paid)),
+                pair('Credit remaining', 'INR ' + format_inr(payable), bold, right_bold)]
+    elif record.kind in {'sales_invoice', 'purchase_bill'}:
+        payments = Decimal(str(data.get('payments_applied', paid)))
+        adjustments = max(Decimal('0'), paid - payments)
+        els.append(pair('Payments received' if record.kind == 'sales_invoice' else 'Payments made', format_inr(payments)))
+        if adjustments:
+            els.append(pair('Credit notes / adjustments' if record.kind == 'sales_invoice' else 'Debit notes / adjustments', format_inr(adjustments)))
     elif paid: els.append(pair('Paid', format_inr(paid)))
-    if record.kind != 'pos' and payable > 0: els.append(pair('Balance due', 'INR ' + format_inr(payable), bold, right_bold))
+    if record.kind not in {'pos', 'credit_note', 'debit_note'} and payable > 0: els.append(pair('Balance due', 'INR ' + format_inr(payable), bold, right_bold))
     if branding.get('upi_id') and record.kind in {'sales_invoice', 'estimate', 'proforma', 'pos'} and payable > 0:
         uri = 'upi://pay?' + urlencode({'pa': branding['upi_id'], 'pn': supplier.get('name', ''), 'cu': 'INR', 'am': format(payable, '.2f')})
         code = QrCodeWidget(uri); x0, y0, x1, y1 = code.getBounds(); side = min(width * .62, 34 * mm)
