@@ -743,6 +743,7 @@ def calculate(data, company, tax_mode, kind, session, *, exclude_return_id=None)
             if itc_treatment == 'pending_review': pending_input_tax += line_tax
             # Valuation is derived from stock movements, never accepted from a client.
             line = {key: value for key, value in line.items() if key not in {'inventory_cost', 'legacy_shortage_cost', 'shortage_cost', 'shortage_quantity', 'stock_cost_provisional', 'return_cost_basis', 'return_purchase_variance', 'return_cost_reconciliation'}}
+            line = {key: value for key, value in line.items() if key not in {'remaining_return_quantity', 'return_capacity_reason', 'return_capacity_scope'}}
             if kind != 'debit_note': line = {key: value for key, value in line.items() if key not in {'source_line_id', 'source_document_id', 'source_line_number'}}
             cleaned.append({**line, 'description': description, 'hsn': hsn, 'gross': str(gross),
                             'discount_percent': str(discount_percent), 'discount': str(discount),'document_discount':str(document_discount_value),
@@ -1293,7 +1294,13 @@ def get_record(company_id:str,record_id:str,user:User=Depends(current_user),sess
     consumed = sum((r.amount for r in settlements if r.data.get('advance_id')==row.id), Decimal('0'))
     credit_used = sum((r.amount for r in settlements if r.data.get('credit_note_id')==row.id), Decimal('0'))
     converted_to = session.scalar(select(DocumentConversion.target_record_id).where(DocumentConversion.company_id==company_id, DocumentConversion.source_record_id==row.id))
-    return {**obj(row), **record_status(row, posted, applied=applied_total(company_id,row.id,session),
+    capacity = None
+    if row.kind == 'purchase_bill':
+        from purchase_returns import remaining_source_lines
+        capacity = remaining_source_lines(sys.modules[__name__], row, session)
+    serialized = obj(row)
+    if capacity is not None: serialized['data'] = {**serialized['data'], 'lines': capacity}
+    return {**serialized, **record_status(row, posted, applied=applied_total(company_id,row.id,session),
         consumed=consumed, credit_used=credit_used, converted_to=converted_to), 'allocations':allocations}
 
 @app.post('/api/companies/{company_id}/advances/{advance_id}/apply')

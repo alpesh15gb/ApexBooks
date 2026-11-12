@@ -137,3 +137,42 @@ class PurchaseReturnLinesTest(unittest.TestCase):
         with Session(m.engine) as session:
             record=session.get(m.Record,note['id']);data=dict(record.data);data['lines']=[{k:v for k,v in line.items() if k!='taxable'} for line in data['lines']];record.data=data;session.commit()
         self.note(source,[{**a,'quantity':1,'rate':200}],409)
+
+
+class RemainingSourceQuantityTest(unittest.TestCase):
+    setUp=PurchaseReturnLinesTest.setUp
+    tearDown=PurchaseReturnLinesTest.tearDown
+    post=PurchaseReturnLinesTest.post
+    bill=PurchaseReturnLinesTest.bill
+    body=PurchaseReturnLinesTest.body
+    note=PurchaseReturnLinesTest.note
+
+    def detail(self,source):
+        result=self.client.get(self.base+'/records/'+source['id'],headers=self.headers)
+        self.assertEqual(result.status_code,200,result.text)
+        return result.json()['data']['lines']
+
+    def test_remaining_quantities_follow_returns_and_cancellation_without_reservation(self):
+        source=self.bill();a,b=source['data']['lines']
+        self.assertEqual([Decimal(l['remaining_return_quantity']) for l in self.detail(source)],[2,2])
+        note=self.note(source,[{**a,'quantity':1}]);stale=self.detail(source)[0]
+        self.assertEqual(Decimal(stale['remaining_return_quantity']),1)
+        self.note(source,[{**a,'quantity':1}])
+        self.assertEqual(Decimal(self.detail(source)[0]['remaining_return_quantity']),0)
+        self.note(source,[{**stale,'quantity':1}],422)
+        self.client.post(self.base+'/records/'+note['id']+'/cancel',headers=self.headers,json={'reason':'Synthetic correction'}).raise_for_status()
+        self.assertEqual(Decimal(self.detail(source)[0]['remaining_return_quantity']),1)
+        posted=self.note(source,[{**self.detail(source)[0],'quantity':1}])
+        self.assertNotIn('remaining_return_quantity',posted['data']['lines'][0])
+        before=self.client.get(self.base+'/data-export.json',headers=self.headers).json()
+        self.detail(source)
+        after=self.client.get(self.base+'/data-export.json',headers=self.headers).json()
+        for key in ('records','journals','journal_lines','audit_events'):self.assertEqual(before[key],after[key])
+
+    def test_ambiguous_legacy_pool_never_claims_a_remaining_line_quantity(self):
+        source=self.bill(mixed=False)
+        legacy={k:v for k,v in source['data']['lines'][0].items() if not k.startswith('source_')}
+        self.note(source,[{**legacy,'quantity':1}])
+        for line in self.detail(source):
+            self.assertIsNone(line['remaining_return_quantity'])
+            self.assertIn('ambiguous',line['return_capacity_reason'])

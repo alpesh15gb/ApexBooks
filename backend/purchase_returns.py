@@ -171,3 +171,42 @@ def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
     return {**data, 'lines': result, **{key: str(pending[key] + ineligible[key]) for key in keys},
             **{'pending_input_' + key: str(pending[key]) for key in keys if key != 'supplier_tax'},
             'input_tax_ineligible': str(sum(ineligible.values()))}
+
+
+def remaining_source_lines(m, source, session):
+    """A single-query snapshot of capacity for additional returns, never a reservation."""
+    from sqlalchemy import or_, and_
+    posted = select(m.RecordPosting.record_id).where(m.RecordPosting.company_id == source.company_id)
+    rows = list(session.execute(select(m.Record, m.Record.id.in_(posted)).where(
+        m.Record.company_id == source.company_id,
+        or_(m.Record.id == source.id, and_(m.Record.kind == 'debit_note',
+            m.Record.id.in_(posted), m.Record.data['applied_to'].as_string() == source.id)))
+        .execution_options(populate_existing=True)))
+    current = next(((row, active) for row, active in rows if row.id == source.id), None)
+    if not current: raise HTTPException(404, 'Source bill no longer exists')
+    source, active = current
+    lines = source_lines(source)
+    used = defaultdict(lambda: Decimal(0)); unknown = {}
+    if not active or source.data.get('cancelled'):
+        unknown = {i: 'Source bill is not posted' for i in range(len(lines))}
+    for note, unused in rows:
+        if note.id == source.id: continue
+        for line in note.data.get('lines', []):
+            try:
+                indexes = candidates(line, source)
+                if len(indexes) != 1:
+                    for i in indexes: unknown[i] = 'Earlier return has ambiguous source-line allocation'
+                    continue
+                used[indexes[0]] += verified_value(line, 'quantity')
+            except (HTTPException, ValueError, ArithmeticError, TypeError):
+                unknown.update({i: 'Earlier return reference or quantity needs review' for i in range(len(lines))})
+    result = []
+    for i, line in enumerate(lines):
+        try:
+            remaining = verified_value(line, 'quantity') - used[i]
+            if remaining < 0: unknown[i] = 'Earlier returns exceed source quantity'
+        except HTTPException:
+            remaining = None; unknown[i] = 'Source quantity needs review'
+        result.append({**line, 'remaining_return_quantity': None if i in unknown else str(remaining),
+                       'return_capacity_reason': unknown.get(i), 'return_capacity_scope': 'additional_returns'})
+    return result

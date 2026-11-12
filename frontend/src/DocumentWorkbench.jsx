@@ -322,7 +322,7 @@ export function DocumentItems({
               }}>
                 {!line.source_line_id && <option value="">Choose a source line or match by item/description</option>}
                 {line.source_line_id && !returnSourceLines.some(row => row.source_line_id === line.source_line_id) && <option value={line.source_line_id}>Saved source line {line.source_line_number || ""}</option>}
-                {returnSourceLines.filter(row => row.source_line_id).map(row => <option key={row.source_line_id} value={row.source_line_id}>Line {row.source_line_number} · {row.description} · source qty {row.quantity} · GST {row.gst_rate}% · {row.itc_treatment === "ineligible" ? "Ineligible ITC" : "ITC pending review"}</option>)}
+                {returnSourceLines.filter(row => row.source_line_id).map(row => <option key={row.source_line_id} value={row.source_line_id}>Line {row.source_line_number} · {row.description} · source qty {row.quantity} · additional return qty {row.remaining_return_quantity ?? "needs review"} · GST {row.gst_rate}% · {row.itc_treatment === "ineligible" ? "Ineligible ITC" : "ITC pending review"}</option>)}
               </select>
             </label>}
             <label className="item-description">
