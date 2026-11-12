@@ -1403,3 +1403,29 @@ storage or operational writer-pause handling. No concurrent writers, commerce
 fixture or production data. Snapshot recovery still excludes later writes.
 Temporary cluster stopped and identities/data removed after completion. No
 publication retry or deployment.
+
+### Android confirmed import / refresh failure (2026-11-12)
+
+Actual compiled bank-import callback reproduced confirmed POST followed by refresh
+failure surfacing only a generic error after the receipt was cleared. Android
+master and bank import completion now explicitly identifies a confirmed import,
+says not to repeat it and directs the user to refresh after access/connectivity
+recovery. HTTP failure status is preserved, including 401 for existing sign-out
+handling. Obsolete company/session results do not replace the current notice;
+cancellation remains cancellation. GET receipt confirmation uses the same path
+and does not repeat the POST. Other migration/restore completion is unchanged.
+
+Compiled production AppModel completion method passes success, offline/503/403/401,
+six delayed company/session/away-back success/error cases and cancellation. Real
+import save/lookup callback extraction passes POST-confirmed and GET-confirmed
+refresh failure alongside exact retry tests. Existing master callback, bank role
+and owner-import Android checks pass. Mixed-platform role scripts now support an
+explicit --android-only option; their default still runs both platforms. New
+Android checks are registered in CI; none was dispatched.
+
+Gradle 8.14.3 was restored under /tmp from downloads.gradle.org and its published
+SHA256 verified: bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531.
+Evidence: docs/evidence/android-confirmed-import-*.log. This is portable compiled
+method/callback testing; full Compose/device acceptance remains open. No dedicated
+new retry POST is offered for a known success. Windows analogous completion
+behavior remains outside this batch. No production/publication/deployment.

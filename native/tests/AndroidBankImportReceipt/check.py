@@ -18,7 +18,7 @@ class JSONArray{fun length()=0}
 class ApiFailure(val status:Int,message:String):Exception(message)
 fun encode(value:String)=value
 class Api{var gets=0;var receiptKey="";fun company(cid:String,path:String)=cid+path;suspend fun request(path:String):Any{gets++;failure?.let{throw it};return JSONObject(receiptKey)};var keys=mutableListOf<String?>();var failure:Exception?=null;var after:(()->Unit)?=null;suspend fun request(path:String,method:String,body:JSONObject,key:String?):Any{keys.add(key);after?.invoke();failure?.let{throw it};return JSONObject(key?:"")}}
-class VM{val api=Api();var canWrite=true;var isOwner=true;var tool="statement_import";var toolData:Any?=null;var notice="";var refreshes=0;var supported=true;fun supports(value:String)=supported&&value=="bank_import_receipts";suspend fun task(block:suspend()->Unit){block()};suspend fun refresh(){refreshes++};suspend fun loadCompanies(id:String){} }
+class VM{val api=Api();var canWrite=true;var isOwner=true;var tool="statement_import";var toolData:Any?=null;var notice="";var refreshes=0;var refreshFailure:Exception?=null;var supported=true;fun supports(value:String)=supported&&value=="bank_import_receipts";suspend fun task(block:suspend()->Unit){block()};suspend fun refresh(){refreshes++;refreshFailure?.let{throw it}};suspend fun finishConfirmedImport(message:String="Import confirmed."){tool="";toolData=null;try{refresh();notice=message}catch(e:Exception){throw ApiFailure((e as? ApiFailure)?.status?:0,message+" Do not repeat the import. "+e.message)}};suspend fun loadCompanies(id:String){} }
 suspend fun ActionDialog(onSave:suspend()->Unit){onSave()}
 fun main()=runBlocking{
  val directory=Files.createTempDirectory("apex-import-save-").toFile()
@@ -48,6 +48,10 @@ fun main()=runBlocking{
   suspend fun lookup(){LOOKUP}
   val writes=vm.api.keys.size;vm.api.failure=ApiFailure(404,"missing receipt");check(runCatching{lookup()}.isFailure);check(receipt.pending)
   vm.api.failure=null;lookup();check(!receipt.pending&&vm.api.keys.size==writes&&vm.api.gets==2)
+  vm.notice="";vm.refreshFailure=java.io.IOException("Refresh unavailable")
+  val beforeRefreshFailure=vm.api.keys.size;val refreshError=runCatching{save()}.exceptionOrNull();check(refreshError?.message?.contains("confirmed")==true);check(vm.api.keys.size==beforeRefreshFailure+1&&!receipt.pending)
+  vm.api.failure=java.io.IOException("lost before receipt recovery");check(runCatching{save()}.isFailure);vm.api.failure=null
+  run{val marker=receipt.marker!!;vm.api.receiptKey=marker.key;suspend fun recover(){LOOKUP};val failure=runCatching{recover()}.exceptionOrNull();check(failure?.message?.contains("confirmed")==true&&!receipt.pending)}
   println("PASS actual Android bank import save/restart: keyed replay, unknown/422 preservation, success, role guard, stale error")
  }finally{directory.deleteRecursively()}
 }

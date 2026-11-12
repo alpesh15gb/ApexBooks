@@ -116,6 +116,9 @@ jobs:
           python3 native/tests/AndroidImportReceipt/check.py
           python3 native/tests/AndroidImportReceipt/wiring.py
           python3 native/tests/AndroidBankImportReceipt/check.py
+          python3 native/tests/AndroidImportCompletion/check.py
+          python3 native/tests/BankImportRole/check.py --android-only
+          python3 native/tests/OwnerImportRole/check.py --android-only
           python3 native/tests/AndroidDayBookLabels/check.py
           python3 native/tests/AndroidSourceSelection/check.py
       - name: Verify restored-company navigation survives dialog disposal
