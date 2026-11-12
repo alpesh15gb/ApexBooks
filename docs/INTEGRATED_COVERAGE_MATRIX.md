@@ -929,3 +929,20 @@ mount is not a real browser restart test. Unknown template create/edit payloads
 remain memory-only; this lookup resolves saved occurrences only and never treats
 absence as evidence that another POST is safe. Native adoption, full browser
 acceptance and full build/device gates remain open. No production or publication.
+
+### Recurring editor-open failure and integrated regression (2026-11-12)
+
+Follow-up reproduced a shared callback contract gap: App.beginEdit caught a
+record-read failure and returned undefined, so recurring completion treated it as
+success and dismissed the confirmed result. beginEdit now reports true only after
+opening the editor, false on denied/stale/failed opening. Recurring completion
+retains confirmed recovery when opening returns false. It never repeats the POST.
+Existing callers can continue ignoring the return value.
+
+Evidence: five tests execute the actual App callback body with synthetic boundaries
+(success, failed GET, viewer, stale response, pending operation), plus 13 rendered
+recurring tests including failed opening followed by recovery with one POST total.
+All 420 frontend tests pass on this integrated source; lint/build/bundle budgets
+pass. This is not full-App browser/device verification. No backend changes,
+production access, deployment or denied publication retry. Self-contained bundle
+preserved for independent review.

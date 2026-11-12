@@ -922,12 +922,12 @@ function App() {
   }
   function closeDetail() { if (postingNavigationBlocked()) return; editorRequests.current.latest(); setDetail(null); }
   async function beginEdit(record) {
-    if (postingNavigationBlocked()) return;
-    if (!["owner", "editor"].includes(company?.role)) return;
+    if (postingNavigationBlocked()) return false;
+    if (!["owner", "editor"].includes(company?.role)) return false;
     const isCurrent = editorRequests.current.latest();
     try {
       const full = await api(`/companies/${companyId}/records/${record.id}`);
-      if (!isCurrent() || postingNavigationBlocked()) return;
+      if (!isCurrent() || postingNavigationBlocked()) return false;
       rememberEditorContext();
       if (["party", "item"].includes(record.kind)) setEditingMaster(full);
       else {
@@ -939,8 +939,10 @@ function App() {
       }
       setEditorCycle(n => n + 1);
       setModal("record");
+      return true;
     } catch (reason) {
       if (isCurrent()) setError(reason.message);
+      return false;
     }
   }
   async function beginConversion(record, targetKind) {

@@ -27,7 +27,11 @@ export default function RecurringWorkspace({ companyId, role, records, api, Moda
     const owner = context.current;
     if (result?.record) await onRefresh();
     if (!live.current || context.current !== owner) return;
-    if (result?.record) await onReview(result.record);
+    if (result?.record) {
+      const opened = await onReview(result.record);
+      if (!live.current || context.current !== owner) return;
+      if (opened === false) throw new Error("The saved draft could not be opened. Retry opening it; do not create another draft.");
+    }
     if (!live.current || context.current !== owner) return;
     setAction(null); setRevision(value => value + 1);
   };

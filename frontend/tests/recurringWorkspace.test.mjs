@@ -105,3 +105,13 @@ test('occurrence lookup is single-flight and suppresses late result after access
  await act(async()=>finish({record:{id:'obsolete',number:'OBSOLETE',kind:'sales_order'}}));assert.doesNotMatch(document.body.textContent,/OBSOLETE/);
  }finally{await act(async()=>root.unmount());}
 });
+test('failed editor opening retains confirmed draft and recovers without a second POST',async()=>{
+ const root=createRoot(document.getElementById('root'));let writes=0,opens=0;
+ const api=async(path,options)=>{if(options?.method==='POST'){writes++;return{record:{id:'saved'}};}return apiRead(path);};
+ try{
+ await act(async()=>root.render(React.createElement(Recurring,{...props,api,onReview:async()=>++opens>1})));await click('Create draft & review');
+ const submit=()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));await act(async()=>submit());
+ assert.match(document.body.textContent,/could not be opened/);assert.match(document.body.textContent,/draft was created/);assert.equal(writes,1);
+ await act(async()=>submit());assert.equal(opens,2);assert.equal(writes,1);assert.equal(document.querySelector('[role=dialog]'),null);
+ }finally{await act(async()=>root.unmount());}
+});
