@@ -123,3 +123,27 @@ This is same-tab reload recovery, not closed-tab/cross-device recovery. Closing 
 tab can lose sessionStorage; keep the displayed operation reference. Browser data
 clearing is not addressed. Native adoption is still pending, and real browser
 acceptance is separate from rendered synthetic tests.
+
+## Android adoption (local candidate)
+
+ImportTool now gates receipt headers by master_import_receipts. A private file is
+namespaced by a hash of API origin, account identifier and company; its contents
+are only operation key, import type and payload fingerprint. Creation is serialized
+with a file lock and atomic replacement after flushing the temporary file. No CSV,
+email, token or financial field is written to the marker. Corruption/storage failure
+blocks a new keyed dispatch. Power-loss storage certification is not claimed.
+
+The original import can be recovered by GET before selecting a file. Process-style
+reconstruction reloads its reference/type; same-key retry requires the original
+serialized payload fingerprint. Changed input and server capability loss block retry.
+Unknown outcomes, including a later 4xx rejection, preserve the reference; current
+role and workspace ownership gate actions. A confirmed matching receipt clears the
+reference; stale callbacks cannot close the replacement tool or publish errors.
+Legacy servers keep unkeyed requests and show the limitation. A pending receipt
+from a newer server cannot silently become a legacy unkeyed import.
+
+Compiled JVM checks exercise production storage logic (including four-instance
+same/different payload races), actual extracted save callback and 11 existing
+production import ownership cases. They are not full Compose or device tests.
+Windows adoption remains pending; a callable .NET SDK was not found in this current
+workspace, so no new Windows build verification is claimed.

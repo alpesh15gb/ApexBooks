@@ -833,3 +833,17 @@ after uncertainty, storage failure, actor/company isolation and legacy server
 behavior covered. Lint/build/bundle budgets pass. No real browser or native UI
 acceptance claim; closing the tab can lose its recovery reference. Native adoption
 remains pending. No production, publication retry or deployment.
+
+### Android master-import receipt adoption (2026-11-12)
+
+Added capability-gated keys, app-private opaque restart references and GET recovery.
+Original input fingerprint gates retry, capability/role loss blocks unsafe writes,
+and unknown outcomes remain unresolved even after later rejection. Reference
+creation is serialized across instances; no CSV or credentials persist.
+
+Executed compiled Kotlin production-helper fixtures for restart/retry, corruption,
+legacy compatibility, actor/company/origin namespace and four-instance races;
+compiled actual save callback fixtures for unknown/422/success/role/stale-error;
+and 11 existing import ownership fixtures. All passed. Full Compose build/device
+acceptance and Windows adoption remain open. No production, denied upload retry or
+deployment.
