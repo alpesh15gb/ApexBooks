@@ -47,6 +47,7 @@ private suspend fun recurringWrite(vm:AppModel,command:RecurringCommand,path:Str
     "recurring_new"->RecurringCreate(vm,row)
     "recurring_edit"->key(row.s("id"),row.optInt("version")){RecurringEdit(vm,row)}
     "recurring_occurrence"->RecurringOccurrence(vm,row)
+    "recurring_review"->RecurringReview(vm,row)
     else->RecurringHub(vm)
 }}
 @Composable private fun RecurringHub(vm:AppModel){
@@ -115,7 +116,37 @@ private suspend fun recurringWrite(vm:AppModel,command:RecurringCommand,path:Str
 @Composable private fun RecurringOccurrence(vm:AppModel,row:JSONObject){
     val cid=vm.companyId;val stamp=vm.workspaceStamp();val occurrence=row.s("next_due");val scope="occurrence:${row.s("id")}:$occurrence";val command=remember(cid,scope){vm.recurringCommand(scope)}
     ActionDialog("Create and review scheduled draft",vm,enabled=vm.canWrite&&vm.recordsReady,confirm=if(command.unresolved)"Retry original request"else"Create draft for $occurrence",unresolved={command.unresolved},onDismiss={vm.finishRecurring(scope);vm.toolData=null;vm.tool="recurring"},onSave={
+        check(vm.canWrite&&vm.inWorkspace(cid,stamp)){"Current editor or owner access is required to generate a draft. Your original request is preserved."}
         val result=recurringWrite(vm,command,vm.api.company(cid,"/recurring-templates/${encode(row.s("id"))}/occurrences"),"POST",JSONObject().put("occurrence_date",occurrence)){response->val draft=response.o("record");if(draft.s("id").isBlank()||draft.s("kind") !in vm.draftKinds)throw ApiFailure(502,"The server did not identify the generated draft. Retry the original request to recover it.")}
-        if(vm.inWorkspace(cid,stamp)){vm.finishRecurring(scope);vm.tool="";vm.toolData=null;val draft=result.o("record");vm.editor=EntryEditor(vm,draft.s("kind"),previous=draft);vm.notice="Scheduled draft saved. Review before converting; no invoice or stock posting has occurred.";vm.refresh()}
+        if(vm.inWorkspace(cid,stamp)){vm.finishRecurring(scope);vm.toolData=result.o("record");vm.tool="recurring_review";reviewGeneratedRecurringDraft(vm)}
     }){RecurringPending(command);Text(row.s("name"));DetailValue("Occurrence date",occurrence);Text("Creates only the earliest due draft. Repeating this same occurrence returns that existing draft, not a duplicate. Review it before converting to an invoice or bill.")}
+}
+
+/** Confirmed draft recovery performs reads only; generation retries remain in RecurringCommand. */
+suspend fun reviewGeneratedRecurringDraft(vm:AppModel){
+    val saved=vm.toolData?:return;val id=vm.companyId;val stamp=vm.workspaceStamp();val page=vm.page;val session=vm.api.captureSession()
+    val recordId=saved.s("id");val reference=saved.s("number").ifBlank{recordId}
+    fun current()=vm.inWorkspace(id,stamp)&&vm.page==page&&vm.tool=="recurring_review"&&vm.toolData===saved&&runCatching{session();true}.getOrDefault(false)
+    if(!current())return
+    try{
+        vm.refresh();if(!current()||!vm.recordsReady)return
+        val access=vm.readStamp();val fresh=vm.api.record(id,recordId)
+        if(!current()||!vm.canRead(id,access))return
+        if(fresh.s("id")!=recordId||fresh.s("kind") !in vm.draftKinds)throw ApiFailure(409,"The saved record needs review in the document list.")
+        val next=if(vm.canWrite&&!fresh.optBoolean("cancelled")&&fresh.s("converted_to").isBlank())EntryEditor(vm,fresh.s("kind"),previous=fresh)else null
+        vm.editor=next;vm.detail=if(next==null)fresh else null;vm.tool="";vm.toolData=null
+        vm.notice="Scheduled draft $reference is saved. Review before converting; no invoice or stock posting has occurred."
+    }catch(e:Exception){
+        if(e is kotlinx.coroutines.CancellationException)throw e
+        if(current()||(vm.inWorkspace(id,stamp)&&vm.tool=="recurring_review"&&vm.toolData===saved&&!vm.api.signedIn))throw ApiFailure((e as? ApiFailure)?.status?:0,"Draft $reference is saved. Refresh/open failed. Do not generate another occurrence; retry opening this saved draft or find it in the document list. ${e.message.orEmpty()}")
+    }
+}
+@Composable private fun RecurringReview(vm:AppModel,row:JSONObject){
+    val cid=vm.companyId;val stamp=vm.workspaceStamp()
+    ActionDialog("Scheduled draft saved · review pending",vm,confirm="Refresh and open saved draft",enabled=vm.signedIn,working={vm.busy>0},onDismiss={vm.tool="";vm.toolData=null},onSave={
+        if(vm.inWorkspace(cid,stamp)&&vm.tool=="recurring_review"&&vm.toolData===row)reviewGeneratedRecurringDraft(vm)
+    }){
+        Text("Draft ${row.s("number").ifBlank{row.s("id")}} is saved. No invoice or stock posting occurred.")
+        Text("Do not generate another occurrence to recover it. Refresh and open only reads company data and this saved draft. You can cancel and find it later in its document list.")
+    }
 }

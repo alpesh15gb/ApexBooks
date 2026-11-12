@@ -1,0 +1,1 @@
+PASS actual Android generation callback/completion: confirmed error recovery without repost, viewer/status routing, editor failure, 12 stale refreshes, denied reads, 401, cancellation and forced viewer dispatch
