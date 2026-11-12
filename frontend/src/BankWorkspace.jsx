@@ -1,7 +1,7 @@
 import FinancialFigure from "./FinancialFigure.jsx";
 import { businessDate } from "./businessDate.js";
 import StatementImportPreview from "./StatementImportPreview.jsx";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Wallet, FileText, Search, ArrowDownLeft } from "lucide-react";
 import CashBook from "./CashBook.jsx";
 import CashTransfer from "./CashTransfer.jsx";
@@ -133,6 +133,11 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
   const [accountHint, setAccountHint] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
+  const view = `${companyId}:${bankId}:${asOf}:${openingBalance}`;
+  const activeView = useRef(view);
+  activeView.current = view;
+  useEffect(() => () => { activeView.current = null; }, []);
   const activeBank = banks.find((bank) => bank.id === bankId) || banks[0];
 
   useEffect(() => {
@@ -203,6 +208,9 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
 
   async function createBank(event) {
     event.preventDefault();
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const submittedView = view;
     setBusy(true);
     setError("");
     try {
@@ -210,14 +218,16 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
         method: "POST",
         body: JSON.stringify({ name, account_hint: accountHint }),
       });
+      if (activeView.current !== submittedView) return;
       setBanks((current) => [...current, bank]);
       setBankId(bank.id);
       setName("");
       setAccountHint("");
     } catch (err) {
-      setError(err.message);
+      if (activeView.current === submittedView) setError(err.message);
     } finally {
-      setBusy(false);
+      inFlight.current = false;
+      if (activeView.current !== null) setBusy(false);
     }
   }
   async function upload(event) {
@@ -226,6 +236,9 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
     setImportFile(file); event.target.value="";
   }
   async function allocate(line) {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const submittedView = view;
     setBusy(true);
     setError("");
     try {
@@ -239,14 +252,19 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
           }),
         },
       );
+      if (activeView.current !== submittedView) return;
       setRevision((value) => value + 1);
     } catch (err) {
-      setError(err.message);
+      if (activeView.current === submittedView) setError(err.message);
     } finally {
-      setBusy(false);
+      inFlight.current = false;
+      if (activeView.current !== null) setBusy(false);
     }
   }
   async function removeAllocation(allocation) {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const submittedView = view;
     setBusy(true);
     setError("");
     try {
@@ -254,11 +272,13 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
         `/companies/${companyId}/bank-statement/allocations/${allocation.id}`,
         { method: "DELETE" },
       );
+      if (activeView.current !== submittedView) return;
       setRevision((value) => value + 1);
     } catch (err) {
-      setError(err.message);
+      if (activeView.current === submittedView) setError(err.message);
     } finally {
-      setBusy(false);
+      inFlight.current = false;
+      if (activeView.current !== null) setBusy(false);
     }
   }
   async function unmatch(line) {
@@ -273,6 +293,9 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
   }
   async function saveReview(event) {
     event.preventDefault();
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const submittedView = view;
     setBusy(true);
     setError("");
     try {
@@ -288,12 +311,14 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
           }),
         },
       );
+      if (activeView.current !== submittedView) return;
       setReviews((current) => [review, ...current]);
       setReviewNote("");
     } catch (err) {
-      setError(err.message);
+      if (activeView.current === submittedView) setError(err.message);
     } finally {
-      setBusy(false);
+      inFlight.current = false;
+      if (activeView.current !== null) setBusy(false);
     }
   }
   const candidates = useMemo(() => {

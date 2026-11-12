@@ -37,3 +37,39 @@ test('manual source selection and contextual return copy identical fixed plus do
  }
  for(const data of outputs){assert.equal(data.applied_to,source.id);assert.equal(data.lines[0].quantity,'1');assert.equal(data.lines[0].rate,'100');}
 });
+
+test('reopening financial-only credit and debit notes preserves false stock-return flag',async()=>{
+ for(const kind of ['credit_note','debit_note']){
+  const source={id:'note',kind,name:'Buyer',number:'NOTE-1',date:'2026-11-02',data:{version:0,return_stock:false,applied_to:'original',lines:[line]}};
+  const view=await mount({kind,source,records:[{id:'original',kind:kind==='credit_note'?'sales_invoice':'purchase_bill',posted:true,name:'Buyer',amount:100,data:{lines:[line]}}],documentKinds:['sales_invoice','purchase_bill','credit_note','debit_note']});
+  await submit();assert.equal(view.saved.data.return_stock,false);await act(async()=>view.root.unmount());
+ }
+});
+
+test('quick-add item freezes line removal, submit and close until its request resolves',async()=>{
+ let finish,writes=0,closed=0;
+ const source={id:'r1',name:'Buyer',date:'2026-11-02',data:{lines:[{...line,description:'Item A'},{...line,description:'Item B',quantity:'3'}]}};
+ const view=await mount({source,close:()=>{closed++;},api:async(path,options={})=>{if(options.method==='POST'&&path.endsWith('/records')){writes++;return new Promise(resolve=>{finish=resolve;});}return path.endsWith('bank-accounts')?[]:{amount:'90',data:{lines:[]}};}});
+ const add=[...document.querySelectorAll('button')].find(x=>x.textContent==='Save as item');
+ await act(async()=>{add.click();add.click();});assert.equal(writes,1);
+ const remove=document.querySelector('[aria-label="Remove item 1"]');assert.equal(remove.matches(':disabled'),true);
+ await act(async()=>remove.click());await submit();assert.equal(view.saved,undefined);
+ await act(async()=>window.dispatchEvent(new window.Event('apex-close-editor')));assert.equal(closed,0);
+ await act(async()=>finish({id:'master-a',name:'Item A',kind:'item',data:{}}));await submit();
+ assert.equal(view.saved.data.lines.length,2);assert.equal(view.saved.data.lines[0].item_id,'master-a');assert.equal(view.saved.data.lines[1].description,'Item B');assert.equal(view.saved.data.lines[1].quantity,'3');await act(async()=>view.root.unmount());
+});
+test('quick-add party cannot replace an edited name or submit while pending',async()=>{
+ let finish;const view=await mount({api:async(path,options={})=>options.method==='POST'&&path.endsWith('/records')?new Promise(resolve=>{finish=resolve;}):path.endsWith('bank-accounts')?[]:{amount:'90',data:{lines:[]}}});
+ const add=[...document.querySelectorAll('button')].find(x=>x.textContent.includes('as a new customer'));await act(async()=>add.click());
+ assert.equal(document.querySelector('input[name="name"]').matches(':disabled'),true);await change('input[name="name"]','Different buyer');await submit();assert.equal(view.saved,undefined);
+ await act(async()=>finish({id:'party-buyer',name:'Buyer',kind:'party',data:{}}));await submit();assert.equal(view.saved.name,'Buyer');assert.equal(view.saved.data.party_id,'party-buyer');await act(async()=>view.root.unmount());
+});
+
+test('linked debit-note preview includes the source bill required for inherited ITC',async()=>{
+ let preview;
+ const source={id:'note',kind:'debit_note',name:'Supplier',number:'DN-1',date:'2026-11-02',data:{applied_to:'source-bill',lines:[line]}};
+ const view=await mount({kind:'debit_note',source,documentKinds:['debit_note'],api:async(path,options={})=>{if(path.endsWith('/documents/preview'))preview=JSON.parse(options.body);return path.endsWith('bank-accounts')?[]:{amount:'90',data:{lines:[]}};}});
+ await act(async()=>new Promise(resolve=>setTimeout(resolve,400)));
+ assert.equal(preview.data.applied_to,'source-bill');
+ await act(async()=>view.root.unmount());
+});

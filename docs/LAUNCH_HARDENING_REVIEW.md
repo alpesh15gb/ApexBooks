@@ -92,3 +92,74 @@ Indian Accounting Standards/AS applicability, accounting policy choices and
 statutory special cases remain business-specific. The existing README's scope
 limits (including depreciation, NRV write-downs, reverse charge, cess, exports,
 e-invoicing/e-way bills and filing) are not removed by these fixes.
+
+## Follow-up: control-account and provisional-return containment
+
+Two synthetic regressions failed before these guards: a manual debit to SYS-AR
+was accepted without a party allocation, and a five-unit sale from zero stock,
+followed by a five-unit purchase at INR 60, could be returned at zero inventory
+cost. A balanced trial balance alone does not detect either misstatement.
+
+Manual journals now reject receivable/payable, customer/supplier credit and
+customer/supplier advance control accounts on either side. Linked document
+workflows remain responsible for their subledgers; existing manual journals can
+still be reversed through the audited reversal endpoint. Historical divergence
+must be identified and corrected separately; this does not repair old books.
+
+Physical returns against provisionally valued negative-stock sales now fail
+closed in ordinary credit notes and deferred commerce receipts. Financial-only
+credits remain available. This is containment, not a completed valuation fix:
+there is no supported workflow yet to allocate later replenishment variances
+back to source sales and finalize their return cost. The guard also rejects
+unreplenished provisional sales. Do not clear flags or edit stored cost fields
+manually to bypass it. A full solution must cover partial/multiple receipts and
+returns, same-day ordering, cancellations, locked periods and restore replay.
+
+No schema or production changes were made. Production database recovery,
+isolated restore, writer pause, migration compatibility, exact release identity
+and recovery procedures still require real operator evidence. No new statutory
+compliance conclusion follows from these accounting tests.
+
+## Follow-up batch: API, web and native workflow integrity
+
+The isolated branch `fix/control-account-guards` preserves the previously tested
+PR tree. Changes after the initial containment commit include:
+
+- Purchase debit notes derive input-tax treatment from the matched source line,
+  and cumulative returns cannot exceed source pending/ineligible tax. Mixed
+  treatments with ambiguous line identity fail closed rather than guessing.
+- HTTP record inputs cannot set unallocated credit or advance tax event metadata.
+  Payment party reports ignore inappropriate historical unallocated-credit fields.
+  Previously saved spoofed GST metadata still requires a historical-data review.
+- Notes dated before existing settlement allocations are rejected atomically.
+  Later settlements are not silently rewritten.
+- Cancelled documents cannot download an apparently active PDF in any layout.
+  Retained records and audit history remain available; cancelled-copy PDF design
+  is not supplied by this containment change.
+- Web bank-review/create/allocation operations have synchronous in-flight guards
+  and scoped responses. Commerce receipt quantities reset when selection changes
+  and only visible credited products enter the payload. GST-to-ordinary reports
+  restore the prior date range; company-specific party filters cannot leak.
+- Reopened financial-only notes preserve `return_stock=false`. Invoice quick-add
+  master requests freeze editing, close and submission, use synchronous guards,
+  ignore stale editor responses and link items by line object identity.
+- Web, Windows and Android manual-journal selectors omit protected control
+  accounts. Native journal dialogs request discard confirmation for dirty input.
+- Android period locking has explicit load/error/retry gating and confirmation of
+  the selected date. Android and Windows cash-book exports use the last successful
+  displayed report's filters, including after subsequent edits or load failures.
+
+Verification for this batch: the full backend suite passed 274 tests, the full
+frontend suite passed 160 tests, and web lint/build/bundle budgets passed.
+After strengthening tests, seven accounting guards and three rendered filter/race
+checks also passed. Current API/native route checking found 256 route literals
+against 121 contract paths with zero unmatched references. These contract checks
+are not compilation or device acceptance.
+
+Native UI changes are source-reviewed only in this environment: Windows/.NET and
+Android SDK toolchains and physical devices are unavailable. Delayed/failed native
+loads, stale responses, export consistency and discard dialogs still need compiled
+native automation and real device acceptance. No new PostgreSQL concurrency run,
+full browser matrix, statutory review or production restore rehearsal was performed
+for this batch. Production and the remote draft PR were not changed by this local
+implementation. Negative-stock source cost reconciliation remains unfinished.
