@@ -433,3 +433,17 @@ stale_projection result was mocked; this verifies local packet ordering/retentio
 not actual Bagisto execution. Source inspection confirms the bridge's older-version
 ignore rule and whole-unit stock restriction; full bridge integration remains open.
 No production access, external delivery, publication retry or deployment occurred.
+
+### Report export scope during delayed download
+
+Returned to the visual-audit backlog rather than adding projection-only tests.
+Rendered export tests reproduced files saving after company/date changes, returning
+to the report library, and unmount. Exports now capture the report context generation
+and check it after body consumption, with a final session check immediately before
+the download side effect. Obsolete failures are suppressed; current errors remain.
+All 51 targeted frontend tests passed (12 report-export scope cases plus 39 workflow
+cases), including company-away-and-back. Lint/build/bundle budgets passed. The save
+sink was mocked; actual-browser export acceptance remains open. The newly reported
+same-day party-statement chronology issue is queued separately. Full native builds,
+device acceptance, real Bagisto delivery and production recovery gates remain open.
+No production access, publication retry or deployment occurred.

@@ -1,11 +1,12 @@
-import {sessionFetch as fetch} from './sessionScope.js';
+import {sessionFetch as fetch, captureSession} from './sessionScope.js';
+import {createRequestScope} from './requestScope.js';
 import FinancialFigure from "./FinancialFigure.jsx";
 import { businessDate, businessFinancialYear } from "./businessDate.js";
 import ReportLibrary, { reportInfo, reportGroups } from "./ReportLibrary.jsx";
 import DateRangeFilter from "./DateRangeFilter.jsx";
 import GstReturnView from "./GstReturnView.jsx";
 import StatementsView from "./StatementsView.jsx";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Download, ArrowLeft } from "lucide-react";
 import { downloadBlob } from "./downloadBlob.js";
 
@@ -103,6 +104,11 @@ export default function Reports({ companyId, records }) {
   const data =
     !invalidRange && result?.key === requestKey ? result.value : null;
 
+  const exportContext = useMemo(() => ({requestKey, library, records}), [requestKey, library, records]);
+  const exportScope = useRef(createRequestScope(exportContext));
+  exportScope.current.setContext(exportContext);
+  useEffect(() => () => exportScope.current.setContext(Symbol('unmounted')), []);
+
   useEffect(() => {
     if (!companyId || library || invalidRange) return;
     let active = true;
@@ -126,7 +132,10 @@ export default function Reports({ companyId, records }) {
   }, [companyId, view, from, to, party, records, library, invalidRange]);
 
   async function download(format) {
+    if (!data || library) return;
+    const current = exportScope.current.capture();
     try {
+      const verifySession = captureSession();
       const response = await fetch(
         `/api/companies/${companyId}/${["gstr1", "gstr2a", "gstr3b"].includes(view) ? "gst-returns" : "reports"}/${endpoint}.${format}?${query}`,
         { headers: { Authorization: `Bearer ${localStorage.token}` } },
@@ -144,9 +153,12 @@ export default function Reports({ companyId, records }) {
           .get("Content-Disposition")
           ?.match(/filename="([^"]+)"/)?.[1] ||
         `apex-${view}-${from}-${to}.${format}`;
-      downloadBlob(await response.blob(), filename);
+      const blob = await response.blob();
+      if (!current()) return;
+      verifySession();
+      downloadBlob(blob, filename);
     } catch (err) {
-      setError(err.message);
+      if (current()) setError(err.message);
     }
   }
 
