@@ -17,6 +17,7 @@ export function useDocumentPreview({
     date: form.date,
     data: {
       lines,
+      applied_to: form.applied_to,
       place_of_supply: form.place_of_supply,
       supplier_state: form.supplier_state,
       party_gstin: form.party_gstin,

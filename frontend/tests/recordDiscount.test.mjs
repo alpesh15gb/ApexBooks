@@ -64,3 +64,12 @@ test('quick-add party cannot replace an edited name or submit while pending',asy
  assert.equal(document.querySelector('input[name="name"]').matches(':disabled'),true);await change('input[name="name"]','Different buyer');await submit();assert.equal(view.saved,undefined);
  await act(async()=>finish({id:'party-buyer',name:'Buyer',kind:'party',data:{}}));await submit();assert.equal(view.saved.name,'Buyer');assert.equal(view.saved.data.party_id,'party-buyer');await act(async()=>view.root.unmount());
 });
+
+test('linked debit-note preview includes the source bill required for inherited ITC',async()=>{
+ let preview;
+ const source={id:'note',kind:'debit_note',name:'Supplier',number:'DN-1',date:'2026-11-02',data:{applied_to:'source-bill',lines:[line]}};
+ const view=await mount({kind:'debit_note',source,documentKinds:['debit_note'],api:async(path,options={})=>{if(path.endsWith('/documents/preview'))preview=JSON.parse(options.body);return path.endsWith('bank-accounts')?[]:{amount:'90',data:{lines:[]}};}});
+ await act(async()=>new Promise(resolve=>setTimeout(resolve,400)));
+ assert.equal(preview.data.applied_to,'source-bill');
+ await act(async()=>view.root.unmount());
+});
