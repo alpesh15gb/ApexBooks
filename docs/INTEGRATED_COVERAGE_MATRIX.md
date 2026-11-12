@@ -1303,3 +1303,36 @@ operator pause/resume, no populated PostgreSQL pre-upgrade migration or rollback
 of post-upgrade writes. Populated legacy migration remains separately checked on
 SQLite. This does not establish production recoverability. No production access,
 publication retry or deployment.
+
+### Populated PostgreSQL upgrade and snapshot recovery (2026-11-12)
+
+New tests/upgrade/rehearse_postgres_populated.py archives exact baseline commit
+8acc9e2dde9be15c586a432aa44a012dffcbf254 into a temporary directory and runs its
+application against an isolated PostgreSQL 17.11 cluster. Baseline schema is
+i018fa586b03. Before upgrade, it seeds a buyer, master-import receipt/item, opening
+stock, invoice, partial cash receipt, credit note, expense, bank statement row
+and retained expense attachment. A real pre-upgrade custom-format dump is taken.
+
+Current application rejects old-schema readiness/writes, migrates the populated
+books, and preserves original table counts, stored row values/IDs, five complete
+reports, seven record outputs, the bank row, master receipt and attachment metadata
+and bytes. Stored-value comparison excludes auth_sessions/auth_rate_buckets
+(verification reads affect authentication usage) and alembic_version (expected
+migration change); their table counts are still compared. Repeated migration
+produces the same observed books. No report metadata is stripped in this test.
+
+After upgrade, an exact bank-import receipt is created over the already imported
+row (0 added/1 duplicate), and identical replay returns the same receipt. A new
+full dump restores into a second database with 41 table counts and 67 compared
+stored rows, exact reports/records/attachment, and both receipts. Nonempty receipt
+downgrade remains blocked. The pre-upgrade dump is separately restored into a
+third database and reopened with the original application: 40 table counts and
+66 compared stored rows, exact reports/records/attachment/master receipt. No bank
+receipt existed in that earlier snapshot; its false result flag means not present
+at baseline, not a failed equality assertion.
+
+Evidence: docs/evidence/postgres-populated-rehearsal.log. Temporary cluster stopped
+and synthetic data deleted after success. Limits: small fixture, no commerce rows,
+no concurrent writers or actual operator pause, and snapshot recovery intentionally
+discards post-upgrade changes. This is not an in-place reverse migration or proof
+of production recoverability. No production, publication retry or deployment.
