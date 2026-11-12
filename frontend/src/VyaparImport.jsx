@@ -1,11 +1,19 @@
-import {sessionFetch as fetch} from './sessionScope.js';
-import React, {useState} from 'react';
+import {captureCompanyAccess} from './companyAccess.js';
+import {createRequestScope} from './requestScope.js';
+import {sessionFetch as fetch, captureSession} from './sessionScope.js';
+import React, {useEffect, useRef, useState} from 'react';
 import {downloadBlob} from './downloadBlob.js';
 const money=value=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(Number(value||0));
 
 export default function VyaparImport({companyId, role, onImported}) {
   const [encoded,setEncoded]=useState(''),[report,setReport]=useState(null),[busy,setBusy]=useState(false);
   const [error,setError]=useState(''),[accepted,setAccepted]=useState(false),[mode,setMode]=useState('posting');
+  const exports = useRef(createRequestScope(`${companyId}:${role}`));
+  exports.current.setContext(`${companyId}:${role}`);
+  const exporting = useRef(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  useEffect(() => { setExportBusy(false); }, [companyId, role]);
+  useEffect(() => () => exports.current.setContext(Symbol('unmounted')), []);
   async function run(action,content=encoded) {
     setBusy(true);setError('');
     try {
@@ -27,12 +35,21 @@ export default function VyaparImport({companyId, role, onImported}) {
     } catch(reason){setError(reason.message);setBusy(false);}
   }
   async function saved(reconciliation=false) {
-    setError('');
+    if (role !== 'owner' || exporting.current) return;
+    const current = exports.current.capture();
+    let verify = () => {};
+    exporting.current = true; setExportBusy(true); setError('');
     try {
+      const session = captureSession(), access = captureCompanyAccess(`/api/companies/${companyId}`);
+      verify = () => { session(); access?.verify(); };
       const response=await fetch(`/api/companies/${companyId}/imports/${reconciliation?'vyapar-posting/reconciliation':'vyapar/archive.json'}`,{headers:{Authorization:`Bearer ${localStorage.token}`}});
       if(!response.ok)throw Error(reconciliation?'No posted migration reconciliation is available':'No imported archive is available');
-      downloadBlob(await response.blob(),reconciliation?'vyapar-posting-reconciliation.json':'vyapar-source-archive.json');
-    }catch(reason){setError(reason.message);}
+      const blob = await response.blob();
+      if (!current()) return;
+      verify();
+      downloadBlob(blob,reconciliation?'vyapar-posting-reconciliation.json':'vyapar-source-archive.json');
+    }catch(reason){if(current()){try{verify();setError(reason.message);}catch{/* An obsolete operation cannot publish an error. */}}}
+    finally { exporting.current = false; if(current())setExportBusy(false); }
   }
   if(role!=='owner')return null;
   const posting=mode==='posting',errors=report?.errors||[],checks=report?.reconciliation||[];
@@ -52,6 +69,6 @@ export default function VyaparImport({companyId, role, onImported}) {
       {report.imported||report.already_imported?<p className={"migration-result"+(checks.some(c=>!c.passed)?" has-differences":"")} role="status">{posting?`Migration posted: ${report.journals_posted} balanced journals, ${report.allocations_created} payment allocations. ${checks.filter(c=>c.passed).length} of ${checks.length} reconciliation checks passed.`:'Masters and source archive saved. Historical transactions remain unposted.'}{report.already_imported?' This exact backup was already imported; no duplicate entries were created.':''}</p>:<><label><input type="checkbox" checked={accepted} disabled={busy} onChange={event=>setAccepted(event.target.checked)}/>{posting?' I have reviewed this preview. Post this backup atomically into this company.':' Import masters and source archive without posting transactions or stock.'}</label><button className="button primary" disabled={busy||!accepted||!ready} onClick={()=>run('commit')}>{posting?'Post and reconcile migration':'Import masters and source archive'}</button></>}
       {!!checks.length&&<details><summary>Posting reconciliation · {checks.length} checks</summary><div className="table-wrap" tabIndex={0}><table><thead><tr><th>CHECK</th><th>SOURCE</th><th>POSTED</th><th>RESULT</th></tr></thead><tbody>{checks.map(row=><tr key={row.check}><td>{row.check}</td><td>{row.expected}</td><td>{row.actual}</td><td>{row.passed?'Matched':'Difference'}</td></tr>)}</tbody></table></div></details>}
     </div>}
-    <div className="actions"><button className="button secondary" disabled={busy} onClick={()=>saved(false)}>Download source archive</button><button className="button secondary" disabled={busy} onClick={()=>saved(true)}>Download posting reconciliation</button></div>
+    <div className="actions"><button className="button secondary" disabled={busy||exportBusy} onClick={()=>saved(false)}>Download source archive</button><button className="button secondary" disabled={busy||exportBusy} onClick={()=>saved(true)}>Download posting reconciliation</button></div>
   </section>;
 }

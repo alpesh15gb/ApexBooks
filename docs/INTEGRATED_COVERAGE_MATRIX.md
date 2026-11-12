@@ -986,3 +986,19 @@ old validation response. Lint/build/bundle checks pass. Normal pointer reachabil
 through the modal is unverified; this is a confirmed component replacement defect.
 Unknown in-flight writes still require original-command recovery; this change does
 not introduce durable bank import receipts. No production or publication retry.
+
+### Migration archive/reconciliation export ownership (2026-11-12)
+
+Synthetic rendered audit reproduced archive and reconciliation bytes downloading
+after company/role change or unmount; old failure messages could also appear in a
+replacement company. VyaparImport now captures company/role generation plus
+session/access ownership and verifies immediately before download. Stale failures
+are suppressed; synchronous single-flight export guard prevents duplicate clicks.
+Export busy state is separate from migration mutation state.
+
+Twenty tests pass for both download kinds, success/failure, current/company/
+away-and-back/viewer/unmount and duplicate clicks. Twelve cases failed before the
+fix. Fake network and download sinks only; lint/build/bundle checks pass. This
+batch does not harden the separate Vyapar preview/commit/file-read callbacks;
+those remain a priority audit boundary, especially company changes and uncertain
+mutation outcomes. No production, real migration, publication retry or deployment.
