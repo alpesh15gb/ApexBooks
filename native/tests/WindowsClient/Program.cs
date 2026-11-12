@@ -10,6 +10,21 @@ var returnRows=new JsonArray(new JsonObject{["quantity"]="2",["rate"]="100",["di
 var returnDraft=SourceLineChoices.DraftLines(returnRows);
 if(returnDraft.Count!=2||returnDraft[0].Text("quantity")!="1"||returnDraft[0].Text("discount_amount")!="7"||returnDraft[1].Text("quantity")!=""||returnRows[0].Text("quantity")!="2")throw new Exception("Return drafts must use remaining quantities, omit exhausted lines and preserve source prices/discounts");
 
+// Exercise the production source gate with delayed synthetic reads.
+foreach(var scenario in new[]{"failure","draft","company","closed","success"})
+{
+    var gate=new SourceSelectionRequest();var completion=new TaskCompletionSource<string>();var draft="original";var current=true;var applied="old";
+    var pending=gate.Load(()=>completion.Task,()=>draft,()=>current,value=>applied=value);
+    if(!gate.Busy||applied!="old")throw new Exception("Source fetch changed the draft before success");
+    if(await gate.Load(()=>Task.FromResult("duplicate"),()=>draft,()=>current,value=>applied=value))throw new Exception("Duplicate source request accepted");
+    if(scenario=="draft")draft="edited";if(scenario=="company")current=false;if(scenario=="closed")gate.Invalidate();
+    if(scenario=="failure")completion.SetException(new IOException("Synthetic failed GET"));else completion.SetResult("new");
+    try{var accepted=await pending;if(accepted!=(scenario=="success"))throw new Exception("Unexpected source publication");}catch(IOException)when(scenario=="failure"){}
+    if(applied!=(scenario=="success"?"new":"old")||gate.Busy)throw new Exception("Draft/source state was lost");
+    if(scenario=="failure"&&!await gate.Load(()=>Task.FromResult("retry"),()=>draft,()=>current,value=>applied=value))throw new Exception("Source retry failed");
+}
+Console.WriteLine("PASS source fetch failure/retry, single-flight and stale draft/company/closed boundaries");
+
 var sourceChoiceRows=new[]{new JsonObject{["source_line_id"]="0:first",["remaining_return_quantity"]="0",["source_line_number"]=1,["description"]="Same service",["quantity"]="2",["itc_treatment"]="ineligible"},new JsonObject{["source_line_id"]="1:second",["source_line_number"]=2,["description"]="Same service",["quantity"]="2",["itc_treatment"]="pending_review"}};
 var unselectedSourceChoices=SourceLineChoices.Build(sourceChoiceRows,"","");
 if(unselectedSourceChoices.Count!=3||unselectedSourceChoices[0].Key!="")throw new Exception("New legacy row must expose matching placeholder");

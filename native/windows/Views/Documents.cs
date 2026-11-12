@@ -56,7 +56,7 @@ public sealed partial class MainPage
         var canPayNow = previous is null && conversion is null && (kind is "sales_invoice" or "purchase_bill") && Supports("payment_at_entry"); decimal lastTotal = 0; string? totalForBody=null; Button? payFull=null;
         var payNow = new CheckBox { Content = kind == "sales_invoice" ? "Received now · record the receipt together with this invoice" : "Paid now · record the payment together with this bill" };
         var payAmount = Input("Amount (₹)", ""); var payMethod = Select("Account", [("cash", "Cash"), ("bank", "Bank / UPI / card")], "cash"); var payBank = BankChoice();
-        var retryKey = Guid.NewGuid().ToString();var submission=new RetrySubmission(); CancellationTokenSource? previewRequest = null;var sourceLoading=false;
+        var retryKey = Guid.NewGuid().ToString();var submission=new RetrySubmission(); CancellationTokenSource? previewRequest = null;var sourceLoading=false;var editorOpen=true;string baseline="";string? pendingSourceId=null;var sourceRequest=new SourceSelectionRequest();
 
         JsonObject DocumentData()
         {
@@ -174,13 +174,43 @@ public sealed partial class MainPage
         {
             var targetKind = kind == "credit_note" ? "sales_invoice" : "purchase_bill";
             var target = Select("Original invoice / bill", new[] { ("", "Choose a posted document") }.Concat(Records.OfType<JsonObject>().Where(r => r.Flag("posted") && (r.Text("kind") == targetKind || kind == "credit_note" && r.Text("kind") == "pos")).Select(r => (r.Text("id"), r.Text("number") + " · " + r.Text("name")))), appliedTo);
+            var sourcePrompt=Stack(8);sourcePrompt.Visibility=Visibility.Collapsed;
+            sourcePrompt.Children.Add(Text("Replace this return source? Party and item lines will change only after the selected source loads successfully. Keep editing preserves the current draft.",12));
+            var resettingSource=false;
+            bool CurrentEditor()=>editorOpen&&stamp==generation&&cid==CompanyId&&!submission.Unresolved;
+            void ShowAppliedSource(){resettingSource=true;try{SelectValue(target,appliedTo);}finally{resettingSource=false;}}
+            async Task LoadSource(string id)
+            {
+                if(sourceLoading||!CurrentEditor())return;
+                pendingSourceId=null;sourcePrompt.Visibility=Visibility.Collapsed;
+                if(id.Length==0){appliedTo="";ShowAppliedSource();return;}
+                target.IsEnabled=false;sourceLoading=true;
+                try
+                {
+                    var applied=await sourceRequest.Load(()=>Api.Record(cid,id),()=>BodyValue().ToJsonString(),CurrentEditor,original=>{
+                        var values=original["data"];
+                        var prepared=SourceLineChoices.DraftLines(original["return_capacity_lines"] is JsonArray selectedCapacity ? selectedCapacity : values?["lines"].Array() ?? new());
+                        appliedTo=id;party.Text=original.Text("name");partyId=values.Text("party_id");address.Text=values.Text("party_address");gstin.Text=values.Text("party_gstin");phone.Text=values.Text("party_phone");shipping.Text=values.Text("shipping_address");supply.Text=values.Text("place_of_supply");
+                        supplierState.Text=values.Text("supplier_state") is {Length:>0} state?state:values.Text("party_gstin").Length>=2?values.Text("party_gstin")[..2]:Company.Text("state_code");
+                        if(kind=="debit_note")returnOptions=values?["lines"].Array()??new();
+                        discount.Text=values.Text("document_discount_percent") is {Length:>0} sourceDiscount?sourceDiscount:"0";
+                        ReplaceLines(prepared);ShowAppliedSource();
+                    });
+                    if(!applied&&CurrentEditor())LocalError(new Exception("The draft changed while the source loaded. Review it and choose the source again."));
+                }
+                catch(Exception e){if(CurrentEditor())LocalError(e);}
+                finally{sourceLoading=false;if(editorOpen)target.IsEnabled=!submission.Unresolved;}
+            }
+            sourcePrompt.Children.Add(AsyncButton("Load selected source",async()=>{if(pendingSourceId is { } id)await LoadSource(id);},LocalError,true));
+            sourcePrompt.Children.Add(Button("Keep editing",()=>{pendingSourceId=null;sourcePrompt.Visibility=Visibility.Collapsed;}));
             target.SelectionChanged += async (_, _) =>
             {
-                var id = Value(target); appliedTo = id; party.Text="";lines.Clear();linesPanel.Children.Clear();if(kind=="debit_note")returnOptions=new(); if (id.Length == 0) return; target.IsEnabled = false;sourceLoading=true;
-                try { var original = await Api.Record(cid, id); if (stamp!=generation || cid!=CompanyId || appliedTo != id) return; party.Text = original.Text("name"); var values = original["data"]; partyId = values.Text("party_id"); address.Text = values.Text("party_address"); gstin.Text = values.Text("party_gstin"); phone.Text = values.Text("party_phone"); supply.Text = values.Text("place_of_supply"); supplierState.Text = values.Text("supplier_state") is { Length: > 0 } state ? state : values.Text("party_gstin").Length >= 2 ? values.Text("party_gstin")[..2] : Company.Text("state_code"); if(kind=="debit_note")returnOptions=values?["lines"].Array()??new(); discount.Text=values.Text("document_discount_percent") is {Length:>0} sourceDiscount?sourceDiscount:"0"; ReplaceLines(SourceLineChoices.DraftLines(original["return_capacity_lines"] is JsonArray selectedCapacity ? selectedCapacity : values?["lines"].Array() ?? new())); }
-                catch (Exception e) { LocalError(e); } finally { target.IsEnabled = true;sourceLoading=false; }
+                if(resettingSource||sourceLoading||!CurrentEditor())return;
+                var id=Value(target);if(id==appliedTo)return;ShowAppliedSource();
+                if(BodyValue().ToJsonString()!=baseline||payNow.IsChecked==true){pendingSourceId=id;sourcePrompt.Visibility=Visibility.Visible;return;}
+                await LoadSource(id);
             };
-            panel.Children.Add(target);
+            panel.Children.Add(target);panel.Children.Add(sourcePrompt);
         }
         var contacts = Stack(); contacts.Children.Add(Columns(address, shipping));
         panel.Children.Add(new Expander { Header = "Party, billing and delivery details", Content = contacts, HorizontalContentAlignment = HorizontalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Stretch });
@@ -239,10 +269,10 @@ public sealed partial class MainPage
         date.Picker.DateChanged+=(_,_)=>_=Calculate();
         var totals=Stack(6);totals.Children.Add(preview);if(checkCredit)totals.Children.Add(creditInfo);var shortcut=Text("Ctrl + Enter to save · totals calculated by Apex Books",12);shortcut.Foreground=Muted;totals.Children.Add(shortcut);
         discount.TextChanged += (_, _) => _ = Calculate(); supply.TextChanged += (_, _) => _ = Calculate(); supplierState.TextChanged += (_, _) => _ = Calculate(); gstin.TextChanged += (_, _) => {if(purchase&&gstin.Text.Length>=2&&gstin.Text.Take(2).All(char.IsDigit))supplierState.Text=gstin.Text[..2];_=Calculate();}; round.Checked += (_, _) => _ = Calculate(); round.Unchecked += (_, _) => _ = Calculate();
-        var baseline=BodyValue().ToJsonString();var keepNew=false;JsonObject? lastPayment=null;JsonNode? savedResult=null;
+        baseline=BodyValue().ToJsonString();var keepNew=false;JsonObject? lastPayment=null;JsonNode? savedResult=null;
         async Task Save()
         {
-            if(sourceLoading)throw new Exception("Wait for the source document to finish loading.");
+            if(sourceLoading||pendingSourceId is not null)throw new Exception("Finish or cancel the source change before saving.");
             if(!submission.Unresolved&&NeedsFixedReview()&&!fixedReview.IsAcknowledged(FixedSignature()))throw new Exception("Review each fixed ₹ discount against the quantities being returned, then acknowledge the review before saving.");
             if (party.Text.Trim().Length == 0) throw new Exception("Enter the customer, supplier or description.");
             if (lines.Count == 0) throw new Exception("Add at least one item.");
@@ -257,9 +287,9 @@ public sealed partial class MainPage
         }
         var saved = await Dialog((previous is not null ? "Edit " : "New ") + FeatureCatalog.Singular(kind), panel, Save,
             previous is null ? "Save " + (kind=="purchase_bill"?"bill":kind=="sales_invoice"?"invoice":"document") : "Save changes",
-            canSave:()=>!sourceLoading,unresolved:()=>submission.Unresolved,hasChanges:()=>BodyValue().ToJsonString()!=baseline||payNow.IsChecked==true,
+            canSave:()=>!sourceLoading&&pendingSourceId is null,unresolved:()=>submission.Unresolved,hasChanges:()=>BodyValue().ToJsonString()!=baseline||payNow.IsChecked==true,
             saveAndNew:previous is null&&conversion is null?async()=>{await Save();keepNew=true;}:null,stickyFooter:Card(totals));
-        previewRequest?.Cancel(); if (saved && cid == CompanyId) await Refresh();
+        editorOpen=false;sourceRequest.Invalidate();previewRequest?.Cancel(); if (saved && cid == CompanyId) await Refresh();
         if(saved&&keepNew&&cid==CompanyId)await EditDocument(kind);
         // Like Vyapar / Swipe: a newly saved customer document opens ready to share, print or collect.
         else if(saved&&previous is null&&conversion is null&&cid==CompanyId&&kind is "sales_invoice" or "estimate" or "proforma" or "sales_order" or "credit_note"

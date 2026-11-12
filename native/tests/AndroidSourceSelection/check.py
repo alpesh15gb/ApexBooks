@@ -10,8 +10,9 @@ methods=source[source.index('    fun chooseSource(id:String)'):source.index('   
 screen=(root/'native/android/app/src/main/java/com/apexbooks/accounting/EntryScreen.kt').read_text()
 assert 'if (editor.document && step == 2 && editor.canSaveAndNew) OutlinedButton' in screen
 assert 'if (!editor.document && editor.canSaveAndNew)' not in screen
-assert 'if(vm.editor===this)vm.editor=if(keepOpen&&canSaveAndNew)EntryEditor(vm,kind)else null' in source
+assert 'if(vm.editor===this)vm.editor=if(keepAfterSave)EntryEditor(vm,kind)else null' in source
 assert 'submission.recordCommand(::body,::paymentBody)' in source
+assert 'saveIntent.forAttempt(keepOpen&&canSaveAndNew,retryPending)' in source
 fixture='''import kotlinx.coroutines.*
 import com.apexbooks.accounting.additionalReturnQuantity
 class JSONObject(val values:MutableMap<String,Any?> = linkedMapOf()) {

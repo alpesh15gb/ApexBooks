@@ -61,6 +61,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     private var initialSignature=""
     private var initialMasterFields:Map<String,String> = emptyMap()
     val submission=RetrySubmission()
+    val saveIntent=EntrySaveIntent()
     var retryPending by mutableStateOf(false);private set
     val canEdit get()=!saving&&!scanning&&!sourceLoading&&!retryPending&&quickAdding.isBlank()
     val canSaveAndNew get()=document&&previous==null&&conversion==null
@@ -74,7 +75,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         return JSONObject().put("amount",paid.setScale(2,java.math.RoundingMode.HALF_UP).toPlainString()).put("payment_account",get("pay_account").ifBlank{"cash"}).put("bank_account_id",if(get("pay_account")=="bank")get("pay_bank").ifBlank{"default"}else"default")
     }
     fun changed()=if(master)fields.toMap()!=initialMasterFields else body().toString()!=initialSignature||flag("pay_now")
-    fun renewRetryKey(){retryKey=vm.key();submission.succeeded();retryPending=false}
+    fun renewRetryKey(){retryKey=vm.key();submission.succeeded();saveIntent.succeeded();retryPending=false}
     init {
         val source=previous?:conversion?:JSONObject();val data=source.o("data")
         for(key in listOf("credit_limit","payment_terms_days","low_stock_threshold","party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","supplier_state","due_date","notes","terms","category","payment_account","bank_account_id","applied_to","advance_supply","advance_gst_rate","document_discount_percent","tender_amount","gstin","address","phone","email","party_type","hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))fields[key]=data.s(key)
@@ -199,6 +200,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
                 if(payment&&!flag("is_advance")&&(allocations.isEmpty()||allocations.any{it.documentId.isBlank()}))throw Exception("Allocate the payment or record an advance.")
             }
             val command=submission.recordCommand(::body,::paymentBody)
+            val keepAfterSave=saveIntent.forAttempt(keepOpen&&canSaveAndNew,retryPending)
             val body=command.getJSONObject("record")
             val pay=command.optJSONObject("payment")
             var savedId=""
@@ -206,14 +208,14 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
                 if(master&&previous!=null){val flat=copy(body.o("data")).put("name",body.s("name"));vm.api.request(vm.api.company(companyId,"/masters/${previous.s("id")}"),"PUT",flat)}
                 else if(pay!=null)savedId=vm.api.saveRecordWithPayment(companyId,body,pay,retryKey).o("document").s("id")
                 else savedId=vm.api.saveRecord(companyId,body,retryKey,previous).s("id")
-                submission.succeeded();retryPending=false
-            }catch(e:Exception){submission.failed(e);retryPending=submission.unresolved;throw e}
+                submission.succeeded();saveIntent.succeeded();retryPending=false
+            }catch(e:Exception){submission.failed(e);retryPending=submission.unresolved;saveIntent.failed(retryPending);throw e}
             if(!vm.inWorkspace(companyId,workspaceStamp))return@task
-            if(vm.editor===this)vm.editor=if(keepOpen&&canSaveAndNew)EntryEditor(vm,kind)else null
+            if(vm.editor===this)vm.editor=if(keepAfterSave)EntryEditor(vm,kind)else null
             // Like Vyapar / Swipe: a newly saved customer document opens ready to share, print or collect.
-            if(!keepOpen&&previous==null&&conversion==null&&savedId.isNotBlank()&&kind in setOf("sales_invoice","estimate","proforma","sales_order","credit_note"))vm.detail=JSONObject().put("id",savedId)
+            if(!keepAfterSave&&previous==null&&conversion==null&&savedId.isNotBlank()&&kind in setOf("sales_invoice","estimate","proforma","sales_order","credit_note"))vm.detail=JSONObject().put("id",savedId)
             // Saving succeeded even if the subsequent list refresh fails. Never resubmit it.
-            vm.notice=if(keepOpen&&canSaveAndNew)"Saved. Ready for the next document."else"Saved successfully."
+            vm.notice=if(keepAfterSave)"Saved. Ready for the next document."else"Saved successfully."
             vm.refresh()
         }finally{saving=false}}
     }
