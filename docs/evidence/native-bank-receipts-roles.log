@@ -1,0 +1,19 @@
+PASS Android actual bank import callback: viewer blocked, editor resumes, stale owner blocked
+
+Welcome to .NET 10.0!
+---------------------
+SDK Version: 10.0.100
+
+----------------
+Write your first app: https://aka.ms/dotnet-hello-world
+Find out what's new: https://aka.ms/dotnet-whats-new
+Explore documentation: https://aka.ms/dotnet-docs
+Report issues and find source on GitHub: https://github.com/dotnet/core
+Use 'dotnet --help' to see available commands or visit: https://aka.ms/dotnet-cli
+--------------------------------------------------------------------------------------
+/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/Services/ImportReceiptRecovery.cs(14,18): warning CS8632: The annotation for nullable reference types should only be used in code within a '#nullable' annotations context. [/tmp/apex-bank-role-g4hm7k6i/Proof.csproj]
+/tmp/apex-bank-role-g4hm7k6i/Program.cs(5,139): warning CS8632: The annotation for nullable reference types should only be used in code within a '#nullable' annotations context. [/tmp/apex-bank-role-g4hm7k6i/Proof.csproj]
+/tmp/apex-bank-role-g4hm7k6i/Program.cs(5,149): warning CS8632: The annotation for nullable reference types should only be used in code within a '#nullable' annotations context. [/tmp/apex-bank-role-g4hm7k6i/Proof.csproj]
+/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/Services/ImportReceiptRecovery.cs(24,19): warning CS8632: The annotation for nullable reference types should only be used in code within a '#nullable' annotations context. [/tmp/apex-bank-role-g4hm7k6i/Proof.csproj]
+/workspace/scratch/bafc9a4c203a/apexbooks/native/windows/Services/ImportReceiptRecovery.cs(11,40): warning CS8632: The annotation for nullable reference types should only be used in code within a '#nullable' annotations context. [/tmp/apex-bank-role-g4hm7k6i/Proof.csproj]
+PASS Windows actual bank Verify/save: viewer blocked, editor resumes, closed blocked

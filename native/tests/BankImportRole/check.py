@@ -26,12 +26,15 @@ fun main()=runBlocking{
 w=(root/'native/windows/Views/StatementImport.cs').read_text();verify=w.split('void Verify(){',1)[1].split('\n',1)[0];verify=verify[:verify.rfind('}')]
 commit=w.split('try{await Dialog("Import bank statement",panel,async()=>{',1)[1].split('},"Import reviewed rows"',1)[0]
 assert 'Verify();if(!double.IsFinite' in w
-cs='''using System.Text.Json.Nodes;using System.Net.Http;
-class ApiMock{public int calls;public string CompanyPath(string c,string p)=>c+p;public Task Send(string p,HttpMethod m,JsonObject b){calls++;return Task.CompletedTask;}}
-class Flow{public bool CanWrite=true,closed=false,validating=false;public Action access=()=>{};public string cid="synthetic",reviewed="{}";public ApiMock Api=new();void Verify(){VERIFY}JsonObject Build(){Verify();return new();}public async Task Save(){COMMIT}}
+cs='''using System.Text.Json.Nodes;using System.Net.Http;using ApexBooks_Windows.Services;
+class ApiFailure(int status):Exception{public int Status=>status;}
+static class J{public static string Text(this JsonNode n,string k)=>n[k]?.GetValue<string>()??"";}
+
+class ApiMock{public int calls;public string CompanyPath(string c,string p)=>c+p;public Task<JsonNode> Send(string p,HttpMethod m,JsonNode? b,string? key){calls++;return Task.FromResult<JsonNode>(new JsonObject{["operation_key"]=key});}}
+class Flow{public bool CanWrite=true,closed=false,validating=false;public Action access=()=>{};public string cid="synthetic",reviewed="{}";public ApiMock Api=new();ImportReceiptRecovery receipt=new(Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".ref"));bool Supported()=>false;void RecoveryState(){}void Verify(){VERIFY}JsonObject Build(){Verify();return new();}public async Task Save(){COMMIT}}
 class Program{static async Task Main(){var f=new Flow();f.CanWrite=false;try{await f.Save();throw new Exception("Viewer allowed");}catch(InvalidOperationException){}if(f.Api.calls!=0)throw new Exception("Dispatched");f.CanWrite=true;await f.Save();if(f.Api.calls!=1)throw new Exception("Editor failed");f.closed=true;try{await f.Save();throw new Exception("Closed allowed");}catch(InvalidOperationException){}if(f.Api.calls!=1)throw new Exception("Stale dispatched");Console.WriteLine("PASS Windows actual bank Verify/save: viewer blocked, editor resumes, closed blocked");}}
 '''.replace('VERIFY',verify).replace('COMMIT',commit)
 with tempfile.TemporaryDirectory(prefix='apex-bank-role-') as folder:
  d=Path(folder);(d/'Proof.kt').write_text(fixture);run_proof(args,[root/'native/android/app/src/main/java/com/apexbooks/accounting/data/ImportReceiptRecovery.kt',d/'Proof.kt'],d)
- (d/'Program.cs').write_text(cs);(d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings></PropertyGroup></Project>')
+ (d/'Program.cs').write_text(cs);(d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings></PropertyGroup><ItemGroup><Compile Include="'+str(root/'native/windows/Services/ImportReceiptRecovery.cs')+'" /></ItemGroup></Project>')
  subprocess.run([args.dotnet,'run','--project',str(d/'Proof.csproj')],check=True,env={**os.environ,'DOTNET_CLI_TELEMETRY_OPTOUT':'1','DOTNET_GENERATE_ASPNET_CERTIFICATE':'false','DOTNET_CLI_HOME':str(d/'home')})

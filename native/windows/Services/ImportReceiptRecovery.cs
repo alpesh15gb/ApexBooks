@@ -16,17 +16,17 @@ public sealed class ImportReceiptRecovery
     public bool Busy {get;private set;}
     public ImportReceiptRecovery(string path){this.path=path;Saved=Read();}
     public static string Hash(string value)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
-    public static string Location(string folder,string origin,string account,string company)
+    public static string Location(string folder,string origin,string account,string company,bool bank=false)
     {
         if(string.IsNullOrWhiteSpace(account)||string.IsNullOrWhiteSpace(company))throw new InvalidOperationException("Sign in and select a company before importing.");
-        return Path.Combine(folder,"ImportRecovery",Hash(origin+"\n"+account.Trim().ToLowerInvariant()+"\n"+company)+".ref");
+        return Path.Combine(folder,bank?"BankImportRecovery":"ImportRecovery",Hash(origin+"\n"+account.Trim().ToLowerInvariant()+"\n"+company)+".ref");
     }
     private Marker? Read()
     {
         if(!File.Exists(path))return null;
         if(new FileInfo(path).Length>512)throw new InvalidOperationException("Import recovery reference is damaged; verify the original result before continuing.");
         var parts=File.ReadAllText(path,Encoding.UTF8).Split('\n');
-        if(parts.Length!=3||!Regex.IsMatch(parts[0],"^[a-f0-9-]{36}$")||parts[1] is not ("party" or "item")||!Regex.IsMatch(parts[2],"^[a-f0-9]{64}$"))throw new InvalidOperationException("Import recovery reference is damaged; verify the original result before continuing.");
+        if(parts.Length!=3||!Regex.IsMatch(parts[0],"^[a-f0-9-]{36}$")||parts[1] is not ("party" or "item" or "bank")||!Regex.IsMatch(parts[2],"^[a-f0-9]{64}$"))throw new InvalidOperationException("Import recovery reference is damaged; verify the original result before continuing.");
         return new(parts[0],parts[1],parts[2]);
     }
     private static FileStream OpenPrivate(string file,FileMode mode)
@@ -47,9 +47,9 @@ public sealed class ImportReceiptRecovery
         if(disk is not null&&Saved is not null&&disk.Key!=Saved.Key)throw new InvalidOperationException("Another import reference exists. Verify the original operations before continuing.");
         var existing=disk??Saved;Saved=existing;
         if(!supported){if(existing is not null)throw new InvalidOperationException("Reconnect to a server supporting import receipts before recovering this import.");Busy=true;return new(null,body,false);}
-        if(kind is not ("party" or "item"))throw new InvalidOperationException("Choose parties or items.");
+        if(kind is not ("party" or "item" or "bank"))throw new InvalidOperationException("Choose a supported import type.");
         var digest=Hash(body);
-        if(existing is not null&&(existing.Kind!=kind||existing.Hash!=digest))throw new InvalidOperationException("Select the original CSV and import type without changes to retry the original operation.");
+        if(existing is not null&&(existing.Kind!=kind||existing.Hash!=digest))throw new InvalidOperationException("Select the original CSV, bank, mapping and import type without changes to retry the original operation.");
         var marker=existing??new Marker(Guid.NewGuid().ToString(),kind,digest);
         if(disk is null){
             var temporary=path+"."+Guid.NewGuid().ToString("N")+".tmp";

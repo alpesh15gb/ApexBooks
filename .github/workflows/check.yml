@@ -115,6 +115,7 @@ jobs:
           python3 native/tests/AndroidImportSnapshot/check.py
           python3 native/tests/AndroidImportReceipt/check.py
           python3 native/tests/AndroidImportReceipt/wiring.py
+          python3 native/tests/AndroidBankImportReceipt/check.py
           python3 native/tests/AndroidDayBookLabels/check.py
           python3 native/tests/AndroidSourceSelection/check.py
       - name: Verify restored-company navigation survives dialog disposal
@@ -156,6 +157,7 @@ jobs:
         run: |
           python native/tests/WindowsImportReceipt/check.py
           python native/tests/WindowsImportReceipt/workflow.py
+          python native/tests/WindowsBankImportReceipt/check.py
       - name: Verify streaming encrypted backups with a 64 MiB managed heap
         shell: pwsh
         run: |

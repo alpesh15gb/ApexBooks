@@ -12,9 +12,30 @@ public sealed partial class MainPage
     private async Task ImportStatement(string bank)
     {
         if(!CanWrite)throw new InvalidOperationException("An owner or editor is required to import a bank statement.");
-        var cid=CompanyId;var access=CaptureFileSaveAccess();var file=await ApexFiles.Pick(".csv");if(file is null||!ScopedFileExport.Current(access))return;var bytes=await ApexFiles.Read(file,5_000_000);if(!ScopedFileExport.Current(access))return;var table=Csv.Parse(Csv.Decode(bytes));if(table.Count<2)throw new Exception("The statement needs a header and transaction rows.");
+        var cid=CompanyId;var access=CaptureFileSaveAccess();
+        void RecoveryGuard(){access();if(!CanWrite)throw new InvalidOperationException("Current editor or owner access is required to recover a bank import.");}
+        bool Supported()=>Api.Capabilities.Supports("bank_import_receipts");
+        void CurrentError(Exception error){if(ScopedFileExport.Current(access))Error(error);}
+        RecoveryGuard();
+        var receipt=new ImportReceiptRecovery(ImportReceiptRecovery.Location(CompleteBackupTransfer.PrivateDirectory,Api.Origin,Api.Email,cid,true));
+        if(receipt.Saved is { } saved){
+            var recoveryPanel=Stack();var message=Text("Original bank import unconfirmed. Recovery reference: "+saved.Key+". Only the reference, type and fingerprint are saved privately, not statement contents. A missing receipt does not prove failure. Check the receipt or continue with the original bank, CSV and mapping.");recoveryPanel.Children.Add(message);var recovered=false;var checking=false;
+            recoveryPanel.Children.Add(AsyncButton("Check original import",async()=>{
+                if(checking)return;checking=true;
+                try{RecoveryGuard();if(!Supported())throw new Exception("Reconnect to a server supporting bank import receipts.");
+                var result=await Api.Send(Api.CompanyPath(cid,"/bank-statement/import-receipts/"+Uri.EscapeDataString(saved.Key)));RecoveryGuard();receipt.Confirmed(result.Text("operation_key"));recovered=true;message.Text="Original bank import confirmed. No import will be repeated.";}
+                finally{checking=false;}
+            },CurrentError,true));
+            var proceed=await Dialog("Recover original bank import",recoveryPanel,()=>Task.CompletedTask,"Continue",()=>!checking);RecoveryGuard();
+            if(recovered){await Refresh();Success("Original bank import confirmed; no import was repeated.");return;}
+            if(!proceed)return;if(!Supported())throw new Exception("The original bank import remains unresolved; a legacy request cannot replace it.");
+        }
+        RecoveryGuard();var file=await ApexFiles.Pick(".csv");if(file is null||!ScopedFileExport.Current(access))return;var bytes=await ApexFiles.Read(file,5_000_000);if(!ScopedFileExport.Current(access))return;var table=Csv.Parse(Csv.Decode(bytes));if(table.Count<2)throw new Exception("The statement needs a header and transaction rows.");
         var panel=Stack(14);panel.MinWidth=780;panel.Children.Add(Text(file.Name,18,true));panel.Children.Add(Text("Use UTF-8 comma-separated CSV. Quoted commas and line breaks are supported; convert tab or semicolon files before importing."));var header=new NumberBox{Header="Header row number",Minimum=1,Maximum=table.Count-1,Value=1,SpinButtonPlacementMode=NumberBoxSpinButtonPlacementMode.Compact};var format=Select("Date format",[("dd/MM/yyyy","DD/MM/YYYY"),("yyyy-MM-dd","YYYY-MM-DD"),("MM/dd/yyyy","MM/DD/YYYY"),("dd-MM-yyyy","DD-MM-YYYY"),("dd-MMM-yyyy","DD-MMM-YYYY")]);var fields=new Dictionary<string,ComboBox>();var mapping=Stack();var preview=Stack();string reviewed="";bool validating=false,closed=false;int revision=0;
         void Verify(){access();if(!CanWrite)throw new InvalidOperationException("An owner or editor is required to import a bank statement. Your preview is preserved.");if(closed)throw new InvalidOperationException("This import view is closed.");}
+        var recoveryNotice=Text(receipt.Saved is { } original?"Unconfirmed bank import: "+original.Key:"A supported server retains an exact import receipt.",12);panel.Children.Add(recoveryNotice);
+        if(!Supported())panel.Children.Add(Text("This server does not advertise exact bank import recovery. Legacy row deduplication is not an original-result receipt.",12));
+        void RecoveryState(){header.IsEnabled=!receipt.Pending;format.IsEnabled=!receipt.Pending;foreach(var field in fields.Values)field.IsEnabled=!receipt.Pending;recoveryNotice.Text=receipt.Saved is { } pending?"Unconfirmed bank import: "+pending.Key+". Retry only the original mapping; reopening this workflow can check its receipt.":"No unresolved import receipt.";}
         void Changed(){revision++;reviewed="";preview.Children.Clear();}
         var aliases=new Dictionary<string,string[]>{{"date",["date","transaction date","txn date","value date"]},{"description",["description","narration","particulars","transaction details"]},{"reference",["reference","ref","cheque/ref no","chq/ref no","utr"]},{"amount",["amount","signed amount"]},{"debit",["debit","withdrawal","withdrawals","debit amount"]},{"credit",["credit","deposit","deposits","credit amount"]}};
         void RebuildMapping(){Changed();if(!double.IsFinite(header.Value)||header.Value!=Math.Truncate(header.Value)||header.Value<1||header.Value>=table.Count)return;fields.Clear();mapping.Children.Clear();var names=table[(int)header.Value-1];foreach(var key in aliases.Keys){var auto=Array.FindIndex(names,n=>aliases[key].Contains(n.Trim().ToLowerInvariant()));var box=Select(Friendly(key)+" column",new[]{("","Not mapped")}.Concat(names.Select((n,i)=>(i.ToString(),$"{i+1}. {n}"))),auto<0?"":auto.ToString());fields[key]=box;box.SelectionChanged+=(_,_)=>Changed();mapping.Children.Add(box);}reviewed="";preview.Children.Clear();}
@@ -32,6 +53,10 @@ public sealed partial class MainPage
             return new JsonObject{["bank_account_id"]=bank,["lines"]=output};
         }
         panel.Children.Add(Columns(header,format));panel.Children.Add(new Expander{Header="Column mapping",Content=mapping,HorizontalContentAlignment=HorizontalAlignment.Stretch,IsExpanded=true,HorizontalAlignment=HorizontalAlignment.Stretch});panel.Children.Add(AsyncButton("Validate and preview",async()=>{if(validating)return;validating=true;var stamp=revision;try{await ScopedFileExport.Run(Verify,async()=>{var body=Build();var dry=body.DeepClone().AsObject();dry["dry_run"]=true;var report=await Api.Send(Api.CompanyPath(cid,"/bank-statement/import"),HttpMethod.Post,dry);Verify();if(stamp!=revision)return false;reviewed=body.ToJsonString();preview.Children.Clear();RenderReport(preview,report,"Import validation");Table(preview,new JsonArray(body["lines"].Array().Take(10).Select(r=>r.Copy()).ToArray()),"First 10 rows");return true;});}catch(Exception)when(stamp!=revision){}finally{validating=false;}},Error,true));panel.Children.Add(preview);
-        try{await Dialog("Import bank statement",panel,async()=>{if(validating)throw new Exception("Wait for validation to finish before importing.");var body=Build();if(body.ToJsonString()!=reviewed)throw new Exception("Validate this mapping and review the preview before importing.");await Api.Send(Api.CompanyPath(cid,"/bank-statement/import"),HttpMethod.Post,body);},"Import reviewed rows");}finally{closed=true;}
+        try{await Dialog("Import bank statement",panel,async()=>{if(validating||receipt.Busy)throw new Exception("Wait for validation or import to finish.");var body=Build();if(body.ToJsonString()!=reviewed)throw new Exception("Validate this mapping and review the preview before importing.");
+            var attempt=receipt.Begin(body.ToJsonString(),"bank",Supported());RecoveryState();
+            try{var result=await Api.Send(Api.CompanyPath(cid,"/bank-statement/import"),HttpMethod.Post,JsonNode.Parse(attempt.Body),attempt.Key);if(attempt.Key is not null)receipt.Confirmed(result.Text("operation_key"));Verify();}
+            catch(Exception error){receipt.Failed(attempt,(error as ApiFailure)?.Status??0);throw;}
+            finally{receipt.End();RecoveryState();}},"Import reviewed rows",()=>CanWrite&&ScopedFileExport.Current(access)&&(!receipt.Pending||Supported()),unresolved:()=>receipt.Pending);}finally{closed=true;}
     }
 }

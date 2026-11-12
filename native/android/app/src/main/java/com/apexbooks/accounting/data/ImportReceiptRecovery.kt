@@ -14,16 +14,16 @@ class ImportReceiptRecovery(private val file:File) {
     companion object {
         private val storageGate=Any()
         fun hash(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}
-        fun location(folder:File,origin:String,account:String,company:String):File {
+        fun location(folder:File,origin:String,account:String,company:String,bank:Boolean=false):File {
             require(account.isNotBlank()&&company.isNotBlank()){ "Sign in and select a company before importing." }
-            return File(File(folder,"import-recovery"),hash(listOf(origin,account.trim().lowercase(),company).joinToString("\n"))+".ref")
+            return File(File(folder,if(bank)"bank-import-recovery"else"import-recovery"),hash(listOf(origin,account.trim().lowercase(),company).joinToString("\n"))+".ref")
         }
     }
     private fun read():Marker? {
         if(!file.exists())return null
         require(file.length()<=512){"Import recovery reference is damaged; verify the original import before continuing."}
         val parts=file.readText(Charsets.UTF_8).split('\n')
-        require(parts.size==3&&parts[0].matches(Regex("[a-f0-9-]{36}"))&&parts[1] in setOf("party","item")&&parts[2].matches(Regex("[a-f0-9]{64}"))){"Import recovery reference is damaged; verify the original import before continuing."}
+        require(parts.size==3&&parts[0].matches(Regex("[a-f0-9-]{36}"))&&parts[1] in setOf("party","item","bank")&&parts[2].matches(Regex("[a-f0-9]{64}"))){"Import recovery reference is damaged; verify the original import before continuing."}
         return Marker(parts[0],parts[1],parts[2])
     }
     var marker:Marker?=read();private set
@@ -43,9 +43,9 @@ class ImportReceiptRecovery(private val file:File) {
         check(disk==null||marker==null||disk.key==marker?.key){"Another import reference exists. Verify the original operations before continuing."}
         val existing=disk?:marker;marker=existing
         if(!supported){check(existing==null){"Reconnect to a server supporting import receipts to recover this import."};busy=true;return Attempt(null,body,false)}
-        require(kind in setOf("party","item"))
+        require(kind in setOf("party","item","bank"))
         val digest=hash(body)
-        if(existing!=null)check(existing.kind==kind&&existing.hash==digest){"Select the original CSV and import type without changes to retry the original operation."}
+        if(existing!=null)check(existing.kind==kind&&existing.hash==digest){"Select the original CSV, bank, mapping and import type without changes to retry the original operation."}
         val value=existing?:Marker(UUID.randomUUID().toString(),kind,digest)
         if(disk==null){
             file.parentFile?.mkdirs()

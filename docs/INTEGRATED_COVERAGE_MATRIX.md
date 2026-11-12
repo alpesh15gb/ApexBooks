@@ -1189,3 +1189,38 @@ not cross-device recovery and may be lost when closing the tab. Recovery is
 visible after reopening the bank import dialog, not an automatic dashboard task.
 Native adoption, full native builds/device acceptance and production migration
 gates remain open. No publication retry or deployment.
+
+### Native bank-import receipt adoption (2026-11-12)
+
+Android and Windows now use bank_import_receipts capability to opt into keyed
+bank statement imports. Windows recognizes the capability explicitly. Private
+recovery files use a separate bank-import namespace, scoped by server/account/
+company; contents contain only key, type and payload hash, never statement rows
+or credentials. Existing master receipt locations and legacy formats are retained.
+Unknown outcomes keep their key; changed bank/mapping/rows cannot create a new
+operation. A missing or disabled capability cannot downgrade a pending operation
+to an unkeyed request. Initial definitive rejection allows correction; rejection
+after uncertainty retains the original reference.
+
+Reopening native bank import exposes GET-only receipt recovery; Windows offers it
+before picking another file. Android exposes it without selecting a file. Retry
+requires the original reviewed payload. Role and captured workspace guards remain
+on handlers. Pending requests prevent ordinary dialog dismissal. Windows freezes
+mapping after an unresolved keyed dispatch. Legacy servers retain unkeyed row
+deduplication with explicit limitations.
+
+Compiled Kotlin production save/lookup callbacks and the receipt helper pass
+unknown/retry, changed payload, unsupported server, viewer/stale owner, marker
+restart, missing GET then successful GET-only recovery and legacy probes. Compiled
+C# production save/lookup callbacks and receipt helper pass persisted restart,
+changed payload, concurrent marker creation, corruption, legacy/capability/role,
+unknown/422 and GET-only recovery probes. Existing Android master receipt helper
+and callback, Windows master receipt helper/workflow and both native bank role
+suites pass. New checks are registered in existing CI; CI was not dispatched.
+Evidence is under docs/evidence/native-bank-receipts-*.log.
+
+Limits: fake transports and extracted production callbacks, not full Compose or
+WinUI screen execution. Actual process/device restart, OS file permissions and
+full native builds remain acceptance gates. Full Android build still needs its
+Gradle plugin/SDK; WinUI requires a Windows build host. No production access,
+migration, publication retry or deployment.
