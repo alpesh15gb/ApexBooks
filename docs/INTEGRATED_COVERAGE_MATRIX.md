@@ -199,3 +199,19 @@ change (zero controls instead of one), then all ten everyday-feature tests passe
 along with lint, web build and bundle budgets. JSDOM verified focus and activation;
 real keyboard navigation and screen-reader/browser acceptance remain separate.
 No accounting/API mutation, publication retry or deployment was performed.
+
+### Previous-price identity and recovery follow-up
+
+Rendered synthetic testing exposed actionable old price choices while a different
+party's request was pending. Previous prices now binds data, errors and Apply actions
+to the company/party/item/side request generation, including switch-away/back and
+unmount invalidation. Failed reads have an announced error and an explicit Retry
+prices button. Twelve everyday-feature tests passed (including party changes,
+company/item/side changes, stale errors, failed reads and successful retry), plus
+frontend lint/build/bundle budgets. This is rendered component coverage, not a real
+browser/device or financial posting acceptance claim.
+
+Day book's focusable button also preserves display_number when a future non-journal
+response provides it. Current backend only supplies display_number for journals;
+this is defensive compatibility, not a demonstrated current backend regression.
+No financial records were changed. Publication remains denied and was not retried.

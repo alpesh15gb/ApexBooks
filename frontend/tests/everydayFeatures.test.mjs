@@ -100,9 +100,37 @@ test('day book distinguishes converted and non-posting rows and keeps journal di
 });
 test('day book offers focusable document actions and no dead action for missing or journal records', async()=>{
  const DayBook=await component('DayBook');const root=createRoot(document.getElementById('root'));let opened;
- const record={id:'invoice',number:'INV-KEY',kind:'sales_invoice'};
+ const record={id:'invoice',number:'INV-KEY',display_number:'Friendly invoice',kind:'sales_invoice'};
  const rows=[record,{id:'missing',number:'INV-MISSING',kind:'sales_invoice'},{id:'journal',number:'MANUAL',kind:'journal'}].map(r=>({...r,name:'Synthetic',posted:true,amount:'100',money_in:'0',money_out:'0'}));
  await act(async()=>root.render(React.createElement(DayBook,{companyId:'c1',records:[record],labels:{sales_invoice:'Invoice'},onOpen:r=>{opened=r;},api:async()=>({rows,totals:{},count:3})})));
- const actions=document.querySelectorAll('tbody button');assert.equal(actions.length,1);assert.equal(actions[0].getAttribute('aria-label'),'Open INV-KEY');actions[0].focus();assert.equal(document.activeElement,actions[0]);await act(async()=>actions[0].click());assert.equal(opened,record);
+ const actions=document.querySelectorAll('tbody button');assert.equal(actions.length,1);assert.equal(actions[0].getAttribute('aria-label'),'Open Friendly invoice');assert.equal(actions[0].textContent,'Friendly invoice');assert.equal(document.querySelector('tbody details').textContent,'Technical referenceINV-KEY');actions[0].focus();assert.equal(document.activeElement,actions[0]);await act(async()=>actions[0].click());assert.equal(opened,record);
  await act(async()=>root.unmount());
+});
+test('previous prices hides stale choices on identity change and recovers from failed reads', async()=>{
+ const root=createRoot(document.getElementById('root'));const pending=[];let applied;
+ const api=path=>new Promise((resolve,reject)=>pending.push({path,resolve,reject}));
+ const props={api,companyId:'c1',party:{id:'p1',name:'First'},item:{item_id:'i1',description:'Item'},side:'sales',Modal,close:()=>{},apply:v=>{applied=v;}};
+ await act(async()=>root.render(React.createElement(Prices,props)));
+ await act(async()=>pending[0].resolve({default_rate:'10',history:[]}));assert.ok(button('Use default'));
+ await act(async()=>root.render(React.createElement(Prices,{...props,party:{id:'p2',name:'Second'}})));
+ assert.ok(!button('Use default'));assert.match(document.querySelector('[role=status]').textContent,/Finding/);
+ await act(async()=>pending[1].reject(Error('Synthetic price failure')));assert.match(document.querySelector('[role=alert]').textContent,/Synthetic price failure/);assert.equal(applied,undefined);
+ await act(async()=>button('Retry prices').click());await act(async()=>pending[2].resolve({default_rate:'25',history:[]}));
+ await act(async()=>button('Use default').click());assert.deepEqual(applied,{rate:'25',price_includes_tax:false});assert.equal(document.querySelector('[role=alert]'),null);
+ await act(async()=>root.unmount());
+});
+test('price requests reject stale errors and old choices across company, item and side changes',async()=>{
+ for(const change of [{companyId:'c2'},{item:{item_id:'i2',description:'Other'}},{side:'purchase'}]){
+  const root=createRoot(document.getElementById('root'));const pending=[];let applied;
+  const props={api:()=>new Promise((resolve,reject)=>pending.push({resolve,reject})),companyId:'c1',party:{id:'p1',name:'Party'},item:{item_id:'i1',description:'Item'},side:'sales',Modal,close:()=>{},apply:v=>{applied=v;}};
+  await act(async()=>root.render(React.createElement(Prices,props)));
+  await act(async()=>root.render(React.createElement(Prices,{...props,...change})));
+  await act(async()=>pending[1].resolve({default_rate:'30',history:[]}));
+  await act(async()=>pending[0].reject(Error('Obsolete error')));assert.equal(document.querySelector('[role=alert]'),null);
+  await act(async()=>button('Use default').click());assert.equal(applied.rate,'30');
+  await act(async()=>root.render(React.createElement(Prices,props)));
+  assert.ok(!button('Use default'));await act(async()=>pending[2].resolve({default_rate:'40',history:[]}));
+  await act(async()=>button('Use default').click());assert.equal(applied.rate,'40');
+  await act(async()=>root.unmount());
+ }
 });
