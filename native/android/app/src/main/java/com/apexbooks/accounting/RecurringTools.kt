@@ -97,14 +97,17 @@ private suspend fun recurringWrite(vm:AppModel,command:RecurringCommand,path:Str
     val cid=vm.companyId;val stamp=vm.workspaceStamp();val scope="edit:${row.s("id")}";val command=remember(cid,scope){vm.recurringCommand(scope)}
     var name by remember{mutableStateOf(row.s("name"))};var active by remember{mutableStateOf(row.optBoolean("is_active"))};var source by remember{mutableStateOf("")}
     val options=vm.records.filter{it.s("kind")==row.s("draft_kind")&&it.s("converted_to").isBlank()}
-    fun close(){vm.finishRecurring(scope);vm.toolData=null;vm.tool="recurring"}
-    ActionDialog("Manage recurring schedule",vm,confirm=if(!vm.canWrite)"Done"else if(command.unresolved)"Retry original request"else"Save schedule",unresolved={command.unresolved},hasChanges={name!=row.s("name")||active!=row.optBoolean("is_active")||source.isNotBlank()},onDismiss=::close,onSave={
-        if(!vm.canWrite){close();return@ActionDialog}
+    fun changed()=name!=row.s("name")||active!=row.optBoolean("is_active")||source.isNotBlank()
+    fun close(){if(!vm.inWorkspace(cid,stamp)||vm.tool!="recurring_edit"||vm.toolData!==row)return;check(!command.unresolved){"The previous save may already have completed. Restore editor access and retry the original request before closing."};vm.finishRecurring(scope);vm.toolData=null;vm.tool="recurring"}
+    ActionDialog("Manage recurring schedule",vm,enabled=vm.canWrite||(!command.unresolved&&!changed()),confirm=if(!vm.canWrite)"Done"else if(command.unresolved)"Retry original request"else"Save schedule",unresolved={command.unresolved},hasChanges=::changed,onDismiss=::close,onSave={
+        if(!vm.inWorkspace(cid,stamp)||vm.tool!="recurring_edit"||vm.toolData!==row)return@ActionDialog
+        if(!vm.canWrite){check(!command.unresolved&&!changed()){"Read-only access: your draft and any unresolved request are preserved. Restore editor access to retry or save; do not create a replacement."};close();return@ActionDialog}
         if(!command.unresolved)require(name.isNotBlank()&&name.length<=120){"Enter a schedule name of up to 120 characters."}
         val body=JSONObject().put("version",row.optInt("version")).put("name",name).put("is_active",active);if(source.isNotBlank())body.put("source_record_id",source)
         recurringWrite(vm,command,vm.api.company(cid,"/recurring-templates/${encode(row.s("id"))}"),"PUT",body)
         if(vm.inWorkspace(cid,stamp)){close();vm.notice="Future schedule settings updated; previously generated drafts are unchanged."}
     }){
+        if(!vm.canWrite&&(command.unresolved||changed()))Text("Read-only access: your inputs are preserved. Restore editor access to retry the original request or save. An unresolved result must be recovered before closing.")
         RecurringPending(command);Field("Schedule name",name,{name=it},maximum=120,readOnly=!vm.canWrite);Toggle("Active · available to create due drafts",active,{active=it},enabled=vm.canWrite);Text("Start ${row.s("start_date")} · every ${row.s("interval")} ${row.s("frequency")} · end ${row.s("end_date").ifBlank{"none"}}",style=MaterialTheme.typography.bodySmall)
         Text("Cadence is immutable. Pause this schedule and create another to change dates or frequency.")
         Choice("Future draft snapshot",source,listOf("" to "Keep current saved snapshot")+options.map{it.s("id")to "${it.s("number")} · ${it.s("name")}"},{source=it},enabled=vm.canWrite)
