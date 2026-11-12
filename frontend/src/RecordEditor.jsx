@@ -613,7 +613,7 @@ export default function RecordEditor({
           {source && (
             <div className="info-box full">
               {edit ? "Editing" : "Converting"} {source.number || source.name}.
-              Review the invoice or bill before saving.
+              {" Review the " + (labels[kind]?.replace(/s$/, "").toLowerCase() || kind.replaceAll("_", " ")) + " before saving."}
             </div>
           )}
           {kind === "purchase_bill" && ocrStatus?.ready && (

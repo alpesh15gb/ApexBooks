@@ -43,6 +43,26 @@ class DayBookTest(unittest.TestCase):
         empty = client.get(base + '/day-book', headers=h, params={'day': '2026-04-12'}).json()
         self.assertEqual((empty['count'], D(empty['totals']['net'])), (0, 0))
 
+    def test_recurring_configuration_is_excluded_but_generated_estimate_remains(self):
+        from test_recurring_drafts import RecurringDraftTest
+        from business_calendar import business_today
+        from sqlalchemy.orm import Session
+        import main as m
+        fixture=RecurringDraftTest();day=business_today().isoformat()
+        c,h,b=fixture.context('unregistered');self.addCleanup(c.close)
+        source=self.post(c,h,b,'estimate','Synthetic buyer',day,data={'lines':[{'description':'Synthetic service','quantity':1,'rate':100,'gst_rate':0}]})
+        template=fixture.create(c,h,b,source,start_date=day,end_date=None)
+        generated=fixture.generate(c,h,b,template,day);self.assertEqual(generated.status_code,200,generated.text)
+        with Session(m.engine) as session:
+            for kind in ('vyapar_backup_archive','document_branding','restore_marker'):
+                session.add(m.Record(company_id=b.split('/')[-1],kind=kind,name='Synthetic configuration',date=business_today(),amount=0,data={}))
+            session.commit()
+        report=c.get(b+'/day-book',headers=h,params={'day':day});self.assertEqual(report.status_code,200,report.text);book=report.json()
+        self.assertEqual(book['count'],2)
+        self.assertEqual({r['id'] for r in book['rows']},{source['id'],generated.json()['record']['id']})
+        self.assertTrue(all(r['kind']=='estimate' and not r['posted'] for r in book['rows']))
+        self.assertTrue(all(D(value)==0 for value in book['totals'].values()))
+
 
 if __name__ == '__main__':
     unittest.main()

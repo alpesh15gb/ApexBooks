@@ -73,3 +73,11 @@ as such. Production backup monitoring and statutory review remain explicit gates
 - Bind displayed company/date/party and downloadable report scope to the successfully applied report snapshot, including delayed responses and failures.
 - Verify explicit period-lock date review; keyboard-only nine-line invoice entry; actionable validation linked to fields; dialog focus, return focus and status announcements; 320px reflow. These are acceptance criteria, not newly demonstrated defects.
 - Evaluate a server-calculated invoice subtotal/tax/discount/round-off bridge, a non-destructive negative historical cash explanation, searchable state-code/name choices, a compact party-ledger summary and unambiguous date hints. Preserve stored state codes, dates and imported balances. GST worksheets must remain distinct from filed returns.
+
+### Subsequent local visual fixes
+
+- RecordEditor source banner names the actual edited or converted target type, including estimates. Fourteen rendered editor regressions passed, covering eight edit types and estimate-to-invoice conversion; frontend lint passed.
+- Day book excludes recurring_template, restore_marker, document_branding and vyapar_backup_archive alongside masters. The source estimate and generated estimate remain in rows/count; posted financial totals remain zero for these drafts. Twelve Day book/recurring regressions passed.
+- Journal-history voucher labels/source links remain a follow-up UX task. Preserve authorization and correct cancellation/missing-source handling when implementing it.
+
+These fixes still need final integrated visual acceptance; the isolated desktop reviewer was previously exercising 71aca43.

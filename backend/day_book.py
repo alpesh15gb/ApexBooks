@@ -5,7 +5,8 @@ from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-MASTER_KINDS = {'party', 'item', 'bank_account'}
+NON_TRANSACTION_KINDS = {'party', 'item', 'bank_account', 'recurring_template',
+                         'vyapar_backup_archive', 'document_branding', 'restore_marker'}
 SALES = {'sales_invoice', 'pos'}
 PURCHASES = {'purchase_bill'}
 
@@ -33,7 +34,7 @@ def install(app, m):
         posted = set(session.scalars(select(m.RecordPosting.record_id).where(m.RecordPosting.company_id == company_id)))
         rows = []
         records = session.scalars(select(m.Record).where(m.Record.company_id == company_id, m.Record.date == day,
-            m.Record.kind.not_in(MASTER_KINDS)).order_by(m.Record.kind, m.Record.number))
+            m.Record.kind.not_in(NON_TRANSACTION_KINDS)).order_by(m.Record.kind, m.Record.number))
         for r in records:
             moved = movement.pop(r.id, Decimal('0'))
             rows.append({'id': r.id, 'kind': r.kind, 'number': r.number, 'name': r.name, 'amount': str(r.amount),

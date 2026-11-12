@@ -118,3 +118,16 @@ test('nine-line quotation reopen and invoice conversion preserve all entry field
   await act(async()=>view.root.unmount());
  }
 });
+
+test('source banner names the edited or converted target document',async()=>{
+ const labels={estimate:'Estimates',proforma:'Proforma invoices',sales_order:'Sales orders',purchase_order:'Purchase orders',sales_invoice:'Sales invoices',purchase_bill:'Purchase bills',credit_note:'Credit notes',debit_note:'Debit notes'};
+ for(const [kind,label] of Object.entries(labels)){
+  const view=await mount({kind,labels,documentKinds:Object.keys(labels),source:{id:'source',kind,number:'SYN-1',name:'Buyer',date:'2026-11-02',data:{lines:[line]}}});
+  const banner=[...document.querySelectorAll('.info-box')].find(node=>node.textContent.includes('Editing SYN-1'));
+  assert.ok(banner);assert.ok(banner.textContent.includes(`Review the ${label.replace(/s$/,'').toLowerCase()} before saving.`));
+  assert.doesNotMatch(banner.textContent,/invoice or bill/);await act(async()=>view.root.unmount());
+ }
+ const view=await mount({kind:'sales_invoice',labels,edit:false,source:{id:'quote',kind:'estimate',number:'EST-9',name:'Buyer',date:'2026-11-02',data:{lines:[line]}}});
+ const banner=[...document.querySelectorAll('.info-box')].find(node=>node.textContent.includes('Converting EST-9'));
+ assert.ok(banner.textContent.includes('Review the sales invoice before saving.'));await act(async()=>view.root.unmount());
+});
