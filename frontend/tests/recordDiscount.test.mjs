@@ -85,3 +85,12 @@ test('duplicate purchase descriptions select distinct source lines and preserve 
  const saved=view.saved;await act(async()=>view.root.unmount());
  const reopened=await mount({kind:'debit_note',documentKinds:['debit_note'],edit:true,source:{...saved,id:'note-ref'},api,labels:{debit_note:'Debit notes'}});await submit();assert.equal(reopened.saved.data.lines[0].source_line_id,'1:fingerprint');assert.equal(reopened.saved.data.lines[0].quantity,'1');await act(async()=>reopened.root.unmount());
 });
+
+test('source-option load failure and retry preserve the edited return draft',async()=>{
+ let fail=true;const sourceLine={description:'Saved service',quantity:'2',rate:'100',gst_rate:'18',source_line_id:'0:saved',source_document_id:'bill',source_line_number:1,itc_treatment:'ineligible'};
+ const api=async path=>{if(path.includes('/records/')){if(fail)throw Error('Unavailable');return{id:'bill',data:{lines:[sourceLine]}};}return path.endsWith('bank-accounts')?[]:{amount:'118',data:{lines:[]}};};
+ const view=await mount({kind:'debit_note',documentKinds:['debit_note'],source:{id:'note',name:'Supplier',date:'2026-11-02',data:{applied_to:'bill',lines:[sourceLine]}},api,labels:{debit_note:'Debit notes'}});
+ assert.match(document.body.textContent,/Source lines could not be loaded/);await change('[name=quantity]','1');fail=false;
+ await act(async()=>[...document.querySelectorAll('button')].find(button=>button.textContent==='Retry source lines').click());
+ assert.equal(document.querySelector('[name=quantity]').value,'1');assert.equal(document.querySelector('[aria-label="Item 1 source purchase line"]').value,'0:saved');await submit();assert.equal(view.saved.data.lines[0].source_line_id,'0:saved');assert.equal(view.saved.data.lines[0].quantity,'1');await act(async()=>view.root.unmount());
+});

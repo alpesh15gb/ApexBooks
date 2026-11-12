@@ -236,7 +236,8 @@ val supplyChoices=listOf("taxable" to "Taxable","nil_rated" to "Nil rated","exem
         if(calculated!=null){val amount=(calculated.s("taxable").toBigDecimalOrNull()?:java.math.BigDecimal.ZERO)+(calculated.s("tax").toBigDecimalOrNull()?:java.math.BigDecimal.ZERO);Text(money(amount),style=MaterialTheme.typography.titleMedium,color=ApexGreen)}
         if(editor.kind=="debit_note"){
             val options=editor.returnSourceLines.filter{it.s("source_line_id").isNotBlank()}.map{it.s("source_line_id") to "Line ${it.s("source_line_number")} · ${it.s("description")} · source qty ${it.s("quantity")} · GST ${it.s("gst_rate")}% · ${it.s("itc_treatment")}"}
-            Choice("Source purchase line",line.get("source_line_id"),listOf("" to "Choose source line / legacy match")+options,{editor.chooseReturnLine(line,it)})
+            val saved=if(line.get("source_line_id").isNotBlank()&&options.none{it.first==line.get("source_line_id")})listOf(line.get("source_line_id") to "Saved source line ${line.get("source_line_number")}")else emptyList()
+            Choice("Source purchase line",line.get("source_line_id"),listOf("" to "Choose source line / legacy match")+saved+options,{editor.chooseReturnLine(line,it)})
             if(line.get("source_line_id").isNotBlank())Text("GST and ITC treatment follow the selected source line.",style=MaterialTheme.typography.bodySmall)
         }
         val products=editor.items(line)
