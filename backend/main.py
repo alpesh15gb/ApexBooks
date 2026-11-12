@@ -1307,8 +1307,10 @@ def get_record(company_id:str,record_id:str,user:User=Depends(current_user),sess
         capacity = remaining_source_lines(sys.modules[__name__], row, session)
     serialized = obj(row)
     if capacity is not None: serialized['data'] = {**serialized['data'], 'lines': capacity}
+    from record_trail import document_trail
+    trail = document_trail(sys.modules[__name__], session, company_id, row)
     return {**serialized, **record_status(row, posted, applied=applied_total(company_id,row.id,session),
-        consumed=consumed, credit_used=credit_used, converted_to=converted_to), 'allocations':allocations}
+        consumed=consumed, credit_used=credit_used, converted_to=converted_to), 'allocations':allocations, 'document_trail':trail}
 
 @app.post('/api/companies/{company_id}/advances/{advance_id}/apply')
 def apply_advance(company_id: str, advance_id: str, body: RecordInput, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):

@@ -273,3 +273,14 @@ for (const mode of ['unregistered', 'composition']) test(`changing tax mode to $
   if(mode==='composition') assert.equal(field('GSTIN').value,'');
  });
 });
+
+test('note credit link opens existing payment workspace without a financial request',async()=>{
+ await workspace('owner',async({click,posts})=>{
+  await click('Credit notes');await click('CN-CONTEXT');
+  await click('Open customer credits and refunds');
+  assert.equal(!!document.querySelector('.transaction-detail'),false);
+  assert.match(document.querySelector('.page-heading h1').textContent,/Payment in/);
+  assert.match(document.body.textContent,/Customer credits and refunds/);
+  assert.equal(posts.length,0);
+ },[{id:'credit-context',kind:'credit_note',number:'CN-CONTEXT',name:'Synthetic customer',date:'2026-11-02',amount:'100',posted:true,credit_remaining:'100',data:{},document_trail:[]}]);
+});

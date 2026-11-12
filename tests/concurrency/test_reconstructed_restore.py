@@ -17,6 +17,9 @@ fixture.app, fixture.engine, fixture.Record = main.app, main.engine, main.Record
 sys.modules['test_api'] = fixture
 
 CASES = [
+    'test_record_trail.RecordTrailTest',
+    'test_gstin_entry.GstinEntryTest',
+    'test_item_activity_scope.ItemActivityScopeTest',
     'test_day_book.DayBookTest',
     'test_rebuilt_import_images.RebuiltImportImagesTest',
     'test_pay_at_invoice.PayAtInvoiceTest',

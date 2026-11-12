@@ -990,10 +990,10 @@ function App() {
     setPage("dashboard");
     setSigned(false);
   }
-  function navigateWorkspace(kind, reference = "", filter = "all", resetFilters = false) {
+  function navigateWorkspace(kind, reference = "", filter = "all", resetFilters = false, fromDetail = false) {
     if (postingNavigationBlocked()) return;
     if (modal === "record") { window.dispatchEvent(new window.Event("apex-close-editor")); return; }
-    if (document.querySelector(".overlay .modal")) return;
+    if (document.querySelector(fromDetail ? ".overlay .modal:not(.transaction-detail)" : ".overlay .modal")) return;
     editorRequests.current.latest();
     setDetail(null);
     const routes = {
@@ -1792,7 +1792,7 @@ function App() {
       </main>
       {detail && <TransactionDetail api={api} features={features} record={detail} records={records} company={company} labels={labels}
         loading={detailLoading} error={detailError} onClose={closeDetail} onRetry={() => beginDetail(detail)}
-        onEdit={beginEdit} onRelated={beginRelated} onConvert={beginConversion} onPdf={downloadDocument} onOpen={beginDetail} onCancelDocument={cancelDocument} />}
+        onEdit={beginEdit} onRelated={beginRelated} onConvert={beginConversion} onPdf={downloadDocument} onOpen={beginDetail} onCancelDocument={cancelDocument} onManageCredits={record => navigateWorkspace(record.kind === "debit_note" ? "payment_out" : "payment_in", "", "all", true, true)} />}
       {remindOverdue && company && <OverdueReminders records={records} company={company} onClose={() => setRemindOverdue(false)} />}
       {activeParty && (
         <PartyStatement
