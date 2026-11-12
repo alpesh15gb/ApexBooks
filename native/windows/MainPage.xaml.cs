@@ -61,6 +61,13 @@ public sealed partial class MainPage : Page
         Verify();return Verify;
     }
 
+    private Action CaptureOwnerImportAccess()
+    {
+        var access=CaptureFileSaveAccess();
+        void Verify(){access();if(!CanWrite||!IsOwner)throw new InvalidOperationException("Current owner access is required to restore or migrate a backup. Your inputs are preserved.");}
+        Verify();return Verify;
+    }
+
     internal string PathFor(string suffix = "") => Api.CompanyPath(CompanyId, suffix);
     internal void Error(Exception e) {if(NativeUi.DialogError(e))return; notice.Severity = InfoBarSeverity.Error; notice.Message = e.Message; notice.IsOpen = true; }
     internal void Success(string message) { notice.Severity = InfoBarSeverity.Success; notice.Message = message; notice.IsOpen = true; }

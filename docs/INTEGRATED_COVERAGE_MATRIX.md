@@ -1077,3 +1077,25 @@ one commit. This verifies real App/BankWorkspace/dialog wiring using a simulated
 role notification, not a real backend revocation or physical browser. No production,
 publication retry or deployment. Added portable BankImportRole checker and retained
 self-contained bundle for review.
+
+### Native owner-only migration/restore boundaries (2026-11-12)
+
+Android restore/Vyapar actions now require current owner plus write-ready access
+at enabled state, preview dispatch and save callback. Bank/master imports retain
+editor support. Windows has a shared captured owner-import verifier, used before
+legacy restore/migration picker/read/preview/commit and chunked restore upload/
+commit, and before applying returned UI changes. Legacy restore preview captures
+name/password and discards a stale result; starting validation clears prior digest.
+
+Compiled actual Android callback scenarios pass bank role cases plus owner/editor
+restore and migration dispatch. Compiled actual Windows owner-access helper passes
+role loss/recovery and stale context, with guarded call-site assertions. Existing
+Android master receipt callback tests and 11 import read/preview gate tests pass.
+Windows complete view/XAML and Compose UI are not compiled by these seam tests;
+full native build/device acceptance remains blocked as previously documented.
+No backend ownership policy or accounting changed; this enforces existing client
+owner-only workflow scope. No production, publication retry or deployment.
+
+Next priority from independent review: bank-import uncertain outcomes. Backend
+row fingerprint deduplication exists, but is not an exact durable command receipt.
+Native role gating alone must not be described as safe changed-payload retry.

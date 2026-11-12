@@ -15,7 +15,7 @@ class JSONObject(private val text:String="body"){fun s(key:String)=if(key=="oper
 class JSONArray{fun length()=0}
 class ApiFailure(val status:Int,message:String):Exception(message)
 class Api{var keys=mutableListOf<String?>();var failure:Exception?=null;var after:(()->Unit)?=null;suspend fun request(path:String,method:String,body:JSONObject,key:String?):Any{keys.add(key);after?.invoke();failure?.let{throw it};return JSONObject(key?:"")}}
-class VM{val api=Api();var canWrite=true;var tool="master_import";var toolData:Any?=null;var notice="";var refreshes=0;fun supports(value:String)=true;suspend fun refresh(){refreshes++};suspend fun loadCompanies(id:String){} }
+class VM{val api=Api();var canWrite=true;var isOwner=true;var tool="master_import";var toolData:Any?=null;var notice="";var refreshes=0;fun supports(value:String)=true;suspend fun refresh(){refreshes++};suspend fun loadCompanies(id:String){} }
 suspend fun ActionDialog(onSave:suspend()->Unit){onSave()}
 fun main()=runBlocking{
  val directory=Files.createTempDirectory("apex-import-save-").toFile()

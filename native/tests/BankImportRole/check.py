@@ -12,7 +12,7 @@ class JSONObject(private val text:String="body"){fun s(key:String)="";fun a(key:
 class JSONArray{fun length()=0}
 class ApiFailure(val status:Int):Exception()
 class Api{var calls=0;suspend fun request(path:String,method:String,body:JSONObject,key:String?):Any{calls++;return JSONObject()}}
-class VM{val api=Api();var canWrite=true;var tool="statement_import";var toolData:Any?=null;var notice="";var refreshes=0;fun supports(value:String)=false;suspend fun refresh(){refreshes++};suspend fun loadCompanies(id:String){} }
+class VM{val api=Api();var canWrite=true;var isOwner=true;var tool="statement_import";var toolData:Any?=null;var notice="";var refreshes=0;fun supports(value:String)=false;suspend fun refresh(){refreshes++};suspend fun loadCompanies(id:String){} }
 suspend fun ActionDialog(onSave:suspend()->Unit){onSave()}
 fun main()=runBlocking{
  val vm=VM();val receipt:ImportReceiptRecovery?=null;var reading=false;var owned=true;val owner={owned};val tool="statement_import";val kind="party";val prepared=JSONObject();val preparedInput="original";fun identity()="original"

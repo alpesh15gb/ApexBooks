@@ -78,18 +78,20 @@ public sealed partial class MainPage
     }
     private async Task RestoreCompany()
     {
+        var verify=CaptureOwnerImportAccess();
         if(Supports("chunked_backups")){await RestoreCompleteCompany();return;}
-        var file=await ApexFiles.Pick(".apexbackup",".gz",".json");if(file is null)return;var content=await ApexFiles.Read(file);var name=Input("Name for the restored company");var password=new PasswordBox{Header="Backup password · when encrypted"};var panel=Stack();panel.MinWidth=750;panel.Children.Add(Text(file.Name));panel.Children.Add(name);panel.Children.Add(password);var results=Stack();string encoded="",digest="",reviewedName="";
-        panel.Children.Add(AsyncButton("Validate and preview",async()=>{encoded=Convert.ToBase64String(ApexFiles.PrepareRestore(content,password.Password));var result=await Api.Send("/api/backups/restore/preview",HttpMethod.Post,new JsonObject{["company_name"]=name.Text,["backup_base64"]=encoded});digest=result.Text("digest");reviewedName=name.Text;results.Children.Clear();RenderReport(results,result);},Error,true));panel.Children.Add(results);
-        if(await Dialog("Restore into a new company",panel,async()=>{if(digest.Length==0||name.Text!=reviewedName)throw new Exception("Validate this backup and company name before restoring.");var result=await Api.Send("/api/backups/restore/commit",HttpMethod.Post,new JsonObject{["company_name"]=name.Text,["backup_base64"]=encoded,["digest"]=digest});CompanyId=result.Text("company_id");},"Restore reviewed backup"))await LoadCompanies();
+        var file=await ApexFiles.Pick(".apexbackup",".gz",".json");if(file is null)return;verify();var content=await ApexFiles.Read(file);verify();var name=Input("Name for the restored company");var password=new PasswordBox{Header="Backup password · when encrypted"};var panel=Stack();panel.MinWidth=750;panel.Children.Add(Text(file.Name));panel.Children.Add(name);panel.Children.Add(password);var results=Stack();string encoded="",digest="",reviewedName="";
+        panel.Children.Add(AsyncButton("Validate and preview",async()=>{verify();digest="";reviewedName="";results.Children.Clear();var requestedName=name.Text;var requestedPassword=password.Password;encoded=Convert.ToBase64String(ApexFiles.PrepareRestore(content,requestedPassword));var result=await Api.Send("/api/backups/restore/preview",HttpMethod.Post,new JsonObject{["company_name"]=requestedName,["backup_base64"]=encoded});verify();if(name.Text!=requestedName||password.Password!=requestedPassword)return;digest=result.Text("digest");reviewedName=requestedName;results.Children.Clear();RenderReport(results,result);},Error,true));panel.Children.Add(results);
+        if(await Dialog("Restore into a new company",panel,async()=>{verify();if(digest.Length==0||name.Text!=reviewedName)throw new Exception("Validate this backup and company name before restoring.");var result=await Api.Send("/api/backups/restore/commit",HttpMethod.Post,new JsonObject{["company_name"]=name.Text,["backup_base64"]=encoded,["digest"]=digest});verify();CompanyId=result.Text("company_id");},"Restore reviewed backup"))await LoadCompanies();
     }
     private async Task VyaparMigration()
     {
+        var verify=CaptureOwnerImportAccess();
         var cid = CompanyId;
         var file = await ApexFiles.Pick(".vyb");
-        if (file is null) return;
+        if (file is null) return;verify();
         var encoded = Convert.ToBase64String(await ApexFiles.Read(file, 3_000_000));
-        var panel = Stack(); panel.MinWidth = 850;
+        verify();var panel = Stack(); panel.MinWidth = 850;
         panel.Children.Add(Text(file.Name));
         panel.Children.Add(Text("Choose the import scope, validate the mapping, then review the preview. Existing books are preserved if validation fails."));
         var scope = Select("Import scope", [("posting", "Full transaction posting"), ("archive", "Masters and source archive only")]);
@@ -114,11 +116,11 @@ public sealed partial class MainPage
         accepted.Unchecked += (_, _) => RefreshDialogActions();
         panel.Children.Add(AsyncButton("Validate and preview", async () =>
         {
-            Reset();
+            verify();Reset();
             var requestRevision = previewRevision;
             var requestedScope = Value(scope);
             var preview = await Api.Send(Endpoint("preview"), HttpMethod.Post, new JsonObject { ["backup_base64"] = encoded });
-            if (requestRevision != previewRevision || requestedScope != Value(scope)) return;
+            verify();if (requestRevision != previewRevision || requestedScope != Value(scope)) return;
             prepared = preview;
             reviewedScope = requestedScope;
             RenderReport(results, prepared);
@@ -128,11 +130,11 @@ public sealed partial class MainPage
         panel.Children.Add(results); panel.Children.Add(accepted);
         if (await Dialog("Import Vyapar backup", panel, async () =>
         {
-            if (!Ready() || accepted.IsChecked != true) throw new Exception("Validate and review the selected scope before importing.");
+            verify();if (!Ready() || accepted.IsChecked != true) throw new Exception("Validate and review the selected scope before importing.");
             await Api.Send(Endpoint("commit"), HttpMethod.Post, new JsonObject { ["backup_base64"] = encoded, ["digest"] = prepared.Text("digest") });
         }, "Import reviewed backup", () => Ready() && accepted.IsChecked == true))
         {
-            await Refresh();
+            verify();await Refresh();verify();
             Success(reviewedScope == "posting" ? "Migration posted and reconciled." : "Masters and source archive imported. Historical transactions remain unposted.");
         }
     }
