@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { decodeMasterCsv } from "./masterCsv.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 const aliases = {
   date: ["date", "transactiondate", "txndate", "valuedate", "postingdate"],
@@ -35,31 +36,31 @@ function parse(text) {
         }),
       ),
     sep = candidates.sort((a, b) => score(b) - score(a))[0];
-  let field = "",
-    row = [],
-    quoted = false;
+  text = text.replace(/^\uFEFF/, "");
+  let field = "", row = [], quoted = false, closed = false, line = 1;
   const rows = [];
+  const cell = () => { row.push(field); field = ""; closed = false; };
+  const finish = () => { cell(); if (row.some(value => value.trim())) rows.push(row); row = []; };
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
-    if (ch === '"') {
-      if (quoted && text[i + 1] === '"') {
-        field += '"';
-        i++;
-      } else quoted = !quoted;
-    } else if (ch === sep && !quoted) {
-      row.push(field);
-      field = "";
-    } else if ((ch === "\n" || ch === "\r") && !quoted) {
+    if (quoted) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else { quoted = false; closed = true; }
+      } else { field += ch; if (ch === "\n" || (ch === "\r" && text[i + 1] !== "\n")) line++; }
+      continue;
+    }
+    if (ch === sep) { cell(); continue; }
+    if (ch === "\n" || ch === "\r") {
       if (ch === "\r" && text[i + 1] === "\n") i++;
-      row.push(field);
-      if (row.some((s) => s.trim())) rows.push(row);
-      row = [];
-      field = "";
-    } else field += ch;
+      finish(); line++; continue;
+    }
+    if (closed) { if (ch === " " || ch === "\t") continue; throw Error(`CSV row ${line}: unexpected text after a closing quote.`); }
+    if (ch === '"') { if (field.length) throw Error(`CSV row ${line}: quote must begin a field.`); quoted = true; }
+    else field += ch;
   }
-  if (quoted) throw Error("CSV contains an unclosed quote");
-  row.push(field);
-  if (row.some((s) => s.trim())) rows.push(row);
+  if (quoted) throw Error(`CSV row ${line}: unclosed quoted field.`);
+  finish();
   return rows.map((r) => r.map((s) => s.replace(/^\uFEFF/, "").trim()));
 }
 function amount(raw) {
@@ -142,10 +143,10 @@ export default function StatementImportPreview({
     let live = true;
     if (file.size > 5_000_000) { setError("CSV exceeds 5 MB"); return; }
     file
-      .text()
-      .then((text) => {
+      .arrayBuffer()
+      .then((bytes) => {
         if (!live) return;
-        const rows = parse(text);
+        const rows = parse(decodeMasterCsv(bytes));
         if (rows.length > 5021)
           throw Error("Import up to 5,000 transactions per CSV");
         const firstHeader = rows.findIndex((row) =>
@@ -368,7 +369,7 @@ export default function StatementImportPreview({
               </small>
             </div>
           )}
-          {parsed.error && <p className="error full">{parsed.error}</p>}
+          {parsed.error && <p className="error full" role="alert">{parsed.error}</p>}
           {report && (
             <div className="info-box full">
               {report.added} new transactions · {report.duplicates} duplicates

@@ -946,3 +946,22 @@ All 420 frontend tests pass on this integrated source; lint/build/bundle budgets
 pass. This is not full-App browser/device verification. No backend changes,
 production access, deployment or denied publication retry. Self-contained bundle
 preserved for independent review.
+
+### Bank-statement CSV quote and encoding fidelity (2026-11-12)
+
+Reorder entry inspection found existing role and catalogue guards, with no new
+verified defect. The adjacent bank import audit reproduced malformed
+`"Receipt"junk` being silently parsed as `Receiptjunk` and offered for preview.
+Bank CSV now rejects post-quote text, embedded bare-field quotes and unclosed
+quotes with row errors. File bytes use fatal UTF-8 decoding (same decoder as
+master imports), rejecting invalid byte sequences instead of replacement text.
+Parsed row validation errors are announced as alerts.
+
+Ten rendered import tests pass: malformed quote red-to-green, invalid UTF-8,
+valid BOM/doubled-quote/embedded CRLF exact descriptions with comma, tab and
+semicolon separators, existing frozen bank retry and master/restore flows.
+Lint/build/bundle budgets pass. No backend matching/duplicate logic changed.
+Bank-specific header selection and manual column mapping remain supported; this
+is not a claim that every bank CSV layout or encoding is accepted. Native bank
+parser parity and actual browser file-picker acceptance remain open. No real
+bank records, production access, publication retry or deployment.

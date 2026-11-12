@@ -44,7 +44,7 @@ test('master import freezes record type from file read through preview and commi
 
 test('bank import locks mapping and dismiss controls and retries the exact reviewed rows',async()=>{
  const root=createRoot(document.getElementById('root'));let completePreview,closed=0;const commits=[];
- const file={name:'bank.csv',size:60,text:async()=> 'date,description,amount\n2026-11-12,Customer receipt,100\n'};
+ const file={name:'bank.csv',size:60,arrayBuffer:async()=> new TextEncoder().encode('date,description,amount\n2026-11-12,Customer receipt,100\n').buffer};
  const api=async(path,options)=>{const body=JSON.parse(options.body);if(body.dry_run)return new Promise(resolve=>{completePreview=resolve;});commits.push(options.body);if(commits.length===1)throw new TypeError('Response lost');return{added:0,duplicates:1};};
  try {
    await act(async()=>root.render(React.createElement(StatementImport,{file,companyId:'company',bankId:'bank',bankName:'Current account',api,onClose:()=>closed++,onImported:async()=>{}})));
@@ -71,4 +71,25 @@ test('legacy backup restore freezes validated inputs and replays an uncertain co
    assert.ok([...document.querySelectorAll('input')].every(node=>node.disabled));
    await click('Retry same restore');assert.deepEqual(commits[0],commits[1]);assert.equal(restored,'restored');
  } finally {await act(async()=>root.unmount());globalThis.fetch=previous;}
+});
+test('bank CSV rejects text after quoted description before any preview request',async()=>{
+ const root=createRoot(document.getElementById('root'));let requests=0;
+ const text='date,description,amount\n2026-11-12,"Receipt"junk,100\n';
+ try{
+ await act(async()=>root.render(React.createElement(StatementImport,{file:{name:'bank.csv',size:text.length,text:async()=>text,arrayBuffer:async()=>new TextEncoder().encode(text).buffer},companyId:'company',bankId:'bank',bankName:'Bank',api:async()=>{requests++;return{};},onClose:()=>{},onImported:()=>{}})));
+ assert.match(document.body.textContent,/unexpected text after a closing quote/);assert.equal(requests,0);assert.equal(button('Validate mapped rows').disabled,true);
+ }finally{await act(async()=>root.unmount());}
+});
+for(const [label,bytes,expected] of [
+ ['invalid UTF-8',new Uint8Array([0x64,0x61,0x74,0x65,0x2c,0x96]),/encoding is invalid/],
+ ['quote in bare field',new TextEncoder().encode('date,description,amount\n2026-11-12,Rec"eipt,100'),/quote must begin a field/],
+ ['unclosed quote',new TextEncoder().encode('date,description,amount\n2026-11-12,"Receipt,100'),/unclosed quoted field/],
+])test(`bank CSV blocks ${label} before preview`,async()=>{
+ const root=createRoot(document.getElementById('root'));let requests=0;
+ try{await act(async()=>root.render(React.createElement(StatementImport,{file:{name:'bad.csv',size:bytes.length,arrayBuffer:async()=>bytes.buffer},companyId:'company',bankId:'bank',bankName:'Bank',api:async()=>{requests++;},onClose:()=>{},onImported:()=>{}})));assert.match(document.body.textContent,expected);assert.equal(button('Validate mapped rows').disabled,true);assert.equal(requests,0);}finally{await act(async()=>root.unmount());}
+});
+for(const sep of [',',';','\t'])test(`bank CSV preserves BOM quoted multiline description with ${JSON.stringify(sep)} separator`,async()=>{
+ const root=createRoot(document.getElementById('root'));let preview;
+ const text='\uFEFF'+['date','description','amount'].join(sep)+'\r\n'+['2026-11-12','"Receipt, with ""quote""\r\nnext line"','100'].join(sep)+'\r\n';const bytes=new TextEncoder().encode(text);
+ try{await act(async()=>root.render(React.createElement(StatementImport,{file:{name:'valid.csv',size:bytes.length,arrayBuffer:async()=>bytes.buffer},companyId:'company',bankId:'bank',bankName:'Bank',api:async(path,options)=>{preview=JSON.parse(options.body);return{added:1,duplicates:0};},onClose:()=>{},onImported:()=>{}})));await click('Validate mapped rows');assert.equal(preview.dry_run,true);assert.equal(preview.lines[0].description,'Receipt, with "quote"\r\nnext line');assert.equal(preview.lines[0].amount,'100');}finally{await act(async()=>root.unmount());}
 });
