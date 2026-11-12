@@ -407,3 +407,17 @@ All 23 commerce/item-identity backend tests passed. This batch does not alter st
 catalogue visibility or claim acceptance of already-open orders after archival;
 real-store delivery and PostgreSQL remain separate gates. No external store calls,
 production access, publication retry or deployment occurred.
+
+### Archived-item sellable stock projection
+
+A synthetic tracked item with book stock 10 and an existing hold of 1 still reported
+sellable 9 after archival. Stock/workspace projections now expose is_active and zero
+available_quantity for archived items, retaining actual book quantity and reservations.
+Reactivation restores computed availability (9 in the fixture). A mocked worker call
+verified the outbound projection also carries zero; all 24 commerce/item-identity
+backend tests passed. No real delivery occurred. This does not change website product
+visibility, manage_stock flags or existing orders. Untracked products may remain
+listed in Bagisto; the authoritative new-checkout archived-item rejection still
+applies. Real-store and PostgreSQL acceptance remain open. 9ad0079 remains in HEAD
+ancestry; its Daybook conversion-status visual recheck remains on the final matrix.
+No publication retry or deployment was performed.

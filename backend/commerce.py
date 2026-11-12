@@ -191,10 +191,10 @@ class Commerce:
             item = session.get(self.m.Record, link['record_id'])
             if item and item.company_id == c['company_id']:
                 rows.append({'external_id': link['external_id'], 'item_id': item.id, 'sku': link['sku'],
-                    'name': item.name, 'track_stock': bool(item.data.get('track_stock')),
+                    'name': item.name, 'track_stock': bool(item.data.get('track_stock')), 'is_active': item.data.get('is_active', True) is not False,
                     'book_quantity': str(self.book_quantity(session, c['company_id'], item.id)),
                     'reserved_quantity': str(self.reserved(session, c['company_id'], item.id)),
-                    'available_quantity': str(max(Decimal(0), self.available(session, c['company_id'], item.id))),
+                    'available_quantity': str(max(Decimal(0), self.available(session, c['company_id'], item.id)) if item.data.get('is_active', True) is not False else Decimal(0)),
                     'sale_rate': item.data.get('sale_rate', '0'),
                     'gst_rate': item.data.get('gst_rate', '0') if regular and item.data.get('tax_treatment', 'taxable') == 'taxable' else '0',
                     'tax_treatment': item.data.get('tax_treatment', 'taxable'),

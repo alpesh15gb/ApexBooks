@@ -72,6 +72,22 @@ class CommerceTest(unittest.TestCase):
                 self.client.put(self.base+'/masters/'+item['id'],headers=self.headers,json={'name':item['name'],'track_stock':tracked,'is_active':True}).raise_for_status()
                 self.signed('/reservations',body).raise_for_status()
 
+    def test_archived_stock_projection_keeps_book_and_holds_but_zeroes_sellable(self):
+        from decimal import Decimal
+        item=self.mapped_item()
+        self.signed('/reservations',{'reference':'before-archive','channel':self.tag,'lines':[{'external_product_id':'p1','quantity':'1'}]}).raise_for_status()
+        self.client.put(self.base+'/masters/'+item['id'],headers=self.headers,json={'name':item['name'],'track_stock':True,'is_active':False}).raise_for_status()
+        row=self.client.get(self.path+'/workspace',headers=self.headers).json()['stock'][0]
+        self.assertEqual(Decimal(row['book_quantity']),10);self.assertEqual(Decimal(row['reserved_quantity']),1)
+        self.assertEqual(Decimal(row['available_quantity']),0);self.assertIs(row['is_active'],False)
+        with patch('commerce_worker.remote',return_value={'status':'done'}) as delivery:
+            self.assertTrue(process_one('outbox',self.c['id']))
+            projected=delivery.call_args.args[-1]['payload']['stock'][0]
+            self.assertEqual(Decimal(projected['available_quantity']),0);self.assertIs(projected['is_active'],False)
+        self.client.put(self.base+'/masters/'+item['id'],headers=self.headers,json={'name':item['name'],'track_stock':True,'is_active':True}).raise_for_status()
+        row=self.client.get(self.path+'/workspace',headers=self.headers).json()['stock'][0]
+        self.assertEqual(Decimal(row['available_quantity']),9);self.assertIs(row['is_active'],True)
+
     def test_repeated_connection_state_put_does_not_repeat_activation_side_effects(self):
         def snapshot():
             with Session(engine) as session:
