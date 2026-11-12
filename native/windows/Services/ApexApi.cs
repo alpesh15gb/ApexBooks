@@ -79,19 +79,18 @@ public sealed class ApexApi : IDisposable
 
     public async Task Logout()
     {
-        var token=SessionToken();try { await Send("/api/auth/logout", HttpMethod.Post); }
-        finally { lock(sessionGate){if(sessionToken==token)ForgetSession();} }
+        var (token,generation,_)=CaptureResponseSession();try { await Send("/api/auth/logout", HttpMethod.Post); }
+        finally { lock(sessionGate){if(sessionToken==token&&capabilityGeneration==generation)ForgetSession();} }
     }
     public void ForgetSession(){lock(sessionGate){loginSequence++;ClearStoredSession();sessionToken="";Email="";capabilityGeneration++;capabilityLoad=null;Capabilities=ClientCapabilities.Unavailable;}}
-    private string SessionToken(){lock(sessionGate)return sessionToken;}
 
     // A changed session makes an in-flight write outcome uncertain; never expose
     // successful old-account data or mark its save resolved in the new account.
-    private (string Token, Action Verify) CaptureResponseSession()
+    private (string Token, int Generation, Action Verify) CaptureResponseSession()
     {
         lock(sessionGate){
             var token=sessionToken;var generation=capabilityGeneration;
-            return(token,()=>{lock(sessionGate){if(sessionToken!=token||capabilityGeneration!=generation)throw new ApiFailure(0,"The sign-in changed while this request was pending. Return to the original account to recover the operation before retrying.");}});
+            return(token,generation,()=>{lock(sessionGate){if(sessionToken!=token||capabilityGeneration!=generation)throw new ApiFailure(0,"The sign-in changed while this request was pending. Return to the original account to recover the operation before retrying.");}});
         }
     }
 
@@ -127,14 +126,14 @@ public sealed class ApexApi : IDisposable
             if(body is JsonObject fields&&fields.ContainsKey("book_label")&&!Capabilities.Supports("company_book_labels")){body=fields.Copy();body!.AsObject().Remove("book_label");}
         }
         using var request = new HttpRequestMessage(method ?? HttpMethod.Get, path.TrimStart('/'));
-        var (sentToken,verifySession)=CaptureResponseSession();if(sentToken.Length>0)request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",sentToken);
+        var (sentToken,generation,verifySession)=CaptureResponseSession();if(sentToken.Length>0)request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",sentToken);
         if (body is not null) request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
         if (retryKey is not null) request.Headers.Add("Idempotency-Key", retryKey);
         try
         {
             using var response = await http.SendAsync(request, cancellation).ConfigureAwait(false);
             var content = await response.Content.ReadAsStringAsync(cancellation).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode) throw Failure(response.StatusCode,content,sentToken,path is "/api/auth/login" or "/api/auth/change-password" or "/api/auth/recovery-codes");
+            if (!response.IsSuccessStatusCode) throw Failure(response.StatusCode,content,sentToken,generation,path is "/api/auth/login" or "/api/auth/change-password" or "/api/auth/recovery-codes");
             if(path.TrimStart('/').Split('?')[0]!="api/auth/login")verifySession();
             var result = string.IsNullOrWhiteSpace(content) ? new JsonObject() : JsonNode.Parse(content) ?? new JsonObject();
             // Login owns a separate attempt sequence and checks it before installing a token.
@@ -145,7 +144,7 @@ public sealed class ApexApi : IDisposable
         catch (TaskCanceledException) when (!cancellation.IsCancellationRequested) { throw new ApiFailure(0, "The server took too long to respond. Retry this same save before creating another transaction."); }
     }
 
-    private ApiFailure Failure(HttpStatusCode status,string content,string sentToken,bool credentialChallenge=false)
+    private ApiFailure Failure(HttpStatusCode status,string content,string sentToken,int generation,bool credentialChallenge=false)
     {
         var message = "The request could not be completed.";
         try
@@ -154,29 +153,29 @@ public sealed class ApexApi : IDisposable
             message = detail is JsonArray list ? string.Join("\n", list.Select(row => row.Text("msg"))) : detail?.ToString() ?? message;
         }
         catch { }
-        var expired=false;lock(sessionGate){if(status==HttpStatusCode.Unauthorized&&sentToken.Length>0&&sessionToken==sentToken&&!credentialChallenge){ForgetSession();expired=true;}}
+        var expired=false;lock(sessionGate){if(status==HttpStatusCode.Unauthorized&&sentToken.Length>0&&sessionToken==sentToken&&capabilityGeneration==generation&&!credentialChallenge){ForgetSession();expired=true;}}
         if(expired){SessionExpired?.Invoke();message="Your session has ended. Sign in again.";}
         return new ApiFailure((int)status, message);
     }
 
     public async Task<byte[]> Download(string path)
     {
-        var (sentToken,verifySession)=CaptureResponseSession();using var request=new HttpRequestMessage(HttpMethod.Get,path.TrimStart('/'));if(sentToken.Length>0)request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",sentToken);
+        var (sentToken,generation,verifySession)=CaptureResponseSession();using var request=new HttpRequestMessage(HttpMethod.Get,path.TrimStart('/'));if(sentToken.Length>0)request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",sentToken);
         using var response = await http.SendAsync(request);
-        if (!response.IsSuccessStatusCode) throw Failure(response.StatusCode,await response.Content.ReadAsStringAsync(),sentToken);
+        if (!response.IsSuccessStatusCode) throw Failure(response.StatusCode,await response.Content.ReadAsStringAsync(),sentToken,generation);
         var bytes=await response.Content.ReadAsByteArrayAsync();verifySession();return bytes;
     }
 
     public async Task<JsonNode> SendBytes(string path,HttpMethod method,byte[] body,string mediaType,string? retryKey=null,CancellationToken cancellation=default)
     {
-        using var request=new HttpRequestMessage(method,path.TrimStart('/'));var (token,verifySession)=CaptureResponseSession();if(token.Length>0)request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",token);request.Content=new ByteArrayContent(body);request.Content.Headers.ContentType=new MediaTypeHeaderValue(mediaType);if(retryKey is not null)request.Headers.Add("Idempotency-Key",retryKey);
-        try{using var response=await http.SendAsync(request,cancellation).ConfigureAwait(false);var text=await response.Content.ReadAsStringAsync(cancellation).ConfigureAwait(false);if(!response.IsSuccessStatusCode)throw Failure(response.StatusCode,text,token);verifySession();var result=JsonNode.Parse(text)??new JsonObject();verifySession();return result;}
+        using var request=new HttpRequestMessage(method,path.TrimStart('/'));var (token,generation,verifySession)=CaptureResponseSession();if(token.Length>0)request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",token);request.Content=new ByteArrayContent(body);request.Content.Headers.ContentType=new MediaTypeHeaderValue(mediaType);if(retryKey is not null)request.Headers.Add("Idempotency-Key",retryKey);
+        try{using var response=await http.SendAsync(request,cancellation).ConfigureAwait(false);var text=await response.Content.ReadAsStringAsync(cancellation).ConfigureAwait(false);if(!response.IsSuccessStatusCode)throw Failure(response.StatusCode,text,token,generation);verifySession();var result=JsonNode.Parse(text)??new JsonObject();verifySession();return result;}
         catch(HttpRequestException){throw new ApiFailure(0,"Transfer response interrupted. Retry the original operation.");}catch(TaskCanceledException)when(!cancellation.IsCancellationRequested){throw new ApiFailure(0,"Transfer timed out. Retry the original operation.");}
     }
     public async Task<(byte[] Bytes,string Sha256,string ArchiveSha256)> DownloadBounded(string path,int maximum,CancellationToken cancellation=default)
     {
-        var (token,verifySession)=CaptureResponseSession();using var request=new HttpRequestMessage(HttpMethod.Get,path.TrimStart('/'));if(token.Length>0)request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",token);
-        using var response=await http.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,cancellation).ConfigureAwait(false);if(!response.IsSuccessStatusCode)throw Failure(response.StatusCode,await response.Content.ReadAsStringAsync(cancellation).ConfigureAwait(false),token);
+        var (token,generation,verifySession)=CaptureResponseSession();using var request=new HttpRequestMessage(HttpMethod.Get,path.TrimStart('/'));if(token.Length>0)request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",token);
+        using var response=await http.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,cancellation).ConfigureAwait(false);if(!response.IsSuccessStatusCode)throw Failure(response.StatusCode,await response.Content.ReadAsStringAsync(cancellation).ConfigureAwait(false),token,generation);
         verifySession();if(response.Content.Headers.ContentLength>maximum)throw new InvalidDataException("Download exceeds its size limit.");using var output=new MemoryStream();using var input=await response.Content.ReadAsStreamAsync(cancellation).ConfigureAwait(false);var buffer=new byte[32768];int n;
         while((n=await input.ReadAsync(buffer,cancellation).ConfigureAwait(false))>0){verifySession();if(output.Length+n>maximum)throw new InvalidDataException("Download exceeds its size limit.");await output.WriteAsync(buffer.AsMemory(0,n),cancellation).ConfigureAwait(false);}
         string Header(string name)=>response.Headers.TryGetValues(name,out var values)?values.FirstOrDefault()??"":"";

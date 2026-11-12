@@ -34,41 +34,49 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
     var email: String = ""; private set
     private val sessionLock=Any()
     private var loginSequence=0
+    private var sessionGeneration=0
     @Volatile private var token: String = ""
     val signedIn: Boolean get() = token.isNotEmpty()
 
     fun restore(): Boolean {
         val saved = vault?.load(origin) ?: return false
-        email = saved.s("email"); token = saved.s("token"); return signedIn
+        return synchronized(sessionLock){sessionGeneration++;email = saved.s("email"); token = saved.s("token");signedIn}
     }
 
     suspend fun login(emailAddress: String, password: String, remember: Boolean) {
         val attempt=synchronized(sessionLock){++loginSequence}
         val result = request("/api/auth/login", "POST", JSONObject().put("email", emailAddress.trim()).put("password", password)) as JSONObject
         val session = result.s("token"); if (session.isBlank()) throw ApiFailure(502, "The server did not return a sign-in session.")
-        withContext(Dispatchers.IO){synchronized(sessionLock){if(attempt!=loginSequence)throw kotlinx.coroutines.CancellationException("Sign-in was cancelled.");vault?.clear(origin);token=session;email=emailAddress.trim();if(remember)vault?.save(origin,JSONObject().put("email",email).put("token",token))}}
+        withContext(Dispatchers.IO){synchronized(sessionLock){if(attempt!=loginSequence)throw kotlinx.coroutines.CancellationException("Sign-in was cancelled.");vault?.clear(origin);sessionGeneration++;token=session;email=emailAddress.trim();if(remember)vault?.save(origin,JSONObject().put("email",email).put("token",token))}}
     }
 
-    suspend fun logout() {val sentToken=token;try { request("/api/auth/logout", "POST") } finally {invalidate(sentToken)} }
-    fun forget() {synchronized(sessionLock){loginSequence++;token="";email="";vault?.clear(origin)}}
-    private fun invalidate(sentToken:String):Boolean=synchronized(sessionLock){if(sentToken.isBlank()||token!=sentToken)false else{forget();true}}
+    suspend fun logout() {val stamp=sessionStamp();try { request("/api/auth/logout", "POST") } finally {invalidate(stamp)} }
+    fun forget() {synchronized(sessionLock){loginSequence++;sessionGeneration++;token="";email="";vault?.clear(origin)}}
+    private data class SessionStamp(val token:String,val generation:Int)
+    private fun sessionStamp()=synchronized(sessionLock){SessionStamp(token,sessionGeneration)}
+    private fun requireSession(stamp:SessionStamp)=synchronized(sessionLock){if(token!=stamp.token||sessionGeneration!=stamp.generation)throw ApiFailure(0,"The sign-in changed while this request was pending. Return to the original account to recover the operation before retrying.")}
+    private fun verifyResponse(path:String,stamp:SessionStamp){if(path.trimStart('/').substringBefore('?')!="api/auth/login")requireSession(stamp)}
+    private fun invalidate(stamp:SessionStamp):Boolean=synchronized(sessionLock){if(stamp.token.isBlank()||token!=stamp.token||sessionGeneration!=stamp.generation)false else{forget();true}}
     fun company(id: String, suffix: String = ""): String = "/api/companies/${encode(id)}$suffix"
 
     suspend fun request(path: String, method: String = "GET", body: JSONObject? = null, retryKey: String? = null): Any {
+        val stamp=sessionStamp()
         val bytes = bytes(path, method, body, retryKey)
+        verifyResponse(path,stamp)
         if (bytes.isEmpty()) return JSONObject()
-        return withContext(Dispatchers.Default) {
+        val result=withContext(Dispatchers.Default) {
             val text = bytes.toString(Charsets.UTF_8)
             if (text.trimStart().startsWith("[")) JSONArray(text) else JSONObject(text)
         }
+        verifyResponse(path,stamp);return result
     }
 
     suspend fun bytes(path: String, method: String = "GET", body: JSONObject? = null, retryKey: String? = null): ByteArray = transfer(path,method,body?.toString()?.toByteArray(Charsets.UTF_8),retryKey,"application/json",null)
     suspend fun rawBytes(path:String,method:String="GET",content:ByteArray?=null,contentType:String="application/octet-stream",retryKey:String?=null,maximumResponse:Int=3_000_000):ByteArray=transfer(path,method,content,retryKey,contentType,maximumResponse)
-    suspend fun upload(path:String,method:String,content:ByteArray,contentType:String,retryKey:String?=null):JSONObject {val result=rawBytes(path,method,content,contentType,retryKey);return withContext(Dispatchers.Default){JSONObject(result.toString(Charsets.UTF_8))}}
+    suspend fun upload(path:String,method:String,content:ByteArray,contentType:String,retryKey:String?=null):JSONObject {val stamp=sessionStamp();val result=rawBytes(path,method,content,contentType,retryKey);verifyResponse(path,stamp);val parsed=withContext(Dispatchers.Default){JSONObject(result.toString(Charsets.UTF_8))};verifyResponse(path,stamp);return parsed}
     private suspend fun transfer(path:String,method:String,body:ByteArray?,retryKey:String?,contentType:String,maximumResponse:Int?):ByteArray {
-      val sentToken=token
-      return withContext(Dispatchers.IO) {
+      val stamp=sessionStamp();val sentToken=stamp.token
+      val result=withContext(Dispatchers.IO) {
         val connection = URL(origin.trimEnd('/') + "/" + path.trimStart('/')).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = method; connection.instanceFollowRedirects=false
@@ -84,15 +92,18 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
                 val detail = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
                 val message = runCatching { val value = JSONObject(detail).opt("detail"); if (value is JSONArray) value.objects().joinToString("\n") { it.s("msg") } else value?.toString() }.getOrNull() ?: "The request could not be completed."
                 val challenge=path.substringBefore('?') in setOf("/api/auth/login","/api/auth/change-password","/api/auth/recovery-codes")
-                val expired=code==401&&!challenge&&invalidate(sentToken)
+                val expired=code==401&&!challenge&&invalidate(stamp)
                 throw ApiFailure(code, if (expired) "Your session has ended. Sign in again." else message)
             }
-            connection.inputStream.use { input -> if(maximumResponse==null)input.readBytes() else {val out=java.io.ByteArrayOutputStream();val buffer=ByteArray(16384);while(true){val count=input.read(buffer);if(count<0)break;if(out.size().toLong()+count>maximumResponse)throw ApiFailure(502,"The server response exceeds the allowed file or chunk size.");out.write(buffer,0,count)};out.toByteArray()} }
+            verifyResponse(path,stamp)
+            val received=connection.inputStream.use { input -> if(maximumResponse==null)input.readBytes() else {val out=java.io.ByteArrayOutputStream();val buffer=ByteArray(16384);while(true){val count=input.read(buffer);if(count<0)break;verifyResponse(path,stamp);if(out.size().toLong()+count>maximumResponse)throw ApiFailure(502,"The server response exceeds the allowed file or chunk size.");out.write(buffer,0,count)};out.toByteArray()} }
+            verifyResponse(path,stamp);received
         } catch (failure: ApiFailure) { throw failure }
         catch (failure: java.net.SocketTimeoutException) { throw ApiFailure(0, "The server took too long to respond. Retry this same save before creating another transaction.") }
         catch (failure: java.io.IOException) { throw ApiFailure(0, "Cannot reach Apex Books. Check your connection. Retry the same save to recover an interrupted response.") }
         finally { connection.disconnect() }
       }
+      verifyResponse(path,stamp);return result
     }
 
     suspend fun records(companyId: String): List<JSONObject> = withContext(Dispatchers.Default) {

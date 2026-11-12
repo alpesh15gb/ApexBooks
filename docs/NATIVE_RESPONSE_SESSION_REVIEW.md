@@ -51,7 +51,32 @@ the portable harness supplies an in-memory vault. No credentials are logged.
 
 This is transport-boundary protection, not cancellation of a server write and not
 proof of every native final file-save/share side effect. Higher-level workspace
-checks remain necessary. Android transfer source has a similar successful-response
-ownership question and still needs an independent compiled reproduction before
-claiming parity. Full WinUI/Compose builds, device rendering/printing/sharing and
+checks remain necessary. The Android ownership question identified here is addressed by the follow-up
+below; full application and platform behavior still require acceptance. Full WinUI/Compose builds, device rendering/printing/sharing and
 final exact-commit CI remain open. The user owns deployment; none was performed.
+
+## Android parity and same-token invalidation follow-up
+
+The Android actual-method seam reproduced a successful request returning private
+synthetic data after sign-out (`/tmp/apex-android-response-red.log`). The methods
+now capture token/generation under the session lock, check ownership around byte
+transfer and dispatcher-based JSON parsing, and leave interrupted write outcomes
+uncertain (status 0). Login retains its separate attempt-sequence guard.
+
+Independent Windows review additionally found that the old Logout finally and
+401 Failure handlers compared only token strings. A local compiled regression
+confirmed the old logout cleared a same-token replacement session. Both Windows
+paths now require the captured generation as well. Android logout and 401
+invalidation use the same token/generation policy. Current-session expiry and
+credential-challenge behavior are retained.
+
+Verification: the complete Windows portable suite passes its existing cases,
+32 successful-response cases and two new same-token logout/401 regressions; log
+`/tmp/apex-native-logout-green.log`. Android compiles the actual session/request/
+transfer method block using verified Gradle 8.14.3 and exercises 40 delayed
+header/body/JSON-parse cases plus six current/stale logout, 401 and credential
+challenge cases; log `/tmp/apex-android-response-final.log`. The harness supplies
+minimal synthetic JSON/vault/BuildConfig fixtures and an in-memory HTTPS URL
+handler; it never opens a real network connection. It is not full application,
+real Android JSON/Keystore, Compose or device acceptance. The new check is wired
+into check.yml for later authorized CI; no workflow was dispatched.
