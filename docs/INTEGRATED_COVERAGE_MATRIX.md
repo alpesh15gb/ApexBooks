@@ -663,3 +663,25 @@ opening owner/viewer recovery and existing posting/ledger recovery checks. Two b
 matrices passed covering posting-family period-lock enforcement and company write-role
 restrictions. Lint/build/budgets passed. Real browser/unload prompts, native parity and
 durable process-loss recovery remain open. No production, upload retry or deployment.
+
+### Integrated frontend check and legacy encrypted export (after e9e013b)
+
+The full frontend suite passed all 312 tests at e9e013b. Subsequent targeted review
+reproduced eight legacy encrypted-backup completion failures: file creation or stale
+errors after company/away-back, role, unmount or session change during encryption.
+BackupRestore now captures ownership before download and checks context, session and
+company access again after asynchronous encryption, immediately before file creation.
+Current failures remain visible; stale-context/session errors are suppressed. The
+restore mutation path was not changed by this batch.
+
+Validation after the export fix: 17 tests passed, including 14 delayed crypto/download
+cases plus three existing import/restore safety tests. Same-company access revocation
+also blocks the final download. Tests use fake crypto completion and a fake file sink;
+they do not prove browser download, encryption compatibility or device acceptance.
+Lint/build/budgets passed. The full 312-test run predates this narrow export change;
+no new full-suite claim is made. No production or publication retry occurred.
+
+Next verified source-level gap to reproduce: web MasterImport still tolerates
+post-quote characters and populated blank CSV headers; native strict parsing does not
+by itself protect this separate web path. Legacy restore preview/file ownership also
+requires a separate review; this batch only covers backup downloads.

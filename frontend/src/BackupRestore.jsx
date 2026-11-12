@@ -1,5 +1,7 @@
-import {sessionFetch as fetch} from './sessionScope.js';
-import React, { useRef, useState } from "react";
+import {captureCompanyAccess} from './companyAccess.js';
+import {createRequestScope} from './requestScope.js';
+import {sessionFetch as fetch, captureSession} from './sessionScope.js';
+import React, { useEffect, useRef, useState } from "react";
 import { Download, Upload } from "lucide-react";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import { businessDate } from "./businessDate.js";
@@ -36,6 +38,9 @@ export default function BackupRestore({ companyId, role, onRestored }) {
     [encoded, setEncoded] = useState(""),
     [success, setSuccess] = useState("");
   const processing = useRef(false);
+  const exportScope = useRef(createRequestScope(`${companyId}:${role}`));
+  exportScope.current.setContext(`${companyId}:${role}`);
+  useEffect(() => () => exportScope.current.setContext(Symbol("unmounted")), []);
   const posting = usePostingRequest();
   const locked = busy || posting.busy || posting.pending;
   if (role !== "owner") return null;
@@ -61,18 +66,23 @@ export default function BackupRestore({ companyId, role, onRestored }) {
     return response;
   }
   async function download() {
-    if (processing.current || posting.pending) return;
+    if (role !== "owner" || processing.current || posting.pending) return;
+    const current = exportScope.current.capture(), token = localStorage.token;
     processing.current = true;
     setBusy(true);
     setError("");
     setSuccess("");
     try {
+      const verifySession = captureSession();
+      const access = captureCompanyAccess(`/api/companies/${companyId}`);
       if (password && password.length < 12) throw Error("Use a backup password of at least 12 characters");
       let content = new Uint8Array(
           await (await request(`/companies/${companyId}/backup`)).arrayBuffer(),
         ),
         suffix = "json.gz",
         mime = "application/gzip";
+      if (!current()) return;
+      verifySession(); access?.verify();
       if (password) {
         if (password.length < 12)
           throw Error("Use a backup password of at least 12 characters");
@@ -97,6 +107,8 @@ export default function BackupRestore({ companyId, role, onRestored }) {
         suffix = "apexbackup";
         mime = "application/json";
       }
+      if (!current()) return;
+      verifySession(); access?.verify();
       const url = URL.createObjectURL(new Blob([content], { type: mime })),
         link = document.createElement("a");
       link.href = url;
@@ -107,7 +119,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
         "Backup downloaded. Keep your file and any backup password securely.",
       );
     } catch (e) {
-      setError(e.message);
+      if (current() && localStorage.token === token) setError(e.message);
     } finally {
       processing.current = false;
       setBusy(false);
