@@ -171,12 +171,22 @@ def validate(payload):
     for row in groups['document_conversions']:
         src,dst=row.get('source_record_id'),row.get('target_record_id')
         if src not in indexes['records'] or dst not in indexes['records'] or src in sources or dst in targets:raise ValueError('Invalid conversion link')
+        origin,target=indexes['records'][src],indexes['records'][dst]
+        conversions={'sales_invoice':{'estimate','proforma','sales_order'},'sales_order':{'estimate','proforma'},'purchase_bill':{'purchase_order'}}
+        if origin['kind'] not in conversions.get(target['kind'],set()) or origin['name'].strip().casefold()!=target['name'].strip().casefold() or target['date']<origin['date']:raise ValueError('Conversion source type, party or chronology mismatch')
+        if target['data'].get('source_document_id') not in (None,'',src):raise ValueError('Conversion target reference mismatch')
         sources.add(src);targets.add(dst)
-    reversed_ids=set()
+    reversed_ids=set();reversal_targets=set()
+    journal_accounts=defaultdict(lambda:defaultdict(Decimal))
+    for line in groups['journal_lines']:journal_accounts[line['journal_id']][line['account_id']]+=number(line['debit'])-number(line['credit'])
     for row in groups['journal_reversals']:
         src,dst=row.get('original_id'),row.get('reversal_id')
         if src not in indexes['journals'] or dst not in indexes['journals'] or src==dst or src in reversed_ids or src in posted_journals:raise ValueError('Invalid journal reversal')
+        if dst in reversal_targets or dst in posted_journals or indexes['journals'][dst]['date']<indexes['journals'][src]['date']:raise ValueError('Invalid reversal target or chronology')
+        if any(journal_accounts[src][key]+journal_accounts[dst][key]!=0 for key in set(journal_accounts[src])|set(journal_accounts[dst])):raise ValueError('Journal reversal does not reverse original account balances')
+        reversal_targets.add(dst)
         reversed_ids.add(src)
+    if reversed_ids & reversal_targets:raise ValueError('Journal reversal chains are not supported')
     if payload['schema_version']==6 and any(j.get('memo','').startswith('Reversal of') for j in groups['journals']):raise ValueError('This older export omits reversal links; take a fresh backup')
     for row in groups['bank_statement_lines']:
         if row.get('bank_account_id','default') not in bank_ids|{'default'} or row.get('matched_record_id') and row['matched_record_id'] not in posted:raise ValueError('Invalid statement reference')
