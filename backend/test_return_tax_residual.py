@@ -122,3 +122,22 @@ class ReturnTaxResidualTest(unittest.TestCase):
                 if row['code'] in {'SYS-AP','SYS-PURCHASE','SYS-INVENTORY','SYS-IN-CGST','SYS-IN-SGST'}:self.assertEqual(D(row['closing_balance']),before.get(row['code'],D(0)),row['code'])
             stock=self.client.get(self.base+'/reports/stock?from_date=2026-11-01&to_date=2026-11-30',headers=self.headers).json()['rows'][0]
             self.assertEqual(D(stock['closing_quantity']),0);self.assertEqual(D(stock['closing_value']),0)
+
+    def test_recovered_percentage_discount_gross_residual_and_fractional_splits(self):
+        for splits in (['1','1','1'], ['.5','.75','1.75']):
+            for treatment in ('pending_review','ineligible'):
+                self.source([treatment])
+                response=self.post('/records',{'kind':'purchase_bill','name':'Supplier','date':'2026-11-01','data':{'place_of_supply':'27','document_discount_percent':10,'lines':[{'description':'Discounted inclusive units','quantity':3,'rate':'.13','gst_rate':18,'itc_treatment':treatment,'price_includes_tax':True}]}})
+                self.assertEqual(response.status_code,200,response.text);source=response.json();notes=[]
+                for qty in splits:
+                    body=self.body(source,[{**source['data']['lines'][0],'quantity':qty}]);body['data']['document_discount_percent']=10
+                    preview=self.post('/documents/preview',body);saved=self.post('/records',body)
+                    self.assertEqual(preview.status_code,200,preview.text);self.assertEqual(saved.status_code,200,saved.text)
+                    self.assertEqual(preview.json()['amount'],saved.json()['amount'])
+                    for key in FIELDS:self.assertEqual(D(preview.json()['data'][key]),D(saved.json()['data'][key]),key)
+                    row=saved.json()['data']['lines'][0]
+                    self.assertEqual(D(row['gross'])-D(row['discount'])-D(row['document_discount']),D(row['taxable'])+D(row['tax']))
+                    notes.append(saved.json())
+                self.assertEqual(sum(D(n['amount']) for n in notes),D('.35'))
+                for key in FIELDS:self.assertEqual(sum(D(n['data'][key]) for n in notes),D(source['data'][key]),key)
+                self.note(source,[{**source['data']['lines'][0],'quantity':1}],422)

@@ -132,8 +132,8 @@ def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
             prior = [old for note in previous for old in note.data.get('lines', [])
                      if set(candidates(old, source)) & set(indexes)]
             remaining[indexes] = [sum((verified_value(source.data['lines'][i], field) for i in indexes), Decimal(0)) -
-                sum((verified_value(old, field) for old in prior), Decimal(0)) for field in ('taxable', 'tax')]
-        base_left, tax_left = remaining[indexes]
+                sum((verified_value(old, field) for old in prior), Decimal(0)) for field in ('taxable', 'tax', 'quantity')]
+        base_left, tax_left, quantity_left = remaining[indexes]
         if min(base_left, tax_left) < 0:
             raise HTTPException(409, 'Earlier return values exceed source; review historical allocation')
         base = Decimal(line['taxable'])
@@ -144,6 +144,32 @@ def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
             # tax must never increase it or strand the source's base residual.
             gross = base + Decimal(line['tax'])
             gross_left, original_gross = base_left + tax_left, original_base + original_tax
+            # Unchanged percentage-priced source lines allocate cumulative gross
+            # by quantity. Independently rounded discounts can otherwise strand
+            # a paise or make the last unchanged return exceed its source.
+            def same_terms(row, document):
+                original = source.data['lines'][indexes[0]]
+                return (len(indexes) == 1 and 'discount_amount' not in row
+                    and 'discount_amount' not in original
+                    and bool(row.get('price_includes_tax')) == bool(original.get('price_includes_tax'))
+                    and all(Decimal(str(row.get(key, 0))) == Decimal(str(original.get(key, 0)))
+                            for key in ('rate', 'discount_percent'))
+                    and Decimal(str(document.get('document_discount_percent', 0)))
+                        == Decimal(str(source.data.get('document_discount_percent', 0))))
+            if len(indexes) == 1 and same_terms(line, data) and all(
+                    same_terms(old, note.data) for note in previous for old in note.data.get('lines', [])
+                    if set(candidates(old, source)) & set(indexes)):
+                original_quantity = verified_value(source.data['lines'][indexes[0]], 'quantity')
+                quantity = verified_value(line, 'quantity')
+                cumulative = m.money(original_gross * (original_quantity - quantity_left + quantity) / original_quantity)
+                allocated_gross = cumulative - (original_gross - gross_left)
+                if allocated_gross < 0 or abs(allocated_gross - gross) > Decimal('.01'):
+                    raise HTTPException(409, 'Source gross residual exceeds a rounding adjustment; review the source returns')
+                adjusted_discount = Decimal(line.get('document_discount', '0')) + gross - allocated_gross
+                if adjusted_discount < 0:
+                    raise HTTPException(409, 'Source discount residual needs review')
+                line = {**line, 'document_discount': str(adjusted_discount)}
+                gross = allocated_gross
             if gross > gross_left:
                 raise HTTPException(422, 'Returned gross exceeds the remaining source purchase line')
             desired = m.money(original_base * (original_gross - gross_left + gross) / original_gross) if original_gross else Decimal(0)
@@ -158,7 +184,7 @@ def reconcile_tax(m, data, company_id, session, exclude_return_id=None):
         if max(abs(tax - Decimal(line['tax'])), abs(base - Decimal(line['taxable']))) > Decimal('.01'):
             raise HTTPException(409, 'Historical tax residual exceeds a rounding adjustment; review the source returns')
         result.append({**line, 'taxable': str(base), 'tax': str(tax)})
-        remaining[indexes] = [base_left - base, tax_left - tax]
+        remaining[indexes] = [base_left - base, tax_left - tax, quantity_left - verified_value(line, 'quantity')]
     validate_capacity(m, source, {**data, 'lines': result}, previous)
     keys = ('cgst', 'sgst', 'igst', 'supplier_tax')
     def parts(row, pending):
