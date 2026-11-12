@@ -1,0 +1,16 @@
+/tmp/apex-source-selection-o8tl79yy/Proof.kt:6:32: warning: unchecked cast of 'kotlin.Any?' to 'kotlin.collections.List<JSONObject>'.
+ fun a(key:String)=values[key] as? List<JSONObject> ?: emptyList()
+                               ^^^^^^^^^^^^^^^^^^^^
+PASS known, exhausted and unknown return quantity defaults
+PASS failed fetch preserves draft and retry atomically replaces it
+PASS dirty replacement waits for confirmation; Keep editing preserves draft
+PASS stale company response cannot replace draft
+PASS stale editor response cannot replace draft
+PASS stale draft response cannot replace draft
+PASS stale denied response cannot replace draft
+PASS stale recovered response cannot replace draft
+PASS stale denied-error response cannot replace draft
+PASS stale recovered-error response cannot replace draft
+PASS parse failure preserves draft
+PASS pending source change is single-flight
+Save & new Review placement/reset/retry wiring assertions passed; full Compose/device acceptance remains required.

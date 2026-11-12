@@ -1,0 +1,28 @@
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.066s
+
+OK
+...........No Atria containers found; no Atria services or data were changed
+Only Apex Books Nginx files restored; existing containers were left intact
+Only Apex Books Nginx files restored; existing containers were left intact
+Atria services stopped. Database volumes, images and /opt/atria-server are retained.
+Apex Books HTTPS sites active; rollback snapshot: /tmp/tmpfcd_oj5b/app/backups/nginx-20261112T213503Z
+Waiting for HTTPS readiness: old worker returned HTTP 404
+.....................
+----------------------------------------------------------------------
+Ran 32 tests in 0.060s
+
+OK
+Both HTTPS domains serve verified Apex Books 1.5.0 source aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with certificate validation
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Verified upgrade activated. Previous marker and recovery plan retained at /tmp/tmplnbl_z2g/backups/upgrade-20261112T213503712603Z; schema rollback remains a separate reviewed recovery operation.
+Upgrade preflight passed; marker and routing unchanged. Follow the documented migration and candidate verification steps with writers paused.
+Verified upgrade activated. Previous marker and recovery plan retained at /tmp/tmp70rychw_/backups/upgrade-20261112T213503715628Z; schema rollback remains a separate reviewed recovery operation.
+Backup and transactional restore safety checks passed with a simulated database.
+NOT RUN in this pass: encrypted backup safety requires age on PATH.

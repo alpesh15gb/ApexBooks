@@ -1,0 +1,148 @@
+PASS external action scoped before/after delayed branding and immediately before synthetic launch
+PASS same-token replacement survives old logout and 401
+PASS successful JSON/file/upload/bounded responses retain session ownership (32 cases)
+PASS original-context export fetch/transform success, failure, cancellation and stale-entry (11 cases)
+PASS scoped refresh mixed denial, transient, stale core/navigation, current navigation and successful publish
+CSV strict parsing, UTF-8, headers and Boolean regressions passed.
+PASS source fetch failure/retry, single-flight and stale draft/company/closed boundaries
+PASS register financial totals exclude cancelled and unposted documents
+PASS dashboard financial totals also exclude future entries
+PASS sharing uses the linked party before a same-name match
+PASS missing linked party falls back to the document phone
+PASS blank master phone falls back to document snapshot
+PASS legacy document may find party by name
+PASS uncertain write retries original payload after edits
+PASS definitive validation permits correction
+PASS successful write clears pending payload
+PASS unknown outcome 0 blocks discard until recovered
+PASS recovered outcome 0 permits dismissal
+PASS unknown outcome 408 blocks discard until recovered
+PASS recovered outcome 408 permits dismissal
+PASS unknown outcome 409 blocks discard until recovered
+PASS recovered outcome 409 permits dismissal
+PASS unknown outcome 500 blocks discard until recovered
+PASS recovered outcome 500 permits dismissal
+PASS unknown outcome 502 blocks discard until recovered
+PASS recovered outcome 502 permits dismissal
+PASS unknown outcome 503 blocks discard until recovered
+PASS recovered outcome 503 permits dismissal
+PASS unknown outcome 504 blocks discard until recovered
+PASS recovered outcome 504 permits dismissal
+PASS old record response cannot end a newer login
+PASS record request retains the session it started with
+PASS credential challenge does not discard the sign-in session
+PASS old PDF response cannot end a newer login
+PASS current expired session ends exactly once
+PASS signout invalidates an in-flight login response
+PASS blank workflow defaults disable suggestions
+PASS payment terms boundary days accepted
+PASS threshold accepts only mathematically equivalent trailing zeroes
+PASS threshold boundaries preserve exact decimal text
+PASS invalid payment terms -1 rejected locally
+PASS invalid payment terms 3651 rejected locally
+PASS invalid payment terms 1.5 rejected locally
+PASS invalid payment terms +1 rejected locally
+PASS invalid payment terms 1e2 rejected locally
+PASS invalid payment terms NaN rejected locally
+PASS invalid threshold -1 rejected locally
+PASS invalid threshold 1000000000000 rejected locally
+PASS invalid threshold 0.0001 rejected locally
+PASS invalid threshold 1e2 rejected locally
+PASS invalid threshold NaN rejected locally
+PASS invalid threshold 1,000 rejected locally
+PASS legacy active and explicit archive/reactivation states
+PASS saved shipping default or billing fallback
+PASS credit limits distinguish disabled from zero
+PASS credit limits enforce maximum and normalize meaningful decimals
+PASS invalid credit limit -1 rejected locally
+PASS invalid credit limit 10000000000000 rejected locally
+PASS invalid credit limit 0.001 rejected locally
+PASS invalid credit limit NaN rejected locally
+PASS invalid credit limit 1e2 rejected locally
+PASS invalid credit limit 1,000 rejected locally
+PASS credit projections limited to new customer invoices and drafts, not amendments or paid POS
+PASS party exposure remains visible with disabled credit limit
+PASS credit warning labels as-of, exceeded state and nonblocking meaning
+PASS recurring interval boundaries accepted
+PASS invalid recurring interval 0 rejected
+PASS invalid recurring interval 13 rejected
+PASS invalid recurring interval -1 rejected
+PASS invalid recurring interval 1.5 rejected
+PASS invalid recurring interval  rejected
+PASS invalid recurring interval 1e1 rejected
+PASS recurring generation only active due or overdue dates, never paused/future/completed
+PASS recurring eligibility follows supplied server business date and fails closed without it
+PASS uncertain recurring write retains original occurrence date
+PASS recurring API definitive conflict permits close and reload
+PASS missing or unknown capability versions fail closed
+PASS connected API identity uses validated cached capability metadata
+PASS missing API identity never guesses client build metadata
+PASS only advertised known features are enabled
+PASS unsupported master metadata omitted without mutating draft or core fields
+PASS legacy untouched master defaults remain savable
+PASS changed unsupported master input rejected rather than silently dropped
+PASS changed unsupported book label rejected rather than silently dropped
+PASS company labels supplement rather than replace legal names
+PASS book label maximum length accepted
+PASS overlong book label rejected
+PASS default business date follows IST midnight independent of device timezone
+PASS financial year changes at IST April1 boundary
+PASS public capabilities requested once across concurrent callers per session
+PASS new session immediately invalidates old capabilities
+PASS new sign-in refreshes capabilities once
+PASS signout clears capability state
+PASS core company load completes independently of2second capability response
+PASS pending metadata is labelled checking and optional features fail closed
+PASS slow successful capability response enables features without another request
+COLD_CAPABILITIES core_ms=1 capability_ms=1998 requests=1
+PASS late capability response cannot restore state after signout
+PASS capability network is classified and fails closed
+PASS capability network does not automatically refetch
+PASS explicit capability retry network is deduplicated and recovers only transient failures
+PASS capability timeout is classified and fails closed
+PASS capability timeout does not automatically refetch
+PASS explicit capability retry timeout is deduplicated and recovers only transient failures
+PASS capability 503 is classified and fails closed
+PASS capability 503 does not automatically refetch
+PASS explicit capability retry 503 is deduplicated and recovers only transient failures
+PASS capability 404 is classified and fails closed
+PASS capability 404 does not automatically refetch
+PASS explicit capability retry 404 is deduplicated and recovers only transient failures
+PASS capability invalid is classified and fails closed
+PASS capability invalid does not automatically refetch
+PASS explicit capability retry invalid is deduplicated and recovers only transient failures
+PASS late explicit capability retry cannot restore metadata after signout
+PASS build identity accepts full40/64hex revisions and current1.5.0 version
+PASS invalid or missing build revision is unknown
+PASS invalid or missing build revision is unknown
+PASS invalid or missing build revision is unknown
+PASS invalid or missing build revision is unknown
+PASS invalid or missing build revision is unknown
+PASS invalid or missing build revision is unknown
+PASS invalid or missing build revision is unknown
+PASS invalid or missing build revision is unknown
+PASS invalid or missing build revision is unknown
+PASS reopened fixed discount preserves10 and serializes only fixed key
+PASS quantity change never silently prorates fixed line discount
+PASS switching fixed to percent clears previous fixed discount
+PASS switching percent to fixed clears previous percentage
+PASS percentage-only legacy lines remain percentage discounts
+PASS explicit zero fixed discount retains fixed mode on reopen
+PASS only linked returns with positive fixed discounts require explicit review
+PASS new linked return starts unacknowledged
+PASS quantity change and change-back revisions both invalidate fixed-discount acknowledgement
+PASS fixed amount edit invalidates return review
+PASS unchanged historical note may retain its initial reviewed signature
+PASS unknown upload creation retains recovery state
+PASS same upload key recovers and verifies complete preview digest
+PASS resumed upload skips acknowledged chunk zero
+PASS unknown restore commit remains unresolved
+PASS commit retries exact stage and digest without duplicate company
+PASS complete export verifies every chunk and whole archive
+PASS tampered complete export is rejected before save
+PASS resume refuses a different file before further chunk writes
+PASS binary transport rejects oversized response before materializing it
+PASS transfer cannot continue under a replacement account session
+PASS baseline 1250 records uses 13 small-page requests
+PASS company load returns all1250 unique records in3 compact requests
+COMPANY_LOAD_SYNTHETIC rows=1250 latency=20ms old_requests=13 new_requests=3 old_ms=275 new_ms=64
