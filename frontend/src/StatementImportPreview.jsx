@@ -123,6 +123,7 @@ export default function StatementImportPreview({
   companyId,
   bankId,
   bankName,
+  role,
   api,
   onClose,
   onImported,
@@ -135,6 +136,8 @@ export default function StatementImportPreview({
     [report, setReport] = useState(null),
     [busy, setBusy] = useState(false),
     [payload, setPayload] = useState(null);
+  const canWrite = ["owner", "editor"].includes(role);
+  const writeAccess = useRef(canWrite); writeAccess.current = canWrite;
   const processing = useRef(false);
   const context = useRef({file, companyId, bankId});
   if (context.current.file !== file || context.current.companyId !== companyId || context.current.bankId !== bankId) context.current = {file, companyId, bankId};
@@ -227,7 +230,7 @@ export default function StatementImportPreview({
     }
   }, [table, header, mapping, format]);
   async function validate() {
-    if (processing.current || posting.pending) return;
+    if (!writeAccess.current || processing.current || posting.pending) return;
     const owner = context.current;
     processing.current = true;
     setBusy(true);
@@ -251,7 +254,7 @@ export default function StatementImportPreview({
     }
   }
   async function commit() {
-    if (processing.current || !payload || !report || reviewedContext.current !== context.current) return;
+    if (!writeAccess.current || processing.current || !payload || !report || reviewedContext.current !== context.current) return;
     const owner = context.current;
     processing.current = true;
     setBusy(true);
@@ -290,6 +293,7 @@ export default function StatementImportPreview({
             ×
           </button>
         </div>
+        {!canWrite && <p className="info-box" role="status">Read-only access. Your reviewed statement is preserved; an owner or editor is required to import.</p>}
         <div className="form-grid">
           <label>
             Header row
@@ -404,7 +408,7 @@ export default function StatementImportPreview({
               <button
                 className="button primary"
                 onClick={commit}
-                disabled={busy || posting.busy || !report.added}
+                disabled={!canWrite || busy || posting.busy || !report.added}
               >
                 {busy ? "Importing…" : posting.pending ? "Retry same import" : `Import ${report.added} transactions`}
               </button>
@@ -412,7 +416,7 @@ export default function StatementImportPreview({
               <button
                 className="button primary"
                 onClick={validate}
-                disabled={busy || !!parsed.error}
+                disabled={!canWrite || busy || !!parsed.error}
               >
                 {busy ? "Validating…" : "Validate mapped rows"}
               </button>

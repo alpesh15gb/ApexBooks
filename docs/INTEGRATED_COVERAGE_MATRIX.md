@@ -1040,3 +1040,19 @@ and delayed refresh after company switch. Lint/build/bundle budgets pass. Parent
 callback wiring inspected; actual browser/App interaction remains separate. This
 does not add durable reload recovery, change migration accounting or certify real
 source backups. No production, publication retry or deployment.
+
+### Bank statement retained-role recovery (2026-11-12)
+
+Reproduced reviewed and uncertain bank-import dialogs remaining actionable after
+owner/editor-to-viewer transition. BankWorkspace now passes current role, and the
+dialog gates validation and commit buttons plus handlers against live write access.
+Reviewed data and original pending operation remain preserved; authorized editor
+recovery resumes the existing request. Missing/unknown role fails closed. Backend
+authorization is unchanged; no unauthorized server write was demonstrated.
+
+Fourteen rendered import tests pass, including two red-to-green downgrade/recovery
+cases and direct invocation of the disabled viewer handler (zero writes). Existing
+strict CSV/replacement/unknown original-payload tests remain green. Lint/build and
+bundle checks pass. Native import dialogs still warrant equivalent current-role
+handler review; full-App/browser revocation acceptance remains separate. No real
+bank data, production access, publication retry or deployment.
