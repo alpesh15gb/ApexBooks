@@ -63,6 +63,9 @@ export function DialogFocus() {
       const active = dialog;
       requestAnimationFrame(() => {
         if (dialog !== active || !active.isConnected) return;
+        // A child or the user may have focused a field before this deferred
+        // callback runs. Do not overwrite that newer focus with the first field.
+        if (active.contains(document.activeElement) && document.activeElement !== active) return;
         if (returnFocus?.isConnected && active.contains(returnFocus) && !returnFocus.matches(':disabled')) returnFocus.focus();
         else focusInside();
       });
