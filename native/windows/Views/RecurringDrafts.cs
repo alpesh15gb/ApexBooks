@@ -99,6 +99,38 @@ public sealed partial class MainPage
             writeAccess();
             try{var response=await Api.Send(Api.CompanyPath(cid,$"/recurring-templates/{Uri.EscapeDataString(template.Text("id"))}/occurrences"),HttpMethod.Post,submission.Body(new JsonObject{["occurrence_date"]=date}),key);generated=response["record"].Object();if(generated.Text("id").Length==0||!FeatureCatalog.Drafts.Contains(generated.Text("kind")))throw new ApiFailure(502,"The server did not return the generated draft. Retry to recover the same occurrence.");submission.Succeeded();}catch(Exception e){WorkflowMasterValues.RecurringWriteFailed(submission,e);if(submission.Unresolved)throw new Exception("The draft may already have been generated. Retry this original date to recover it; do not create another occurrence.",e);throw;}
         },"Generate draft for review",canSave:()=>CanWrite&&ScopedFileExport.Current(writeAccess),unresolved:()=>submission.Unresolved);
-        if(saved&&generated is not null&&cid==CompanyId&&stamp==generation){var beforeRefresh=generation;await Refresh();if(cid==CompanyId&&generation==beforeRefresh+1)await EditDocument(generated.Text("kind"),previous:generated);}
+        if(saved&&generated is not null&&cid==CompanyId&&stamp==generation)await ReviewGeneratedRecurringDraft(generated);
     }
+    private async Task ReviewGeneratedRecurringDraft(JsonObject generated)
+    {
+        var cid=CompanyId;var workspace=workspaceGeneration;var session=Api.SessionGeneration;var page=CurrentPage;var navigation=generation;
+        var id=generated.Text("id");var reference=generated.Text("number");if(reference.Length==0)reference=id;
+        bool Current()=>Api.SignedIn&&Api.SessionGeneration==session&&cid==CompanyId&&workspace==workspaceGeneration&&page==CurrentPage&&navigation==generation;
+        JsonObject? fresh=null;
+        async Task Reload(){
+            if(!Current())return;
+            var before=navigation;
+            try{await Refresh();}finally{if(generation==before+1&&CurrentPage==page)navigation=generation;}
+            if(!Current())return;
+            var access=saveAccessEpoch;
+            var result=(await Api.Record(cid,id)).Object();if(!Current()||access!=saveAccessEpoch||!recordsReady)return;
+            if(result.Text("id")!=id||!FeatureCatalog.Drafts.Contains(result.Text("kind")))throw new ApiFailure(409,"The saved record needs review in the document list.");
+            fresh=result;
+        }
+        try{await Reload();}
+        catch(OperationCanceledException){throw;}
+        catch(Exception error){
+            if(!Current())return;
+            var panel=Stack(12);panel.Children.Add(Text("Draft "+reference+" is saved. No invoice or stock posting occurred. Do not generate another occurrence to recover it.",16,true));
+            panel.Children.Add(Text("The saved draft could not be opened: "+error.Message,13));
+            panel.Children.Add(Text("Refresh and open only reads company data and this saved draft. You can also cancel and find it later in its document list.",13));
+            if(!await Dialog("Scheduled draft saved · review pending",panel,async()=>{
+                try{await Reload();}catch(OperationCanceledException){throw;}catch(Exception retryError){if(Current())throw new ApiFailure((retryError as ApiFailure)?.Status??0,"Draft "+reference+" remains saved. Refresh/open failed; no occurrence was generated again. "+retryError.Message);}
+            },"Refresh and open saved draft",canSave:Current))return;
+        }
+        if(!Current()||fresh is null)return;
+        if(CanWrite&&!fresh.Flag("cancelled")&&fresh.Text("converted_to").Length==0)await EditDocument(fresh.Text("kind"),previous:fresh);
+        else await TransactionDetails(fresh);
+    }
+
 }
