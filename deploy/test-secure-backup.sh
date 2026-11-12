@@ -17,7 +17,7 @@ set -euo pipefail
 case "$*" in
   'compose config --format json') printf '%s' '{"services":{"db":{"image":"postgres:16-alpine","environment":{"POSTGRES_DB":"apex","POSTGRES_USER":"apex"}},"api":{"environment":{"DATABASE_URL":"postgresql+psycopg://apex:synthetic@db:5432/apex"}}}}' ;;
   'compose exec -T api python -c '*) exit 0 ;;
-  *'pg_dump'*) if [[ "${TEST_FAIL_DUMP:-0}" == 1 ]]; then printf 'partial'; exit 1; fi; printf 'synthetic-postgres-archive' ;;
+  *'pg_dump'*) if [[ "${TEST_EMPTY_DUMP:-0}" == 1 ]]; then exit 0; fi; if [[ "${TEST_FAIL_DUMP:-0}" == 1 ]]; then printf 'partial'; exit 1; fi; printf 'synthetic-postgres-archive' ;;
   *'pg_restore --list'*) [[ "$(cat)" == 'synthetic-postgres-archive' ]] ;;
   *'pg_restore --clean'*) [[ "${TEST_FAIL_RESTORE:-0}" != 1 ]] || exit 21; cat > "$TEST_WORK/restored" ;;
   *'stop api web'*) touch "$TEST_WORK/stopped" ;;
@@ -48,6 +48,11 @@ backup=("$work/backups/"*.dump.age)
 cmp -- "${backup[0]}" "$work/remote/${backup[0]##*/}"
 if TEST_FAIL_UPLOAD=1 bash deploy/backup-secure.sh "$work/backups" > "$work/output" 2> "$work/error"; then
   echo 'Expected upload failure' >&2; exit 1
+fi
+backups=("$work/backups/"*.dump.age)
+[[ ${#backups[@]} == 2 ]]
+if TEST_EMPTY_DUMP=1 bash deploy/backup-secure.sh "$work/backups" > "$work/output" 2> "$work/error"; then
+  echo 'Empty database stream was reported as a verified backup' >&2; exit 1
 fi
 backups=("$work/backups/"*.dump.age)
 [[ ${#backups[@]} == 2 ]]

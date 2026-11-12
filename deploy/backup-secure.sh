@@ -23,7 +23,7 @@ temporary="$(mktemp "$backup_dir/.apex-$stamp-XXXXXXXX")"
 trap 'rm -f -- "$temporary"' EXIT
 temporary_name="${temporary##*/}"
 target="${backup_dir%/}/${temporary_name#.}.dump.age"
-if ! docker compose exec -T db pg_dump -U apex -d apex -Fc | age -r "$recipient" > "$temporary"; then
+if ! docker compose exec -T db pg_dump -U apex -d apex -Fc | python3 "$(dirname -- "${BASH_SOURCE[0]}")/require_nonempty_stream.py" | age -r "$recipient" > "$temporary"; then
   echo 'Backup failed before encryption completed' >&2
   exit 1
 fi

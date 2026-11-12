@@ -57,3 +57,5 @@ Review the recovered companies, balances and a sample document. Record the recov
 `bash deploy/test-secure-backup.sh` uses real age encryption with simulated database and remote-storage commands. It checks successful encryption/restore, upload failure, corrupted remote content and a wrong recovery identity. It does not replace a PostgreSQL restore drill or verify a real offsite provider.
 
 `python3 -m unittest discover -s deploy -p test_backup_target.py` tests fail-closed target selection with mocked Docker and synthetic configuration. `bash deploy/test-backup-safety.sh` tests dump/restore failure handling with simulated commands. These checks do not access a live database or validate a real deployment.
+
+The encrypted backup pipeline rejects an empty database output stream before encryption, without writing plaintext to disk. Ciphertext size or upload checksum alone cannot establish that a usable database dump was produced. This guard checks nonempty input, not archive/schema validity; isolated restore verification is still required.

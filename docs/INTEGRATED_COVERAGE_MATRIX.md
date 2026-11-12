@@ -1358,3 +1358,22 @@ success too: resume only through the reviewed recovery procedure.
 No actual services were stopped or started, no production commands executed, and
 no publication retry or deployment occurred. These command-level tests do not
 verify a real writer inventory, operator freeze or production recoverability.
+
+### Empty encrypted dump failure reporting (2026-11-12)
+
+A synthetic pg_dump command exiting successfully with zero bytes reproduced a
+false successful encrypted backup: age emits nonempty ciphertext even for empty
+plaintext, and the uploaded ciphertext checksum matched. Added a bounded 64 KiB
+stream guard before age to reject empty input; no plaintext file is created.
+Pipeline failure prevents publishing/uploading a completed archive and existing
+cleanup removes the temporary ciphertext. Valid byte streams are unchanged.
+
+Red/green real-age tests with fake database/remote passed, including empty input,
+failed dump/upload, corrupted remote, wrong key and paused-writer restore behavior.
+Twelve Python stream/target tests and plain-backup simulation plus shell syntax
+checks pass. Binary stream test spans chunks and preserves all byte values; a
+single zero byte is preserved. Logs: docs/evidence/encrypted-empty-stream-*.log.
+
+The guard proves only nonempty input, not a valid or restorable PostgreSQL archive.
+Restore verification remains mandatory. No actual database/remote/services,
+production, publication retry or deployment were used in this batch.
