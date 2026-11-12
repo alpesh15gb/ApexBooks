@@ -109,6 +109,7 @@ jobs:
           python3 native/tests/AndroidCashBook/check.py
           python3 native/tests/AndroidEditorAccess/check.py
           python3 native/tests/AndroidResponseSession/check.py
+          python3 native/tests/AndroidSaveOwnership/check.py
           python3 native/tests/AndroidSourceSelection/check.py
       - name: Verify restored-company navigation survives dialog disposal
         run: python3 native/tests/AndroidLifecycle/check.py

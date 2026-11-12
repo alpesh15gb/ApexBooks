@@ -54,6 +54,7 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
     fun forget() {synchronized(sessionLock){loginSequence++;sessionGeneration++;token="";email="";vault?.clear(origin)}}
     private data class SessionStamp(val token:String,val generation:Int)
     private fun sessionStamp()=synchronized(sessionLock){SessionStamp(token,sessionGeneration)}
+    fun captureSession():()->Unit {val stamp=sessionStamp();return {requireSession(stamp)}}
     private fun requireSession(stamp:SessionStamp)=synchronized(sessionLock){if(token!=stamp.token||sessionGeneration!=stamp.generation)throw ApiFailure(0,"The sign-in changed while this request was pending. Return to the original account to recover the operation before retrying.")}
     private fun verifyResponse(path:String,stamp:SessionStamp){if(path.trimStart('/').substringBefore('?')!="api/auth/login")requireSession(stamp)}
     private fun invalidate(stamp:SessionStamp):Boolean=synchronized(sessionLock){if(stamp.token.isBlank()||token!=stamp.token||sessionGeneration!=stamp.generation)false else{forget();true}}

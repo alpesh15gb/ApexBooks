@@ -27,9 +27,10 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
-class NativeFiles(private val context:Context,private val error:(String)->Unit) {
+class NativeFiles(private val context:Context,private val captureSaveAccess:()->()->Unit,private val error:(String)->Unit) {
     var launchOpen:((Array<String>)->Unit)?=null;var launchSave:((String)->Unit)?=null;var launchCamera:((Uri)->Unit)?=null
     private var chosen:((Uri)->Unit)?=null;private var camera:((Uri)->Unit)?=null;private var cameraUri:Uri?=null
+    private var exportAccess:(()->Unit)?=null
     private var export:ByteArray?=null
     private var exportFile:File?=null
     private var exportFinished:((Boolean)->Unit)?=null
@@ -41,9 +42,32 @@ class NativeFiles(private val context:Context,private val error:(String)->Unit) 
     fun picked(uri:Uri?){val callback=chosen;chosen=null;if(uri!=null)callback?.invoke(uri)}
     fun capture(callback:(Uri)->Unit){val directory=File(context.cacheDir,"captures").apply{mkdirs()};val file=File(directory,"${UUID.randomUUID()}.jpg");cameraUri=FileProvider.getUriForFile(context,context.packageName+".files",file);camera=callback;launchCamera?.invoke(cameraUri!!)?:error("A camera application is unavailable.")}
     fun captured(success:Boolean){val uri=cameraUri;val callback=camera;camera=null;cameraUri=null;if(success&&uri!=null)callback?.invoke(uri)}
-    fun save(bytes:ByteArray,name:String){exportFile=null;exportFinished=null;export=bytes;launchSave?.invoke(name.replace(Regex("[\\\\/:*?\"<>|]"),"_"))?:error("The save picker is unavailable.")}
-    fun saveFile(file:File,name:String,finished:(Boolean)->Unit){export=null;exportFile=file;exportFinished=finished;launchSave?.invoke(name.replace(Regex("[\\\\/:*?\"<>|]"),"_"))?:run{exportFile=null;exportFinished=null;error("The save picker is unavailable.");finished(false)}}
-    suspend fun saved(uri:Uri?){val content=export;val source=exportFile;val callback=exportFinished;export=null;exportFile=null;exportFinished=null;try{if(uri!=null&&(content!=null||source!=null))withContext(Dispatchers.IO){context.contentResolver.openOutputStream(uri,"wt")?.use{out->if(source!=null)source.inputStream().use{input->val buffer=ByteArray(65536);while(true){currentCoroutineContext().ensureActive();val n=input.read(buffer);if(n<0)break;out.write(buffer,0,n)}}else out.write(content!!)}?:throw Exception("The selected file could not be written.")};callback?.invoke(uri!=null)}catch(e:Exception){callback?.invoke(false);throw e}}
+    fun save(bytes:ByteArray,name:String){beginSave(bytes,null,name,null)}
+    fun saveFile(file:File,name:String,finished:(Boolean)->Unit){beginSave(null,file,name,finished)}
+    private fun beginSave(bytes:ByteArray?,file:File?,name:String,finished:((Boolean)->Unit)?){
+        if(exportAccess!=null){error("Finish or cancel the open save picker before starting another export.");finished?.invoke(false);return}
+        try{
+            val verify=captureSaveAccess();verify()
+            val launch=launchSave?:throw Exception("The save picker is unavailable.")
+            export=bytes;exportFile=file;exportFinished=finished;exportAccess=verify
+            launch(name.replace(Regex("[\\\\/:*?\"<>|]"),"_"))
+        }catch(e:Exception){export=null;exportFile=null;exportFinished=null;exportAccess=null;finished?.invoke(false);error(e.message?:"The save picker could not open.")}
+    }
+    suspend fun saved(uri:Uri?){
+        val content=export;val source=exportFile;val callback=exportFinished;val verify=exportAccess
+        export=null;exportFile=null;exportFinished=null;exportAccess=null
+        try{
+            val selected=uri!=null&&verify!=null&&(content!=null||source!=null)
+            if(selected)withContext(Dispatchers.IO){
+                verify!!();currentCoroutineContext().ensureActive()
+                context.contentResolver.openOutputStream(uri!!,"wt")?.use{out->
+                    if(source!=null)source.inputStream().use{input->val buffer=ByteArray(65536);while(true){currentCoroutineContext().ensureActive();verify();val n=input.read(buffer);if(n<0)break;verify();out.write(buffer,0,n)}}
+                    else {verify();out.write(content!!)}
+                }?:throw Exception("The selected file could not be written.")
+            }
+            callback?.invoke(selected)
+        }catch(e:Exception){callback?.invoke(false);throw e}
+    }
     suspend fun read(uri:Uri,maximum:Int=50_000_000):ByteArray=withContext(Dispatchers.IO){context.contentResolver.openInputStream(uri)?.use{input->val out=ByteArrayOutputStream();val buffer=ByteArray(16384);while(true){val size=input.read(buffer);if(size<0)break;if(out.size()+size>maximum)throw Exception("The file exceeds the supported size.");out.write(buffer,0,size)};out.toByteArray()}?:throw Exception("The selected file could not be read.")}
     suspend fun image(uri:Uri,maximumDimension:Int=600,maximumBytes:Int=64000):String=withContext(Dispatchers.IO){
         val input=read(uri,15_000_000);val bounds=BitmapFactory.Options().apply{inJustDecodeBounds=true};BitmapFactory.decodeByteArray(input,0,input.size,bounds);if(bounds.outWidth<=0||bounds.outHeight<=0||bounds.outWidth>24000||bounds.outHeight>24000)throw Exception("Choose a supported PNG, JPEG or WebP image.")

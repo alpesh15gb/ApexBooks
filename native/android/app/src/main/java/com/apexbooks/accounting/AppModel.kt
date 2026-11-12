@@ -71,7 +71,11 @@ class AppModel(application:Application):AndroidViewModel(application) {
     private val posDrafts=mutableMapOf<String,EntryEditor>()
     val heldSaleCount get()=posDrafts.values.count{it.lines.isNotEmpty()||it.submission.unresolved}
     fun saleDraft():EntryEditor=posDrafts.getOrPut(companyId){EntryEditor(this,"pos").also{it.lines.clear();it.set("name","Walk-in customer")}}
-    val files=NativeFiles(application){error=it}
+    val files=NativeFiles(application,captureSaveAccess={
+        val session=api.captureSession();val id=companyId;val access=readStamp();val ready=recordsReady
+        val verify:()->Unit={session();check(signedIn&&companyId==id&&readStamp()==access&&(!ready||recordsReady)){"Company access changed while choosing a save location. Reopen the export in the current workspace."}}
+        verify();verify
+    }){error=it}
     private var generation=0
     private var companyLoads=0
     private var refreshSequence=0

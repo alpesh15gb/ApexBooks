@@ -16,7 +16,9 @@ results. The local branch now includes these corrections:
 | Native denied-access and pending reads; web access recovery | `e46744f` through `bb5a5e5` | Review exposed follow-on gaps, addressed in later commits | Full native app/device acceptance and final browser revocation matrix |
 | Retained stock drafts after viewer recovery | `78ddeb1` | Seven rendered recovery and eight handler-body authorization cases passed | Final browser acceptance |
 | Member-removal confirmation and role-aware shortcuts | `7eda259` | Six existing tests plus in-flight Escape, late-success and owner-row probes passed | Confirmation focus/keyboard/browser acceptance |
-| Audit labels/scoped refresh and backup acknowledgement | This follow-up | Local rendered/CSS and backup tests | Actual narrow-screen and zoom visual acceptance |
+| Audit labels/scoped refresh and backup acknowledgement | `bcc8d89` | Parent reported 18 tests plus stale-error and checkbox behavior probes passed | Actual narrow-screen and zoom visual acceptance |
+| Native successful responses and logout/401 ownership | `d38c806`, `35d4e0e` | Parent verified transport regressions, including same-token replacement | Full native runtime and external side-effect acceptance |
+| Android final Save picker ownership | Current local follow-up | 14 compiled actual-method/wiring scenarios; 46 transport scenarios rerun | Real picker/provider behavior; Windows picker boundary remains to review |
 
 Parent's real-browser samples were on an isolated **9159** instance, not this final
 branch: CSV duplicate handling, bank reconciliation and duplicate import, complete

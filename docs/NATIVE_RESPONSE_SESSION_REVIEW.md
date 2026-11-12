@@ -80,3 +80,33 @@ minimal synthetic JSON/vault/BuildConfig fixtures and an in-memory HTTPS URL
 handler; it never opens a real network connection. It is not full application,
 real Android JSON/Keystore, Compose or device acceptance. The new check is wired
 into check.yml for later authorized CI; no workflow was dispatched.
+
+## Android final Save picker boundary
+
+A compiled NativeFiles method probe reproduced a stale picker writing byte data
+following a simulated workspace change. Red log: `/tmp/apex-save-ownership-red.log`.
+The API response checks alone cannot protect the later OS picker callback.
+
+NativeFiles now captures a save-ownership verifier when opening the picker.
+AppModel supplies the actual API session guard plus company/read-access stamp.
+The callback verifies before opening the destination and before file-copy chunks;
+account changes, company switches, access denial and recovered access invalidate
+the old operation. Opening a second export cannot replace the pending picker's
+bytes or callback. Cancellation and picker unavailability/failure clear the pending
+operation and report false to a file-export completion callback. No original
+staging file is deleted by this guard.
+
+The compiled actual-method/wiring harness passes 14 scenarios: bytes/files with
+current/stale ownership, six AppModel scope states, duplicate picker launch, and
+cancel/unavailable/throwing picker. Log `/tmp/apex-save-ownership-final.log`.
+The 46 transport cases also pass again in
+`/tmp/apex-android-response-save-followup.log`. The harness is added to check.yml;
+no CI dispatch or publication occurred.
+
+Limits: the resolver/picker and JSON/vault remain synthetic. A real OS picker may
+create an empty destination before returning it; the app will not open/write that
+file after a failed guard. If access changes during an already-started streaming
+write, checks stop subsequent chunks but cannot undo bytes already written. We do
+not delete user-selected files as a rollback. Android print/external share and
+Windows Save/SaveStream picker boundaries remain separate acceptance/review
+items. Full builds and physical-device acceptance are still open.
