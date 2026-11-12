@@ -29,6 +29,28 @@ class CompleteBackupHttpTest {
         val inclusiveLine=LineState(prepared.o("data").a("lines").getJSONObject(0));inclusive.o("data").put("lines",org.json.JSONArray().put(inclusiveLine.json()))
         assertEquals(0,(api.request("$root/documents/preview","POST",inclusive)as JSONObject).decimal("amount").compareTo(java.math.BigDecimal("97.20")))
         println("PASS ANDROID FIXED DISCOUNT: API draft90 survives reopen/edit/save; inclusive plus document discount remains97.20")
+        val quotation=JSONObject(requireNotNull(javaClass.classLoader!!.getResourceAsStream("quotation-nine-lines.json")).bufferedReader().use{it.readText()})
+        val expected=quotation.getJSONObject("expected");quotation.remove("expected")
+        val quoteCompany=api.request("/api/companies","POST",JSONObject().put("name","Android synthetic quotation").put("tax_mode","regular").put("state_code","27").put("gstin","27AAAAA0000A1Z5"))as JSONObject
+        val quoteCid=quoteCompany.s("id");val quoteRoot=api.company(quoteCid)
+        quotation.put("kind","estimate");val quote=api.saveRecord(quoteCid,quotation,UUID.randomUUID().toString())
+        assertEquals(0,(api.request("$quoteRoot/journals")as org.json.JSONArray).length())
+        val conversion=JSONObject().put("kind","sales_invoice").put("name",quote.s("name")).put("date",quote.s("date")).put("data",copy(quote.o("data")))
+        conversion.o("data").put("source_document_id",quote.s("id"))
+        conversion.o("data").put("lines",org.json.JSONArray().also{rows->quote.o("data").a("lines").objects().forEach{rows.put(LineState(it,true).json())}})
+        val quotePreview=api.request("$quoteRoot/documents/preview","POST",conversion)as JSONObject
+        val quoteInvoice=api.saveRecord(quoteCid,conversion,UUID.randomUUID().toString())
+        for(document in listOf(quote,quotePreview,quoteInvoice)){
+            assertEquals(0,document.decimal("amount").compareTo(expected.decimal("amount")))
+            for(key in listOf("taxable","cgst","sgst","round_off"))assertEquals(key,0,document.o("data").decimal(key).compareTo(expected.decimal(key)))
+            for(key in listOf("notes","terms","round_total"))assertEquals(key,quotation.o("data").s(key),document.o("data").s(key))
+            val rows=document.o("data").a("lines").objects();assertEquals(9,rows.size)
+            rows.forEachIndexed{i,row->for(key in listOf("description","quantity","rate","gst_rate","unit","hsn"))assertEquals(key,quotation.o("data").a("lines").getJSONObject(i).s(key),row.s(key))}
+        }
+        assertEquals(quoteInvoice.s("id"),(api.request("$quoteRoot/records/${quote.s("id")}")as JSONObject).s("converted_to"))
+        val pdf=api.rawBytes("$quoteRoot/documents/${quoteInvoice.s("id")}.pdf");assertTrue(pdf.copyOfRange(0,5).contentEquals("%PDF-".toByteArray()))
+        try{api.saveRecord(quoteCid,conversion,UUID.randomUUID().toString());fail("Duplicate conversion must fail")}catch(failure:ApiFailure){assertEquals(409,failure.status)}
+        println("PASS ANDROID QUOTATION HTTP: nine LineState rows, preview/save totals, notes/terms, conversion linkage, PDF bytes and duplicate conversion refusal")
         val record=api.saveRecord(cid,JSONObject("""{"kind":"purchase_bill","name":"Synthetic supplier","date":"2026-04-02","data":{"lines":[{"description":"Synthetic supplies","quantity":1,"rate":100,"gst_rate":0}]}}"""),UUID.randomUUID().toString())
         val random=ByteArray(600000);java.security.SecureRandom().nextBytes(random);val bytes="%PDF-1.4\n% Synthetic transfer receipt\n".toByteArray()+random+"\n%%EOF\n".toByteArray();val path="$root/records/${record.s("id")}/attachments?filename=synthetic.pdf";val key=UUID.randomUUID().toString()
         val receipt=api.upload(path,"POST",bytes,"application/pdf",key).o("attachment");assertEquals(receipt.s("id"),api.upload(path,"POST",bytes,"application/pdf",key).o("attachment").s("id"))
