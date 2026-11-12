@@ -1024,3 +1024,19 @@ real .vyb source acceptance remain open. Recovery is memory-only across unmount 
 restart; confirmed commit followed by parent refresh failure still uses existing
 confirmed summary/generic error and deserves a dedicated read-only recovery action.
 No production access, publication retry or deployment.
+
+### Confirmed Vyapar import versus refresh failure (2026-11-12)
+
+Posting and archive modes now retain confirmed import summaries when parent record
+refresh fails and display a dedicated Refresh imported records action. The action
+uses only the parent read callback, is synchronously single-flight, and never
+repeats preview/commit. App now passes refreshPostedRecords instead of swallowed
+loadRecords failure for this path. Late refresh success/error after context change
+cannot publish an obsolete result. New file selection clears old recovery notices.
+
+Thirty rendered migration mutation/export tests pass, including two red-to-green
+posting/archive confirmed-failure cases, duplicate recovery clicks (one commit),
+and delayed refresh after company switch. Lint/build/bundle budgets pass. Parent
+callback wiring inspected; actual browser/App interaction remains separate. This
+does not add durable reload recovery, change migration accounting or certify real
+source backups. No production, publication retry or deployment.

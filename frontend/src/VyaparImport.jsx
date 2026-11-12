@@ -13,9 +13,11 @@ export default function VyaparImport({companyId, role, onImported}) {
   exports.current.setContext(`${companyId}:${role}:${mode}`);
   const exporting = useRef(false), processing = useRef(false), previewOwner = useRef(null), pendingOwner = useRef(null);
   const submission = usePostingRequest();
+  const refreshing = useRef(false);
+  const [refreshError, setRefreshError] = useState(''), [refreshBusy, setRefreshBusy] = useState(false);
   const matches = owner => owner && owner.companyId === companyId && owner.mode === mode && owner.token === localStorage.token && role === 'owner';
   const report = matches(previewOwner.current) && (submission.pending || previewOwner.current.current()) ? storedReport : null;
-  const locked = busy || submission.busy || submission.pending;
+  const locked = busy || submission.busy || submission.pending || refreshBusy;
   useEffect(() => { setError(''); }, [companyId, role, mode]);
   const [exportBusy, setExportBusy] = useState(false);
   useEffect(() => { setExportBusy(false); if(!processing.current)setBusy(false); }, [companyId, role, mode]);
@@ -41,13 +43,28 @@ export default function VyaparImport({companyId, role, onImported}) {
       pendingOwner.current=null;
       if(!current())return;verifySession();access?.verify();
       previewOwner.current={...origin,current};setReport(outcome.value);
-      if(outcome.value.imported)await onImported();
+      if(outcome.value.imported)await refreshImported(true);
     } catch(reason){if(!retrying&&reason.status>=400&&reason.status<500&&reason.status!==408)pendingOwner.current=null;if(current())setError(reason.message);}
     finally{processing.current=false;setBusy(false);}
   }
+  async function refreshImported(confirmed=false) {
+    if (role !== 'owner' || refreshing.current || (!confirmed && !report?.imported)) return;
+    const current = exports.current.capture();
+    let verify = () => {};
+    refreshing.current = true; setRefreshBusy(true);
+    try {
+      const session = captureSession(), access = captureCompanyAccess(`/api/companies/${companyId}`);
+      verify = () => { session(); access?.verify(); };
+      await onImported();
+      if (!current()) return;
+      verify(); setRefreshError('');
+    } catch (reason) {
+      if(current()){try{verify();setRefreshError(reason.message);}catch{/* Stale refresh must not publish errors. */}}
+    } finally { refreshing.current = false; setRefreshBusy(false); }
+  }
   async function choose(event) {
     if(processing.current || submission.pending || role !== 'owner')return;
-    const file=event.target.files?.[0];setReport(null);previewOwner.current=null;setAccepted(false);setEncoded('');setError('');
+    const file=event.target.files?.[0];setRefreshError('');setReport(null);previewOwner.current=null;setAccepted(false);setEncoded('');setError('');
     if(!file)return;
     if(!file.name.toLowerCase().endsWith('.vyb')||file.size>3_000_000){setError('Choose a .vyb backup under 3 MB');return;}
     const current=exports.current.capture(), origin={companyId,mode,token:localStorage.token};
@@ -88,6 +105,7 @@ export default function VyaparImport({companyId, role, onImported}) {
     <label className="full">Vyapar .vyb file<input key={mode} type="file" accept=".vyb" disabled={locked} onChange={choose}/></label></div>
     {busy&&<p role="status">Processing and reconciling backup…</p>}{error&&<p className="error" role="alert">{error}</p>}
     {submission.pending&&<div className="info-box" role="status"><p>{pendingPostingMessage}</p><p>Return to the original company and import scope to retry the exact backup.</p><button type="button" className="button secondary" disabled={busy||!matches(pendingOwner.current)} onClick={()=>run()}>Retry original migration</button></div>}
+    {report?.imported&&refreshError&&<section className="info-box" role="status"><p>The import was confirmed, but refreshed records are unavailable. Do not import it again.</p><p role="alert">{refreshError}</p><button type="button" className="button secondary" disabled={refreshBusy} onClick={()=>refreshImported()}>{refreshBusy?'Refreshing imported records…':'Refresh imported records'}</button></section>}
     {report&&<div><h3>{report.company_name||'Backup summary'}</h3>
       {posting?<><p>{report.source_transaction_count} source transactions mapped</p><p>{Object.entries(report.document_counts||{}).map(([kind,count])=>`${count} ${kind.replaceAll('_',' ')}`).join(' · ')}</p><p>{report.payment_count} payment entries · {report.stock_items} stock items · {report.negative_stock_items} source items with negative stock</p>
         <div className="migration-control-grid">{[["Source sales",report.totals?.sales],["Purchase bills",report.totals?.purchases],["Receivable",report.totals?.receivable]].map(([label,value])=><div key={label}><span>{label}</span><strong>{money(value)}</strong></div>)}</div>

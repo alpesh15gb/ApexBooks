@@ -28,3 +28,20 @@ test('late migration commit success after company switch cannot refresh new work
  const root=createRoot(document.getElementById('root'));const render=companyId=>root.render(React.createElement(Component,{companyId,role:'owner',onImported:async()=>{refreshes++;}}));
  try{await act(async()=>render('a'));await choose();await act(async()=>document.querySelector('input[type=checkbox]').click());await click('Post and reconcile migration');await act(async()=>render('b'));await act(async()=>finish());assert.equal(refreshes,0);assert.doesNotMatch(document.body.textContent,/Migration posted/);}finally{await act(async()=>root.unmount());}
 });
+for(const mode of ['posting','archive'])test(`confirmed ${mode} migration refresh recovery never repeats commit`,async()=>{
+ globalThis.FileReader=class{readAsDataURL(){this.result='data:application/octet-stream;base64,T1JJR0lOQUw=';this.onload();}};let commits=0,refreshes=0,finish;
+ globalThis.fetch=async url=>{const imported=url.endsWith('/commit');if(imported)commits++;return{ok:true,status:200,json:async()=>({...preview,ready:mode==='archive'?{parties:1,items:0}:true,imported})};};
+ const root=createRoot(document.getElementById('root'));
+ try{await act(async()=>root.render(React.createElement(Component,{companyId:'a',role:'owner',onImported:async()=>{refreshes++;if(refreshes===1)throw Error('Refresh offline');await new Promise(resolve=>{finish=resolve;});}})));
+ if(mode==='archive')await act(async()=>{const select=document.querySelector('select');select.value='archive';select.dispatchEvent(new window.Event('change',{bubbles:true}));});
+ await choose();await act(async()=>document.querySelector('input[type=checkbox]').click());await click(mode==='posting'?'Post and reconcile migration':'Import masters and source archive');
+ assert.match(document.body.textContent,/import was confirmed/i);assert.equal(commits,1);
+ const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Refresh imported records');assert.ok(button);await act(async()=>{button.click();button.click();});assert.equal(refreshes,2);assert.equal(commits,1);await act(async()=>finish());assert.equal(document.body.textContent.includes('Refresh imported records'),false);
+ }finally{await act(async()=>root.unmount());}
+});
+for(const fails of [false,true])test(`confirmed migration late refresh ${fails?'failure':'success'} is scoped to original company`,async()=>{
+ globalThis.FileReader=class{readAsDataURL(){this.result='data:application/octet-stream;base64,T1JJR0lOQUw=';this.onload();}};let finish,commits=0;
+ globalThis.fetch=async url=>{const imported=url.endsWith('/commit');if(imported)commits++;return{ok:true,status:200,json:async()=>({...preview,imported})};};
+ const root=createRoot(document.getElementById('root'));const render=companyId=>root.render(React.createElement(Component,{companyId,role:'owner',onImported:()=>new Promise((resolve,reject)=>{finish=fails?()=>reject(Error('Obsolete refresh failed')):resolve;})}));
+ try{await act(async()=>render('a'));await choose();await act(async()=>document.querySelector('input[type=checkbox]').click());await click('Post and reconcile migration');await act(async()=>render('b'));await act(async()=>finish());assert.equal(commits,1);assert.doesNotMatch(document.body.textContent,/Obsolete refresh failed|import was confirmed|Migration posted/);}finally{await act(async()=>root.unmount());}
+});

@@ -1475,7 +1475,7 @@ function App() {
                         companyId={companyId}
                         role={company?.role}
                         onImported={async () => {
-                          await Promise.all([loadCompanies(), loadRecords()]);
+                          await Promise.all([loadCompanies(), refreshPostedRecords()]);
                         }}
                       />
                     </div>
