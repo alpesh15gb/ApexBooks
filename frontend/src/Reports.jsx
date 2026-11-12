@@ -44,16 +44,22 @@ export default function Reports({ companyId, records }) {
   const [view, setView] = useState("summary");
   const [library, setLibrary] = useState(true);
   const [period, setPeriod] = useState("year");
-  const [party, setParty] = useState("");
+  const [partySelection, setPartySelection] = useState({ companyId, name: "" });
+  const selectedParty = partySelection.companyId === companyId ? partySelection.name : "";
+  const setParty = (name) => setPartySelection({ companyId, name });
+  const [ordinaryDates, setOrdinaryDates] = useState(null);
   const [quarterly, setQuarterly] = useState(false);
   const isGst = gstViews.includes(view);
   function chooseReport(key) {
     setView(key);
     if (gstViews.includes(key) && !gstViews.includes(view)) {
+      setOrdinaryDates({ from, to, period });
       const dates = returnDates(today().slice(0, 7));
       setFrom(dates[0]);
       setTo(dates[1]);
       setQuarterly(false);
+    } else if (!gstViews.includes(key) && gstViews.includes(view) && ordinaryDates) {
+      setFrom(ordinaryDates.from);setTo(ordinaryDates.to);setPeriod(ordinaryDates.period);
     }
   }
   function updateReturnMonth(value) {
@@ -83,6 +89,7 @@ export default function Reports({ companyId, records }) {
       ].sort(),
     [records],
   );
+  const party = parties.includes(selectedParty) ? selectedParty : "";
   const endpoint = ["sales", "purchases", "expenses"].includes(view)
     ? "register"
     : view;

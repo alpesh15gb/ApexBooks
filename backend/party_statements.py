@@ -21,7 +21,7 @@ VOUCHER_TYPES={'sales_invoice':'Sales','credit_note':'Credit Note','payment_in':
 
 def ledger_effect(r):
     """(debit, credit) on the party's ledger, by the same rules as the party report's receivable and payable."""
-    unallocated=Decimal(str(r.data.get('unallocated_credit',0)))
+    unallocated=Decimal(str(r.data.get('unallocated_credit',0))) if r.kind in {'credit_note','debit_note'} else Decimal('0')
     if r.kind in {'sales_invoice','opening_receivable'}:return r.amount,Decimal('0')
     if r.kind in {'purchase_bill','opening_payable'}:return Decimal('0'),r.amount
     if r.kind in {'credit_note','payment_in'}:return Decimal('0'),r.amount-unallocated
@@ -109,7 +109,7 @@ def install(app,m):
         for r in session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.id.in_(postings),m.Record.kind.in_(kinds),m.Record.date<=day)):
             if r.data.get('is_advance'):continue
             key=r.name.strip().casefold();side=totals.setdefault(key,[Decimal('0'),Decimal('0')])
-            unallocated=Decimal(str(r.data.get('unallocated_credit',0)))
+            unallocated=Decimal(str(r.data.get('unallocated_credit',0))) if r.kind in {'credit_note','debit_note'} else Decimal('0')
             if r.kind in {'sales_invoice','opening_receivable'}:side[0]+=r.amount
             elif r.kind in {'credit_note','payment_in'}:side[0]-=r.amount-unallocated
             elif r.kind in {'purchase_bill','opening_payable'}:side[1]+=r.amount

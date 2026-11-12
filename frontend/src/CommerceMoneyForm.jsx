@@ -5,7 +5,7 @@ const Field=({label,children})=><label className="commerce-field"><span>{label}<
 export default function CommerceMoneyForm({workspace,banks,busy,send,onDone}){
   const [f,setF]=useState({kind:'capture',order:'',source:'',date:today(),amount:'',target:'',net:'',fee:'0',bank:'',supply:'goods',gst:'0'});
   const [captures,setCaptures]=useState([]),[refunds,setRefunds]=useState([]),[quantities,setQuantities]=useState({}),[error,setError]=useState('');
-  const change=(key,value)=>setF(old=>({...old,[key]:value,...(['kind','order'].includes(key)?{target:''}:{})}));
+  const change=(key,value)=>{if(['kind','order','target'].includes(key))setQuantities({});setF(old=>({...old,[key]:value,...(['kind','order'].includes(key)?{target:''}:{})}));};
   const links=workspace.links, docs=type=>links.filter(r=>r.entity_type===type&&r.snapshot.order_id===f.order);
   const credits=docs('credit'), note=credits.find(r=>r.external_id===f.target);
   const unsettled=type=>links.filter(r=>r.entity_type===type&&!r.snapshot._settled);
@@ -16,7 +16,7 @@ export default function CommerceMoneyForm({workspace,banks,busy,send,onDone}){
     let operation,data={order_id:f.order,date:f.date,amount:f.amount};
     if(f.kind==='capture'){operation='payment.capture';if(f.target)data.allocations=[{invoice_id:f.target,amount:f.amount}];else Object.assign(data,{advance_supply:f.supply,advance_gst_rate:f.gst,place_of_supply:workspace.connection.config.capabilities?.company_state_code||''});}
     else if(f.kind==='refund'){operation='payment.refund';const [type,...id]=f.target.split(':');data[type==='credit'?'credit_id':'capture_id']=id.join(':');}
-    else if(f.kind==='receipt'){operation='return.receive';data={order_id:f.order,date:f.date,credit_id:f.target,lines:Object.entries(quantities).filter(([,q])=>Number(q)>0).map(([product_id,quantity])=>({product_id,quantity}))};if(!data.lines.length)throw new Error('Enter the quantities physically received.');}
+    else if(f.kind==='receipt'){operation='return.receive';data={order_id:f.order,date:f.date,credit_id:f.target,lines:Object.entries(quantities).filter(([id,q])=>note?.snapshot.lines?.some(line=>line.product_id===id)&&Number(q)>0).map(([product_id,quantity])=>({product_id,quantity}))};if(!data.lines.length)throw new Error('Enter the quantities physically received.');}
     else{operation='settlement.record';const gross=captures.reduce((sum,id)=>sum+Number(links.find(r=>r.entity_type==='capture'&&r.external_id===id)?.snapshot.amount||0),0);data={date:f.date,gross:gross.toFixed(2),net:f.net,fee:f.fee||'0',capture_ids:captures,refund_ids:refunds,bank_account_id:f.bank};}
     await send(operation,{source_id:f.source.trim(),confirmed:true,data});setF(old=>({...old,source:'',amount:''}));setCaptures([]);setRefunds([]);setQuantities({});onDone();
   }catch(e){setError(e.message);}}

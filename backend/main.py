@@ -659,9 +659,32 @@ def normalize_document_tax_identifiers(data, purchase):
         raise HTTPException(422, 'Supplier state code must match the supplier GSTIN; use place of supply for the delivery state')
     return result
 
+def source_return_itc(data, company_id, session):
+    """A supplier return reverses its source's reviewed input-tax treatment."""
+    if not isinstance(data.get('applied_to'), str): raise HTTPException(422, 'Choose a source purchase bill')
+    lines = data.get('lines', [])
+    if not isinstance(lines, list) or not 1 <= len(lines) <= 100: raise HTTPException(422, 'Add 1 to 100 items')
+    source = session.scalar(select(Record).where(Record.company_id == company_id,
+        Record.id == data.get('applied_to'), Record.kind == 'purchase_bill'))
+    if not source: raise HTTPException(422, 'Choose a source purchase bill before returning it')
+    originals = source.data.get('lines', [])
+    result = []
+    for line in data.get('lines', []):
+        if not isinstance(line, dict): raise HTTPException(422, 'Invalid return line')
+        candidates = [row for row in originals if
+            (row.get('item_id') == line.get('item_id') if line.get('item_id') else
+             str(row.get('description', '')).strip().casefold() == str(line.get('description', '')).strip().casefold())]
+        treatments = {row.get('itc_treatment', 'pending_review') for row in candidates}
+        if len(treatments) != 1:
+            raise HTTPException(422, 'Return lines must identify a source purchase line with an unambiguous input-tax treatment')
+        result.append({**line, 'itc_treatment': treatments.pop()})
+    return {**data, 'lines': result}
+
 def calculate(data, company, tax_mode, kind, session):
     purchase = kind in {'purchase_bill', 'purchase_order', 'debit_note','expense'}
     data = normalize_document_tax_identifiers(data, purchase)
+    if kind == 'debit_note' and tax_mode == 'regular':
+        data = source_return_itc(data, company.id, session)
     lines = data.get('lines', [])
     if not isinstance(lines, list) or not 1 <= len(lines) <= 100: raise HTTPException(422, 'Add 1 to 100 items')
     state = str(data.get('place_of_supply', ''))
@@ -762,6 +785,14 @@ def calculate(data, company, tax_mode, kind, session):
     data={**data,'round_off':str(rounded-total)}
     return data, money(rounded)
 
+def require_final_return_cost(source_lines):
+    # A negative-stock sale is only provisionally costed. Later replenishment
+    # variances are expensed separately, not allocated back to its source lines.
+    # Reusing that stale cost would misstate inventory when the goods return.
+    if any(line.get('stock_cost_provisional') or Decimal(str(line.get('shortage_quantity', '0'))) > 0
+           for line in source_lines):
+        raise HTTPException(409, 'Source sale has provisional negative-stock cost; reconcile its valuation before recording a physical return')
+
 def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session):
     if kind not in {'purchase_bill', 'debit_note', 'sales_invoice', 'pos', 'credit_note'}: return data
     if kind in {'credit_note','debit_note'} and data.get('return_stock') is False:
@@ -840,6 +871,7 @@ def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session)
                 cost = inventory
             held_qty += qty; held_value += cost
         elif kind == 'credit_note':
+            require_final_return_cost(source_lines)
             source_cost = sum((Decimal(str(original.get('inventory_cost', '0'))) for original in source_lines), Decimal('0'))
             remaining_qty = source_qty - prior_qty - (now_qty - qty)
             # Keep nominal returned cost separate from inventory absorbed by
@@ -1530,7 +1562,10 @@ def client_record_data(data):
     Draft/edit version checks read the submitted version before using this helper.
     """
     reserved = {'cancelled', 'version', 'created_at', 'updated_at',
-                'recurring_template_id', 'recurring_occurrence_date'}
+                'recurring_template_id', 'recurring_occurrence_date', 'unallocated_credit',
+                'outstanding', 'advance_remaining', 'credit_remaining', 'posted',
+                'company_snapshot', 'document_branding', 'advance_tax', 'advance_taxable',
+                'advance_tax_event', 'advance_tax_released', 'payment_kind', 'advance_id', 'credit_id'}
     return {key: value for key, value in data.items()
             if key not in reserved and not key.startswith(('vyapar_', 'commerce_'))}
 
@@ -1558,6 +1593,7 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             existing = session.get(Record, previous.record_id)
             return {**obj(existing), 'posted': bool(session.scalar(select(RecordPosting.id).where(RecordPosting.company_id == company_id, RecordPosting.record_id == existing.id)))}
     data, amount = {k:v for k,v in body.data.items() if k not in {'recurring_template_id','recurring_occurrence_date'}}, money(body.amount)
+    data.pop('unallocated_credit', None)
     if body.kind not in {'credit_note', 'debit_note'}:
         # Only a return note can opt out of physical stock movement. Ordinary
         # purchases/sales must keep their stock quantity and inventory journals aligned.
@@ -1666,10 +1702,16 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
         previous_notes = [note for note in previous_notes if note.data.get('applied_to') == target.id]
         if amount + sum((note.amount for note in previous_notes), Decimal('0')) > target.amount:
             raise HTTPException(422, 'Notes exceed the original document amount')
-        for tax_key in ('cgst', 'sgst', 'igst', 'supplier_tax'):
+        for tax_key in ('cgst', 'sgst', 'igst', 'supplier_tax', 'pending_input_cgst', 'pending_input_sgst', 'pending_input_igst', 'input_tax_ineligible'):
             reversed_tax = sum((Decimal(str(note.data.get(tax_key, 0))) for note in previous_notes), Decimal('0'))
             if Decimal(str(data.get(tax_key, 0))) + reversed_tax > Decimal(str(target.data.get(tax_key, 0))):
                 raise HTTPException(422, 'Note tax exceeds the original document tax')
+        for allocation_model in (PaymentAllocation, PaymentSplitAllocation):
+            future = session.scalar(select(allocation_model.id).join(Record, Record.id == allocation_model.payment_id).where(
+                allocation_model.company_id == company_id, allocation_model.document_id == target.id,
+                Record.company_id == company_id, Record.date > body.date).limit(1))
+            if future:
+                raise HTTPException(409, 'Note date cannot precede an existing settlement; use a date on or after the latest allocation')
         settled = applied_total(company_id, target.id, session)
         offset = min(amount, max(Decimal('0'), target.amount - settled)) if target.kind!='pos' else Decimal('0')
         data = {**data, 'unallocated_credit': str(amount-offset)}
@@ -1938,6 +1980,11 @@ def create_journal(company_id: str, body: JournalInput, user: User = Depends(cur
     if session.scalar(select(LedgerAccount.id).where(LedgerAccount.company_id == company_id,
             LedgerAccount.id.in_(account_ids), LedgerAccount.code == SYSTEM_ACCOUNTS['inventory'][0])):
         raise HTTPException(422, 'Tracked inventory is updated by linked stock documents only')
+    party_controls = {SYSTEM_ACCOUNTS[key][0] for key in ('receivable', 'payable',
+        'customer_credits', 'supplier_credits', 'customer_advances', 'supplier_advances')}
+    if session.scalar(select(LedgerAccount.id).where(LedgerAccount.company_id == company_id,
+            LedgerAccount.id.in_(account_ids), LedgerAccount.code.in_(party_controls))):
+        raise HTTPException(422, 'Party control accounts are updated by linked party documents only; use invoices, payments, credits or party opening balances')
     journal = Journal(company_id=company_id, date=body.date, reference=reference, memo=body.memo, created_by=user.id)
     session.add(journal)
     try:
@@ -2074,11 +2121,11 @@ def party_report(company_id: str, from_date: DateType, to_date: DateType, party:
     for r in records:
         if r.data.get('is_advance'): continue
         if r.kind in {'sales_invoice','opening_receivable'}: receivable += r.amount
-        elif r.kind in {'credit_note', 'payment_in'}: receivable -= r.amount - Decimal(str(r.data.get('unallocated_credit',0)))
+        elif r.kind in {'credit_note', 'payment_in'}: receivable -= r.amount - (Decimal(str(r.data.get('unallocated_credit',0))) if r.kind in {'credit_note','debit_note'} else Decimal('0'))
         elif r.kind in {'purchase_bill','opening_payable'}: payable += r.amount
         elif r.kind in {'advance_application','credit_application'} and r.data.get('payment_kind') == 'payment_in': receivable -= r.amount
         elif r.kind in {'advance_application','credit_application'}: payable -= r.amount
-        elif r.kind in {'debit_note','payment_out'}: payable -= r.amount - Decimal(str(r.data.get('unallocated_credit',0)))
+        elif r.kind in {'debit_note','payment_out'}: payable -= r.amount - (Decimal(str(r.data.get('unallocated_credit',0))) if r.kind in {'credit_note','debit_note'} else Decimal('0'))
         if r.date < from_date:
             opening_receivable, opening_payable = receivable, payable
         else:
@@ -2769,6 +2816,8 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     company_for(company_id, user, session)
     record = session.scalar(select(Record).where(Record.company_id == company_id, Record.id == record_id, Record.kind.in_(DOCUMENTS|{'payment_in','payment_out','customer_refund','supplier_refund','advance_refund'})))
     if not record: raise HTTPException(404, 'Document not found')
+    if record.data.get('cancelled'):
+        raise HTTPException(409, 'Cancelled documents cannot be exported as active originals; review the retained document and cancellation audit history')
     from types import SimpleNamespace
     current_brand=branding_for(company_id,session);document_data=dict(record.data)
     if record.kind in {'sales_invoice', 'purchase_bill'}:

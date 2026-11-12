@@ -53,6 +53,11 @@ export default function RecordEditor({
   const retainedItems = edit || relatedSource ? (initial?.data?.lines || []).map(line => line.item_id).filter(Boolean) : [];
   // Parties and items created from inside this editor (quick-add), until the parent list reloads.
   const [addedMasters, setAddedMasters] = useState([]), [quickAdding, setQuickAdding] = useState("");
+  const quickFlight = useRef(false);
+  const editorScope = `${companyId}:${kind}:${source?.id || ""}`;
+  const activeEditor = useRef(editorScope);
+  activeEditor.current = editorScope;
+  useEffect(() => () => { activeEditor.current = null; }, []);
   const masters = addedMasters.length ? [...records, ...addedMasters.filter(added => !records.some(r => r.id === added.id))] : records;
   const partyChoices = availableMasters(masters, "party", ["payment_in", "payment_out"].includes(kind) ? masters.filter(record => record.kind === "party").map(record => record.id) : retainedParties);
   const itemChoices = availableMasters(masters, "item", retainedItems);
@@ -61,7 +66,7 @@ export default function RecordEditor({
   const [dirty, setDirty] = useState(false),
     [confirmClose, setConfirmClose] = useState(false);
   const requestClose = () => {
-    if (saving || scanning || pending) return;
+    if (saving || scanning || pending || quickFlight.current) return;
     if (dirty) setConfirmClose(true);
     else close();
   };
@@ -135,7 +140,7 @@ export default function RecordEditor({
       terms: initial?.data?.terms || "",
       document_discount_percent: initial?.data?.document_discount_percent || "0",
       round_total: initial?.data?.round_total || false,
-      return_stock: true,
+      return_stock: initial?.data?.return_stock !== false,
       category: initial?.data?.category || "General",
       supplier_state:
         initial?.data?.supplier_state ||
@@ -223,7 +228,7 @@ export default function RecordEditor({
   const { busy: saving, pending } = posting;
   useEffect(() => {
     const unload = event => {
-      if (dirty || saving || pending) { event.preventDefault(); event.returnValue = ""; }
+      if (dirty || saving || pending || quickFlight.current) { event.preventDefault(); event.returnValue = ""; }
     };
     const back = () => requestClose();
     window.addEventListener("beforeunload", unload);
@@ -280,6 +285,7 @@ export default function RecordEditor({
     return () => { active = false; };
   }, [companyId, form.party_id, form.date, kind, termsSupported]);
   const change = (e) => {
+    if (quickFlight.current) return;
     const value = e.target.value;
     const matched =
       e.target.name === "name" && (doc || isPayment)
@@ -327,7 +333,7 @@ export default function RecordEditor({
     });
   };
   const changeLine = (index, e) =>
-    setLines(
+    !quickFlight.current && setLines(
       lines.map((line, i) => {
         if (i !== index) return line;
         let next = ["discount_mode", "discount_amount", "discount_percent"].includes(e.target.name)
@@ -359,11 +365,13 @@ export default function RecordEditor({
       method: "POST",
       body: JSON.stringify({ kind: kindToAdd, name: name.trim(), date: today(), amount: 0, data }),
     });
+    if (activeEditor.current !== editorScope) throw Error("Editor changed while adding the master.");
     setAddedMasters((current) => [...current, created]);
     return created;
   }
   async function quickAddParty() {
-    if (quickAdding || !form.name.trim()) return;
+    if (quickFlight.current || !form.name.trim()) return;
+    quickFlight.current = true;
     setError(""); setQuickAdding("party");
     try {
       const created = await createMaster("party", form.name, {
@@ -376,14 +384,16 @@ export default function RecordEditor({
       setDirty(true);
       setForm((current) => ({ ...current, name: created.name, party_id: created.id }));
     } catch (err) {
-      setError(`Could not add the party: ${err.message}`);
+      if (activeEditor.current === editorScope) setError(`Could not add the party: ${err.message}`);
     } finally {
-      setQuickAdding("");
+      quickFlight.current = false;
+      if (activeEditor.current === editorScope) setQuickAdding("");
     }
   }
   async function quickAddItem(index) {
     const line = lines[index];
-    if (quickAdding || !line?.description.trim()) return;
+    if (quickFlight.current || !line?.description.trim()) return;
+    quickFlight.current = true;
     setError(""); setQuickAdding(`item-${index}`);
     try {
       const rate = Number(line.rate || 0);
@@ -396,11 +406,12 @@ export default function RecordEditor({
         tax_treatment: line.tax_treatment || "taxable",
       });
       setDirty(true);
-      setLines((current) => current.map((row, i) => (i === index ? { ...row, description: created.name, item_id: created.id } : row)));
+      setLines((current) => current.map((row) => (row === line ? { ...row, description: created.name, item_id: created.id } : row)));
     } catch (err) {
-      setError(`Could not add the item: ${err.message}`);
+      if (activeEditor.current === editorScope) setError(`Could not add the item: ${err.message}`);
     } finally {
-      setQuickAdding("");
+      quickFlight.current = false;
+      if (activeEditor.current === editorScope) setQuickAdding("");
     }
   }
   const sourceRequest = useRef(0);
@@ -458,7 +469,7 @@ export default function RecordEditor({
   const canPayNow = !edit && ["sales_invoice", "purchase_bill"].includes(kind) && supported("payment_at_entry");
   async function submit(e) {
     e.preventDefault();
-    if (!canWrite || saving || scanning || loadingSource) return;
+    if (!canWrite || saving || scanning || loadingSource || quickFlight.current) return;
     setError("");
     try {
       if (requiresDiscountReview && reviewedReturnDiscounts !== returnDiscountReviewKey) throw Error("Review the fixed discounts for the returned quantities before saving.");
@@ -578,7 +589,7 @@ export default function RecordEditor({
             }
           }}
         >
-          <fieldset className="form-grid full submission-fields" disabled={!canWrite || saving || scanning || pending}>
+          <fieldset className="form-grid full submission-fields" disabled={!canWrite || saving || scanning || pending || !!quickAdding}>
           {!canWrite && <p className="info-box full">You have read-only access to this company.</p>}
           {relatedSource && (
             <p className="info-box full">Linked to {relatedSource.number || relatedSource.name}. {isPayment ? "Review the amount and allocation before posting; this does not mark the bank statement as matched." : "Review the quantities and tax before posting a linked return. The original document stays in history."}</p>
@@ -851,6 +862,7 @@ export default function RecordEditor({
               <DocumentItems
                 lines={lines}
                 setLines={(next) => {
+                  if (quickFlight.current) return;
                   setDirty(true);
                   setLines(next);
                 }}
@@ -1073,7 +1085,7 @@ export default function RecordEditor({
             <button
               type="button"
               className="button secondary"
-              disabled={saving || scanning || pending}
+              disabled={saving || scanning || pending || !!quickAdding}
               onClick={requestClose}
             >
               Cancel
@@ -1087,14 +1099,14 @@ export default function RecordEditor({
                   e.currentTarget.form.requestSubmit();
                   saveAction.current = "close";
                 }}
-                disabled={!canWrite || saving || scanning || loadingSource || pending}
+                disabled={!canWrite || !!quickAdding || saving || scanning || loadingSource || pending}
               >
                 Save & new
               </button>
             )}
             <button
               className="button primary"
-              disabled={!canWrite || saving || scanning || loadingSource}
+              disabled={!canWrite || !!quickAdding || saving || scanning || loadingSource}
             >
               {loadingSource
                 ? "Loading document…"

@@ -2279,7 +2279,7 @@ function Ledger({ companyId, role }) {
         </section>
         {canWrite && <section className="panel settings-panel">
           <h2>New journal entry</h2>
-          <p>Each entry has an equal debit and credit.</p>
+          <p>Each entry has an equal debit and credit. Use linked documents for party balances and tracked inventory.</p>
           <form className="form-grid ledger-form" onSubmit={postJournal}>
             <fieldset className="form-grid full submission-fields" disabled={!canWrite || busy}>
             <label>
@@ -2325,7 +2325,7 @@ function Ledger({ companyId, role }) {
                   }
                 >
                   <option value="">Choose account</option>
-                  {accounts.map((a) => (
+                  {accounts.filter((a) => !["SYS-AR", "SYS-AP", "SYS-CUST-CREDIT", "SYS-SUPP-CREDIT", "SYS-CUST-ADV", "SYS-SUPP-ADV", "SYS-INVENTORY"].includes(a.code)).map((a) => (
                     <option value={a.id} key={a.id}>
                       {a.code} · {a.name}
                     </option>

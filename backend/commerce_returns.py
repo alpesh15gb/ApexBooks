@@ -42,6 +42,7 @@ def receive(service, session, connection, payload, party, external_id, issued):
         if movement and movement.date > date.fromisoformat(issued): raise HTTPException(409, 'Return cannot predate the latest stock movement')
         sold = [line for line in source.data.get('lines', []) if line.get('item_id') == item.id]
         if not sold or any('inventory_cost' not in line for line in sold): raise HTTPException(409, 'Source sale needs verified stock valuation')
+        m.require_final_return_cost(sold)
         sold_qty = sum((decimal(line['quantity']) for line in sold), Decimal(0))
         sold_cost = sum((decimal(line['inventory_cost']) for line in sold), Decimal(0))
         previous = [line for row in prior if row.data.get('applied_to') == source.id for line in row.data.get('lines', []) if line.get('item_id') == item.id]

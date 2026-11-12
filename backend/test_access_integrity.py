@@ -83,7 +83,7 @@ class AccessIntegrityTest(unittest.TestCase):
         receipt=post('payment_in',100,{'applied_to':invoice['id']})
         note=post('credit_note',data={'applied_to':invoice['id'],'lines':[{**line,'rate':20}]})
         item=post('item',data={'track_stock':True})
-        accounts=client.get(base+'/accounts',headers=h).json()
+        accounts=[client.post(base+'/accounts',headers=h,json={'code':code,'name':code,'category':category}).json() for code,category in [('QA-CASH','asset'),('QA-CAPITAL','equity')]]
         journal={'date':'2026-04-02','reference':'Manual test','lines':[{'account_id':accounts[0]['id'],'debit':1},{'account_id':accounts[1]['id'],'credit':1}]}
         manual=client.post(base+'/journals',headers=h,json=journal)
         self.assertEqual(manual.status_code,201,manual.text)
