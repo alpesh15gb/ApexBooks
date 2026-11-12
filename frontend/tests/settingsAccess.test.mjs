@@ -1,0 +1,50 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile,mkdtemp,rm} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {build} from 'esbuild';
+import {JSDOM} from 'jsdom';
+import React,{act} from 'react';
+const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});
+Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true,requestAnimationFrame:cb=>cb()});
+const {createRoot}=await import('react-dom/client');
+const tmp=await mkdtemp(resolve('node_modules/.settings-access-'));
+const source=await readFile('src/main.jsx','utf8');
+await build({stdin:{contents:`import {useState,useRef,useEffect} from 'react';import {createRequestScope} from './requestScope.js';const api=(...args)=>globalThis.memberApi(...args);export default ${source.slice(source.indexOf('function Members('),source.indexOf('function Ledger('))}`,resolveDir:resolve('src'),loader:'jsx'},outfile:resolve(tmp,'members.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react']});
+await build({entryPoints:['src/SettingsWorkspace.jsx'],outfile:resolve(tmp,'settings.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','lucide-react']});
+const Members=(await import(pathToFileURL(resolve(tmp,'members.mjs')))).default;
+const Settings=(await import(pathToFileURL(resolve(tmp,'settings.mjs')))).default;
+const button=text=>[...document.querySelectorAll('button')].find(b=>b.textContent===text);
+test('member removal requires named confirmation, permits cancel and is single-flight',async()=>{
+ const root=createRoot(document.getElementById('root'));let writes=0,finish;
+ globalThis.memberApi=async(path,options={})=>options.method==='DELETE'?(writes++,new Promise(r=>{finish=r;})):[{email:'viewer@example.invalid',role:'viewer'},{email:'owner@example.invalid',role:'owner'}];
+ await act(async()=>root.render(React.createElement(Members,{companyId:'a',companyName:'Synthetic Books',role:'owner'})));
+ await act(async()=>button('Remove').click());assert.equal(writes,0);assert.match(document.querySelector('[role=alertdialog]').textContent,/viewer@example.invalid.*Synthetic Books/);
+ await act(async()=>button('Keep member').click());assert.equal(document.querySelector('[role=alertdialog]'),null);assert.equal(writes,0);
+ await act(async()=>button('Remove').click());await act(async()=>{button('Remove access').click();button('Remove access').click();});assert.equal(writes,1);
+ await act(async()=>finish({}));assert.equal(document.querySelector('[role=alertdialog]'),null);await act(async()=>root.unmount());
+});
+test('Escape cancels and a failed removal remains recoverable in the confirmation',async()=>{
+ const root=createRoot(document.getElementById('root'));let writes=0;
+ globalThis.memberApi=async(path,options={})=>{if(options.method==='DELETE'){writes++;throw Error('Synthetic unavailable');}return [{email:'viewer@example.invalid',role:'viewer'}];};
+ await act(async()=>root.render(React.createElement(Members,{companyId:'a',companyName:'Synthetic Books',role:'owner'})));
+ await act(async()=>button('Remove').click());await act(async()=>document.querySelector('[role=alertdialog]').dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
+ assert.equal(writes,0);assert.equal(document.querySelector('[role=alertdialog]'),null);
+ await act(async()=>button('Remove').click());await act(async()=>button('Remove access').click());assert.equal(writes,1);assert.match(document.querySelector('[role=alertdialog] [role=alert]').textContent,/Synthetic unavailable/);assert.equal(button('Keep member').disabled,false);
+ await act(async()=>button('Keep member').click());await act(async()=>root.unmount());
+});
+test('company and role changes invalidate pending removal confirmation; stale failure stays scoped',async()=>{
+ const root=createRoot(document.getElementById('root'));let fail,writes=0;
+ globalThis.memberApi=async(path,options={})=>options.method==='DELETE'?(writes++,new Promise((_,reject)=>{fail=reject;})):[{email:'viewer@example.invalid',role:'viewer'}];
+ const render=(companyId,role='owner')=>root.render(React.createElement(Members,{companyId,companyName:companyId,role}));
+ await act(async()=>render('a'));await act(async()=>button('Remove').click());await act(async()=>render('a','viewer'));assert.equal(document.querySelector('[role=alertdialog]'),null);assert.equal(button('Remove'),undefined);assert.equal(writes,0);
+ await act(async()=>render('a'));await act(async()=>button('Remove').click());await act(async()=>button('Remove access').click());await act(async()=>render('b'));assert.equal(document.querySelector('[role=alertdialog]'),null);
+ await act(async()=>fail(Error('Old company failure')));assert.doesNotMatch(document.body.textContent,/Old company failure/);await act(async()=>root.unmount());
+});
+for(const role of ['viewer','editor','owner'])test(`data shortcuts match ${role} tool access`,async()=>{
+ const root=createRoot(document.getElementById('root'));await act(async()=>root.render(React.createElement(Settings,{company:{role},sections:{},initialTab:'data'})));
+ const data=document.querySelector('#settings-panel-data');const labels=[...data.querySelectorAll('.settings-jump-links button')].map(x=>x.textContent);
+ assert.deepEqual(labels,role==='owner'?['Vyapar import','CSV import','Export data','Backup & restore']:['CSV import']);await act(async()=>root.unmount());
+});
+test.after(async()=>{dom.window.close();await rm(tmp,{recursive:true,force:true});});

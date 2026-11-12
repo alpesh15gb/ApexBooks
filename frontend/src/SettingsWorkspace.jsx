@@ -220,7 +220,7 @@ export default function SettingsWorkspace({ company, sections, onAddCompany, api
                           ["audit", "Audit history"],
                         ],
                       }[key] || []
-                    ).map(([id, label]) => (
+                    ).filter(([id]) => !['vyapar', 'export', 'backup'].includes(id) || company?.role === 'owner').map(([id, label]) => (
                       <button
                         key={id}
                         onClick={() => jumpTo(id)}

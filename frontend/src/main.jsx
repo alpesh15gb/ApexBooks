@@ -1478,7 +1478,7 @@ function App() {
                     </div>
                   </>
                 ),
-                access: <Members companyId={companyId} role={company?.role} />,
+                access: <Members companyId={companyId} companyName={company?.name} role={company?.role} />,
                 security: (
                   <>
                     <div className="settings-block" id="setting-account">
@@ -2023,7 +2023,11 @@ function Prefixes({ companyId, role }) {
   );
 }
 
-function Members({ companyId, role }) {
+function Members({ companyId, companyName, role }) {
+  const [removal, setRemoval] = useState(null);
+  const [removing, setRemoving] = useState(false);
+  const removalFlight = useRef(false);
+  useEffect(() => {setRemoval(null);}, [companyId, role]);
   const [members, setMembers] = useState([]),
     [email, setEmail] = useState(""),
     [newRole, setNewRole] = useState("viewer"),
@@ -2066,14 +2070,23 @@ function Members({ companyId, role }) {
     }
   }
   async function remove(member) {
+    if (role !== "owner" || member.role === "owner" || removalFlight.current || removal?.companyId !== companyId) return;
+    removalFlight.current = true;
+    setRemoving(true);
+    const isCurrent = workspaceScope.current.capture();
     try {
       await api(
         `/companies/${companyId}/members/${encodeURIComponent(member.email)}`,
         { method: "DELETE" },
       );
+      if (!isCurrent()) return;
+      setRemoval(null);
       await load();
     } catch (err) {
-      setError(err.message);
+      if (isCurrent()) setError(err.message);
+    } finally {
+      removalFlight.current = false;
+      setRemoving(false);
     }
   }
   return (
@@ -2083,7 +2096,8 @@ function Members({ companyId, role }) {
         Registered users can be given editor or view-only access to this
         company.
       </p>
-      {error && <div className="error banner">{error}</div>}
+      {error && <div className="error banner" role="alert">{error}</div>}
+      {removal?.companyId === companyId && role === 'owner' && <div className="overlay"><section className="modal" role="alertdialog" aria-modal="true" onKeyDown={event => {if (event.key === "Escape" && !removing) {event.preventDefault(); setRemoval(null);}}} aria-labelledby="remove-member-title" aria-describedby="remove-member-impact"><h2 id="remove-member-title">Remove company access?</h2><p id="remove-member-impact">Remove {removal.member.email} ({removal.member.role}) from {companyName || 'this company'}? They will lose access to this company. Their posted records remain unchanged. You can add them again later.</p>{error && <p role="alert" className="error">{error}</p>}<div className="modal-actions"><button className="button secondary" disabled={removing} onClick={() => setRemoval(null)}>Keep member</button><button className="button primary" disabled={removing} onClick={() => remove(removal.member)}>{removing ? 'Removing…' : 'Remove access'}</button></div></section></div>}
       <div className="ledger-list">
         {members.map((m) => (
           <div key={m.email}>
@@ -2091,7 +2105,7 @@ function Members({ companyId, role }) {
             <span>
               {m.role}{" "}
               {role === "owner" && m.role !== "owner" && (
-                <button className="link" onClick={() => remove(m)}>
+                <button className="link" disabled={removing} onClick={() => {setError(""); setRemoval({companyId, member:m});}}>
                   Remove
                 </button>
               )}

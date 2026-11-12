@@ -61,3 +61,27 @@ with harness types, not the full Android application. No Android SDK licenses or
 security-setting changes were made. Full final-commit Windows/Android CI builds,
 Compose/WinUI device interactions, rendering and printing remain open. Nothing
 was uploaded, merged or deployed in this follow-up.
+
+## Settings access usability and full-build checkpoint
+
+Data & migration shortcuts now hide owner-only Vyapar, whole-company export and
+backup tools for viewers/editors. CSV tools remain visible because read exports
+and templates are available there; CSV mutation stays role-restricted.
+
+Member removal now requires confirmation naming the email, role and company and
+explaining the access impact. Keep member and Escape cancel before submission.
+A synchronous guard prevents duplicate deletes; company/role changes invalidate
+the confirmation and old-company failures do not surface in the new workspace.
+Backend permissions remain authoritative. All tests use synthetic identities.
+
+An offline full Android assembleDebug attempt with verified Gradle 8.14.3
+stopped at plugin resolution: com.android.application 8.13.1 is absent from the
+temporary local cache. No Android source compilation occurred. Log:
+`/tmp/apex-native-full-build-readiness.log`. The local environment also lacks
+Android SDK/platform/build-tools and the Windows native SDK/runtime. This is a
+prerequisite limitation, not evidence of an application compile failure. Hosted
+CI must run both check.yml Debug checks and native-release-checks.yml unsigned
+Release checks at the final exact commit; no workflow was dispatched here.
+The existing Release workflow forbids release signing and stops on a request
+for new SDK license acceptance. Device rendering/printing/sharing and final
+browser acceptance remain distinct gates.
