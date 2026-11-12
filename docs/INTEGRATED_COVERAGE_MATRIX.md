@@ -264,3 +264,19 @@ Twelve accounting-safety rendered tests passed, including one POST plus failed G
 and GET-only recovery; lint/build/bundle budgets passed. Unknown POST outcomes and
 process-death recovery are not reclassified as success by this change. No integration
 server, financial books, publication or deployment was touched.
+
+### Commerce uncertain-response payload recovery
+
+Unchanged retries already reused a command ID, but edits after an uncertain response
+could create a new intent/key. The money form now freezes the original operation and
+payload for unknown/network, 408, 409 and 5xx outcomes, disables new input, and offers
+Retry original source command. Definitive rejection (tested 422) permits correction.
+The parent retains recovery objects in memory per company/connection path so switching
+stores and returning within this mounted workspace preserves the original payload
+and command ID. Confirmed completion clears recovery even if the form has closed.
+Seventeen rendered accounting-safety tests passed, including attempted edits after
+uncertain outcomes and store-switch recovery; lint/build/bundle budgets passed.
+These are synthetic commands, not a live Bagisto or posting acceptance run. Recovery
+is not persisted through workspace unmount, browser reload, sign-out or process death;
+operators must reconcile delivery history in those cases. No publication retry or
+deployment was performed.

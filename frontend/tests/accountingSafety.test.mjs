@@ -78,8 +78,8 @@ test('commerce money failure preserves input and unlocks explicit retry',async()
  const root=createRoot(document.getElementById('root'));let reject,writes=0,done=0;
  const workspace={connection:{id:'a',status:'active',config:{}},links:[],orders:[],stock:[]};
  await act(async()=>root.render(React.createElement(components.CommerceMoneyForm,{workspace,banks:[],send:()=>{writes++;return writes===1?new Promise((resolve,fail)=>{reject=fail;}):Promise.resolve();},onDone:()=>done++})));
- await change(label('Bank / provider').querySelector('input'),'SYNTHETIC-REF');await act(async()=>submit(document.querySelector('form')));await act(async()=>reject(Error('Synthetic network failure')));
- assert.equal(document.querySelector('fieldset').disabled,false);assert.equal(label('Bank / provider').querySelector('input').value,'SYNTHETIC-REF');assert.match(document.querySelector('[role=alert]').textContent,/Synthetic network/);
+ await change(label('Bank / provider').querySelector('input'),'SYNTHETIC-REF');await act(async()=>submit(document.querySelector('form')));await act(async()=>reject(Object.assign(Error('Synthetic validation failure'),{status:422})));
+ assert.equal(document.querySelector('fieldset').disabled,false);assert.equal(label('Bank / provider').querySelector('input').value,'SYNTHETIC-REF');assert.match(document.querySelector('[role=alert]').textContent,/Synthetic validation/);
  await act(async()=>submit(document.querySelector('form')));assert.equal(writes,2);assert.equal(done,1);await act(async()=>root.unmount());
 });
 test('accepted commerce command remains successful when only its follow-up refresh fails',async(t)=>{
@@ -90,4 +90,21 @@ test('accepted commerce command remains successful when only its follow-up refre
  await act(async()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='payments').click());await change(label('Bank / provider').querySelector('input'),'ACCEPTED-REF');await act(async()=>submit(document.querySelector('form')));
  assert.equal(writes,1);assert.equal(label('Bank / provider').querySelector('input').value,'');assert.match(document.body.textContent,/queued/i);assert.match(document.querySelector('[role=alert]').textContent,/Do not queue it again/);
  await act(async()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Refresh').click());assert.equal(writes,1);assert.equal(reads,3);await act(async()=>root.unmount());
+});
+for(const status of [0,408,409,503])test(`uncertain commerce ${status} retries frozen payload after attempted edit`,async(t)=>{
+ const root=createRoot(document.getElementById('root'));t.after(async()=>act(async()=>root.unmount()));const sent=[];const workspace={connection:{id:'a',status:'active',config:{}},links:[],orders:[],stock:[]};
+ await act(async()=>root.render(React.createElement(components.CommerceMoneyForm,{workspace,banks:[],send:async(op,payload)=>{sent.push({op,payload});if(sent.length===1)throw Object.assign(Error('Uncertain synthetic response'),{status});},onDone:()=>{}})));
+ await change(label('Bank / provider').querySelector('input'),'ORIGINAL-REF');await change(label('Amount').querySelector('input'),'100');await act(async()=>submit(document.querySelector('form')));
+ assert.equal(document.querySelector('fieldset').disabled,true);assert.match(document.querySelector('[role=status]').textContent,/ORIGINAL-REF/);
+ await change(label('Bank / provider').querySelector('input'),'EDITED-REF');await change(label('Amount').querySelector('input'),'200');await act(async()=>submit(document.querySelector('form')));
+ assert.deepEqual(sent[1],sent[0]);assert.equal(document.querySelector('fieldset').disabled,false);assert.equal(document.querySelector('[role=status]'),null);
+});
+test('uncertain commerce command survives store switch with the same command ID and payload',async(t)=>{
+ const root=createRoot(document.getElementById('root'));t.after(async()=>act(async()=>root.unmount()));const commands=[];
+ const api=async(path,options={})=>{if(options.method==='POST'){commands.push({path,body:JSON.parse(options.body)});if(commands.length===1)throw Object.assign(Error('Synthetic lost response'),{status:0});return {status:'pending'};}if(path.endsWith('/bank-accounts'))return [];if(path.endsWith('/connections'))return ['a','b'].map(id=>({id,name:id,channel:'test'}));const id=path.includes('/b/')?'b':'a';return {connection:{id,status:'active',config:{}},orders:[],stock:[],links:[],outbox:[],reconciliations:[],summary:{}};};
+ await act(async()=>root.render(React.createElement(components.CommerceWorkspace,{company:{id:'c',name:'Synthetic',role:'editor'},records:[],api})));
+ await act(async()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='payments').click());await change(label('Bank / provider').querySelector('input'),'RECOVER-A');await act(async()=>submit(document.querySelector('form')));
+ await change(label('Store channel').querySelector('select'),'b');assert.doesNotMatch(document.body.textContent,/RECOVER-A/);
+ await change(label('Store channel').querySelector('select'),'a');assert.match(document.body.textContent,/RECOVER-A/);assert.equal(document.querySelector('fieldset').disabled,true);
+ await act(async()=>submit(document.querySelector('form')));assert.equal(commands.length,2);assert.deepEqual(commands[1],commands[0]);
 });
