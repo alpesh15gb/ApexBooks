@@ -5,7 +5,7 @@ namespace ApexBooks_Windows.Services;
 
 public sealed class ClientCapabilities
 {
-    private static readonly HashSet<string> Known=["low_stock_reorder","party_price_history","party_payment_terms","master_lifecycle","party_shipping_address","party_credit_limits","recurring_drafts","company_book_labels","document_attachments","chunked_backups","document_cancellation","payment_at_entry","financial_statements","party_balances","day_book","thermal_receipts"];
+    private static readonly HashSet<string> Known=["master_import_receipts","low_stock_reorder","party_price_history","party_payment_terms","master_lifecycle","party_shipping_address","party_credit_limits","recurring_drafts","company_book_labels","document_attachments","chunked_backups","document_cancellation","payment_at_entry","financial_statements","party_balances","day_book","thermal_receipts"];
     private readonly HashSet<string> features;
     private JsonObject limits=new();
     public string ApiVersion {get;private set;}="unknown";

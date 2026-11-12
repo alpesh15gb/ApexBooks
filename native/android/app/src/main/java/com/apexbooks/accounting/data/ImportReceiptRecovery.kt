@@ -39,13 +39,15 @@ class ImportReceiptRecovery(private val file:File) {
         if(supported)locked{beginLocked(body,kind,true)}else beginLocked(body,kind,false)
     private fun beginLocked(body:String,kind:String,supported:Boolean):Attempt {
         check(!busy){"An import request is already in progress."}
-        val existing=read();marker=existing
+        val disk=read()
+        check(disk==null||marker==null||disk.key==marker?.key){"Another import reference exists. Verify the original operations before continuing."}
+        val existing=disk?:marker;marker=existing
         if(!supported){check(existing==null){"Reconnect to a server supporting import receipts to recover this import."};busy=true;return Attempt(null,body,false)}
         require(kind in setOf("party","item"))
         val digest=hash(body)
         if(existing!=null)check(existing.kind==kind&&existing.hash==digest){"Select the original CSV and import type without changes to retry the original operation."}
         val value=existing?:Marker(UUID.randomUUID().toString(),kind,digest)
-        if(existing==null){
+        if(disk==null){
             file.parentFile?.mkdirs()
             val temporary=File.createTempFile("import-", ".tmp",file.parentFile)
             try { FileOutputStream(temporary).use{output->output.write(listOf(value.key,value.kind,value.hash).joinToString("\n").toByteArray(Charsets.UTF_8));output.fd.sync()};Files.move(temporary.toPath(),file.toPath(),StandardCopyOption.ATOMIC_MOVE) }

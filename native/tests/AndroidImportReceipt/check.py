@@ -15,7 +15,7 @@ fun main(){
   val first=recovery.begin(body,"party",true);check(first.key!=null&&!first.retry)
   check(!path.readText().contains(body));check(path.readText().split('\\n').size==3)
   check(runCatching{recovery.begin(body,"party",true)}.isFailure)
-  recovery.failed(first,0);recovery.end()
+  recovery.failed(first,0);recovery.end();path.delete();val retained=recovery.begin(body,"party",true);check(retained.key==first.key&&retained.retry);recovery.end()
   val reopened=ImportReceiptRecovery(path);check(reopened.pending)
   check(runCatching{reopened.begin("changed", "party",true)}.isFailure)
   check(runCatching{reopened.begin(body,"party",false)}.isFailure)

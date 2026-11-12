@@ -138,9 +138,44 @@ public sealed partial class MainPage
     }
     private async Task MasterCsvImport()
     {
-        var cid=CompanyId;var file=await ApexFiles.Pick(".csv");if(file is null)return;var table=Csv.Parse(Csv.Decode(await ApexFiles.Read(file,3_000_000)));if(table.Count<2||table.Count>501)throw new Exception("Choose a CSV with headers and 1–500 rows.");var fields=table[0].Select(h=>h.Trim().ToLowerInvariant().Replace(' ','_')).ToArray();if(!fields.Contains("name"))throw new Exception("The CSV needs a name column. Export a master CSV as a template.");var supported=new HashSet<string>{"name","gstin","address","phone","email","party_type","hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","track_stock"};Csv.ValidateColumns(table,fields,supported);var rows=new JsonArray();for(var i=1;i<table.Count;i++){var row=new JsonObject();for(var j=0;j<fields.Length&&j<table[i].Length;j++){var key=fields[j];if(!supported.Contains(key))continue;var value=table[i][j];if(key=="track_stock")row[key]=Csv.Boolean(value);else if(key is "sale_rate" or "purchase_rate" or "gst_rate")row[key]=Csv.Money(value);else row[key]=value;}rows.Add(row);}
-        var panel=Stack();panel.MinWidth=750;var kind=Select("Master type",[("party","Parties"),("item","Items")]);panel.Children.Add(kind);var resultPanel=Stack();string reviewed="";JsonObject Body()=>new(){["kind"]=Value(kind),["rows"]=rows.Copy()};panel.Children.Add(AsyncButton("Validate and preview",async()=>{var body=Body();body["dry_run"]=true;var result=await Api.Send(Api.CompanyPath(cid,"/masters/import"),HttpMethod.Post,body);reviewed=Value(kind);resultPanel.Children.Clear();RenderReport(resultPanel,result);Table(resultPanel,new JsonArray(rows.Take(10).Select(r=>r.Copy()).ToArray()),"First 10 rows");},Error,true));panel.Children.Add(resultPanel);
-        if(await Dialog("Import "+file.Name,panel,async()=>{if(reviewed!=Value(kind))throw new Exception("Validate and review the import first.");var body=Body();body["dry_run"]=false;await Api.Send(Api.CompanyPath(cid,"/masters/import"),HttpMethod.Post,body);},"Import reviewed masters"))await Refresh();
+        var cid=CompanyId;var verify=CaptureFileSaveAccess();
+        void Guard(){verify();if(!CanWrite)throw new InvalidOperationException("Current editor or owner access is required to import or recover an import.");}
+        bool Supported()=>Api.Capabilities.Supports("master_import_receipts");
+        void CurrentError(Exception error){if(ScopedFileExport.Current(verify))Error(error);}
+        Guard();
+        var receipt=new ImportReceiptRecovery(ImportReceiptRecovery.Location(CompleteBackupTransfer.PrivateDirectory,Api.Origin,Api.Email,cid));
+        if(receipt.Saved is { } saved){
+            var recoveryPanel=Stack();var message=Text("Original import is unconfirmed. Recovery reference: "+saved.Key+". Only this reference, type and fingerprint are stored; CSV contents are not saved. Check the receipt, or continue to select the original unchanged CSV.");recoveryPanel.Children.Add(message);
+            var confirmed=false;
+            recoveryPanel.Children.Add(AsyncButton("Check original import",async()=>{
+                Guard();if(!Supported())throw new Exception("Reconnect to a server supporting import receipts.");
+                var result=await Api.Send(Api.CompanyPath(cid,"/masters/import-receipts/"+Uri.EscapeDataString(saved.Key)));Guard();receipt.Confirmed(result.Text("operation_key"));confirmed=true;message.Text="Original import confirmed. Close or continue to refresh the records; no import will be repeated.";
+            },CurrentError,true));
+            var proceed=await Dialog("Recover original master import",recoveryPanel,()=>Task.CompletedTask,"Continue");Guard();
+            if(confirmed){await Refresh();Success("Original import confirmed; no import was repeated.");return;}
+            if(!proceed)return;
+            if(!Supported())throw new Exception("The original import remains unresolved. A legacy request cannot replace it.");
+        }
+        Guard();var file=await ApexFiles.Pick(".csv");Guard();if(file is null)return;
+        var bytes=await ApexFiles.Read(file,3_000_000);Guard();var table=Csv.Parse(Csv.Decode(bytes));if(table.Count<2||table.Count>501)throw new Exception("Choose a CSV with headers and 1–500 rows.");var fields=table[0].Select(h=>h.Trim().ToLowerInvariant().Replace(' ','_')).ToArray();if(!fields.Contains("name"))throw new Exception("The CSV needs a name column. Export a master CSV as a template.");var supported=new HashSet<string>{"name","gstin","address","phone","email","party_type","hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","track_stock"};Csv.ValidateColumns(table,fields,supported);var rows=new JsonArray();for(var i=1;i<table.Count;i++){var row=new JsonObject();for(var j=0;j<fields.Length&&j<table[i].Length;j++){var key=fields[j];if(!supported.Contains(key))continue;var value=table[i][j];if(key=="track_stock")row[key]=Csv.Boolean(value);else if(key is "sale_rate" or "purchase_rate" or "gst_rate")row[key]=Csv.Money(value);else row[key]=value;}rows.Add(row);}
+        var panel=Stack();panel.MinWidth=750;
+        var kind=Select("Master type",[("party","Parties"),("item","Items")],receipt.Saved?.Kind??"party");kind.IsEnabled=!receipt.Pending;panel.Children.Add(kind);
+        if(!Supported())panel.Children.Add(Text("This server does not advertise exact import recovery. Legacy duplicate-name skipping is not a replay receipt.",12));
+        var recoveryNotice=Text(receipt.Saved is { } original?"Unconfirmed original import: "+original.Key:"A supported server will retain the exact import receipt.",12);panel.Children.Add(recoveryNotice);
+        var resultPanel=Stack();string reviewed="";JsonObject Body()=>new(){["kind"]=Value(kind),["rows"]=rows.Copy()};
+        panel.Children.Add(AsyncButton("Validate and preview",async()=>{
+            Guard();var selected=Value(kind);var body=Body();body["dry_run"]=true;
+            var result=await Api.Send(Api.CompanyPath(cid,"/masters/import"),HttpMethod.Post,body);Guard();
+            if(Value(kind)!=selected)return;reviewed=selected;resultPanel.Children.Clear();RenderReport(resultPanel,result);Table(resultPanel,new JsonArray(rows.Take(10).Select(r=>r.Copy()).ToArray()),"First 10 rows");
+        },CurrentError,true));panel.Children.Add(resultPanel);
+        if(await Dialog("Import "+file.Name,panel,async()=>{
+            Guard();if(reviewed!=Value(kind))throw new Exception("Validate and review the import first.");
+            var body=Body();body["dry_run"]=false;var attempt=receipt.Begin(body.ToJsonString(),Value(kind),Supported());
+            kind.IsEnabled=!receipt.Pending;recoveryNotice.Text=receipt.Saved is { } pending?"Unconfirmed original import: "+pending.Key+". Retry only the original file/type; reopening this workflow can check its receipt.":"Legacy import request.";
+            try{var result=await Api.Send(Api.CompanyPath(cid,"/masters/import"),HttpMethod.Post,JsonNode.Parse(attempt.Body),attempt.Key);if(attempt.Key is not null)receipt.Confirmed(result.Text("operation_key"));Guard();}
+            catch(Exception error){receipt.Failed(attempt,(error as ApiFailure)?.Status??0);throw;}
+            finally{receipt.End();kind.IsEnabled=!receipt.Pending;}
+        },"Import reviewed masters",()=>CanWrite&&ScopedFileExport.Current(verify),unresolved:()=>receipt.Pending)) {Guard();await Refresh();Success("Master import confirmed.");}
     }
     private async Task DataExport()
     {

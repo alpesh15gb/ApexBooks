@@ -1,7 +1,8 @@
 # Master import recovery: verified boundary and proposed durable receipt
 
-Status: backend receipt API implemented and tested locally; client adoption and
-reload-recovery UI remain pending. Earlier investigation is retained below.
+Status: backend receipt API and capability-gated web/Android/Windows adoption
+implemented locally. Full browser/device acceptance remains open. Earlier
+investigation is retained below.
 No production data or external services used.
 
 ## Verified baseline before receipt implementation
@@ -147,3 +148,30 @@ same/different payload races), actual extracted save callback and 11 existing
 production import ownership cases. They are not full Compose or device tests.
 Windows adoption remains pending; a callable .NET SDK was not found in this current
 workspace, so no new Windows build verification is claimed.
+
+
+## Windows adoption (local candidate)
+
+Windows recognizes master_import_receipts and preserves legacy no-key behavior on
+older servers. Supported imports persist only key/type/fingerprint in a private
+per-origin/account/company reference file. The path is hashed; email, token and
+CSV values are not stored. Writes are flushed and moved under an exclusive lock;
+failed storage prevents dispatch. Same-key original-body retries survive workflow
+reopening. Recovery is offered before file selection: GET can confirm an existing
+result without another POST or the original file. Missing receipts remain unknown.
+
+Current role and captured session/company/access guard file reads, preview, commit
+and recovery. Preview replacement checks the selected type. The save dialog keeps
+unknown outcomes unresolved; an initial definitive rejection may permit correction,
+but a later rejection does not discard the original reference. Both native helpers
+now also retain their in-memory key if a reference file disappears, preventing an
+open uncertain operation from silently becoming a new key.
+
+Official Microsoft .NET SDK 10.0.100 was downloaded to a temporary tool directory
+and its SHA-512 verified against release metadata. Provenance is retained in the
+evidence directory. Executed: compiled Windows persistence/concurrency fixtures,
+actual save callback, and entire MasterCsvImport method with fake UI/API/file
+boundaries; the existing portable suite passed with 145 PASS lines. Android helper
+and actual-callback fixtures also passed after the shared edge hardening. No real
+WinUI picker, physical-device restart or full native build is certified by these
+portable tests. SDK path in this workspace: /tmp/apex-dotnet-receipts/sdk/dotnet.

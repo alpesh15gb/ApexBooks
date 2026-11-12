@@ -847,3 +847,18 @@ compiled actual save callback fixtures for unknown/422/success/role/stale-error;
 and 11 existing import ownership fixtures. All passed. Full Compose build/device
 acceptance and Windows adoption remain open. No production, denied upload retry or
 deployment.
+
+### Windows master-import receipt adoption (2026-11-12)
+
+Implemented capability gating, opaque private restart reference and GET recovery
+before file selection; legacy servers remain unkeyed. Original payload fingerprint
+and key are preserved, role/context guards cover awaits, and unresolved receipts
+cannot become a legacy request. Both native helpers preserve in-memory identity
+if the reference file disappears while an operation remains open.
+
+Official .NET SDK 10.0.100 obtained in /tmp and verified against Microsoft's
+release-metadata SHA-512. New compiled Windows helper/race tests, actual save
+callback and full import-method synthetic workflow pass. Existing portable suite
+passes (145 PASS lines). Android receipt/helper callback suites also pass. These
+are portable stubs and synthetic files, not full WinUI/Compose build or physical
+restart acceptance. No real communications, production, upload retry or deployment.
