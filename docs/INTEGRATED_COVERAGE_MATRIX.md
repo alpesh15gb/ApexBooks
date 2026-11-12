@@ -383,3 +383,13 @@ All 42 targeted frontend tests passed, including initial focus, background inert
 Tab wrap, Escape and opener restoration plus commerce workflow regressions.
 Lint/build/bundle budgets passed. This is JSDOM coverage, not real-browser or
 screen-reader acceptance. No publication retry or deployment was performed.
+
+### Keyboard access to uncertain order recovery
+
+Testing the active focus trap with an uncertain cancellation found the retry control
+outside the dialog's keyboard boundary. The existing recovery notice now renders
+inside an open order dialog and returns to the workspace when it closes. One notice
+and one exact-retry action remain; changing placement sends no command. All 43
+focused frontend tests passed, including the new actual-manager integration repro,
+plus lint/build/bundle budgets. Real browser/screen-reader acceptance remains open.
+No production access, publication retry or deployment occurred.
