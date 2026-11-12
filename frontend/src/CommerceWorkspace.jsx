@@ -45,9 +45,9 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
     const timer = setInterval(() => refresh().catch(() => {}), 5000);
     return () => {clearInterval(timer); requestVersion.current++;};
   }, [refresh]);
-  async function act(action, success='Saved') {
+  async function act(action, success='Saved', refreshAfter=true) {
     setBusy(true); setError(''); setNotice('');
-    try {await action(); if(alive.current) {setNotice(success); await refresh();}}
+    try {await action(); if(alive.current) {setNotice(success); if(refreshAfter) await refresh();}}
     catch(e) {if(alive.current) setError(e.message);}
     finally {if(alive.current) setBusy(false);}
   }
@@ -63,6 +63,15 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
     pendingCommands.current.delete(intent);
     return result;
   };
+  async function sendMoney(operation, payload) {
+    await send(operation, payload);
+    if (!alive.current || currentMoneyContext.current !== moneyContext) return;
+    try { await refresh(); }
+    catch (failure) {
+      if (alive.current && currentMoneyContext.current === moneyContext)
+        setError(`The source command was queued, but delivery results could not refresh. Do not queue it again. Use Refresh to check its status. ${failure.message || ''}`);
+    }
+  }
   async function createConnection(event) {
     event.preventDefault();
     await act(async () => {
@@ -85,7 +94,7 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
   const rows = mapping.entity_type === 'product' ? records.filter(r => r.kind === 'item') : records.filter(r => r.kind === 'party');
   return <div className="commerce-workspace">
     <div className="commerce-heading"><div><div className="commerce-eyebrow">SALES CHANNELS · {company.name}</div><h2><ShoppingBag size={25}/> Ecommerce</h2><p>Orders, inventory and books connected to the right company.</p></div>
-      <div className="commerce-actions"><button disabled={busy || !selected} onClick={() => act(refresh, 'Updated')}><RefreshCw size={16}/>Refresh</button>{owner && <button className="primary" onClick={() => setAdding(!adding)}><Plus size={16}/>Connect Bagisto</button>}</div></div>
+      <div className="commerce-actions"><button disabled={busy || !selected} onClick={() => act(refresh, 'Updated', false)}><RefreshCw size={16}/>Refresh</button>{owner && <button className="primary" onClick={() => setAdding(!adding)}><Plus size={16}/>Connect Bagisto</button>}</div></div>
     {error && <div role="alert" className="commerce-alert error"><AlertCircle size={18}/>{error}</div>}
     {notice && <div role="status" className="commerce-alert"><CheckCircle2 size={18}/>{notice}</div>}
     {adding && <form onSubmit={createConnection} className="commerce-card"><h3>Connect a Bagisto channel</h3><p>Each connection belongs to {company.name}. Use a separate channel and inventory source for another company.</p><div className="commerce-fields">
@@ -102,7 +111,7 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
       </div>
       {workspace && <><div className="commerce-metrics">{[[ShoppingBag,'Store orders',workspace.orders.length],[Package,'Mapped SKUs',workspace.stock.length],[RefreshCw,'Waiting delivery',pending],[AlertCircle,'Needs review',review]].map(([Icon,label,value]) => <div className="commerce-metric" key={label}><Icon size={20}/><span>{label}</span><strong>{value}</strong></div>)}</div>
         <nav className="commerce-tabs" aria-label="Ecommerce sections">{['overview','catalogue','orders','payments','deliveries','reconciliation'].map(key => <button key={key} className={tab===key?'selected':''} onClick={() => setTab(key)}>{human(key)}</button>)}</nav>
-        {tab==='payments'&&canWrite&&<CommerceMoneyForm key={`${company.id}:${selected}`} workspace={workspace} banks={banks} busy={busy} send={async(operation,payload)=>{await send(operation,payload);if(alive.current&&currentMoneyContext.current===moneyContext)await refresh();}} onDone={()=>setNotice('Source transaction queued. Review delivery results before recording it again.')}/>}
+        {tab==='payments'&&canWrite&&<CommerceMoneyForm key={`${company.id}:${selected}`} workspace={workspace} banks={banks} busy={busy} send={sendMoney} onDone={()=>setNotice('Source transaction queued. Review delivery results before recording it again.')}/>}
         {tab === 'overview' && <div className="commerce-grid"><section className="commerce-card"><h3>Connection checklist</h3>{[[true,'Company ownership and channel saved'],[connection.config?.verified,'Server bridge verified'],[active,'Connection active'],[workspace.stock.length>0,'Store SKUs mapped'],[workspace.reconciliations.some(r=>r.status==='balanced'),'Reconciliation completed']].map(([done,label]) => <div className="commerce-check" key={label}><CheckCircle2 size={18} className={done?'complete':''}/>{label}</div>)}<p className="commerce-muted">Checkout reserves stock before accepting an order. Invoices post sales and GST; shipments update fulfilment. Captures enter clearing, and settlements move the bank net and fees.</p></section><section className="commerce-card"><h3>Review and repair</h3><p>Unmapped items, tax differences and unsupported source rules stay visible for review. Correct the mapping or source, then retry the delivery.</p><div className="commerce-actions"><button onClick={() => setTab('deliveries')}>Open delivery queue <ArrowUpRight size={16}/></button>{canWrite && <button disabled={!active||busy} onClick={() => act(() => send('history.scan',{after_id:0}), 'History repair queued. Existing source IDs will be reused.')}>Scan store history</button>}</div></section></div>}
         {tab === 'catalogue' && <><section className="commerce-card"><div className="commerce-heading"><div><h3>Product and customer mappings</h3><p>Choose the accounting item or party in this company explicitly.</p></div>{canWrite && <button disabled={!active||busy} onClick={() => act(() => send('catalogue.scan'), 'Store catalogue scan queued')}>Read store catalogue</button>}</div>
           {canWrite && <form onSubmit={e => {e.preventDefault();act(() => api(`${path}/links`,{method:'POST',body:JSON.stringify(mapping)}),'Mapping saved');}}><div className="commerce-fields"><Field label="Mapping type"><select value={mapping.entity_type} onChange={e => setMapping({entity_type:e.target.value,external_id:'',record_id:'',sku:''})}><option value="product">Product → Item</option><option value="customer">Customer → Party</option></select></Field><Field label="Store identity"><input required list="commerce-store-products" value={mapping.external_id} onChange={e => {const product=scan.find(p=>p.external_id===e.target.value);setMapping({...mapping,external_id:e.target.value,...(product?{sku:product.sku}:{})});}}/><datalist id="commerce-store-products">{scan.map(p=><option key={p.external_id} value={p.external_id}>{p.sku} · {p.name}</option>)}</datalist></Field><Field label={mapping.entity_type==='product'?'Accounting item':'Accounting party'}><select required value={mapping.record_id} onChange={e=>setMapping({...mapping,record_id:e.target.value})}><option value="">Choose…</option>{rows.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></Field>{mapping.entity_type==='product'&&<Field label="Exact store SKU"><input required value={mapping.sku} onChange={e=>setMapping({...mapping,sku:e.target.value})}/></Field>}</div><button className="primary" disabled={busy}><Link2 size={16}/>Save mapping</button></form>}</section>

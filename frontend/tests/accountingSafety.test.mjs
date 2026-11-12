@@ -82,3 +82,12 @@ test('commerce money failure preserves input and unlocks explicit retry',async()
  assert.equal(document.querySelector('fieldset').disabled,false);assert.equal(label('Bank / provider').querySelector('input').value,'SYNTHETIC-REF');assert.match(document.querySelector('[role=alert]').textContent,/Synthetic network/);
  await act(async()=>submit(document.querySelector('form')));assert.equal(writes,2);assert.equal(done,1);await act(async()=>root.unmount());
 });
+test('accepted commerce command remains successful when only its follow-up refresh fails',async(t)=>{
+ const root=createRoot(document.getElementById('root'));t.after(async()=>{await act(async()=>root.unmount());});let writes=0,reads=0;
+ const workspace={connection:{id:'a',status:'active',base_url:'https://synthetic.invalid',config:{}},orders:[],stock:[],links:[],outbox:[],reconciliations:[],summary:{}};
+ const api=async(path,options={})=>{if(options.method==='POST'){writes++;return {id:'queued-command',status:'pending'};}if(path.endsWith('/bank-accounts'))return [];if(path.endsWith('/connections'))return [{id:'a',name:'Synthetic',channel:'test'}];reads++;if(reads===2)throw Error('Synthetic refresh failure');return workspace;};
+ await act(async()=>root.render(React.createElement(components.CommerceWorkspace,{company:{id:'c',name:'Synthetic',role:'editor'},records:[],api})));
+ await act(async()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='payments').click());await change(label('Bank / provider').querySelector('input'),'ACCEPTED-REF');await act(async()=>submit(document.querySelector('form')));
+ assert.equal(writes,1);assert.equal(label('Bank / provider').querySelector('input').value,'');assert.match(document.body.textContent,/queued/i);assert.match(document.querySelector('[role=alert]').textContent,/Do not queue it again/);
+ await act(async()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Refresh').click());assert.equal(writes,1);assert.equal(reads,3);await act(async()=>root.unmount());
+});

@@ -252,3 +252,15 @@ This proves duplicate UI dispatch prevention, not a reproduced duplicate account
 posting (server command IDs already provide a separate idempotency boundary).
 Other commerce mutations, process-death/unknown-outcome recovery and real-browser
 acceptance remain separate audit scope. Publication was not retried.
+
+### Confirmed commerce command versus failed refresh
+
+A synthetic accepted command followed by a failed workspace read previously surfaced
+as submission failure and retained the filled form. Money commands now complete the
+form after confirmed acceptance, while a separate alert tells the operator to refresh
+delivery results without queueing again. Current-store ownership still gates that
+alert. The explicit Refresh action also no longer performs a redundant second read.
+Twelve accounting-safety rendered tests passed, including one POST plus failed GET
+and GET-only recovery; lint/build/bundle budgets passed. Unknown POST outcomes and
+process-death recovery are not reclassified as success by this change. No integration
+server, financial books, publication or deployment was touched.
