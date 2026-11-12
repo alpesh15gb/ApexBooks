@@ -48,6 +48,7 @@ def render(company_name, report):
         story.append(table)
     else:story.append(cell('No posted transactions in this period. Opening and closing balances are shown above.'))
     story += [Spacer(1,12),cell('Receivable and payable columns are running balances for the selected scope. Document amounts are shown separately. This statement follows the report\'s party-name matching and posted-entry rules; it is not a statutory return.')]
+    if report.get('ordering_note'):story.append(cell(report['ordering_note']))
     def footer(canvas,doc):
         canvas.saveState();canvas._doc.Catalog.Lang=PDFString('en-IN');canvas.setFont('ApexReport',8);canvas.setFillColor(colors.HexColor('#52605b'))
         canvas.drawString(32,20,'Party statement | '+period+' | INR');canvas.drawRightString(page[0]-32,20,'Page '+str(doc.page));canvas.restoreState()

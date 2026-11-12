@@ -1,3 +1,4 @@
+from statement_order import record_key, posting_timestamp, ORDERING_NOTE
 from datetime import date
 from decimal import Decimal
 from fastapi import Depends,HTTPException
@@ -48,17 +49,17 @@ def party_ledger(m,company_id,party,from_date,to_date,session):
         debit,credit=ledger_effect(r)
         return r,debit,credit
     lines=[entry for entry in map(line,records) if entry[1] or entry[2]]
-    lines.sort(key=lambda e:(e[0].date,0 if e[1] else 1,str(e[0].number),e[0].id))
+    lines.sort(key=lambda e:record_key(e[0]))
     opening=sum((d-c for r,d,c in lines if r.date<from_date),Decimal('0'))
     balance=opening;rows=[];total_debit=total_credit=Decimal('0')
     for r,debit,credit in lines:
         if r.date<from_date:continue
         balance+=debit-credit;total_debit+=debit;total_credit+=credit
-        rows.append({'id':r.id,'kind':r.kind,'date':r.date.isoformat(),'particulars':('To ' if debit else 'By ')+counter(r),'voucher_type':VOUCHER_TYPES[r.kind],'voucher_number':number(r),
+        rows.append({'id':r.id,'kind':r.kind,'date':r.date.isoformat(),'posting_timestamp':posting_timestamp(r),'particulars':('To ' if debit else 'By ')+counter(r),'voucher_type':VOUCHER_TYPES[r.kind],'voucher_number':number(r),
             'debit':str(debit) if debit else '','credit':str(credit) if credit else '','balance':str(abs(balance)),'balance_side':'Dr' if balance>0 else 'Cr' if balance<0 else ''})
     side=lambda v:'Dr' if v>0 else 'Cr' if v<0 else ''
     return {'party':party.name,'from_date':from_date.isoformat(),'to_date':to_date.isoformat(),
-        'opening':{'amount':str(abs(opening)),'side':side(opening)},'rows':rows,
+        'ordering_note':ORDERING_NOTE,'opening':{'amount':str(abs(opening)),'side':side(opening)},'rows':rows,
         'totals':{'debit':str(total_debit),'credit':str(total_credit)},'closing':{'amount':str(abs(balance)),'side':side(balance)}}
 
 def lakh_format(value):
@@ -97,7 +98,7 @@ def install(app,m):
         party=ledger_party(company_id,party_id,from_date,to_date,session)
         headers,rows=ledger_table(party_ledger(m,company_id,party,from_date,to_date,session))
         period=date.fromisoformat(str(from_date)).strftime('%d-%b-%Y')+' to '+date.fromisoformat(str(to_date)).strftime('%d-%b-%Y')
-        return m.export_table(company.name,f'Ledger {party.name} {period}',headers,rows,fmt,'party-statement')
+        return m.export_table(company.name,f'Ledger {party.name} {period}',headers,rows,fmt,'party-statement',notes=[ORDERING_NOTE])
 
     @app.get('/api/companies/{company_id}/parties/balances')
     def balances(company_id:str,as_of:date|None=None,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):

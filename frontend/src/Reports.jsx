@@ -557,6 +557,7 @@ export default function Reports({ companyId, records }) {
           <section className="panel register">
             <div className="panel-header">
               <h2>{party || "All parties"} · Statement</h2>
+              {data.ordering_note && <p>{data.ordering_note}</p>}
             </div>
             <div className="table-wrap" tabIndex={0}>
               <table>

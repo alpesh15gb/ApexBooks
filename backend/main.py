@@ -2168,7 +2168,8 @@ def party_report(company_id: str, from_date: DateType, to_date: DateType, party:
     kinds = {'sales_invoice', 'credit_note', 'payment_in', 'purchase_bill', 'debit_note', 'payment_out', 'advance_application','opening_receivable','opening_payable','credit_application','customer_refund','supplier_refund'}
     records = list(session.scalars(select(Record).where(Record.company_id == company_id, Record.id.in_(postings), Record.kind.in_(kinds), Record.date <= to_date).order_by(Record.date, Record.number, Record.id)))
     selected = party.strip().casefold()
-    records = [r for r in records if not selected or r.name.strip().casefold() == selected]
+    from statement_order import record_key, posting_timestamp, ORDERING_NOTE
+    records = sorted((r for r in records if not selected or r.name.strip().casefold() == selected), key=record_key)
     receivable = payable = Decimal('0')
     opening_receivable = opening_payable = Decimal('0')
     rows = []
@@ -2184,10 +2185,10 @@ def party_report(company_id: str, from_date: DateType, to_date: DateType, party:
             opening_receivable, opening_payable = receivable, payable
         else:
             rows.append({'date': r.date.isoformat(), 'party': r.name, 'kind': r.kind, 'number': r.number,
-                         'amount': str(r.amount), 'receivable': str(receivable), 'payable': str(payable)})
+                         'amount': str(r.amount), 'receivable': str(receivable), 'payable': str(payable), 'posting_timestamp': posting_timestamp(r)})
     return {'from_date': from_date.isoformat(), 'to_date': to_date.isoformat(), 'party': party.strip(),
             'opening_receivable': str(opening_receivable), 'opening_payable': str(opening_payable),
-            'closing_receivable': str(receivable), 'closing_payable': str(payable), 'rows': rows}
+            'closing_receivable': str(receivable), 'closing_payable': str(payable), 'rows': rows, 'ordering_note': ORDERING_NOTE}
 
 @app.get('/api/companies/{company_id}/reports/advances')
 def advances_report(company_id: str, as_of: DateType, user: User = Depends(current_user), session: Session = Depends(db)):
@@ -2247,7 +2248,7 @@ def ageing_report(company_id: str, as_of: DateType, party: str = Query(default='
         'totals': {side: str(value) for side, value in totals.items()},
         'buckets': {side: {name: str(value) for name, value in amounts.items()} for side, amounts in buckets.items()}}
 
-def export_table(company_name, title, headers, rows, fmt, filename):
+def export_table(company_name, title, headers, rows, fmt, filename, *, notes=()):
     out = io.BytesIO()
     if fmt == 'xlsx':
         book = Workbook(); sheet = book.active; sheet.title = re.sub(r'[\\/*?:\[\]]', ' ', title)[:31] or 'Report'
@@ -2288,6 +2289,10 @@ def export_table(company_name, title, headers, rows, fmt, filename):
         for column_index, column in enumerate(sheet.columns, start=1):
             letter = sheet.cell(3, column_index).column_letter
             sheet.column_dimensions[letter].width = min(42, max(14, max((len(str(cell.value or '')) for cell in column), default=14) + 2))
+        if notes:
+            note_sheet=book.create_sheet('Report notes');note_sheet.column_dimensions['A'].width=110
+            for index,note in enumerate(notes,1):
+                cell=note_sheet.cell(index,1,str(note));cell.data_type='s';cell.alignment=Alignment(wrap_text=True,vertical='top');note_sheet.row_dimensions[index].height=60
         book.save(out)
         media = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     elif fmt == 'pdf':
@@ -2308,7 +2313,7 @@ def export_table(company_name, title, headers, rows, fmt, filename):
             ('RIGHTPADDING', (0, 0), (-1, -1), 5), ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5)]))
         document = SimpleDocTemplate(out, pagesize=page, leftMargin=25, rightMargin=25, topMargin=30, bottomMargin=30, title=title)
         document.build([Paragraph(escape(company_name), ParagraphStyle('ReportTitle', fontName='Helvetica-Bold', fontSize=12, leading=16)),
-                        Paragraph(escape(title), body_style), Spacer(1, 12), table])
+                        Paragraph(escape(title), body_style), Spacer(1, 12), table]+[Paragraph(escape(str(note)),body_style) for note in notes])
         media = 'application/pdf'
     else: raise HTTPException(404, 'Unsupported export format')
     return Response(out.getvalue(), media_type=media, headers={'Content-Disposition': f'attachment; filename="{filename}.{fmt}"'})
@@ -2422,7 +2427,7 @@ def export_parties(company_id: str, fmt: str, from_date: DateType, to_date: Date
         from party_report_pdf import render
         return Response(render(company.name, data), media_type='application/pdf', headers={'Content-Disposition':'attachment; filename="party-statement.pdf"'})
     rows = [[r[key] for key in ('date', 'party', 'kind', 'number', 'amount', 'receivable', 'payable')] for r in data['rows']]
-    return export_table(company.name, f"Party statement {from_date} to {to_date}", ['Date', 'Party', 'Type', 'Number', 'Amount', 'Receivable', 'Payable'], rows, fmt, 'party-statement')
+    return export_table(company.name, f"Party statement {from_date} to {to_date}", ['Date', 'Party', 'Type', 'Number', 'Amount', 'Receivable', 'Payable'], rows, fmt, 'party-statement', notes=[data['ordering_note']])
 
 @app.get('/api/companies/{company_id}/reports/ageing.{fmt}')
 def export_ageing(company_id: str, fmt: str, as_of: DateType, party: str = Query(default='', max_length=120),

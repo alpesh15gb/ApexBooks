@@ -447,3 +447,18 @@ sink was mocked; actual-browser export acceptance remains open. The newly report
 same-day party-statement chronology issue is queued separately. Full native builds,
 device acceptance, real Bagisto delivery and production recovery gates remain open.
 No production access, publication retry or deployment occurred.
+
+### Same-day party statement chronology
+
+Reproduced reference sorting placing a same-day credit note before its source invoice
+and receipt. Party reports and party ledgers now sort by date and retained entry
+created_at timestamp, then deterministic reference/type/party/amount tie-breaks.
+Missing timestamps follow recorded entries, with explicit unknown-history disclosure;
+no accounting balance formula or stored book entry changes. JSON includes the ordering
+note/timestamp, UI displays the note, XLSX retains row order and adds Report notes,
+and PDFs include the disclosure. Twelve backend and 53 frontend tests passed, plus
+lint/build budgets. Synthetic invoice/receipt/credit rows run 100→75→25, and JSON/
+XLSX/PDF order remains stable through six restores covering recorded, tied and missing
+timestamps. Existing ledger, multipage PDF and cash-book tests passed. This is not
+proof of historic posting order when timestamps are absent/tied, nor final browser
+or screen-reader acceptance. No publication retry or deployment occurred.
