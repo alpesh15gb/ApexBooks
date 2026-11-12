@@ -24,6 +24,7 @@ export default function WorkspaceHeader({
   onCreate,
   onMenu,
   menuOpen = false,
+  onCreateMenuChange,
 }) {
   const [query, setQuery] = useState(""),
     [open, setOpen] = useState(false),
@@ -34,8 +35,10 @@ export default function WorkspaceHeader({
   actions.current = { onNavigate, onCreate };
   const input = useRef(null),
     searchBox = useRef(null),
-    createBox = useRef(null);
+    createBox = useRef(null),
+    createTrigger = useRef(null);
   const canWrite = ["owner", "editor"].includes(company?.role);
+  useEffect(() => { onCreateMenuChange?.(create); }, [create]);
   useEffect(() => {
     if (create) createBox.current?.querySelector('[role="menuitem"]')?.focus();
   }, [create]);
@@ -45,8 +48,15 @@ export default function WorkspaceHeader({
     setCreate(false);
   }, [company?.id, page]);
   useEffect(() => {
+    const openFromSidebar = () => {
+      createTrigger.current = document.querySelector('.sidebar-create');
+      setCreate(value => !value);
+    };
+    window.addEventListener('apex-open-create', openFromSidebar);
     function key(e) {
+      const blocked = !!document.querySelector('[aria-modal="true"], .overlay, .modal');
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        if (blocked) return;
         e.preventDefault();
         input.current?.focus();
         setOpen(true);
@@ -57,7 +67,6 @@ export default function WorkspaceHeader({
         setHelp(false);
       }
       // Alt+N new invoice, Alt+R payment, Alt+D day book … never while an editor or dialog is open.
-      const blocked = !!document.querySelector('[aria-modal="true"], .overlay, .modal');
       const shortcut = shortcutFor(e, blocked);
       if (shortcut) {
         e.preventDefault();
@@ -70,11 +79,12 @@ export default function WorkspaceHeader({
     }
     function outside(e) {
       if (!searchBox.current?.contains(e.target)) setOpen(false);
-      if (!createBox.current?.contains(e.target)) setCreate(false);
+      if (!createBox.current?.contains(e.target) && !e.target.closest('.sidebar-create')) setCreate(false);
     }
     document.addEventListener("keydown", key);
     document.addEventListener("pointerdown", outside);
     return () => {
+      window.removeEventListener('apex-open-create', openFromSidebar);
       document.removeEventListener("keydown", key);
       document.removeEventListener("pointerdown", outside);
     };
@@ -146,11 +156,13 @@ export default function WorkspaceHeader({
         <Menu size={21} />
       </button>
       <div className="workspace-location">
-        <span>Workspace</span>
+        <span>Apex Books</span>
         <ChevronRight size={13} />
         <strong>{labels[page] || "Overview"}</strong>
       </div>
-      <div className="workspace-search" ref={searchBox}>
+      <div className="workspace-search" ref={searchBox} onBlur={event => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+      }}>
         <Search size={17} />
         <input
           ref={input}
@@ -175,13 +187,15 @@ export default function WorkspaceHeader({
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") {
               e.preventDefault();
-              setActive((x) => Math.max(0, Math.min(matches.length - 1, x + 1)));
+              setOpen(true);
+              setActive((x) => open ? Math.max(0, Math.min(matches.length - 1, x + 1)) : 0);
             }
             if (e.key === "ArrowUp") {
               e.preventDefault();
+              setOpen(true);
               setActive((x) => Math.max(0, x - 1));
             }
-            if (e.key === "Enter" && matches[active]) select(matches[active]);
+            if (e.key === "Enter" && open && matches[active]) { e.preventDefault(); select(matches[active]); }
           }}
         />
         {query ? (
@@ -214,8 +228,10 @@ export default function WorkspaceHeader({
                   key={r.key}
                   id={`workspace-search-option-${i}`}
                   role="option"
+                  tabIndex={-1}
                   aria-selected={i === active}
                   onMouseEnter={() => setActive(i)}
+                  onMouseDown={event => event.preventDefault()}
                   onClick={() => select(r)}
                 >
                   <r.icon size={18} />
@@ -246,10 +262,11 @@ export default function WorkspaceHeader({
             onKeyDown={event => {
               if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                 event.preventDefault();
+                createTrigger.current = event.currentTarget;
                 setCreate(true);
               }
             }}
-            onClick={() => setCreate((x) => !x)}
+            onClick={event => { createTrigger.current = event.currentTarget; setCreate((x) => !x); }}
           >
             <Plus size={18} />
             <span>Create</span>
@@ -272,18 +289,23 @@ export default function WorkspaceHeader({
                 if (event.key === "Escape" || event.key === "Tab") {
                   if (event.key === "Escape") event.preventDefault();
                   setCreate(false);
-                  createBox.current?.querySelector('.global-create')?.focus();
+                  (createTrigger.current || createBox.current?.querySelector('.global-create'))?.focus();
                 }
               }}
             >
-              <span className="search-heading">NEW IN YOUR WORKSPACE</span>
-              <div>
-                {creation.map(([kind, title, Icon]) => (
+              <span className="search-heading">What would you like to create?</span>
+              <div className="create-groups">
+                {[
+                  ['Sales', ['sales_invoice', 'payment_in', 'estimate', 'sales_order', 'proforma', 'credit_note']],
+                  ['Purchases', ['purchase_bill', 'payment_out', 'expense', 'purchase_order', 'debit_note']],
+                  ['Directory', ['party', 'item']],
+                ].map(([group, kinds]) => <div key={group} role="group" aria-label={group}><span className="create-group-title">{group}</span>{creation.filter(([kind]) => kinds.includes(kind)).map(([kind, title, Icon]) => (
                   <button
                     key={kind}
                     role="menuitem"
                     tabIndex={-1}
                     onClick={() => {
+                      (createTrigger.current || createBox.current?.querySelector('.global-create'))?.focus();
                       setCreate(false);
                       onCreate(kind);
                     }}
@@ -291,7 +313,7 @@ export default function WorkspaceHeader({
                     <Icon size={17} />
                     {title}
                   </button>
-                ))}
+                ))}</div>)}
               </div>
             </div>
           )}

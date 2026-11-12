@@ -10,6 +10,7 @@ export class WorkspaceBoundary extends React.Component {
 export function DialogFocus() {
   useEffect(() => {
     let dialog = null, previous = null, scrollStyles = null;
+    const parents = [];
     const scrollLock = locked => {
       if (locked && !scrollStyles) {
         scrollStyles = [document.documentElement.style.overflow, document.body.style.overflow];
@@ -28,13 +29,16 @@ export function DialogFocus() {
       }
       inertNodes.clear();
     };
-    const fields = () => dialog ? [...dialog.querySelectorAll('input,select,textarea,button,a[href],[tabindex]:not([tabindex="-1"])')]
-      .filter(node => !node.disabled && !node.closest('[inert]') && node.getClientRects().length) : [];
+    const fields = () => dialog ? [...dialog.querySelectorAll('input,select,textarea,button,a[href],summary,[tabindex]')]
+      .filter(node => node.tabIndex >= 0 && !node.matches(':disabled') && !node.closest('[inert]') && node.getClientRects().length) : [];
     const focusInside = () => (fields()[0] || dialog)?.focus();
     const scan = () => {
       const found = [...document.querySelectorAll('.overlay .modal')].at(-1)
         || document.querySelector('[data-focus-surface]') || null;
       if (found === dialog) return;
+      let returnFocus = null;
+      if (found && parents.at(-1)?.surface === found) returnFocus = parents.pop().focused;
+      else if (dialog?.isConnected && found) parents.push({ surface: dialog, focused: document.activeElement });
       restore();
       const wasOpen = !!dialog;
       dialog = found;
@@ -42,6 +46,7 @@ export function DialogFocus() {
       if (!dialog) {
         if (wasOpen && previous?.isConnected) previous.focus();
         previous = null;
+        parents.length = 0;
         return;
       }
       if (!wasOpen) previous = document.activeElement;
@@ -56,7 +61,11 @@ export function DialogFocus() {
         }
       }
       const active = dialog;
-      requestAnimationFrame(() => { if (dialog === active && active.isConnected) focusInside(); });
+      requestAnimationFrame(() => {
+        if (dialog !== active || !active.isConnected) return;
+        if (returnFocus?.isConnected && active.contains(returnFocus) && !returnFocus.matches(':disabled')) returnFocus.focus();
+        else focusInside();
+      });
     };
     const key = event => {
       if (!dialog) return;

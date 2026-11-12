@@ -54,13 +54,13 @@ import com.apexbooks.accounting.data.*
 }
 
 @Composable fun CreateTransactionSheet(vm: AppModel, close: () -> Unit) {
-    var category by remember { mutableStateOf(when (vm.page) { in MobileNavigation.purchases -> "Purchase"; "party", "item" -> "Masters"; else -> "Sales" }) }
+    var category by remember { mutableStateOf(when (vm.page) { in MobileNavigation.purchases -> "Purchases"; "party", "item" -> "Contacts & items"; else -> "Sales" }) }
     ModalBottomSheet(onDismissRequest = close) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-            Heading("Create a transaction", vm.company.s("name"))
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("Sales", "Purchase", "Masters").forEach { label -> FilterChip(selected = category == label, onClick = { category = label }, label = { Text(label) }) } }
-            val kinds = when (category) { "Purchase" -> MobileNavigation.purchases; "Masters" -> listOf("party", "item"); else -> MobileNavigation.sales }
-            LazyColumn(Modifier.heightIn(max = 450.dp)) { items(kinds, key = { it }) { kind -> NativeActionRow(vm.title(kind), when (kind) { "sales_invoice" -> "Bill a customer"; "purchase_bill" -> "Enter or scan a supplier bill"; "payment_in" -> "Collect and allocate a payment"; "payment_out" -> "Pay a supplier"; "pos" -> "Open the point of sale"; else -> "" }, featureIcon(kind)) { close(); if (kind == "pos") vm.navigate(kind) else vm.add(kind) } } }
+            Heading("Create an entry", vm.company.s("name"))
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("Sales", "Purchases", "Contacts & items").forEach { label -> FilterChip(selected = category == label, onClick = { category = label }, label = { Text(label) }) } }
+            val kinds = when (category) { "Purchases" -> MobileNavigation.purchases; "Contacts & items" -> listOf("party", "item"); else -> MobileNavigation.sales }
+            LazyColumn(Modifier.heightIn(max = 450.dp)) { items(kinds, key = { it }) { kind -> NativeActionRow(vm.title(kind), when (kind) { "sales_invoice" -> "Bill a customer"; "purchase_bill" -> "Enter or scan a supplier bill"; "payment_in" -> "Record money received from a customer"; "payment_out" -> "Record a payment to a supplier"; "estimate" -> "Send a quote before invoicing"; "proforma" -> "Prepare a preliminary invoice"; "sales_order" -> "Confirm a customer order"; "purchase_order" -> "Place an order with a supplier"; "credit_note" -> "Reduce an invoice or record a sales return"; "debit_note" -> "Reduce a bill or record a purchase return"; "expense" -> "Record a business cost paid now"; "party" -> "Save a customer or supplier"; "item" -> "Save a product or service"; "pos" -> "Open the point of sale"; else -> "" }, featureIcon(kind)) { close(); if (kind == "pos") vm.navigate(kind) else vm.add(kind) } } }
             Spacer(Modifier.height(24.dp))
         }
     }

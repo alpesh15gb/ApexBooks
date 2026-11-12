@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 
 const currency = (value) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(
@@ -17,6 +17,13 @@ export default function PaymentAllocations({
   allowAdvance,
   onPaymentAmount,
 }) {
+  const allocationFields = useRef(null), focusRow = useRef(null);
+  useEffect(() => {
+    if (focusRow.current !== null) {
+      allocationFields.current?.querySelectorAll('.allocation-row select')[focusRow.current]?.focus();
+      focusRow.current = null;
+    }
+  }, [rows.length]);
   const selected = new Set(rows.map((row) => row.document_id).filter(Boolean));
   const total =
     rows.reduce(
@@ -27,7 +34,7 @@ export default function PaymentAllocations({
     setRows(rows.map((row, i) => (i === index ? { ...row, ...changes } : row)));
   }
   return (
-    <div className="full line-card">
+    <div className="full line-card" ref={allocationFields}>
       {allowAdvance && (
         <label>
           <input
@@ -52,7 +59,7 @@ export default function PaymentAllocations({
             </span>
           </div>
           {rows.map((row, index) => (
-            <div className="form-grid allocation-row" key={index}>
+            <div className="form-grid allocation-row" key={index} role="group" aria-label={`Document ${index + 1} allocation`}>
               <label>
                 Invoice or bill
                 <select
@@ -142,7 +149,8 @@ export default function PaymentAllocations({
                 <button
                   type="button"
                   className="link full"
-                  onClick={() => setRows(rows.filter((_, i) => i !== index))}
+                  aria-label={`Remove document ${index + 1}`}
+                  onClick={() => { focusRow.current = Math.min(index, rows.length - 2); setRows(rows.filter((_, i) => i !== index)); }}
                 >
                   Remove document
                 </button>
@@ -167,7 +175,7 @@ export default function PaymentAllocations({
             type="button"
             className="button secondary"
             disabled={!rows[0]?.document_id || rows.length >= 100}
-            onClick={() => setRows([...rows, { document_id: "", amount: "" }])}
+            onClick={() => { focusRow.current = rows.length; setRows([...rows, { document_id: "", amount: "" }]); }}
           >
             Add another document
           </button>

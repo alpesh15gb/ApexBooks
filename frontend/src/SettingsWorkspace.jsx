@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 
 const tabs = [
-  ["commerce", "Ecommerce", ShoppingBag, "Bagisto channels, stock, orders and reconciliation"],
   ["company", "Company", Building2, "Your business identity and tax profile"],
   [
     "documents",
@@ -44,10 +43,12 @@ const tabs = [
     LockKeyhole,
     "Protect your account and review changes",
   ],
+  ["commerce", "Ecommerce", ShoppingBag, "Connect your online store and review orders"],
 ];
-export default function SettingsWorkspace({ company, sections, onAddCompany, apiBuild }) {
-  const [active, setActive] = useState("company"),
-    [visited, setVisited] = useState(() => new Set(["company"]));
+export default function SettingsWorkspace({ company, sections, onAddCompany, apiBuild, initialTab = "company" }) {
+  const startTab = tabs.some(([key]) => key === initialTab) ? initialTab : "company";
+  const [active, setActive] = useState(startTab),
+    [visited, setVisited] = useState(() => new Set([startTab]));
   const [search, setSearch] = useState("");
   const keywords = {
     company: "business address gst gstin tax phone email",
@@ -57,6 +58,7 @@ export default function SettingsWorkspace({ company, sections, onAddCompany, api
     data: "vyapar import export csv xlsx backup restore migration",
     access: "team users roles permissions members",
     security: "password recovery sessions revoke audit history",
+    commerce: "online store ecommerce bagisto channels orders sync reconciliation",
   };
   const visibleTabs = tabs.filter(([key, title, , description]) =>
     `${title} ${description} ${keywords[key]}`
@@ -71,6 +73,14 @@ export default function SettingsWorkspace({ company, sections, onAddCompany, api
       workspace.current?.scrollIntoView({ block: "start", behavior: "auto" }),
     );
     setVisited((current) => new Set([...current, key]));
+  }
+  function jumpTo(id) {
+    const section = document.getElementById(`setting-${id}`);
+    if (!section) return;
+    const destination = section.querySelector('h2,h3,input,select,textarea,button') || section;
+    if (!destination.matches('input,select,textarea,button,a[href]')) destination.tabIndex = -1;
+    destination.focus({ preventScroll: true });
+    section.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
   }
   return (
     <div className="settings-workspace" ref={workspace}>
@@ -88,7 +98,6 @@ export default function SettingsWorkspace({ company, sections, onAddCompany, api
           Add company
         </button>
       </div>
-      <details className="info-box"><summary>Build information</summary><p>Web {WEB_VERSION} · Source <code style={{ overflowWrap: 'anywhere' }}>{WEB_BUILD_REVISION}</code></p><p>API {apiBuild?.version || 'unknown'} · Source <code style={{ overflowWrap: 'anywhere' }}>{normalizedBuildRevision(apiBuild?.revision)}</code></p><small>Unknown means no verified source revision was supplied by the build or deployment. Version labels alone do not identify a tested revision.</small></details>
       <div className="settings-layout">
         <aside className="settings-rail">
           <div className="settings-company">
@@ -162,7 +171,7 @@ export default function SettingsWorkspace({ company, sections, onAddCompany, api
             ))}
           </div>
           {!visibleTabs.length && (
-            <p className="settings-no-match">
+            <p className="settings-no-match" role="status">
               No matching settings. Try logo, prefix, backup or GST.
             </p>
           )}
@@ -170,11 +179,12 @@ export default function SettingsWorkspace({ company, sections, onAddCompany, api
             Changes apply to this company. Account security applies to your
             sign-in.
           </p>
+          <details className="settings-build-info"><summary>About ApexBooks</summary><p>Web {WEB_VERSION} · API {apiBuild?.version || 'unknown'}</p><small>For support, source revisions:</small><p>Web <code style={{ overflowWrap: 'anywhere' }}>{WEB_BUILD_REVISION}</code></p><p>API <code style={{ overflowWrap: 'anywhere' }}>{normalizedBuildRevision(apiBuild?.revision)}</code></p></details>
         </aside>
         <div className="settings-content">
           {tabs.map(
             ([key, title, , description]) =>
-              visited.has(key) && (
+              (
                 <section
                   key={key}
                   role="tabpanel"
@@ -213,20 +223,13 @@ export default function SettingsWorkspace({ company, sections, onAddCompany, api
                     ).map(([id, label]) => (
                       <button
                         key={id}
-                        onClick={() =>
-                          document
-                            .getElementById(`setting-${id}`)
-                            ?.scrollIntoView({
-                              behavior: "smooth",
-                              block: "start",
-                            })
-                        }
+                        onClick={() => jumpTo(id)}
                       >
                         {label}
                       </button>
                     ))}
                   </div>
-                  <div className="panel settings-panel">{sections[key]}</div>
+                  {visited.has(key) && <div className="panel settings-panel">{sections[key]}</div>}
                 </section>
               ),
           )}

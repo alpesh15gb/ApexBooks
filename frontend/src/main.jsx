@@ -1,6 +1,6 @@
 import { businessDate, businessFinancialYear } from "./businessDate.js";
 import { CORE_ENHANCEMENTS, capabilityFeatures, supportsFeature, routeFeature, companyDisplayName } from "./capabilities.js";
-import { hasPendingPostings, postingNavigationMessage } from "./postingRegistry.js";
+import { hasPendingPostings, postingNavigationMessage, registerPostingRequest } from "./postingRegistry.js";
 import { apiErrorMessage } from "./apiErrors.js";
 import { fetchCompanyRecords } from "./companyRecords.js";
 import TransactionDetail from "./TransactionDetail.jsx";
@@ -8,27 +8,28 @@ import { relatedRecordActions, settlementLabel } from "./recordLifecycle.js";
 import { createRequestScope } from "./requestScope.js";
 import RegisterControls from "./RegisterControls.jsx";
 import { compareRegisterRecords } from "./registerOrder.js";
-import SettingsWorkspace from "./SettingsWorkspace.jsx";
-import CommerceWorkspace from "./CommerceWorkspace.jsx";
+import { deferWorkspace } from "./DeferredWorkspace.jsx";
+const SettingsWorkspace = deferWorkspace(() => import("./SettingsWorkspace.jsx"), "Settings");
+const CommerceWorkspace = deferWorkspace(() => import("./CommerceWorkspace.jsx"), "Ecommerce");
 import RegisterOverview from "./RegisterOverview.jsx";
 import BusinessOverview from "./BusinessOverview.jsx";
 import WorkspaceHeader from "./WorkspaceHeader.jsx";
 import PartyStatement from "./PartyStatement.jsx";
 import { WorkspaceBoundary, DialogFocus } from "./WorkspaceBoundary.jsx";
 import { RecoveryCodes, RecoverAccount } from "./RecoveryAccess.jsx";
-import PosWorkspace from "./PosWorkspace.jsx";
+const PosWorkspace = deferWorkspace(() => import("./PosWorkspace.jsx"), "Point of sale");
 import { OpeningBalances, CreditSettlements } from "./AccountingWorkflows.jsx";
 import { isActiveMaster } from "./masterLifecycle.js";
 import { reorderDraft } from "./reorderDraft.js";
-import RecurringWorkspace from "./RecurringWorkspace.jsx";
-import ReorderWorkspace from "./ReorderWorkspace.jsx";
+const RecurringWorkspace = deferWorkspace(() => import("./RecurringWorkspace.jsx"), "Recurring drafts");
+const ReorderWorkspace = deferWorkspace(() => import("./ReorderWorkspace.jsx"), "Low stock & reorder");
 import RecordEditor from "./RecordEditor.jsx";
-import BackupRestore from "./BackupRestore.jsx";
+const BackupRestore = deferWorkspace(() => import("./BackupRestore.jsx"), "Backup and restore");
 import ActionMenu from "./ActionMenu.jsx";
 import WorkspaceSidebar from "./WorkspaceSidebar.jsx";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-const CompleteBackup = React.lazy(() => import("./CompleteBackup.jsx"));
+const CompleteBackup = deferWorkspace(() => import("./CompleteBackup.jsx"), "Complete backup tools");
 import { createRoot } from "react-dom/client";
 import {
   CalendarDays,
@@ -59,27 +60,31 @@ import {
   ReceiptIndianRupee,
   BookOpen,
 } from "lucide-react";
+// Keep the shared theme after commerce's base rules even when its JS loads later.
+import "./commerce.css";
 import "./style.css";
 import "./capabilities.css";
 import "./workspace.css";
 import "./flows.css";
 import "./ledger.css";
 import "./rich-workspace.css";
-import ReportsV2 from "./Reports.jsx";
-import DayBook from "./DayBook.jsx";
+import "./clarity.css";
+import "./quickbooks-workflows.css";
+const ReportsV2 = deferWorkspace(() => import("./Reports.jsx"), "Reports");
+const DayBook = deferWorkspace(() => import("./DayBook.jsx"), "Day book");
 import OverdueReminders, { overdueCount } from "./OverdueReminders.jsx";
-import MasterImport from "./MasterImport.jsx";
-import VyaparImport from "./VyaparImport.jsx";
-import DocumentBranding from "./DocumentBranding.jsx";
+const MasterImport = deferWorkspace(() => import("./MasterImport.jsx"), "CSV import");
+const VyaparImport = deferWorkspace(() => import("./VyaparImport.jsx"), "Vyapar import");
+const DocumentBranding = deferWorkspace(() => import("./DocumentBranding.jsx"), "Document branding");
 import MasterForm from "./MasterForm.jsx";
 import OpeningStock from "./OpeningStock.jsx";
 import StockAdjustment from "./StockAdjustment.jsx";
-import CompanyDataExport from "./CompanyDataExport.jsx";
+const CompanyDataExport = deferWorkspace(() => import("./CompanyDataExport.jsx"), "Company export");
 import CompanyDetailsEditor from "./CompanyDetailsEditor.jsx";
-import AuditLog from "./AuditLog.jsx";
-import PeriodLock from "./PeriodLock.jsx";
-import AccountSecurity from "./AccountSecurity.jsx";
-import BankWorkspace from "./BankWorkspace.jsx";
+const AuditLog = deferWorkspace(() => import("./AuditLog.jsx"), "Activity log");
+const PeriodLock = deferWorkspace(() => import("./PeriodLock.jsx"), "Accounting period lock");
+const AccountSecurity = deferWorkspace(() => import("./AccountSecurity.jsx"), "Account security");
+const BankWorkspace = deferWorkspace(() => import("./BankWorkspace.jsx"), "Cash & bank");
 import PaymentAllocations from "./PaymentAllocations.jsx";
 import Advances from "./Advances.jsx";
 import { downloadBlob } from "./downloadBlob.js";
@@ -258,10 +263,11 @@ function Auth({ onLogin }) {
                     required
                   />
                 </label>
-                <label>
-                  Password
+                <div>
+                  <label htmlFor="auth-password">Password</label>
                   <span className="password-field">
                   <input
+                    id="auth-password"
                     type={passwordVisible ? "text" : "password"}
                     autoComplete={register ? "new-password" : "current-password"}
                     disabled={busy}
@@ -273,7 +279,7 @@ function Auth({ onLogin }) {
                   />
                   <button type="button" className="icon-button" disabled={busy} aria-label={passwordVisible ? "Hide password" : "Show password"} aria-pressed={passwordVisible} onClick={() => setPasswordVisible(value => !value)}>{passwordVisible ? <EyeOff size={18} /> : <Eye size={18} />}</button>
                   </span>
-                </label>
+                </div>
                 {error && <div className="error" role="alert">{error}</div>}
                 <button className="button primary wide" disabled={busy}>
                   {busy
@@ -456,7 +462,8 @@ function App() {
     [recordsCompanyId, setRecordsCompanyId] = useState(""),
     [recordsLoadError, setRecordsLoadError] = useState(""),
     [page, setPage] = useState(() => labels[window.location.hash.slice(2)] ? window.location.hash.slice(2) : "dashboard"),
-    [expanded, setExpanded] = useState("Sales"),
+    [settingsTab, setSettingsTab] = useState("company"),
+    [expanded, setExpanded] = useState(() => sections.find(section => section.children?.some(([key]) => key === window.location.hash.slice(2)))?.label || ""),
     [modal, setModal] = useState(""),
     [editorCycle, setEditorCycle] = useState(0),
     [registerFilter, setRegisterFilter] = useState({ page: "", value: "all" }),
@@ -471,6 +478,7 @@ function App() {
     [registerPage, setRegisterPage] = useState(1),
     [search, setSearch] = useState(""),
     [menu, setMenu] = useState(false),
+    [createOpen, setCreateOpen] = useState(false),
     [error, setError] = useState(""),
     [docTemplate, setDocTemplate] = useState("classic"),
     [conversionSource, setConversionSource] = useState(null),
@@ -655,19 +663,19 @@ function App() {
           (activeRegisterFilter === "active" && isActiveMaster(r)) ||
           (activeRegisterFilter === "inactive" && !isActiveMaster(r)) ||
           (activeRegisterFilter === "unpaid" &&
-            r.posted &&
+            r.posted && !r.cancelled &&
             Number(r.outstanding) > 0) ||
           (activeRegisterFilter === "paid" &&
-            r.posted &&
+            r.posted && !r.cancelled &&
             Number(r.outstanding) === 0) ||
           (activeRegisterFilter === "overdue" &&
-            r.posted &&
+            r.posted && !r.cancelled &&
             Number(r.outstanding) > 0 &&
             r.data?.due_date &&
             r.data.due_date < today()) ||
-          (activeRegisterFilter === "draft" && !r.converted_to) ||
+          (activeRegisterFilter === "draft" && !r.converted_to && !r.cancelled) ||
           (activeRegisterFilter === "converted" && !!r.converted_to) ||
-          (activeRegisterFilter === "posted" && r.posted) ||
+          (activeRegisterFilter === "posted" && r.posted && !r.cancelled) ||
           (activeRegisterFilter === "unposted" && r.posted === false && !r.cancelled) ||
           (activeRegisterFilter === "cancelled" && !!r.cancelled)),
     )
@@ -821,8 +829,12 @@ function App() {
     }
   }
   async function cancelDocument(record, reason) {
-    await api(`/companies/${companyId}/records/${record.id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) });
-    await loadRecords();
+    if (hasPendingPostings()) return;
+    const release = registerPostingRequest({ busy: true });
+    try {
+      await api(`/companies/${companyId}/records/${record.id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) });
+      await loadRecords();
+    } finally { release(); }
     await beginDetail(record);
   }
   function closeDetail() { if (postingNavigationBlocked()) return; editorRequests.current.latest(); setDetail(null); }
@@ -950,7 +962,7 @@ function App() {
     setPage("dashboard");
     setSigned(false);
   }
-  function navigateWorkspace(kind, reference = "", filter = "all") {
+  function navigateWorkspace(kind, reference = "", filter = "all", resetFilters = false) {
     if (postingNavigationBlocked()) return;
     if (modal === "record") { window.dispatchEvent(new window.Event("apex-close-editor")); return; }
     if (document.querySelector(".overlay .modal")) return;
@@ -969,15 +981,17 @@ function App() {
       advance_refund: "payment_in",
     };
     const destination = routes[kind] || kind;
+    if (destination === "settings") setSettingsTab(["company", "documents", "accounting", "data", "access", "security", "commerce"].includes(reference) ? reference : "company");
     if (routeFeature[destination] && !supported(routeFeature[destination])) { setError("This workflow needs an updated connected API. Core workspaces remain available."); return; }
     setRegisterFilter({ page: destination, value: filter });
+    if (resetFilters) setRegisterQuery({ page: destination, period: "all", from: "", to: "", party: "", sort: "newest" });
     setPage(labels[destination] ? destination : "reports");
     setSearch(routes[kind] ? "" : reference);
     setMenu(false);
     const group = sections.find((section) =>
       section.children?.some(([key]) => key === destination),
     );
-    if (group) setExpanded(group.label);
+    setExpanded(group?.label || "");
   }
   function createWorkspace(kind) {
     if (postingNavigationBlocked()) return;
@@ -1022,6 +1036,7 @@ function App() {
       fromHistory.current = true;
       editorRequests.current.latest();
       setPage(labels[requested] ? requested : "dashboard");
+      setExpanded(sections.find(section => section.children?.some(([key]) => key === requested))?.label || "");
       setSearch("");
       setMenu(false);
     };
@@ -1033,9 +1048,7 @@ function App() {
     <div className="app">
       <a className="skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); document.getElementById('workspace-content')?.focus(); }}>Skip to content</a>
       <WorkspaceSidebar open={menu} onClose={() => setMenu(false)}>
-        <div className="brand">
-          <img className="brand-wordmark" src="/apexbooks-wordmark.png" alt="Apex Books — Your books in balance" width="1569" height="230" />
-        </div>
+        <div className="brand workspace-brand"><span className="workspace-brand-symbol"><BookOpen size={23} /></span><span>Apex<span className="workspace-brand-light">Books</span><small>BUSINESS ACCOUNTING</small></span></div>
         <div className="company-switch">
           <span className="company-icon">
             <Building2 size={18} />
@@ -1061,10 +1074,11 @@ function App() {
           </span>
           <ChevronDown size={14} />
         </div>
-        <div className="nav-label">YOUR WORKSPACE</div>
+        <button className="sidebar-create button primary" aria-label="Create" aria-haspopup="menu" aria-expanded={createOpen} onKeyDown={event => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); if (!createOpen) window.dispatchEvent(new window.Event("apex-open-create")); } }} disabled={!["owner", "editor"].includes(company?.role)} onClick={() => window.dispatchEvent(new window.Event('apex-open-create'))}><Plus size={19} />New transaction</button>
         <nav aria-label="Main navigation">
           {sections.map((s) => (
             <React.Fragment key={s.label}>
+              {(s.key === 'dashboard' || s.key === 'party' || s.label === 'Sales' || s.key === 'bank_account' || s.key === 'recurring') && <div className="nav-label">{{ dashboard: 'OVERVIEW', party: 'DIRECTORY', bank_account: 'ACCOUNTING', recurring: 'BUSINESS TOOLS' }[s.key] || 'TRANSACTIONS'}</div>}
               <button
                 disabled={!!routeFeature[s.key] && !supported(routeFeature[s.key])}
                 title={routeFeature[s.key] && !supported(routeFeature[s.key]) ? "Connected API upgrade required" : undefined}
@@ -1138,6 +1152,7 @@ function App() {
           onCreate={createWorkspace}
           onMenu={() => setMenu(true)}
           menuOpen={menu}
+          onCreateMenuChange={setCreateOpen}
         />
         <div className="content" id="workspace-content" tabIndex={-1}>
           {companyId && <div className="workspace-sync-line" role="status">{company?.book_label?.trim() && <strong className="workspace-book-label" title={`Book label: ${company.book_label}`}>{company.book_label}</strong>}<span className={recordsLoading ? "sync-active" : "sync-idle"} /><span>{recordsLoading ? recordsReady ? "Refreshing company data…" : `Loading company data${recordsProgress ? ` · ${recordsProgress.toLocaleString()} records` : "…"}` : recordsLoadError ? "Refresh needed" : recordsReady ? "Company data loaded" : "Connecting to your company…"}</span><button className="link" disabled={recordsLoading} onClick={() => loadRecords()}>Refresh</button></div>}
@@ -1190,6 +1205,7 @@ function App() {
               api={api}
               onNavigate={navigateWorkspace}
               onCreate={createWorkspace}
+              onOpenRecord={beginDetail}
             />
           ) : page === "pos" ? (
             <PosWorkspace
@@ -1206,7 +1222,8 @@ function App() {
           ) : page === "settings" ? (
             <SettingsWorkspace
               apiBuild={capabilities}
-              key={companyId}
+              key={`${companyId}:${settingsTab}`}
+              initialTab={settingsTab}
               company={company}
               onAddCompany={() => setModal("company")}
               sections={{

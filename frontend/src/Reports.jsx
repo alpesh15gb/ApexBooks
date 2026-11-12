@@ -1,3 +1,4 @@
+import FinancialFigure from "./FinancialFigure.jsx";
 import { businessDate, businessFinancialYear } from "./businessDate.js";
 import ReportLibrary, { reportInfo, reportGroups } from "./ReportLibrary.jsx";
 import DateRangeFilter from "./DateRangeFilter.jsx";
@@ -301,7 +302,7 @@ export default function Reports({ companyId, records }) {
           Loading report…
         </div>
       )}
-      {error && <div className="error banner">{error}</div>}
+      {error && <div className="error banner" role="alert">{error}</div>}
       {data && ["gstr1", "gstr2a", "gstr3b"].includes(view) && (
         <GstReturnView data={data} />
       )}
@@ -367,8 +368,8 @@ export default function Reports({ companyId, records }) {
             </section>
           </div>
           <div className="info-box">
-            Current receivables and payables include activity outside the
-            selected period.{" "}
+            Receivables and payables are outstanding as of the end date,
+            including documents issued before the selected period.{" "}
             {
               records.filter(
                 (r) =>
@@ -932,7 +933,7 @@ function Metric({ label, value }) {
       <div className="summary-top">
         <span>{label}</span>
       </div>
-      <strong>{rupees(value)}</strong>
+      <FinancialFigure>{rupees(value)}</FinancialFigure>
     </div>
   );
 }

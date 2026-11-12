@@ -19,3 +19,12 @@ test('settlement is distinct from posting and draft conversion', () => {
   assert.equal(settlementLabel({ kind: 'sales_invoice', posted: true, amount: '100', outstanding: '0' }), 'Settled');
   assert.equal(settlementLabel({ kind: 'estimate', posted: false, outstanding: '0' }), '');
 });
+
+test('cancelled records and unknown balances cannot look settled or offer financial actions', () => {
+  const cancelled = {kind:'sales_invoice', posted:true, cancelled:true, outstanding:'40', amount:'100'};
+  assert.deepEqual(relatedRecordActions(cancelled, true), []);
+  assert.equal(settlementLabel(cancelled), '');
+  for (const outstanding of [undefined, null, 'invalid']) {
+    assert.equal(settlementLabel({kind:'sales_invoice', posted:true, amount:'100', outstanding}), '');
+  }
+});

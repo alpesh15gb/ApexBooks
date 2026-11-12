@@ -12,7 +12,7 @@ public sealed partial class MainPage
 {
     private async Task AboutBuild()
     {
-        var panel=Stack();panel.Children.Add(Text("Apex Books "+BuildIdentity.Version,24,true));panel.Children.Add(Text("Build revision",14,true));panel.Children.Add(Text(BuildIdentity.Revision,12));panel.Children.Add(Text("This nonsecret identifier comes from the explicit build-time checkout revision. Unknown means the build did not supply a valid full revision; the app never runs git to guess it.",12));panel.Children.Add(Text("API server · "+Api.Origin,12));panel.Children.Add(Text("Connected API version · "+Api.Capabilities.ApiVersion,12));panel.Children.Add(Text("Connected API build · "+Api.Capabilities.BuildRevision,12));await Dialog("About Apex Books",panel,()=>Task.CompletedTask,"Done");
+        var panel=Stack();panel.Children.Add(Text("Apex Books "+BuildIdentity.Version,24,true));panel.Children.Add(Text("Build revision",14,true));panel.Children.Add(Text(BuildIdentity.Revision,12));panel.Children.Add(Text("Include these details when contacting support about an issue.",12));panel.Children.Add(Text("API server · "+Api.Origin,12));panel.Children.Add(Text("Connected API version · "+Api.Capabilities.ApiVersion,12));panel.Children.Add(Text("Connected API build · "+Api.Capabilities.BuildRevision,12));await Dialog("About Apex Books",panel,()=>Task.CompletedTask,"Done");
     }
     private Task SettingsPage()
     {
@@ -27,9 +27,9 @@ public sealed partial class MainPage
             if(Supports("chunked_backups"))Add("Complete backup recovery","Resume or cancel your own staged transfers after a lost response or restart.",("Recover backup transfers",RecoverCompleteTransfers));
             Add("People & access","Manage company roles and permissions.",("Company members",Members));
         }
-        Add("About Apex Books","Version "+BuildIdentity.Version+" · build "+BuildIdentity.Revision+" · connected API "+Api.Capabilities.ApiVersion+" / "+Api.Capabilities.BuildRevision,("About this build",AboutBuild));
-        Add("Account security","Protect your account and review changes. Remembered sign-in uses Windows Credential Manager.",("Password and sessions",Security),("One-use recovery codes",RecoveryCodes),("View audit history",AuditHistory));
-        Add("Ecommerce","Company-scoped Bagisto channels, stock, orders and delivery review.",("Open ecommerce workspace",()=>Navigate("commerce")));
+        Add("About Apex Books","Version "+BuildIdentity.Version+" · app and connection details for support",("About this build",AboutBuild));
+        Add("Account security","Protect your account and review changes. Remembered sign-in is stored securely on this device.",("Password and sessions",Security),("One-use recovery codes",RecoveryCodes),("View audit history",AuditHistory));
+        Add("Ecommerce","Manage online stores, stock, orders and deliveries.",("Open ecommerce workspace",()=>Navigate("commerce")));
         var search=Input("Find a setting, for example logo, Vyapar or prefixes");var category=Select("Settings category",new[]{("all","All settings")}.Concat(entries.Select(e=>(e.Title,e.Title))),"all");var content=Stack(18);
         void Draw(){content.Children.Clear();var query=search.Text.Trim();var selected=Value(category);var matches=entries.Where(e=>(query.Length>0||selected=="all"||e.Title==selected)&&(e.Title+" "+e.Detail+" "+string.Join(" ",e.Actions.Select(a=>a.Label))).Contains(query,StringComparison.OrdinalIgnoreCase)).ToArray();
             foreach(var entry in matches){var card=Stack();card.Children.Add(Text(entry.Title,21,true));card.Children.Add(Text(entry.Detail));foreach(var action in entry.Actions.Where(a=>query.Length==0||(entry.Title+" "+entry.Detail+" "+a.Label).Contains(query,StringComparison.OrdinalIgnoreCase))){var button=AsyncButton(action.Label,action.Action,Error);button.HorizontalAlignment=HorizontalAlignment.Stretch;button.HorizontalContentAlignment=HorizontalAlignment.Left;card.Children.Add(button);}content.Children.Add(Card(card));}

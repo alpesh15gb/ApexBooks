@@ -1,5 +1,5 @@
 import { lineDiscountMode } from "./lineDiscount.js";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
 export function useDocumentPreview({
@@ -80,7 +80,7 @@ export function DocumentIdentity({
               ? "Supplier & bill details"
               : "Customer & document details"}
           </h3>
-          <p>Choose an existing party to fill its saved details.</p>
+          <p>Choose a saved {purchase ? "supplier" : "customer"}, or enter a name for this document.</p>
         </div>
       </div>
       {["credit_note", "debit_note"].includes(kind) && (
@@ -110,6 +110,8 @@ export function DocumentIdentity({
               name="name"
               list="apex-party-options"
               required
+              maxLength={120}
+              pattern={".*\\S.*"}
               value={form.name}
               onChange={change}
               placeholder="Search or enter party name"
@@ -133,6 +135,7 @@ export function DocumentIdentity({
             <label>
               Phone
               <input
+                type="tel"
                 value={form.party_phone}
                 maxLength={32}
                 onChange={(e) => update("party_phone", e.target.value)}
@@ -220,6 +223,9 @@ export function DocumentIdentity({
                 name="place_of_supply"
                 required={company.tax_mode === "regular"}
                 pattern="[0-9]{2}"
+                inputMode="numeric"
+                maxLength={2}
+                title="Enter the two-digit GST state code, for example 24 for Gujarat."
                 value={form.place_of_supply}
                 onChange={change}
               />
@@ -231,6 +237,9 @@ export function DocumentIdentity({
               <input
                 required={company.tax_mode === "regular"}
                 pattern="[0-9]{2}"
+                inputMode="numeric"
+                maxLength={2}
+                title="Enter the supplier's two-digit GST state code."
                 value={form.supplier_state}
                 onChange={(e) => update("supplier_state", e.target.value)}
               />
@@ -256,8 +265,21 @@ export function DocumentItems({
   preview,
   money,
 }) {
+  const itemsSection = useRef(null);
+  const previousCount = useRef(lines.length);
+  const focusAfterRemoval = useRef(null);
+  useEffect(() => {
+    if (focusAfterRemoval.current !== null) {
+      itemsSection.current?.querySelector(`[aria-label="Item ${focusAfterRemoval.current + 1} description"]`)?.focus();
+      focusAfterRemoval.current = null;
+    } else if (lines.length > previousCount.current) {
+      itemsSection.current?.querySelector(`[aria-label="Item ${lines.length} description"]`)?.focus();
+    }
+    previousCount.current = lines.length;
+  }, [lines.length]);
   return (
     <section
+      ref={itemsSection}
       className={`document-items full ${showTax ? "with-tax" : "without-tax"}`}
     >
       <div className="editor-section-heading">
@@ -305,7 +327,7 @@ export function DocumentItems({
               />
               <small>
                 #{index + 1}
-                {line.item_id ? " · linked to item" : " · custom line"}
+                {line.item_id ? " · saved item" : " · one-time item"}
                 {!line.item_id && onQuickAddItem && line.description.trim() && (
                   <button type="button" className="quick-add inline" disabled={!!quickAdding} onClick={() => onQuickAddItem(index)}>
                     <Plus size={12} aria-hidden="true" />
@@ -322,6 +344,7 @@ export function DocumentItems({
                 type="number"
                 min="0.001"
                 step="any"
+                inputMode="decimal"
                 required
                 aria-label={`Item ${index + 1} quantity`}
                 value={line.quantity}
@@ -344,11 +367,13 @@ export function DocumentItems({
                 type="number"
                 min="0"
                 step="0.01"
+                inputMode="decimal"
                 required
                 aria-label={`Item ${index + 1} rate`}
                 value={line.rate}
                 onChange={(e) => changeLine(index, e)}
               />
+              {showTax && <small className="line-rate-basis">{line.price_includes_tax ? "Includes GST" : "Excludes GST"}</small>}
             </label>
             <label className="line-discount">
               <span className="mobile-field-label">Line discount</span>
@@ -359,7 +384,7 @@ export function DocumentItems({
                 name={lineDiscountMode(line) === "amount" ? "discount_amount" : "discount_percent"}
                 type="number"
                 min="0"
-                max={lineDiscountMode(line) === "amount" ? undefined : "100"}
+                max={lineDiscountMode(line) === "amount" ? Number(line.quantity || 0) * Number(line.rate || 0) : "100"}
                 step="0.01"
                 aria-label={`Item ${index + 1} discount ${lineDiscountMode(line) === "amount" ? "amount" : "percent"}`}
                 value={lineDiscountMode(line) === "amount" ? line.discount_amount ?? "0" : line.discount_percent ?? "0"}
@@ -399,7 +424,10 @@ export function DocumentItems({
               className="icon-button line-remove"
               aria-label={`Remove item ${index + 1}`}
               disabled={lines.length === 1}
-              onClick={() => setLines(lines.filter((_, i) => i !== index))}
+              onClick={() => {
+                focusAfterRemoval.current = Math.min(index, lines.length - 2);
+                setLines(lines.filter((_, i) => i !== index));
+              }}
             >
               <Trash2 size={16} />
             </button>
@@ -531,7 +559,7 @@ export function DocumentTotals({ preview, money }) {
             <b>{money(data[k])}</b>
           </div>
         ))}
-      {Number(data.round_off) !== 0 && (
+      {Number(data.round_off || 0) !== 0 && (
         <div>
           <span>Round off</span>
           <b>{money(data.round_off)}</b>

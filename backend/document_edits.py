@@ -90,7 +90,8 @@ def install(app,m):
                     raise HTTPException(422, 'Enter a positive allocation with at most two decimal places')
                 proposed.append((target_id, value))
             intent=intent or sorted(existing)!=sorted(proposed)
-        intent=intent or (record.kind not in m.DOCUMENTS and m.money(body.amount)!=record.amount)
+        amount_entered = record.kind not in m.DOCUMENTS or (record.kind == 'expense' and not data.get('lines'))
+        intent=intent or (amount_entered and m.money(body.amount)!=record.amount)
         if record.data.get('commerce_connection_id') and (intent or any(data.get(k) != record.data.get(k) for k in metadata-{'notes','terms','due_date'})):
             raise HTTPException(409,'This document is linked to an ecommerce source. Use its source correction / credit workflow to keep both systems reconciled.')
         if intent and record.kind in m.DOCUMENTS and (record.kind!='expense' or data.get('lines')):data,amount=m.calculate(data,company,profile.mode if profile else 'regular',record.kind,session)
@@ -149,7 +150,8 @@ def install(app,m):
             for allocation in allocations:
                 payment=session.get(m.Record,allocation.payment_id)
                 if body.name.strip().casefold()!=record.name.strip().casefold() or body.date>payment.date:raise HTTPException(409,'An allocated document must retain its party and precede its settlements')
-            if record.kind in {'sales_invoice','purchase_bill','pos'} and any(r.data.get('applied_to')==record.id for r in session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind.in_(['credit_note','debit_note'])))):raise HTTPException(409,'This document has return notes. Its nonfinancial details can still be edited; correct values through the linked notes.')
+            posted_notes=select(m.RecordPosting.record_id).where(m.RecordPosting.company_id==company_id)
+            if record.kind in {'sales_invoice','purchase_bill','pos'} and any(r.data.get('applied_to')==record.id for r in session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind.in_(['credit_note','debit_note']),m.Record.id.in_(posted_notes)))):raise HTTPException(409,'This document has return notes. Its nonfinancial details can still be edited; correct values through the linked notes.')
             movements=list(session.scalars(select(m.StockMovement).where(m.StockMovement.company_id==company_id,m.StockMovement.source_record_id==record.id)))
             item_ids={row.item_id for row in movements}
             if item_ids:

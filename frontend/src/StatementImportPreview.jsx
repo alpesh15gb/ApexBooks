@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 const aliases = {
   date: ["date", "transactiondate", "txndate", "valuedate", "postingdate"],
   description: [
@@ -133,13 +134,17 @@ export default function StatementImportPreview({
     [report, setReport] = useState(null),
     [busy, setBusy] = useState(false),
     [payload, setPayload] = useState(null);
+  const processing = useRef(false);
+  const posting = usePostingRequest();
+  const locked = busy || posting.busy || posting.pending;
+  const requestClose = () => { if (!processing.current && !posting.pending) onClose(); };
   useEffect(() => {
     let live = true;
+    if (file.size > 5_000_000) { setError("CSV exceeds 5 MB"); return; }
     file
       .text()
       .then((text) => {
         if (!live) return;
-        if (file.size > 5_000_000) throw Error("CSV exceeds 5 MB");
         const rows = parse(text);
         if (rows.length > 5021)
           throw Error("Import up to 5,000 transactions per CSV");
@@ -215,6 +220,8 @@ export default function StatementImportPreview({
     }
   }, [table, header, mapping, format]);
   async function validate() {
+    if (processing.current || posting.pending) return;
+    processing.current = true;
     setBusy(true);
     setError("");
     try {
@@ -229,22 +236,27 @@ export default function StatementImportPreview({
     } catch (e) {
       setError(e.message);
     } finally {
+      processing.current = false;
       setBusy(false);
     }
   }
   async function commit() {
+    if (processing.current || !payload || !report) return;
+    processing.current = true;
     setBusy(true);
     setError("");
     try {
-      const value = await api(`/companies/${companyId}/bank-statement/import`, {
+      const result = await posting.run(() => api(`/companies/${companyId}/bank-statement/import`, {
         method: "POST",
         body: JSON.stringify(payload),
-      });
-      await onImported(value);
+      }));
+      if (!result) return;
+      await onImported(result.value);
       onClose();
     } catch (e) {
       setError(e.message);
     } finally {
+      processing.current = false;
       setBusy(false);
     }
   }
@@ -263,7 +275,7 @@ export default function StatementImportPreview({
               {file.name} → {bankName}
             </p>
           </div>
-          <button className="icon-button" aria-label="Close" onClick={onClose}>
+          <button className="icon-button" aria-label="Close" onClick={requestClose} disabled={locked}>
             ×
           </button>
         </div>
@@ -273,6 +285,7 @@ export default function StatementImportPreview({
             <select
               className="form-select"
               aria-label="Header row"
+              disabled={locked}
               value={header}
               onChange={(e) => setHeader(Number(e.target.value))}
             >
@@ -288,6 +301,7 @@ export default function StatementImportPreview({
             <select
               className="form-select"
               aria-label="Date format"
+              disabled={locked}
               value={format}
               onChange={(e) => {
                 setFormat(e.target.value);
@@ -304,6 +318,7 @@ export default function StatementImportPreview({
               <select
                 className="form-select"
                 aria-label={`${key} column`}
+                disabled={locked}
                 value={mapping[key] ?? ""}
                 onChange={(e) => {
                   setMapping({ ...mapping, [key]: e.target.value });
@@ -365,11 +380,12 @@ export default function StatementImportPreview({
               {error}
             </div>
           )}
+          {posting.pending && !busy && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
           <div className="modal-actions full">
             <button
               className="button secondary"
-              onClick={onClose}
-              disabled={busy}
+              onClick={requestClose}
+              disabled={locked}
             >
               Cancel
             </button>
@@ -377,9 +393,9 @@ export default function StatementImportPreview({
               <button
                 className="button primary"
                 onClick={commit}
-                disabled={busy || !report.added}
+                disabled={busy || posting.busy || !report.added}
               >
-                Import {report.added} transactions
+                {busy ? "Importing…" : posting.pending ? "Retry same import" : `Import ${report.added} transactions`}
               </button>
             ) : (
               <button

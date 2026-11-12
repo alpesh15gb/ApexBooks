@@ -10,50 +10,50 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
                 <!-- Other merged dictionaries here -->
             </ResourceDictionary.MergedDictionaries>
-            <Color x:Key="SystemAccentColor">#B65324</Color>
-            <Color x:Key="SystemAccentColorDark1">#97431B</Color>
-            <Color x:Key="SystemAccentColorLight1">#C9713E</Color>
-            <Color x:Key="SystemAccentColorLight2">#E6A470</Color>
-            <Color x:Key="SystemAccentColorLight3">#F6D7BB</Color>
-            <Color x:Key="SystemAccentColorDark2">#773F24</Color>
-            <Color x:Key="SystemAccentColorDark3">#4A3023</Color>
+            <Color x:Key="SystemAccentColor">#007A3D</Color>
+            <Color x:Key="SystemAccentColorDark1">#006B35</Color>
+            <Color x:Key="SystemAccentColorLight1">#159A53</Color>
+            <Color x:Key="SystemAccentColorLight2">#6DC78F</Color>
+            <Color x:Key="SystemAccentColorLight3">#DDF1E5</Color>
+            <Color x:Key="SystemAccentColorDark2">#005B2D</Color>
+            <Color x:Key="SystemAccentColorDark3">#003E20</Color>
             <FontFamily x:Key="ContentControlThemeFontFamily">ms-appx:///Assets/Fonts/DMSans.ttf#DM Sans</FontFamily>
             <Style TargetType="TextBox">
                 <Setter Property="MinHeight" Value="44" />
                 <Setter Property="FontSize" Value="14" />
-                <Setter Property="CornerRadius" Value="11" />
+                <Setter Property="CornerRadius" Value="8" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="BorderBrush" Value="#f0e5db" />
-                <Setter Property="Background" Value="#fffcf9" />
-                <Setter Property="Foreground" Value="#352d28" />
+                <Setter Property="BorderBrush" Value="#DCE3EB" />
+                <Setter Property="Background" Value="#FFFFFF" />
+                <Setter Property="Foreground" Value="#202C3C" />
                 <Setter Property="Padding" Value="12,10" />
             </Style>
             <Style TargetType="PasswordBox">
                 <Setter Property="MinHeight" Value="44" />
                 <Setter Property="FontSize" Value="14" />
-                <Setter Property="CornerRadius" Value="11" />
+                <Setter Property="CornerRadius" Value="8" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="BorderBrush" Value="#DCCABE" />
-                <Setter Property="Background" Value="#FFFCF9" />
-                <Setter Property="Foreground" Value="#352D28" />
+                <Setter Property="BorderBrush" Value="#BFC9D5" />
+                <Setter Property="Background" Value="#FFFFFF" />
+                <Setter Property="Foreground" Value="#202C3C" />
                 <Setter Property="Padding" Value="12,10" />
             </Style>
             <Style TargetType="ComboBox">
                 <Setter Property="MinHeight" Value="44" />
                 <Setter Property="FontSize" Value="14" />
-                <Setter Property="CornerRadius" Value="11" />
+                <Setter Property="CornerRadius" Value="8" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="BorderBrush" Value="#f0e5db" />
-                <Setter Property="Background" Value="#fffcf9" />
-                <Setter Property="Foreground" Value="#352d28" />
+                <Setter Property="BorderBrush" Value="#DCE3EB" />
+                <Setter Property="Background" Value="#FFFFFF" />
+                <Setter Property="Foreground" Value="#202C3C" />
             </Style>
             <Style TargetType="CalendarDatePicker">
                 <Setter Property="MinHeight" Value="44" />
                 <Setter Property="FontSize" Value="14" />
-                <Setter Property="CornerRadius" Value="11" />
+                <Setter Property="CornerRadius" Value="8" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="BorderBrush" Value="#f0e5db" />
-                <Setter Property="Background" Value="#fffcf9" />
+                <Setter Property="BorderBrush" Value="#DCE3EB" />
+                <Setter Property="Background" Value="#FFFFFF" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>

@@ -11,6 +11,22 @@ object MobileNavigation {
         else -> "more"
     }
     fun group(page: String) = if (page in purchases) purchases else sales
+    fun createLabel(page: String) = when (page) {
+        "sales_invoice" -> "New invoice"
+        "purchase_bill" -> "Add bill"
+        "payment_in" -> "Receive payment"
+        "payment_out" -> "Pay supplier"
+        "party" -> "Add party"
+        "item" -> "Add item"
+        "expense" -> "Record expense"
+        "estimate" -> "New estimate"
+        "proforma" -> "New proforma"
+        "sales_order" -> "New sales order"
+        "purchase_order" -> "New purchase order"
+        "credit_note" -> "New credit note"
+        "debit_note" -> "New debit note"
+        else -> "Create"
+    }
 }
 
 /** Local step validation improves navigation; the API remains authoritative on save. */

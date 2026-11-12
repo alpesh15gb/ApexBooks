@@ -22,6 +22,14 @@ using var api=new ApexApi("https://apex-native-client-regression.invalid",transp
 var expired=0;api.SessionExpired+=()=>expired++;
 void Check(bool condition,string name){if(!condition)throw new Exception(name);Console.WriteLine("PASS "+name);}
 async Task Expect401(Task task){try{await task;throw new Exception("Expected unauthorized response");}catch(ApiFailure e)when(e.Status==401){}}
+var summaryRecords=new[]{
+    new JsonObject{["posted"]=true,["date"]="2026-11-01",["amount"]="100"},
+    new JsonObject{["posted"]=true,["cancelled"]=true,["date"]="2026-11-01",["amount"]="200"},
+    new JsonObject{["posted"]=false,["date"]="2026-11-01",["amount"]="300"},
+    new JsonObject{["posted"]=true,["date"]="2026-12-01",["amount"]="400"}
+};
+Check(summaryRecords.Where(r=>WorkflowMasterValues.IsPostedRecord(r)).Sum(r=>r.Number("amount"))==500,"register financial totals exclude cancelled and unposted documents");
+Check(summaryRecords.Where(r=>WorkflowMasterValues.IsPostedRecord(r,"2026-11-12")).Sum(r=>r.Number("amount"))==100,"dashboard financial totals also exclude future entries");
 var shareRow=new JsonObject{["name"]="Same name",["data"]=new JsonObject{["party_id"]="linked",["party_phone"]="9000000003"}};
 var shareParties=new[]{new JsonObject{["kind"]="party",["id"]="other",["name"]="Same name",["data"]=new JsonObject{["phone"]="9000000001"}},new JsonObject{["kind"]="party",["id"]="linked",["name"]="Renamed party",["data"]=new JsonObject{["phone"]="9000000002"}}};
 Check(WhatsAppShare.PartyPhone(shareRow,shareParties)=="9000000002","sharing uses the linked party before a same-name match");

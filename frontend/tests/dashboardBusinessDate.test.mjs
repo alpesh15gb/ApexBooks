@@ -22,7 +22,7 @@ test('rendered dashboard report requests include the India business day at UTC m
   try{
    await act(async()=>root.render(React.createElement(Overview,{company:{id:'synthetic',name:'Synthetic',role:'owner'},records:[],onNavigate:()=>{},onCreate:()=>{},api:async path=>{paths.push(path);return path.endsWith('/bank-accounts')?[]:path.includes('/financial?')?{accounts:[],income:100,expenses:0,net_profit:100}:path.includes('/summary?')?{sales:100,receivables:100,payables:0}:{cash_total:0};}})));
    for(const name of ['summary','financial'])assert.ok(paths.includes(`/companies/synthetic/reports/${name}?from_date=${start}&to_date=${end}`));
-   assert.ok(paths.includes(`/companies/synthetic/reports/gst-payable?from_date=2000-01-01&to_date=${end}`));
+   assert.ok(!paths.some(path => path.includes('/gst-payable')), 'unused GST endpoint must not block the overview');
   }finally{await act(async()=>root.unmount());globalThis.Date=RealDate;}
  }
 });

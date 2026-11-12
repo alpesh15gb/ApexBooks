@@ -98,7 +98,7 @@ export default function RecordEditor({
               (kind === "payment_in"
                 ? "opening_receivable"
                 : "opening_payable"))) &&
-        r.posted &&
+        r.posted && !r.cancelled && !r.data?.cancelled &&
         (!isPayment ||
           Number(r.outstanding) > 0 ||
           (edit && paymentRows.some((row) => row.document_id === r.id))),
@@ -589,9 +589,9 @@ export default function RecordEditor({
               Review the invoice or bill before saving.
             </div>
           )}
-          {kind === "purchase_bill" && (
+          {kind === "purchase_bill" && ocrStatus?.ready && (
             <div className="full ocr-box">
-              <strong>Scan purchase bill</strong>
+              <strong>Fill from a bill image</strong>
               <p>
                 {ocrStatus?.ready
                   ? "Upload a PNG, JPEG or WebP image to prefill a draft. Review every field before saving."
@@ -819,7 +819,7 @@ export default function RecordEditor({
           {doc ? (
             <>
               {draftSeed && <p className="info-box full">Reorder draft only. Choose a supplier and review quantities, prices and tax. Saving this purchase order does not move stock or money.</p>}
-              {termsError && <p className="error full">Payment-term suggestion unavailable: {termsError}. You can still set a due date manually.</p>}
+              {termsError && <p className="error full" role="alert">Payment-term suggestion unavailable: {termsError}. You can still set a due date manually.</p>}
               {termsSuggestion?.suggested_due_date && <div className="info-box full">Party terms: Net {termsSuggestion.payment_terms_days} days · suggested due date {termsSuggestion.suggested_due_date}. <button type="button" className="button secondary" onClick={() => { setDirty(true); setForm(current => ({ ...current, due_date: termsSuggestion.suggested_due_date })); }}>Apply payment terms</button></div>}
               <DocumentIdentity
                 form={form}
@@ -1059,7 +1059,7 @@ export default function RecordEditor({
           )}
           </fieldset>
           {pending && !saving && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
-          {error && <div className="error full">{error}</div>}
+          {error && <div className="error full" role="alert">{error}</div>}
           <div className="modal-actions full document-actions">
             {doc && (
               <div className="editor-footer-total">

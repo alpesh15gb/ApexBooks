@@ -14,6 +14,17 @@ class RegisterAndPeriodTest {
     }
 
     private fun row(id:String,date:String,amount:String,due:String,kind:String="sales_invoice")=JSONObject().put("id",id).put("kind",kind).put("name","Customer QA").put("number",id).put("date",date).put("amount",amount).put("outstanding",due).put("posted",true).put("data",JSONObject())
+    @Test fun financialSummariesExcludeCancelledDraftAndFutureRecords(){
+        val posted=row("posted","2026-11-01","100","40")
+        val cancelled=row("cancelled","2026-11-01","200","200").put("cancelled",true)
+        val legacy=row("legacy","2026-11-01","300","300").put("posted",false)
+        val future=row("future","2026-12-01","400","400")
+        val rows=listOf(posted,cancelled,legacy,future)
+        assertEquals(listOf("posted","future"),rows.filter{isPostedRecord(it)}.map{it.getString("id")})
+        assertEquals(listOf("posted"),rows.filter{isPostedRecord(it,"2026-11-12")}.map{it.getString("id")})
+        assertEquals("Cancelled",registerStatus(cancelled))
+        assertEquals(listOf("cancelled"),filterRegister(rows,"sales_invoice","","","","all","Cancelled","new").map{it.getString("id")})
+    }
     @Test fun advancesAndCreditsHaveActionableBalanceStates(){
         val advance=row("advance","2026-11-01","100","0","payment_in").put("data",JSONObject().put("is_advance",true)).put("advance_remaining","40")
         assertEquals("Advance available",registerStatus(advance));advance.put("advance_remaining","0");assertEquals("Advance settled",registerStatus(advance))

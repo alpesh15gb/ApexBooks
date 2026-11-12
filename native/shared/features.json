@@ -3,10 +3,10 @@
   "application": "Apex Books",
   "api_origin": "https://api.apexbooks.in",
   "brand": {
-    "primary": "#127C66",
-    "surface": "#F3F6F8",
-    "text": "#20343F",
-    "muted": "#677B86"
+    "primary": "#007A3D",
+    "surface": "#F4F5F7",
+    "text": "#202C3C",
+    "muted": "#58677A"
   },
   "navigation": [
     {

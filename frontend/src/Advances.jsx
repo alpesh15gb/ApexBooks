@@ -59,7 +59,7 @@ export default function Advances({
     }
   }
   const advances = records.filter(
-    (row) => row.kind === kind && row.advance_remaining != null,
+    (row) => row.kind === kind && !row.cancelled && row.advance_remaining != null,
   );
   const advance = advances.find((row) => row.id === selected);
   const applications = records.filter(
@@ -72,9 +72,12 @@ export default function Advances({
       row.kind ===
         (kind === "payment_in" ? "sales_invoice" : "purchase_bill") &&
       row.posted &&
+      !row.cancelled &&
       Number(row.outstanding) > 0 &&
       row.name.trim().toLowerCase() === advance?.name.trim().toLowerCase(),
   );
+  const target = targets.find(row => row.id === form.target);
+  const earliestDate = [advance?.date, form.action === "apply" ? target?.date : null].filter(Boolean).sort().at(-1);
   function change(value) {
     setForm((current) => ({ ...current, ...value }));
     setKey(crypto.randomUUID());
@@ -202,11 +205,12 @@ export default function Advances({
                 <input
                   type="date"
                   required
-                  min={advance.date}
+                  min={earliestDate}
                   value={form.date}
                   disabled={busy || pending}
                   onChange={(event) => change({ date: event.target.value })}
                 />
+                {earliestDate && <small>On or after {earliestDate}, when both source documents exist.</small>}
               </label>
               <label>
                 Action

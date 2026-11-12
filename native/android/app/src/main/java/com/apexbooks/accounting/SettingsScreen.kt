@@ -32,12 +32,12 @@ private data class SettingGroup(val title:String,val detail:String,val actions:L
             add(SettingGroup("Data & migration","Import, export and protect your books. Vyapar includes reconciliation; backup restore creates a separate company.",listOf("Import Vyapar .vyb backup" to {tool("vyapar")},"Import parties / items CSV" to {tool("master_import")},"Export company data" to {tool("data_export")},"Download backup" to {tool("backup")},"Restore company backup" to {tool("restore")})))
             add(SettingGroup("People & access","Manage company roles and permissions.",listOf("Company members" to {tool("members")})))
         }
-        add(SettingGroup("Ecommerce","Company-scoped Bagisto channels, stock, orders and delivery review.",listOf("Open ecommerce workspace" to {vm.navigate("commerce")})))
+        add(SettingGroup("Ecommerce","Manage online stores, stock, orders and deliveries.",listOf("Open ecommerce workspace" to {vm.navigate("commerce")})))
         add(SettingGroup("Account security","Protect your account and review changes. Remembered sign-in is stored securely on this device.",listOf("Password and sessions" to {tool("security")},"One-use recovery codes" to {tool("recovery")},"View audit history" to {tool("audit")})))
     }
     val matches=groups.filter{g->(query.isNotBlank()||category=="all"||g.title==category)&&(g.title+" "+g.detail+" "+g.actions.joinToString(" "){it.first}).contains(query.trim(),true)}
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
-        item{Heading("Make it yours", "Company preferences, documents and account controls.")}
+        item{Heading("Settings", "Company details, invoices, people and data.")}
         item{SearchBarField("Search settings",query){query=it}}
         item{Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){(listOf("all" to "All")+groups.map{it.title to it.title}).forEach{(key,label)->FilterChip(selected=category==key,onClick={category=key},label={Text(label)})}}}
         items(matches,key={it.title}){group->Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
@@ -51,6 +51,6 @@ private data class SettingGroup(val title:String,val detail:String,val actions:L
             Text(group.detail,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }}
         if(matches.isEmpty())item{Section{Text("No settings match. Try logo, backup or company.")}}
-        item{Text("Apex Books for Android · "+BuildConfig.VERSION_NAME+"\nBuild · "+BuildConfig.BUILD_REVISION+"\nConnected API · "+vm.apiVersion+"\nAPI build · "+vm.apiBuildRevision,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+        item{FoldSection("About Apex Books"){Text("Version "+BuildConfig.VERSION_NAME,style=MaterialTheme.typography.bodyMedium);Text("Build · "+BuildConfig.BUILD_REVISION+"\nConnected API · "+vm.apiVersion+"\nAPI build · "+vm.apiBuildRevision,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
     }
 }

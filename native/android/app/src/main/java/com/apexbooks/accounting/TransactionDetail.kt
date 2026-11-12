@@ -69,7 +69,7 @@ import org.json.JSONObject
                             DropdownMenuItem(text = { Text("58 mm roll") }, onClick = { rolls = false; vm.documentPdf(row, "thermal_58") })
                         }
                     }
-                    if (editable) Button(onClick = { vm.detail = null; vm.edit(row) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Edit", maxLines = 1) }
+                    if (editable) OutlinedButton(onClick = { vm.detail = null; vm.edit(row) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Edit", maxLines = 1) }
                 } } }
             }) { padding -> LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 if (record == null && failure.isBlank()) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
@@ -93,8 +93,8 @@ import org.json.JSONObject
                     if (data.s("party_address").isNotBlank()) Text(data.s("party_address"))
                     if (data.s("shipping_address").isNotBlank()) { Text("Ship to", style = MaterialTheme.typography.labelMedium); Text(data.s("shipping_address")) }
                 } }
-                if (vm.canWrite && record != null && row.decimal("outstanding").signum() > 0 && row.s("kind") in setOf("sales_invoice", "purchase_bill")) item {
-                    FilledTonalButton(onClick = {
+                if (vm.canWrite && record != null && isPostedRecord(row) && row.decimal("outstanding").signum() > 0 && row.s("kind") in setOf("sales_invoice", "purchase_bill")) item {
+                    Button(onClick = {
                         val kind = if (row.s("kind") == "sales_invoice") "payment_in" else "payment_out"
                         vm.detail = null; vm.add(kind)
                         vm.editor?.let { entry -> entry.chooseAllocation(entry.allocations.first(), 0, row.s("id")) }

@@ -24,6 +24,36 @@ dashboard widths from 320 to 1920 px, and keyboard drawer/menu and dialog scroll
 behaviour. The pinned `axe-core` development dependency checks WCAG A/AA rules;
 screenshots, accessibility JSON and a trace are retained with the accounting evidence.
 
+Include `--business` for a realistic GST trading journey performed through the
+visible UI: a stocked purchase, inclusive/exclusive tax, percentage and fixed
+discounts, payment at invoice entry, split collection, customer/supplier returns,
+cancellation, expense, PDF output and exact final stock/cash/profit/balance checks.
+Only customer, supplier and item masters are seeded through the API.
+
+Include `--accessibility` for keyboard focus, announcements, accessible trees,
+reduced motion and narrow layouts. With `APEX_ZOOM_BROWSER_CHANNEL=chrome`, this
+also checks actual 200% and 400% browser zoom using disposable profiles in the
+installed Chrome browser. It does not alter the user's browser settings.
+
+```powershell
+$env:APEX_ZOOM_BROWSER_CHANNEL = 'chrome'
+.venv/Scripts/python.exe tests/e2e/run_local.py --browser --presentation --business --accessibility --artifacts tmp/web-release-chromium
+```
+
+The same workflow, presentation and business checks support independent browser
+engines. Install their matching Playwright runtimes before selecting an engine:
+
+```sh
+python -m playwright install firefox webkit
+python tests/e2e/run_local.py --browser --presentation --business --accessibility --browser-engine firefox --artifacts tmp/web-release-firefox
+python tests/e2e/run_local.py --browser --presentation --business --accessibility --browser-engine webkit --artifacts tmp/web-release-webkit
+```
+
+These are Playwright's browser builds, not acceptance of every branded browser
+or mobile operating system. Firefox uses a narrow touch viewport because it does
+not support Playwright's `is_mobile` emulation. Browser-engine selection is
+explicit and never attaches to an existing user session.
+
 On Linux, use `python -m playwright install --with-deps chromium` to install its
 system dependencies too. For a focused rerun, `--browser-only` skips the two HTTP
 suites but still creates fresh servers and books. Browser runs compile a fresh

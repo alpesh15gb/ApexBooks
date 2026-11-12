@@ -1,5 +1,5 @@
 export function relatedRecordActions(record, canWrite) {
-  if (!canWrite || !record.posted) return [];
+  if (!canWrite || !record.posted || record.cancelled) return [];
   const actions = [];
   if (record.kind === 'sales_invoice' && Number(record.outstanding) > 0)
     actions.push({ kind: 'payment_in', label: 'Collect payment' });
@@ -13,7 +13,8 @@ export function relatedRecordActions(record, canWrite) {
 }
 
 export function settlementLabel(record) {
-  if (!record.posted || !['sales_invoice', 'purchase_bill', 'pos'].includes(record.kind)) return '';
+  if (!record.posted || record.cancelled || !['sales_invoice', 'purchase_bill', 'pos'].includes(record.kind)) return '';
+  if (record.outstanding === undefined || record.outstanding === null || !Number.isFinite(Number(record.outstanding))) return '';
   const balance = Number(record.outstanding || 0);
   if (balance <= 0) return 'Settled';
   return balance < Number(record.amount) ? 'Part settled' : 'Unpaid';

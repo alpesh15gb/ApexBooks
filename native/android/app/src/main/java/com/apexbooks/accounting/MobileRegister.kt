@@ -61,10 +61,12 @@ import java.math.BigDecimal
         } }
         if(period=="custom"&&start>end)item{Message("The start date must be on or before the end date.",true)}
         if (!master) item {
-            val total = rows.filterNot { it.optBoolean("cancelled") }.fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("amount") }
+            val financialRows = rows.filter { isPostedRecord(it) }
+            val drafts = vm.page in setOf("estimate", "proforma", "sales_order", "purchase_order")
+            val total = (if (drafts) rows.filterNot { it.optBoolean("cancelled") } else financialRows).fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("amount") }
             Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(14.dp)) { Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column { Text("${rows.size} ${if (rows.size == 1) "transaction" else "transactions"}", style = MaterialTheme.typography.labelMedium); Text(money(total), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = ApexGreen) }
-                if (vm.page in setOf("sales_invoice", "purchase_bill")) Column(horizontalAlignment = Alignment.End) { Text("Outstanding", style = MaterialTheme.typography.labelMedium); Text(money(rows.fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("outstanding") }), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+                Column { Text("${rows.size} ${if (rows.size == 1) "transaction" else "transactions"}", style = MaterialTheme.typography.labelMedium); Text(money(total), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = ApexGreen); Text(if(drafts) "Document value" else "Posted value", style=MaterialTheme.typography.bodySmall) }
+                if (vm.page in setOf("sales_invoice", "purchase_bill")) Column(horizontalAlignment = Alignment.End) { Text("Outstanding", style = MaterialTheme.typography.labelMedium); Text(money(financialRows.fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("outstanding") }), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
             } }
         } else item {
             val totals = balances?.optJSONObject("totals")
@@ -97,7 +99,7 @@ import java.math.BigDecimal
             Choice("Period", period, listOf("all" to "All dates", "month" to "This month", "fy" to "Financial year", "custom" to "Custom dates"), { period = it })
             if (period == "custom") { DateField("From", start, { start = it }); DateField("To", end, { end = it }) }
             Choice("Party", party, listOf("all" to "All parties") + vm.records.filter { it.s("kind") == vm.page }.map { it.s("name") }.distinct().sorted().map { it to it }, { party = it })
-            Choice("Status", status, listOf("all" to "All statuses") + listOf("Unpaid", "Part settled", "Settled", "Draft", "Converted", "Posted", "Advance available", "Advance settled", "Credit available", "Credit settled").map { it to it }, { status = it })
+            Choice("Status", status, listOf("all" to "All statuses") + listOf("Unpaid", "Part settled", "Settled", "Draft", "Converted", "Posted", "Cancelled", "Advance available", "Advance settled", "Credit available", "Credit settled").map { it to it }, { status = it })
         }
         if(master)Choice("Status",status,listOf("all" to "All masters","Active" to "Active","Inactive" to "Inactive"),{status=it})
         Choice("Sort", sort, listOf("new" to "Newest first", "old" to "Oldest first", "name" to "Name A–Z", "amount" to "Highest amount"), { sort = it })

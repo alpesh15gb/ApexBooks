@@ -24,6 +24,7 @@ def install(app, m):
     @app.post('/api/companies/{company_id}/records/with-payment')
     def post_with_payment(company_id: str, body: DocumentWithPayment, request: Request, user=Depends(m.current_user), session: Session = Depends(m.db)):
         document, pay = body.document, body.payment
+        document = document.model_copy(update={'data': m.client_record_data(document.data)})
         payment_kind = {'sales_invoice': 'payment_in', 'purchase_bill': 'payment_out'}.get(document.kind)
         if not payment_kind:
             raise HTTPException(422, 'Payment at entry is available for sales invoices and purchase bills')

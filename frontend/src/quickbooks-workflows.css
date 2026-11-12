@@ -1,0 +1,145 @@
+/* Screen-level finish for the green accounting workspace. Load after clarity.css.
+   Keep warning, error and cancellation colors semantic. */
+:root {
+  --ln-navy-200: #bde1c9;
+  --ln-info: #185f8b;
+  --ln-info-bg: #eaf4fb;
+  --ln-focus: 0 0 0 3px #bde1c9;
+}
+.summary-card { container-type: inline-size; }
+.summary-grid:has(.financial-figure) { grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr)); }
+.summary-card > .financial-figure { display: block; font-size: clamp(13px, var(--figure-size), 29px); line-height: 1.3; white-space: nowrap; letter-spacing: -.025em; }
+
+/* Document forms: match the specificity of the previous warm-theme rules. */
+.document-modal .document-form label { color: #465160; }
+.document-modal .document-form input,
+.document-modal .document-form select,
+.document-modal .document-form textarea {
+  border-color: #aeb7c2;
+  border-radius: 4px;
+  background: #fff;
+  color: #27313d;
+}
+.document-modal .document-form input:disabled,
+.document-modal .document-form select:disabled,
+.document-modal .document-form textarea:disabled {
+  background: #f0f2f5;
+  color: #606a77;
+}
+.document-form details > summary { color: #006aaf; }
+.document-totals { background: #f5f7f8; border-color: #dfe3e8; border-radius: 6px; }
+.document-totals .document-grand-total { border-color: #aab7c2; color: #25323f; }
+.document-grand-total > strong { color: #25323f; }
+.document-totals.error { background: var(--ln-danger-bg); color: var(--ln-danger); border-color: #f1c6c3; }
+.document-form .ocr-box { background: #f0f6fb; border-color: #cbddea; }
+.quick-add:hover:not(:disabled) { background: #edf8f0; }
+.stock-toggle input,
+.checkbox-label input,
+.line-card input[type=checkbox],
+.settings-panel input[type=checkbox] { accent-color: #007a3d; }
+.detail-body { background: #fff; }
+.detail-trail-row { border-radius: 5px; border-color: #dfe3e8; color: #27313d; }
+.detail-trail-row:hover { background: #f1f8f4; border-color: #99bca6; }
+.action-menu { box-shadow: 0 12px 36px #1a243324; border-radius: 6px; }
+
+/* Registers and reports use neutral rules, with green reserved for selection. */
+.register-controls label,
+.register-overview small,
+.register-filter-tabs > button,
+.register .panel-header p,
+.register td,
+.transaction-reference > small,
+.transaction-reference > span,
+td .settlement-state,
+.master-contact,
+.master-details { color: #606a77; }
+.register-filter-tabs span { background: #edf0f3; color: #465160; }
+.register-filter-tabs > button[aria-selected=true] span { background: #dff0e5; color: #075e34; }
+.transaction-reference > .link { color: #006aaf; }
+.register .search { color: #606a77; border-radius: 4px; }
+th,
+.register th,
+.report-register th,
+.ledger-table th,
+.statement th { background: #f0f2f5; color: #414d5b; border-color: #dfe3e8; }
+td { border-color: #e5e8ed; }
+tbody tr:hover { background: #f6f8fa; }
+.report-category-heading { border-color: #dfe3e8; }
+.report-shortcut > svg:first-child { color: #007a3d; }
+.library-category-filter button { border-radius: 5px; }
+.library-count { background: #edf1f4; color: #465160; }
+.statement-row.grand td { border-bottom-color: #8099a9; }
+
+/* Settings, bank matching and imports keep the same form and surface treatment. */
+.settings-rail { border-radius: 6px; }
+.settings-company > span { background: #e4f1e9; color: #17623b; border-radius: 4px; }
+.settings-company > strong { color: #27313d; }
+.settings-nav button.active { background: #eaf5ee; color: #075e34; }
+.settings-jump-links button { background: #fff; color: #006aaf; border-color: #b9c0c9; border-radius: 4px; }
+.settings-content .document-template-gallery a { background: #f7f8fa; border-color: #dfe3e8; border-radius: 5px; }
+.settings-content .document-template-gallery a:hover { border-color: #81b495; box-shadow: none; }
+.settings-search { border-radius: 4px; }
+.settings-build-info { border-top: 1px solid #e5e8ed; }
+.settings-build-info code { font-size: 10px; }
+.bank-ref { color: #606a77; }
+.bank-allocation-status { color: #344454; }
+.bank-match input,
+.bank-match select,
+.member-settings > label > input,
+.settings-panel textarea { border-color: #aeb7c2; border-radius: 4px; }
+.attachment-list li { border-color: #dfe3e8; border-radius: 6px; }
+.attachment-list small { color: #606a77; }
+
+/* POS product choices and the receipt use the same green action language. */
+.pos-product { background: #fff; border-color: #dfe3e8; border-radius: 6px; }
+.pos-product:hover:not(:disabled) { background: #f1f8f4; border-color: #81b495; }
+.pos-product strong { color: #27313d; }
+.pos-product span,
+.pos-product small { color: #606a77; }
+.pos-receipt { background: #edf8f0; border-color: #b7d8c2; color: #17623b; }
+.pos-quantity .icon-button { color: #006aaf; }
+
+/* Ecommerce had its own hard-coded navy controls, outside shared .button rules. */
+.commerce-workspace { color: #27313d; }
+.commerce-heading p,
+.commerce-card > p,
+.commerce-muted,
+.commerce-metric > span,
+.commerce-table td small,
+.commerce-reconciliation time,
+.commerce-empty { color: #606a77; }
+.commerce-eyebrow { color: #596472; }
+.commerce-card,
+.commerce-store-bar,
+.commerce-metric { border-color: #dfe3e8; border-radius: 7px; }
+.commerce-workspace button { border-color: #8a939f; border-radius: 5px; color: #353d48; }
+.commerce-workspace button:hover:not(:disabled) { background: #f3f5f7; }
+.commerce-workspace button.primary { background: #007a3d; border-color: #007a3d; color: #fff; }
+.commerce-workspace button.primary:hover:not(:disabled) { background: #006332; border-color: #006332; }
+.commerce-workspace button:focus-visible,
+.commerce-workspace input:focus-visible,
+.commerce-workspace select:focus-visible { outline-color: #007a3d; }
+.commerce-field > span { color: #465160; }
+.commerce-field input,
+.commerce-field select,
+.commerce-table input { border-color: #aeb7c2; border-radius: 4px; color: #27313d; }
+.commerce-status.active,
+.commerce-status.done,
+.commerce-status.balanced { background: #e4f3e9; color: #17623b; }
+.commerce-status.review,
+.commerce-status.retry { background: #fff3d8; color: #855700; }
+.commerce-metric > svg,
+.commerce-check svg.complete { color: #007a3d; }
+.commerce-tabs button { border: 0; border-radius: 0; }
+.commerce-tabs button.selected { color: #075e34; box-shadow: inset 0 -3px #2ca01c; }
+.commerce-table th { background: #f0f2f5; color: #414d5b; }
+.commerce-table td { border-color: #e5e8ed; }
+.commerce-alert { background: #f0f6fb; color: #425469; border-color: #cbddea; border-radius: 6px; }
+.commerce-alert.error { background: #fbeceb; border-color: #f1c6c3; color: #b3261e; }
+.commerce-setup { border-color: #b7d8c2; }
+.commerce-dialog-backdrop { background: #1e273566; backdrop-filter: blur(2px); }
+.commerce-dialog { border-radius: 8px; box-shadow: 0 20px 70px #1a243333; }
+
+@media (max-width: 700px) {
+  .commerce-workspace button { min-height: 44px; }
+}

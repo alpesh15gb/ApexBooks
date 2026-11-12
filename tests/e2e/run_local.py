@@ -27,11 +27,19 @@ def run():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--browser', action='store_true')
     parser.add_argument('--presentation', action='store_true', help='Also verify visual layouts, accessibility and keyboard interaction with synthetic populated books.')
+    parser.add_argument('--accessibility', action='store_true', help='Also check focus, keyboard, zoom and accessible announcements.')
+    parser.add_argument('--business', action='store_true', help='Also exercise realistic tax, stock and settlement journeys in the browser.')
     parser.add_argument('--browser-only', action='store_true', help='Run only the browser gate, still on newly created isolated servers/books.')
     parser.add_argument('--browser-channel', choices=('chrome', 'msedge'))
+    parser.add_argument('--browser-engine', choices=('chromium', 'firefox', 'webkit'), default='chromium')
+    parser.add_argument('--browser-executable', type=Path, help='Optional path to the matching Playwright browser runtime.')
     parser.add_argument('--artifacts', type=Path)
     args = parser.parse_args()
-    args.browser = args.browser or args.browser_only or args.presentation
+    args.browser = args.browser or args.browser_only or args.presentation or args.accessibility or args.business
+    if args.browser_channel and args.browser_engine != 'chromium':
+        parser.error('Chrome/Edge channels require --browser-engine chromium.')
+    if args.browser_executable and (args.browser_channel or not args.browser_executable.is_file()):
+        parser.error('Use an existing browser executable without --browser-channel.')
     if os.environ.get('ACCEPTANCE_BASE') or os.environ.get('APEX_E2E_BASE'):
         parser.error('External/reused API targets are refused; this runner starts its own API.')
     node = shutil.which('node')
@@ -65,15 +73,18 @@ def run():
             'OMNIROUTE', 'OCR_BASE_URL', 'OCR_ALLOW_INSECURE_HTTP',
             'COMMERCE_ENCRYPTION_KEY', 'COMMERCE_ALLOWED_HOSTS', 'CRON_SECRET',
             'APEX_TEST_DATABASE_URL', 'APEX_BUILD_SHA', 'VITE_BUILD_SHA',
-            'APEX_BROWSER_CHANNEL', 'APEX_E2E_ARTIFACTS',
+            'APEX_BROWSER_CHANNEL', 'APEX_BROWSER_ENGINE', 'APEX_BROWSER_EXECUTABLE', 'APEX_E2E_ARTIFACTS',
         }}
         env.update(DATABASE_URL='sqlite:///' + (work/'isolated.db').as_posix(),
                    JWT_SECRET='synthetic-local-e2e-only-secret-not-for-production',
                    API_PROXY_TARGET=f'http://127.0.0.1:{api_port}',
                    APEX_E2E_BASE=f'http://127.0.0.1:{web_port}',
-                   NO_PROXY='127.0.0.1,localhost,::1', PYTHONIOENCODING='utf-8')
+                   NO_PROXY='127.0.0.1,localhost,::1', PYTHONIOENCODING='utf-8',
+                   APEX_BROWSER_ENGINE=args.browser_engine)
         if args.browser_channel:
             env['APEX_BROWSER_CHANNEL'] = args.browser_channel
+        if args.browser_executable:
+            env['APEX_BROWSER_EXECUTABLE'] = str(args.browser_executable.resolve())
         if artifact_directory:
             env['APEX_E2E_ARTIFACTS'] = str(artifact_directory)
         check([sys.executable, 'migrate.py'], cwd=ROOT/'backend', env=env)
@@ -110,6 +121,10 @@ def run():
                     check([sys.executable, str(ROOT/'tests/e2e/browser_workflow.py')], cwd=ROOT, env=env)
                 if args.presentation:
                     check([sys.executable, str(ROOT/'tests/e2e/browser_presentation.py')], cwd=ROOT, env=env)
+                if args.accessibility:
+                    check([sys.executable, str(ROOT/'tests/e2e/browser_accessibility.py')], cwd=ROOT, env=env)
+                if args.business:
+                    check([sys.executable, str(ROOT/'tests/e2e/browser_business.py')], cwd=ROOT, env=env)
             except BaseException:
                 api_log.flush(); web_log.flush()
                 for name in ('api.log', 'web.log'):
@@ -119,7 +134,11 @@ def run():
             finally:
                 for process in reversed(processes):
                     if process.poll() is None:
-                        process.terminate()
+                        if os.name == 'nt':
+                            subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **options)
+                        else:
+                            process.terminate()
                     try:
                         process.wait(timeout=15)
                     except subprocess.TimeoutExpired:

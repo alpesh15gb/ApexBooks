@@ -17,15 +17,17 @@ export default function CompleteBackup({ companyId, api, onRestored }) {
   const [name, setName] = useState(''), [file, setFile] = useState(null), [exportJob, setExportJob] = useState(null), [upload, setUpload] = useState(null);
   const [preview, setPreview] = useState(null), [resumeId, setResumeId] = useState(''), [resumeDirection, setResumeDirection] = useState('import'), [error, setError] = useState(''), [success, setSuccess] = useState('');
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(null), [pendingKind, setPendingKind] = useState(''), [transfers, setTransfers] = useState(null), [restoredCompany, setRestoredCompany] = useState('');
-  const posting = usePostingRequest(), abort = useRef(null), alive = useRef(true);
+  const posting = usePostingRequest(), abort = useRef(null), alive = useRef(true), running = useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; abort.current?.abort(); }; }, []);
   const locked = busy || posting.busy || posting.pending;
   async function perform(operation) {
+    if (running.current) return;
+    running.current = true;
     setError(''); setSuccess(''); setBusy(true);
     const controller = new AbortController(); abort.current = controller;
     try { await operation(controller.signal); }
     catch (failure) { if (alive.current) setError(failure.name === 'AbortError' ? 'Transfer stopped. Retained server chunks can be resumed; nothing was restored automatically.' : failure.message); }
-    finally { if (alive.current) { setBusy(false); setProgress(null); } }
+    finally { running.current = false; if (alive.current) { setBusy(false); setProgress(null); } }
   }
   function prepareExport() {
     if (posting.pending && pendingKind !== 'export') return;

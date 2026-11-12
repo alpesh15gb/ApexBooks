@@ -555,7 +555,8 @@ td.party-balance small { font-size: 12px; color: var(--ln-muted); }
 
 /* Release details: readable supporting text, stable overlays and keyboard access. */
 html { scrollbar-gutter: stable; }
-body { min-width: 320px; }
+/* Browser zoom can leave slightly less than 320 CSS px after its scrollbar. */
+body { min-width: 0; }
 button, a, input, select, textarea, summary { -webkit-tap-highlight-color: transparent; }
 button, input, select, textarea { touch-action: manipulation; }
 input, textarea, select { scroll-margin: 100px 0 24px; }

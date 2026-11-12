@@ -141,7 +141,7 @@ export default function PosWorkspace({
       : 0;
   async function checkout(e) {
     e.preventDefault();
-    if (busy || !preview) return;
+    if (busy || !preview || !["owner", "editor"].includes(company.role)) return;
     setError("");
     try {
       const path = `/companies/${company.id}/records`;
@@ -168,6 +168,8 @@ export default function PosWorkspace({
       setReceipt(result.value);
       setCart([]);
       setTender("");
+      setCustomer("Walk-in customer");
+      setBilling({address:"",gstin:"",phone:"",place:company.state_code});
       setKey(crypto.randomUUID());
       await refresh();
     } catch (e) {
@@ -175,7 +177,7 @@ export default function PosWorkspace({
     }
   }
   const daySales = records.filter(
-    (r) => r.kind === "pos" && r.posted && r.date === today(),
+    (r) => r.kind === "pos" && r.posted && !r.cancelled && r.date === today(),
   );
   return (
     <>
@@ -369,14 +371,14 @@ export default function PosWorkspace({
             {!cart.length && (
               <p className="full">Choose an item to add it to this sale.</p>
             )}
-            <label className="checkbox-label full">
+            {company?.tax_mode === "regular" && <label className="checkbox-label full">
               <input
                 type="checkbox"
                 checked={inclusive}
                 onChange={(e) => setInclusive(e.target.checked)}
               />
               Prices include GST
-            </label>
+            </label>}
             <label className="checkbox-label full">
               <input
                 type="checkbox"
@@ -435,7 +437,7 @@ export default function PosWorkspace({
                       Number(preview.data.igst),
                   )}
                   {method === "cash" &&
-                    ` · Change ${money(Math.max(0, change))}`}
+                    (change < 0 ? ` · Still needed ${money(-change)}` : ` · Change ${money(change)}`)}
                 </p>
               </div>
             )}

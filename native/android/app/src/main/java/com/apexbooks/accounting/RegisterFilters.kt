@@ -9,6 +9,9 @@ fun partyShippingAddress(party:JSONObject)=party.o("data").s("shipping_address")
 
 fun selectableMaster(row:JSONObject,retainedId:String="")=row.o("data").optBoolean("is_active",true)||(retainedId.isNotBlank()&&row.s("id")==retainedId)
 
+/** Financial cards exclude cancelled/unposted records and, when requested, future entries. */
+fun isPostedRecord(row:JSONObject,asOf:String?=null)=row.optBoolean("posted")&&!row.optBoolean("cancelled")&&(asOf==null||row.s("date").isNotBlank()&&row.s("date")<=asOf)
+
 fun registerStatus(row:JSONObject):String {
     if(row.s("kind") in setOf("party","item"))return if(row.o("data").optBoolean("is_active",true))"Active"else"Inactive"
     if(row.optBoolean("cancelled"))return "Cancelled"

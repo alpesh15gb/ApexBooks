@@ -116,20 +116,25 @@ public sealed partial class MainPage : Page
     private void BuildShell()
     {
         navigation = new NavigationView { IsSettingsVisible = false, RequestedTheme = ElementTheme.Light, PaneDisplayMode = NavigationViewPaneDisplayMode.Auto, OpenPaneLength = 252, CompactModeThresholdWidth=640, ExpandedModeThresholdWidth=1100, IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed };
-        navigation.Resources["NavigationViewDefaultPaneBackground"] = Brush(255,255,255);
-        navigation.Resources["NavigationViewExpandedPaneBackground"] = Brush(255,255,255);
-        navigation.Resources["NavigationViewItemOnLeftMinHeight"]=44.0;navigation.Resources["NavigationViewSelectionIndicatorForeground"]=Brush(0xD9,0x8D,0x54);
+        navigation.Resources["NavigationViewDefaultPaneBackground"] = Brush(0x28,0x2B,0x30);
+        navigation.Resources["NavigationViewExpandedPaneBackground"] = Brush(0x28,0x2B,0x30);
+        navigation.Foreground=Brush(255,255,255);
+        navigation.Resources["NavigationViewItemForeground"]=Brush(255,255,255);
+        navigation.Resources["NavigationViewItemForegroundSelected"]=Brush(255,255,255);
+        navigation.Resources["NavigationViewItemBackgroundSelected"]=Brush(0x39,0x3D,0x42);
+        navigation.Resources["NavigationViewItemBackgroundPointerOver"]=Brush(0x39,0x3D,0x42);
+        navigation.Resources["NavigationViewItemOnLeftMinHeight"]=44.0;navigation.Resources["NavigationViewSelectionIndicatorForeground"]=Brush(0x2C,0xC0,0x71);
         var pane = Stack(8);pane.Margin=new Thickness(4,6,8,10);var brandRow=Stack(10);brandRow.Orientation=Orientation.Horizontal;brandRow.VerticalAlignment=VerticalAlignment.Center;
         brandRow.Children.Add(AppLogo(150));
         pane.Children.Add(brandRow);
-        companyPicker.HorizontalAlignment=HorizontalAlignment.Stretch;companyPicker.MinHeight=44;companyPicker.Background=Brush(0xFF,0xF3,0xE7);companyPicker.Foreground=Brush(0x5C,0x4E,0x44);companyPicker.BorderBrush=Brush(0xF0,0xDF,0xCE);pane.Children.Add(companyPicker);navigation.PaneHeader=pane;
+        companyPicker.HorizontalAlignment=HorizontalAlignment.Stretch;companyPicker.MinHeight=44;companyPicker.RequestedTheme=ElementTheme.Dark;companyPicker.Background=Brush(0x39,0x3D,0x42);companyPicker.Foreground=Brush(255,255,255);companyPicker.BorderBrush=Brush(0x56,0x5C,0x65);pane.Children.Add(companyPicker);navigation.PaneHeader=pane;
         companyPicker.SelectionChanged += async (_, _) => { if (!changingCompanies) await Run(ChooseCompany); };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(companyPicker,"Choose company");
         foreach (var group in FeatureCatalog.Navigation.Where(f=>f.Key!="settings").GroupBy(f=>f.Group))
         {
             var expandable=group.Key is "Sales" or "Purchase" or "Purchases";
             var parent=expandable?new NavigationViewItem{Content=group.Key,Icon=new SymbolIcon(group.Key=="Sales"?Symbol.Document:Symbol.Shop)}:null;
-            if(parent is not null)navigation.MenuItems.Add(parent);else navigation.MenuItems.Add(new NavigationViewItemHeader{Content=group.Key.ToUpperInvariant()});
+            if(parent is not null)navigation.MenuItems.Add(parent);else navigation.MenuItems.Add(new NavigationViewItemHeader{Content=group.Key.ToUpperInvariant(),Foreground=Brush(0xBC,0xC4,0xCD)});
             foreach(var feature in group){
             var symbol = feature.Key switch { "dashboard" => Symbol.Home, "party" => Symbol.People, "item" => Symbol.Shop, "reports" => Symbol.Document, "settings" => Symbol.Setting, "bank" => Symbol.World, "ledger" => Symbol.Library, "day_book" => Symbol.Calendar, _ => Symbol.Page };
             var item=new NavigationViewItem { Content = feature.Title, Tag = feature.Key, Icon = new SymbolIcon(symbol) };
@@ -147,7 +152,7 @@ public sealed partial class MainPage : Page
             else if (key is not null && CompanyId.Length > 0) await Navigate(key);
         });
         Body.Margin = new Thickness(30,24,30,36);Body.RequestedTheme=ElementTheme.Light;
-        var content=new Grid{RequestedTheme=ElementTheme.Light,Background=Brush(0xFF, 0xFA, 0xF6)};content.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});content.RowDefinitions.Add(new RowDefinition());content.Children.Add(BuildWorkspaceHeader());
+        var content=new Grid{RequestedTheme=ElementTheme.Light,Background=Brush(0xF4, 0xF5, 0xF7)};content.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});content.RowDefinitions.Add(new RowDefinition());content.Children.Add(BuildWorkspaceHeader());
         var scroll=new ScrollViewer {Content=Body,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};Grid.SetRow(scroll,1);content.Children.Add(scroll);navigation.AlwaysShowHeader=false;navigation.Content=content;host.Content=navigation;shellReady=true;InstallShortcuts(navigation);
     }
 
@@ -172,9 +177,10 @@ public sealed partial class MainPage : Page
         var leave=leavePage;leavePage=null;leave?.Invoke();hasUnsavedPage=null;hasPendingPage=null;
         ++generation;CurrentPage = page; Body.Children.Clear(); notice.IsOpen = false; workspaceCompany.Text = Company.Text("name");
         navigation.SelectedItem=FindNavigation(page);
-        var heading=new StackPanel{Orientation=Orientation.Horizontal,Spacing=12,VerticalAlignment=VerticalAlignment.Bottom};
+        var heading=new Grid{ColumnSpacing=12,RowSpacing=6,VerticalAlignment=VerticalAlignment.Bottom};
         heading.Children.Add(Text(page=="dashboard"?"Business overview":FeatureCatalog.Title(page), 30, true));
         var detail = Text(Company.Text("tax_mode") == "regular" ? "GST registered · " + Company.Text("gstin") : Company.Text("tax_mode") == "composition" ? "Composition company" : "Not GST registered", 12); detail.Foreground = Muted; detail.VerticalAlignment=VerticalAlignment.Bottom; detail.Margin=new Thickness(0,0,0,3); heading.Children.Add(detail);Body.Children.Add(heading);
+        bool? compactHeading=null;void ArrangeHeading(){var narrow=heading.ActualWidth<600;if(compactHeading==narrow)return;compactHeading=narrow;heading.ColumnDefinitions.Clear();heading.RowDefinitions.Clear();heading.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});heading.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});if(narrow){heading.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});Grid.SetColumn(detail,0);Grid.SetRow(detail,1);}else{heading.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});Grid.SetColumn(detail,1);Grid.SetRow(detail,0);}}ArrangeHeading();heading.SizeChanged+=(_,_)=>ArrangeHeading();
         if(!Api.Capabilities.HasCoreAdditions)Body.Children.Add(CapabilityNotice());
         if(!recordsReady){Body.Children.Add(Text("Loading complete company history…",20,true));Body.Children.Add(Text("Balances and billing become available once all records are ready. No partial totals are shown."));Body.Children.Add(AsyncButton("Retry company data",Refresh,Error));return;}
         if (page == "dashboard") await Dashboard();
@@ -203,7 +209,7 @@ public sealed partial class MainPage : Page
         if(CanWrite && kind is "payment_in" or "payment_out" or "credit_note" or "debit_note")Body.Children.Add(AsyncButton(kind is "payment_in" or "payment_out"?"Apply / refund advance":"Apply / refund note credit",()=>SettleBalance(kind is "credit_note" or "debit_note"),Error));
         var master=kind is "party" or "item";var masterStatus=Select("Master status",[("all","All masters"),("active","Active"),("archived","Archived")]);var page=0;const int size=50;
         var period=Select("Period",[("all","All dates"),("month","This month"),("fy","This financial year"),("custom","Custom dates")]);var from=new DateInput("From",J.FinancialStart);var to=new DateInput("To",J.Today);
-        var party=Select("Customer / supplier",new[]{("all","All parties")}.Concat(Records.OfType<JsonObject>().Where(r=>r.Text("kind")==kind).Select(r=>r.Text("name")).Distinct().Order().Select(n=>(n,n))));var status=Select("Status",new[]{"All statuses","Unpaid","Part settled","Settled","Draft","Converted","Posted","Advance available","Advance settled","Credit available","Credit settled"}.Select(n=>(n,n)));var sort=Select("Sort",[("new","Newest first"),("old","Oldest first"),("name","Name A–Z"),("amount","Highest amount")]);
+        var party=Select("Customer / supplier",new[]{("all","All parties")}.Concat(Records.OfType<JsonObject>().Where(r=>r.Text("kind")==kind).Select(r=>r.Text("name")).Distinct().Order().Select(n=>(n,n))));var status=Select("Status",new[]{"All statuses","Unpaid","Part settled","Settled","Draft","Converted","Posted","Cancelled","Advance available","Advance settled","Credit available","Credit settled"}.Select(n=>(n,n)));var sort=Select("Sort",[("new","Newest first"),("old","Oldest first"),("name","Name A–Z"),("amount","Highest amount")]);
         toolbar.Children.Add(Button("Clear filters",()=>{search.Text="";SelectValue(period,"all");SelectValue(party,"all");SelectValue(status,"All statuses");SelectValue(sort,"new");}));
         if(!CanWrite)Body.Children.Add(Text("Read-only access · you can inspect records and export documents. Ask an owner for editor access to make changes.",12));
         if(!master){var filters=Stack();filters.Children.Add(Columns(period,party,status,sort));filters.Children.Add(Columns(from.View,to.View));Body.Children.Add(new Expander{Header="Filter documents",Content=filters,IsExpanded=false,HorizontalContentAlignment=HorizontalAlignment.Stretch,HorizontalAlignment=HorizontalAlignment.Stretch});}else Body.Children.Add(Columns(sort,masterStatus));
@@ -212,7 +218,7 @@ public sealed partial class MainPage : Page
             var source=Records.OfType<JsonObject>().Where(r=>r.Text("kind")==kind&&(!master||Value(masterStatus)=="all"||WorkflowMasterValues.IsActive(r)==(Value(masterStatus)=="active"))&&(r.Text("name")+" "+r.Text("number")+" "+r["data"].Text("phone")+" "+r["data"].Text("barcode")+" "+r["data"].Text("hsn")).Contains(search.Text,StringComparison.OrdinalIgnoreCase)&&(master||((start.Length==0||string.CompareOrdinal(r.Text("date"),start)>=0)&&(end.Length==0||string.CompareOrdinal(r.Text("date"),end)<=0)&&(Value(party)=="all"||r.Text("name")==Value(party))&&(Value(status)=="All statuses"||new RecordRow(r).Status==Value(status)))));
             source=Value(sort) switch{"old"=>source.OrderBy(r=>r.Text("date")).ThenBy(r=>r["data"].Text("created_at")).ThenBy(r=>r.Text("number")),"name"=>source.OrderBy(r=>r.Text("name"),StringComparer.OrdinalIgnoreCase),"amount"=>source.OrderByDescending(r=>r.Number("amount")),_=>source.OrderByDescending(r=>r.Text("date")).ThenByDescending(r=>r["data"].Text("created_at")).ThenByDescending(r=>r.Text("number"))};var all=source.ToArray();page=Math.Clamp(page,0,Math.Max(0,(all.Length-1)/size));
             if(kind=="party"&&partyTotals is {} owed)AddMetrics(metrics,("You'll get",owed.Receive),("You'll pay",owed.Pay));
-            if(master)metrics.Children.Add(Text($"{all.Length} {FeatureCatalog.Title(kind).ToLowerInvariant()}"+(kind=="party"?" · click a party for transactions and balances":""),14,true));else if(kind is "sales_invoice" or "purchase_bill")AddMetrics(metrics,("Posted value",all.Sum(r=>r.Number("amount"))),("Outstanding",all.Sum(r=>r.Number("outstanding"))),("Unpaid documents",all.Count(r=>r.Number("outstanding")>0)),("Settled documents",all.Count(r=>r.Flag("posted")&&r.Number("outstanding")<=0)));else AddMetrics(metrics,("Documents",all.Length),("Total value",all.Sum(r=>r.Number("amount"))));
+            if(master)metrics.Children.Add(Text($"{all.Length} {FeatureCatalog.Title(kind).ToLowerInvariant()}"+(kind=="party"?" · click a party for transactions and balances":""),14,true));else if(kind is "sales_invoice" or "purchase_bill")AddMetrics(metrics,("Posted value",all.Where(r=>WorkflowMasterValues.IsPostedRecord(r)).Sum(r=>r.Number("amount"))),("Outstanding",all.Where(r=>WorkflowMasterValues.IsPostedRecord(r)).Sum(r=>r.Number("outstanding"))),("Unpaid documents",all.Count(r=>WorkflowMasterValues.IsPostedRecord(r)&&r.Number("outstanding")>0)),("Settled documents",all.Count(r=>WorkflowMasterValues.IsPostedRecord(r)&&r.Number("outstanding")<=0)));else AddMetrics(metrics,("Documents",all.Length),("Total value",all.Sum(r=>r.Number("amount"))));
             if(all.Length==0)holder.Children.Add(Card(Text("No records match these filters.")));else AddRecordList(all.Skip(page*size).Take(size),holder);caption.Text=all.Length==0?"0 records":$"Showing {page*size+1}–{Math.Min((page+1)*size,all.Length)} of {all.Length}";previous.IsEnabled=page>0;next.IsEnabled=(page+1)*size<all.Length;
         }
         partyNet=null;partyTotals=null;

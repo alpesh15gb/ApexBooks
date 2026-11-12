@@ -1,7 +1,7 @@
 """Cancel a posted document: reverse its journal, release stock and allocations, keep its number."""
 from decimal import Decimal
 from fastapi import Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -11,6 +11,11 @@ SETTLEMENT_KINDS = ['advance_application', 'advance_refund', 'credit_application
 
 class CancelInput(BaseModel):
     reason: str = Field(min_length=3, max_length=200)
+
+    @field_validator('reason', mode='before')
+    @classmethod
+    def trim_reason(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
 
 def dependents(m, cid, record, session):

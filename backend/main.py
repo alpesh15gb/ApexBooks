@@ -556,6 +556,19 @@ def applied_total(company_id,document_id,session,as_of=None):
         if as_of is not None:query=query.join(Record,Record.id==model.payment_id).where(Record.company_id==company_id,Record.date<=as_of)
         total+=Decimal(str(session.scalar(query)))
     return total
+def applied_totals_by_document(company_id, session, as_of):
+    """Dated settlements shared by summary and ageing, with two aggregate queries."""
+    totals = {}
+    for model in (PaymentAllocation, PaymentSplitAllocation):
+        rows = session.execute(select(model.document_id, func.sum(model.amount))
+            .join(Record, (Record.id == model.payment_id) & (Record.company_id == model.company_id))
+            .where(model.company_id == company_id, Record.date <= as_of)
+            .group_by(model.document_id))
+        for document_id, value in rows:
+            totals[document_id] = totals.get(document_id, Decimal('0')) + value
+    return totals
+
+
 def posting_lines(kind, amount, data, tax_mode):
     tax = {key: Decimal(str(data.get(key, '0'))) for key in ('cgst', 'sgst', 'igst')}
     pending_input = {key: Decimal(str(data.get('pending_input_' + key, tax[key]))) for key in tax}
@@ -1475,7 +1488,21 @@ def validate_active_references(company_id, kind, name, data, session, historical
 
 @app.post('/api/companies/{company_id}/records')
 def create_record(company_id: str, body: RecordInput, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):
+    body = body.model_copy(update={'data': client_record_data(body.data)})
     return save_record(company_id, body, request, user, session)
+
+
+def client_record_data(data):
+    """Keep lifecycle and integration ownership on the server at HTTP boundaries.
+
+    Internal posting callers can still attach verified commerce/import lineage.
+    Draft/edit version checks read the submitted version before using this helper.
+    """
+    reserved = {'cancelled', 'version', 'created_at', 'updated_at',
+                'recurring_template_id', 'recurring_occurrence_date'}
+    return {key: value for key, value in data.items()
+            if key not in reserved and not key.startswith(('vyapar_', 'commerce_'))}
+
 
 def save_record(company_id, body, request, user, session, *, commit=True, historical_record=None):
     """Post inside the caller transaction when processing a durable integration event."""
@@ -1491,6 +1518,12 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             existing = session.get(Record, previous.record_id)
             return {**obj(existing), 'posted': bool(session.scalar(select(RecordPosting.id).where(RecordPosting.company_id == company_id, RecordPosting.record_id == existing.id)))}
     data, amount = {k:v for k,v in body.data.items() if k not in {'recurring_template_id','recurring_occurrence_date'}}, money(body.amount)
+    if body.kind not in {'credit_note', 'debit_note'}:
+        # Only a return note can opt out of physical stock movement. Ordinary
+        # purchases/sales must keep their stock quantity and inventory journals aligned.
+        data.pop('return_stock', None)
+    elif 'return_stock' in data and not isinstance(data['return_stock'], bool):
+        raise HTTPException(422, 'Choose whether this return includes stock')
     if body.kind in DOCUMENTS|POSTED_KINDS:
         validate_active_references(company_id, body.kind, body.name, data, session, historical_record)
     if body.kind in {'payment_in','payment_out','bank_transfer'}:
@@ -1585,7 +1618,9 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             raise HTTPException(422, 'Choose a posted source invoice or bill in this company')
         if target.name.strip().casefold() != body.name.strip().casefold(): raise HTTPException(422, 'Party must match the source document')
         if body.date < target.date: raise HTTPException(422, 'Note date cannot precede its source document')
-        previous_notes = list(session.scalars(select(Record).where(Record.company_id == company_id, Record.kind == body.kind)))
+        posted_notes = select(RecordPosting.record_id).where(RecordPosting.company_id == company_id)
+        previous_notes = list(session.scalars(select(Record).where(
+            Record.company_id == company_id, Record.kind == body.kind, Record.id.in_(posted_notes))))
         previous_notes = [note for note in previous_notes if note.data.get('applied_to') == target.id]
         if amount + sum((note.amount for note in previous_notes), Decimal('0')) > target.amount:
             raise HTTPException(422, 'Notes exceed the original document amount')
@@ -1932,28 +1967,39 @@ def set_period_lock(company_id: str, body: LockInput, user: User = Depends(curre
 @app.get('/api/companies/{company_id}/trial-balance')
 def trial_balance(company_id: str, through: DateType, user: User = Depends(current_user), session: Session = Depends(db)):
     company_for(company_id, user, session)
-    accounts = list(session.scalars(select(LedgerAccount).where(LedgerAccount.company_id == company_id).order_by(LedgerAccount.code)))
-    totals = {a.id: Decimal('0') for a in accounts}
-    rows = session.execute(select(JournalLine.account_id, JournalLine.debit, JournalLine.credit).join(Journal, (Journal.id == JournalLine.journal_id) & (Journal.company_id == JournalLine.company_id)).where(Journal.company_id == company_id, Journal.date <= through))
-    for account_id, debit, credit in rows: totals[account_id] += debit - credit
+    accounts, totals, _ = account_balances(company_id, DateType.min, through, session)
     result = [{'id': a.id, 'code': a.code, 'name': a.name, 'category': a.category, 'debit': str(max(totals[a.id], Decimal('0'))), 'credit': str(max(-totals[a.id], Decimal('0')))} for a in accounts]
     return {'through': through.isoformat(), 'accounts': result, 'total_debit': str(sum((max(value, Decimal('0')) for value in totals.values()), Decimal('0'))), 'total_credit': str(sum((max(-value, Decimal('0')) for value in totals.values()), Decimal('0')))}
 
-def account_movements(company_id, from_date, to_date, session):
-    accounts = list(session.scalars(select(LedgerAccount).where(LedgerAccount.company_id == company_id).order_by(LedgerAccount.code)))
-    totals = {a.id: Decimal('0') for a in accounts}
-    rows = session.execute(select(JournalLine.account_id, JournalLine.debit, JournalLine.credit)
+def account_balances(company_id, from_date, to_date, session):
+    # One SQL statement keeps account membership, period and closing balances in
+    # the same snapshot under PostgreSQL READ COMMITTED. Posting can create an
+    # account between separate SELECTs, causing missing accounts or mixed totals.
+    movement = JournalLine.debit - JournalLine.credit
+    balances = (select(JournalLine.account_id,
+        func.sum(case((Journal.date >= from_date, movement), else_=0)).label('period'),
+        func.sum(case((Journal.date >= DateType(1900, 1, 1), movement), else_=0)).label('cumulative'))
         .join(Journal, (Journal.id == JournalLine.journal_id) & (Journal.company_id == JournalLine.company_id))
-        .where(Journal.company_id == company_id, Journal.date >= from_date, Journal.date <= to_date))
-    for account_id, debit, credit in rows: totals[account_id] += debit - credit
-    return accounts, totals
+        .where(Journal.company_id == company_id, JournalLine.company_id == company_id, Journal.date <= to_date)
+        .group_by(JournalLine.account_id).subquery())
+    rows = session.execute(select(LedgerAccount, func.coalesce(balances.c.period, 0),
+        func.coalesce(balances.c.cumulative, 0))
+        .outerjoin(balances, balances.c.account_id == LedgerAccount.id)
+        .where(LedgerAccount.company_id == company_id).order_by(LedgerAccount.code)).all()
+    return ([account for account, _, _ in rows],
+        {account.id: period for account, period, _ in rows},
+        {account.id: cumulative for account, _, cumulative in rows})
+
+
+def account_movements(company_id, from_date, to_date, session):
+    accounts, period, _ = account_balances(company_id, from_date, to_date, session)
+    return accounts, period
 
 @app.get('/api/companies/{company_id}/reports/financial')
 def financial_report(company_id: str, from_date: DateType, to_date: DateType, user: User = Depends(current_user), session: Session = Depends(db)):
     company_for(company_id, user, session)
     if from_date > to_date: raise HTTPException(422, 'Start date must be before end date')
-    accounts, period = account_movements(company_id, from_date, to_date, session)
-    _, cumulative = account_movements(company_id, DateType(1900, 1, 1), to_date, session)
+    accounts, period, cumulative = account_balances(company_id, from_date, to_date, session)
     rows = [{'code': a.code, 'name': a.name, 'category': a.category,
              'period_balance': str(period[a.id] if a.category in {'asset', 'expense'} else -period[a.id]),
              'closing_balance': str(cumulative[a.id] if a.category in {'asset', 'expense'} else -cumulative[a.id])}
@@ -2030,15 +2076,7 @@ def ageing_report(company_id: str, as_of: DateType, party: str = Query(default='
     documents = list(session.scalars(select(Record).where(Record.company_id == company_id,
         Record.id.in_(posted), Record.kind.in_(['sales_invoice', 'purchase_bill','opening_receivable','opening_payable']), Record.date <= as_of)
         .order_by(Record.name, Record.date, Record.number, Record.id)))
-    applied = dict(session.execute(select(PaymentAllocation.document_id, func.sum(PaymentAllocation.amount))
-        .join(Record, (Record.id == PaymentAllocation.payment_id) & (Record.company_id == PaymentAllocation.company_id))
-        .where(PaymentAllocation.company_id == company_id, Record.date <= as_of)
-        .group_by(PaymentAllocation.document_id)).all())
-    for document_id, value in session.execute(select(PaymentSplitAllocation.document_id, func.sum(PaymentSplitAllocation.amount))
-        .join(Record, (Record.id == PaymentSplitAllocation.payment_id) & (Record.company_id == PaymentSplitAllocation.company_id))
-        .where(PaymentSplitAllocation.company_id == company_id, Record.date <= as_of)
-        .group_by(PaymentSplitAllocation.document_id)):
-        applied[document_id] = applied.get(document_id, Decimal('0')) + value
+    applied = applied_totals_by_document(company_id, session, as_of)
     bucket_names = ('0-30', '31-60', '61-90', '91+')
     buckets = {side: {name: Decimal('0') for name in bucket_names} for side in ('receivable', 'payable')}
     totals = {'receivable': Decimal('0'), 'payable': Decimal('0')}
@@ -2647,10 +2685,13 @@ def report_summary(company_id: str, from_date: DateType, to_date: DateType, user
     expenses = total({'expense'})
     receipts = total({'payment_in','pos','supplier_refund'}) + sum((r.amount for r in records if r.kind=='advance_refund' and r.data.get('payment_kind')=='payment_out'),Decimal('0'))
     payments = total({'payment_out','expense','customer_refund'}) + sum((r.amount for r in records if r.kind=='advance_refund' and r.data.get('payment_kind')=='payment_in'),Decimal('0'))
-    outstanding_rows = list(session.scalars(select(Record).where(Record.company_id == company_id, Record.id.in_(postings), Record.kind.in_(['sales_invoice', 'purchase_bill','opening_receivable','opening_payable']))))
+    outstanding_rows = list(session.scalars(select(Record).where(Record.company_id == company_id,
+        Record.id.in_(postings), Record.date <= to_date,
+        Record.kind.in_(['sales_invoice', 'purchase_bill','opening_receivable','opening_payable']))))
+    applied = applied_totals_by_document(company_id, session, to_date)
     receivable = payable = Decimal('0')
     for r in outstanding_rows:
-        remaining = r.amount - applied_total(company_id, r.id, session)
+        remaining = max(Decimal('0'), r.amount - applied.get(r.id, Decimal('0')))
         if r.kind in {'sales_invoice','opening_receivable'}: receivable += remaining
         else: payable += remaining
     profile = session.get(CompanyTaxProfile, company_id)
@@ -2673,7 +2714,7 @@ def export_summary(company_id: str, fmt: str, from_date: DateType, to_date: Date
     company = company_for(company_id, user, session)
     data = report_summary(company_id, from_date, to_date, user, session)
     rows = [('Period', f"{data['from_date']} to {data['to_date']}")]
-    rows += [(label, data[key]) for key, label in [('sales', 'Net sales'), ('purchases', 'Net purchases'), ('expenses', 'Expenses'), ('receipts', 'Payments received'), ('payments', 'Payments out'), ('receivables', 'Current receivables'), ('payables', 'Current payables')]]
+    rows += [(label, data[key]) for key, label in [('sales', 'Net sales'), ('purchases', 'Net purchases'), ('expenses', 'Expenses'), ('receipts', 'Payments received'), ('payments', 'Payments out'), ('receivables', 'Receivables as of ' + data['to_date']), ('payables', 'Payables as of ' + data['to_date'])]]
     if data['gst']:
         rows += [('Output ' + key.upper(), data['gst'][key]) for key in ('cgst', 'sgst', 'igst')]
         rows += [('Input ' + key.upper() + ' pending review', data['gst']['input_pending_review'][key]) for key in ('cgst', 'sgst', 'igst')]

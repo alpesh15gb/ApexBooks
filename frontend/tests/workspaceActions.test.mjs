@@ -39,7 +39,15 @@ async function workspace(role, verify, additional = [], capabilities = CORE_ENHA
     const outfile = resolve(temporary, 'app.mjs');
     await build({ entryPoints: ['src/main.jsx'], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'react-dom/client', 'lucide-react'], loader: { '.css': 'empty' } });
     await act(async () => { await import(pathToFileURL(outfile)); });
-    const click = async text => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text); assert.ok(button, `Button ${text}`); await act(async () => button.click()); };
+    const click = async text => {
+      let button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text);
+      if (!button && ['Sales invoices', 'Estimates', 'Sales orders', 'Proforma invoices', 'Payment in', 'Credit notes', 'POS'].includes(text)) {
+        const sales = [...document.querySelectorAll('.nav-item')].find(b => b.textContent.trim() === 'Sales');
+        await act(async () => sales.click());
+        button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text);
+      }
+      assert.ok(button, `Button ${text}`); await act(async () => button.click());
+    };
     await verify({ click, posts, invoice, dom, requests });
   } finally {
     globalThis.fetch = previousFetch;
@@ -192,6 +200,22 @@ test('initial company history does not duplicate the dashboard report requests',
     assert.equal(requests.filter(path => path.includes('/reports/summary?')).length, 2);
     assert.equal(requests.filter(path => path.includes('/records?')).length, 2);
     assert.match(document.body.textContent, /temporarily unavailable/, 'Terminal report error is not an endless loading placeholder');
+  });
+});
+
+test('dashboard attention links reset old register filters and open the requested work queue', async () => {
+  await workspace('owner', async ({ click, dom }) => {
+    assert.equal(document.querySelector('.subnav'), null, 'Dashboard starts with compact navigation');
+    await click('Sales invoices');
+    const party = [...document.querySelectorAll('.register-controls label')].find(label => label.textContent.startsWith('Party')).querySelector('select');
+    await act(async () => { party.value = 'Synthetic customer'; party.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
+    assert.equal(party.value, 'Synthetic customer');
+    await click('Dashboard');
+    const overdue = [...document.querySelectorAll('.work-queue button')].find(button => button.textContent.includes('Overdue invoices'));
+    await act(async () => overdue.click());
+    const resetParty = [...document.querySelectorAll('.register-controls label')].find(label => label.textContent.startsWith('Party')).querySelector('select');
+    assert.equal(resetParty.value, '');
+    assert.match(document.querySelector('.register-filter-tabs button[aria-selected=true]').textContent, /Overdue/);
   });
 });
 

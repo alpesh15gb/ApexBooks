@@ -12,13 +12,19 @@ namespace ApexBooks_Windows;
 /// </summary>
 public sealed partial class MainWindow : Window
 {
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(nint window);
+
     public MainWindow()
     {
         InitializeComponent();
         Closed+=(_,_)=>Application.Current.Exit();
         var display=Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(AppWindow.Id,Microsoft.UI.Windowing.DisplayAreaFallback.Primary);
         var area=display.WorkArea;
-        var width=Math.Min(1280,Math.Max(320,area.Width-64));var height=Math.Min(900,Math.Max(400,area.Height-64));
+        // AppWindow coordinates are physical pixels; use a logical desktop size
+        // so a high-DPI display does not launch a cramped mobile-width workspace.
+        var scale=Math.Max(1d,GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this))/96d);
+        var width=Math.Min((int)Math.Round(1280*scale),Math.Max(320,area.Width-64));var height=Math.Min((int)Math.Round(900*scale),Math.Max(400,area.Height-64));
         AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(area.X+(area.Width-width)/2,area.Y+(area.Height-height)/2,width,height));
 
         ExtendsContentIntoTitleBar = true;

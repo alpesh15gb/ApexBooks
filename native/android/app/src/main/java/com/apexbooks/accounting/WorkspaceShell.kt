@@ -45,18 +45,20 @@ import com.apexbooks.accounting.data.*
                 containerColor = MaterialTheme.colorScheme.background,
                 topBar = { Column {
                     TopAppBar(title = {
-                        Text(when { vm.page == "dashboard" -> "Your business"; currentTab == "transactions" -> "Transactions"; vm.page == "more" -> "Workspace"; else -> vm.title(vm.page) }, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(when { vm.page == "dashboard" -> "Business overview"; currentTab == "transactions" -> vm.title(vm.page); vm.page == "more" -> "Workspace"; else -> vm.title(vm.page) }, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }, actions = {
+                        if(vm.canWrite && vm.recordsReady && vm.companyId.isNotBlank()) IconButton(onClick = { createOpen = true }) { Icon(Icons.Outlined.Add, "Create entry") }
                         IconButton(onClick = { searchOpen = true }, enabled = vm.companyId.isNotBlank()) { Icon(Icons.Outlined.Search, "Search workspace") }
                         IconButton(onClick = { vm.task { vm.refresh() } }, enabled = vm.busy == 0 && vm.companyId.isNotBlank()) { Icon(Icons.Outlined.Refresh, "Refresh") }
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White))
-                    Row(Modifier.fillMaxWidth().semantics{contentDescription="Switch company"}
+                    key(vm.companyId, companyDisplayName(vm.company)) { Row(Modifier.fillMaxWidth().semantics{contentDescription="Switch company"}
                         .clickable(role=Role.Button,onClickLabel="Switch company"){companyQuery="";companies=true}
                         .heightIn(min=48.dp).background(Color.White).padding(horizontal=20.dp,vertical=10.dp),
                         verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
                         Icon(Icons.Outlined.Business,null,Modifier.size(18.dp),tint=ApexGreen)
                         Text(companyDisplayName(vm.company).ifBlank{"Choose company"},Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis,color=MaterialTheme.colorScheme.onSurfaceVariant)
                         Icon(Icons.Outlined.ExpandMore,null,Modifier.size(20.dp))
+                    }
                     }
                     if (vm.busy > 0) LinearProgressIndicator(Modifier.fillMaxWidth()) else HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                 } },
@@ -66,7 +68,7 @@ import com.apexbooks.accounting.data.*
                     } }
                 } },
                 floatingActionButton = { if (vm.canWrite && vm.recordsReady && vm.companyId.isNotBlank() && vm.page !in setOf("dashboard", "reports", "settings", "more", "commerce", "pos") && !WindowInsets.isImeVisible) {
-                    ExtendedFloatingActionButton(onClick = { createOpen = true }, icon = { Icon(Icons.Outlined.Add, null) }, text = { Text("Create") }, containerColor = ApexGreen, contentColor = Color.White)
+                    ExtendedFloatingActionButton(onClick = { if (vm.page in MobileNavigation.transactions || vm.page in setOf("party", "item")) vm.add(vm.page) else createOpen = true }, icon = { Icon(Icons.Outlined.Add, null) }, text = { Text(MobileNavigation.createLabel(vm.page)) }, containerColor = ApexGreen, contentColor = Color.White)
                 } }
             ) { padding -> Column(Modifier.padding(padding).fillMaxSize()) {
                 if(BuildConfig.DEBUG)Text("Test workspace · ${java.net.URI(BuildConfig.API_ORIGIN).host}",Modifier.padding(horizontal=16.dp),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)

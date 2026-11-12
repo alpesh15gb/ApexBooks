@@ -18,7 +18,7 @@ export default function TransactionDetail({ record, records, company, labels, lo
   const cancellation = useRef(false);
   const locked = attachmentLocked || cancelBusy;
   async function confirmCancel() {
-    if (cancellation.current) return;
+    if (cancellation.current || cancelReason.trim().length < 3) return;
     cancellation.current = true;
     setCancelBusy(true); setCancelError('');
     try { await onCancelDocument(record, cancelReason.trim()); setCancelOpen(false); setCancelReason(''); }
@@ -45,7 +45,7 @@ export default function TransactionDetail({ record, records, company, labels, lo
   const status = cancelled ? 'Cancelled' : record.converted_to ? 'Converted' : draft ? 'Open draft' : record.posted ? 'Posted' : 'Unposted';
   const actions = relatedRecordActions(record, writable);
   const cancellable = ['sales_invoice','purchase_bill','pos','expense','credit_note','debit_note','payment_in','payment_out','bank_transfer'].includes(record.kind) && record.posted && !cancelled && !!onCancelDocument && features.includes('document_cancellation');
-  const editable = !cancelled && ['sales_invoice','purchase_bill','pos','expense','credit_note','debit_note','payment_in','payment_out','bank_transfer'].includes(record.kind) || draft;
+  const editable = !cancelled && (['sales_invoice','purchase_bill','pos','expense','credit_note','debit_note','payment_in','payment_out','bank_transfer'].includes(record.kind) || draft);
   const pdf = ['sales_invoice','purchase_bill','pos','expense','credit_note','debit_note','payment_in','payment_out','customer_refund','supplier_refund','advance_refund'].includes(record.kind) || draft;
   const lines = record.data?.lines || [];
   const links = [
@@ -54,9 +54,10 @@ export default function TransactionDetail({ record, records, company, labels, lo
     ['Original document', record.data?.applied_to],
   ].filter(([, id]) => id && id !== 'source-converted');
   const allocations = record.allocations || record.data?.allocations || [];
-  const paidAgainst = records.filter(row => row.id !== record.id && (row.allocations || row.data?.allocations || []).some(a => a.document_id === record.id));
+  const paidAgainst = records.filter(row => row.id !== record.id && !row.cancelled && (row.allocations || row.data?.allocations || []).some(a => a.document_id === record.id));
   const invoice = ['sales_invoice', 'purchase_bill', 'pos'].includes(record.kind);
-  const hasBalance = invoice && record.posted;
+  const hasBalance = invoice && record.posted && !cancelled;
+  const balanceKnown = record.outstanding !== undefined && record.outstanding !== null && Number.isFinite(Number(record.outstanding));
   const available = record.data?.is_advance ? record.advance_remaining : ['credit_note', 'debit_note'].includes(record.kind) ? record.credit_remaining : undefined;
   return <div className="overlay detail-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="modal transaction-detail" role="dialog" aria-modal="true" aria-labelledby="transaction-detail-title">
@@ -67,13 +68,13 @@ export default function TransactionDetail({ record, records, company, labels, lo
       </header>
       <div className="detail-body" aria-busy={loading || cancelBusy}>
         <div className="detail-status-line"><span className={`status-badge ${cancelled ? 'cancelled' : record.posted || record.converted_to ? 'posted' : 'draft'}`}>{record.posted ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}{status}</span>{settlementLabel(record) && <span className="detail-settlement">{settlementLabel(record)}</span>}<span>{record.date}</span></div>
-        <section className="detail-money"><div><span>Document total</span><strong>{amount(record.amount)}</strong><small>{record.name || 'No party'}</small></div><div><span>{hasBalance ? 'Still outstanding' : available !== undefined ? 'Available balance' : 'Accounting effect'}</span><strong className={hasBalance && Number(record.outstanding) > 0 ? 'due' : ''}>{hasBalance ? amount(record.outstanding) : available !== undefined ? amount(available) : draft ? 'Not posted' : record.posted ? 'Posted' : 'None'}</strong><small>{hasBalance ? record.data?.due_date ? `Due ${record.data.due_date}` : 'No due date set' : draft ? 'No stock, cash or revenue posted' : 'Server-confirmed status'}</small></div></section>
+        <section className="detail-money"><div><span>{cancelled ? 'Original document total' : 'Document total'}</span><strong>{amount(record.amount)}</strong><small>{record.name || 'No party'}</small></div><div><span>{cancelled ? 'Accounting effect' : hasBalance ? 'Still outstanding' : available !== undefined ? 'Available balance' : 'Accounting effect'}</span><strong className={hasBalance && Number(record.outstanding) > 0 ? 'due' : ''}>{cancelled ? 'Reversed' : hasBalance ? balanceKnown ? amount(record.outstanding) : '—' : available !== undefined ? amount(available) : draft ? 'Not posted' : record.posted ? 'Posted' : 'None'}</strong><small>{cancelled ? 'No active balance from this document' : hasBalance ? !balanceKnown ? 'Refresh details to see the current balance' : record.data?.due_date ? `Due ${record.data.due_date}` : 'No due date set' : draft ? 'No stock, cash or revenue posted' : 'Server-confirmed status'}</small></div></section>
         {loading && <p className="info-box" role="status">Refreshing transaction details…</p>}
         {error && <div className="error banner" role="alert">{error}<button className="link" onClick={onRetry}>Try again</button></div>}
         <div className="detail-action-bar">
           {actions.map((action, index) => <button key={action.kind} className={`button ${index === 0 && action.kind.startsWith('payment') ? 'primary' : 'secondary'}`} disabled={loading || !!error || locked} onClick={() => onRelated(record, action.kind)}>{action.label}<ArrowRight size={15} /></button>)}
-          {['estimate', 'proforma'].includes(record.kind) && !record.converted_to && writable && <button className="button secondary" disabled={loading || !!error || locked} onClick={() => onConvert(record, 'sales_order')}>Create sales order<ArrowRight size={15} /></button>}
-          {draft && !record.converted_to && writable && <button className="button primary" disabled={loading || !!error || locked} onClick={() => onConvert(record)}>Convert to {record.kind === 'purchase_order' ? 'bill' : 'invoice'}<ArrowRight size={15} /></button>}
+          {['estimate', 'proforma'].includes(record.kind) && !record.converted_to && !cancelled && writable && <button className="button secondary" disabled={loading || !!error || locked} onClick={() => onConvert(record, 'sales_order')}>Create sales order<ArrowRight size={15} /></button>}
+          {draft && !record.converted_to && !cancelled && writable && <button className="button primary" disabled={loading || !!error || locked} onClick={() => onConvert(record)}>Convert to {record.kind === 'purchase_order' ? 'bill' : 'invoice'}<ArrowRight size={15} /></button>}
           {writable && cancellable && <button className="button danger-outline" disabled={loading || !!error || locked} onClick={() => { setCancelError(''); setCancelOpen(true); }}><X size={15} />Cancel document</button>}
           {pdf && <button className="button secondary" disabled={loading || locked} onClick={() => onPdf(record)}><Download size={16} />Download PDF</button>}
           {pdf && receiptKinds.has(record.kind) && features.includes('thermal_receipts') && <details className="row-menu receipt-menu"><summary className="button secondary" aria-label="Print thermal receipt"><Printer size={15} />Print receipt</summary><div className="row-menu-list">{[['thermal_80', '80 mm roll'], ['thermal_58', '58 mm roll']].map(([template, label]) => <button key={template} type="button" disabled={loading || locked} onClick={event => { event.currentTarget.closest('details').open = false; onPdf(record, template); }}>{label}</button>)}</div></details>}

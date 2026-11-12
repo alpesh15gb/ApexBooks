@@ -59,7 +59,7 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
     LaunchedEffect(vm.companyId,vm.revision){paymentDetails=runCatching{val b=vm.api.request(vm.api.company(vm.companyId,"/document-branding")) as JSONObject;listOf("bank_name","account_number","upi_id").any{b.s(it).isNotBlank()}}.getOrNull()}
     val bankCodes=vm.banks.map{it.s("ledger_code")}.toSet()
     val accounts=financial?.a("accounts")?.objects()?.filter{it.s("code")in setOf("SYS-CASH","SYS-BANK")||it.s("code")in bankCodes}.orEmpty()
-    val invoices=vm.records.filter{it.s("kind")=="sales_invoice"&&it.optBoolean("posted")}
+    val invoices=vm.records.filter{it.s("kind")=="sales_invoice"&&isPostedRecord(it,end.toString())}
     val issued=invoices.fold(BigDecimal.ZERO){sum,r->sum+r.decimal("amount")}
     val outstanding=invoices.fold(BigDecimal.ZERO){sum,r->sum+r.decimal("outstanding")}
     val settled=(issued-outstanding).max(BigDecimal.ZERO)
@@ -69,15 +69,18 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
                 for((key,label)in listOf("year" to "Financial year","month" to "This month","30days" to "30 days"))FilterChip(selected=period==key,onClick={period=key},label={Text(label,style=MaterialTheme.typography.labelMedium)})
             }
         }}
-        item{Surface(shape=RoundedCornerShape(24.dp),color=Color(0xFFFFEEDC),border=BorderStroke(1.dp,Color(0xFFF1D5B8))){
-            Column(Modifier.fillMaxWidth().padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-                Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(9.dp)){Icon(Icons.Outlined.AccountBalance,null,Modifier.size(20.dp),tint=Color(0xFF9A673E));Text("Cash & bank balance",style=MaterialTheme.typography.labelLarge,color=Color(0xFF895F40))}
-                Text(financial?.takeIf{vm.recordsReady}?.let{money(accounts.fold(BigDecimal.ZERO){sum,a->sum+a.decimal("closing_balance")})}?:"—",fontSize=34.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF794727))
-                Text("Posted ledger balance · $end",style=MaterialTheme.typography.bodySmall,color=Color(0xFF886B52))
-                AdaptiveActions{
-                    FilledTonalButton(enabled=vm.canWrite&&vm.recordsReady,onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f)){Text("Create a sale")}
-                    OutlinedButton(onClick={vm.navigate("bank")},modifier=Modifier.weight(1f)){Text("View accounts")}
-                }
+        item{MetricGrid(listOf(
+            "Net sales" to (summary?.let{money(it.s("sales"))}?:"—"),
+            "Net profit" to (financial?.let{money(it.s("net_profit"))}?:"—"),
+            "To collect · to date" to (summary?.let{money(it.s("receivables"))}?:"—"),
+            "To pay · to date" to (summary?.let{money(it.s("payables"))}?:"—")
+        ))}
+        if(vm.canWrite&&vm.recordsReady)item{Section("Everyday tasks"){
+            AdaptiveActions{
+                Button(onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f)){Text("New invoice")}
+                OutlinedButton(onClick={vm.add("payment_in")},modifier=Modifier.weight(1f)){Text("Receive payment")}
+                OutlinedButton(onClick={vm.add("purchase_bill")},modifier=Modifier.weight(1f)){Text("Add supplier bill")}
+                OutlinedButton(onClick={vm.add("expense")},modifier=Modifier.weight(1f)){Text("Record expense")}
             }
         }}
         if(!vm.recordsReady)item{Section("Loading transaction history"){Text("Live report totals are shown as they arrive. Collections, charts and billing become available when the full company history is ready.");if(vm.busy==0)OutlinedButton(onClick={vm.task{vm.refresh()}}){Text("Retry company data")}}}
@@ -85,9 +88,9 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
         val company=vm.company;val registered=company.s("tax_mode") in setOf("regular","composition")
         val needsBusiness=company.s("address").isBlank()||registered&&company.s("gstin").isBlank()
         if(vm.canWrite&&(needsBusiness||paymentDetails==false))item{Section{
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.Checklist,null,tint=ApexGreen);Text("Make this workspace yours",Modifier.weight(1f).padding(start=10.dp),style=MaterialTheme.typography.titleSmall);TextButton(onClick={setupExpanded=!setupExpanded}){Text(if(setupExpanded)"Less"else"Set up")}}
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.Checklist,null,tint=ApexGreen);Text("Complete company setup",Modifier.weight(1f).padding(start=10.dp),style=MaterialTheme.typography.titleSmall);TextButton(onClick={setupExpanded=!setupExpanded}){Text(if(setupExpanded)"Less"else"Set up")}}
             if(setupExpanded){
-            if(needsBusiness)Text("• Add your business address"+(if(registered)" and GSTIN" else "")+" so invoices are valid.")
+            if(needsBusiness)Text("• Add your business address"+(if(registered)" and GSTIN" else "")+" for your invoices.")
             if(paymentDetails==false)Text("• Add bank account and UPI ID so they print on invoices and customers can pay you.")
             FilledTonalButton(onClick={vm.navigate("settings")}){Text("Open settings")}
             }
@@ -105,32 +108,25 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
             overdue.take(3).forEach{row->TextButton(onClick={vm.detail=row},modifier=Modifier.fillMaxWidth()){Text("${row.s("number")} · ${row.s("name")} · ${money(row.s("outstanding"))} due")}}
             if(overdue.size>3)TextButton(onClick={vm.navigate("sales_invoice")}){Text("View all sales invoices →")}
         }}
-        item{MetricGrid(listOf(
-            "Net sales" to (summary?.let{money(it.s("sales"))}?:"—"),
-            "Net profit" to (financial?.let{money(it.s("net_profit"))}?:"—"),
-            "To collect · to date" to (summary?.let{money(it.s("receivables"))}?:"—"),
-            "To pay · to date" to (summary?.let{money(it.s("payables"))}?:"—")
-        ))}
-        if(vm.recordsReady)item{AdaptiveActions{OutlinedButton(onClick={vm.toolData=null;vm.tool="recurring"},modifier=Modifier.weight(1f),contentPadding=PaddingValues(8.dp,8.dp)){Text("Recurring drafts",style=MaterialTheme.typography.labelLarge)};OutlinedButton(onClick={vm.tool="reorder"},modifier=Modifier.weight(1f),contentPadding=PaddingValues(8.dp,8.dp)){Text("Low stock review",style=MaterialTheme.typography.labelLarge)}}}
-        if(vm.canWrite&&vm.recordsReady)item{AdaptiveActions{Button(onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,10.dp)){Icon(Icons.Outlined.Add,null,Modifier.size(18.dp));Text("New invoice")};OutlinedButton(onClick={vm.add("purchase_bill")},modifier=Modifier.weight(1f),contentPadding=PaddingValues(10.dp,10.dp)){Icon(Icons.Outlined.DocumentScanner,null,Modifier.size(18.dp));Text("Add purchase")}}}
+        if(vm.recordsReady)item{FoldSection("Planning tools"){NativeActionRow("Recurring drafts", "Review upcoming repeat invoices and bills", Icons.Outlined.Repeat) { vm.toolData=null;vm.tool="recurring" };NativeActionRow("Low stock review", "See items that need reordering", Icons.Outlined.Inventory2) { vm.tool="reorder" }}}
         if(vm.recordsReady)item{Section("Sales & purchases"){MonthlyPerformance(vm.records,start,end);Text("Posted invoice values, including GST where applicable",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
         if(vm.recordsReady)item{Section("Invoice collections"){
             Text("GET PAID",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             val fraction=if(issued>BigDecimal.ZERO)(settled.toFloat()/issued.toFloat()).coerceIn(0f,1f)else 0f
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(18.dp)){
-                Box(Modifier.size(126.dp),contentAlignment=Alignment.Center){CircularProgressIndicator(progress={fraction},modifier=Modifier.fillMaxSize(),strokeWidth=12.dp,color=ApexGreen,trackColor=Color(0xFFFBE9D6));Column(horizontalAlignment=Alignment.CenterHorizontally){Text("${(fraction*100).toInt()}%",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold);Text("settled",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
+                Box(Modifier.size(126.dp),contentAlignment=Alignment.Center){CircularProgressIndicator(progress={fraction},modifier=Modifier.fillMaxSize(),strokeWidth=12.dp,color=ApexGreen,trackColor=Color(0xFFE1E6ED));Column(horizontalAlignment=Alignment.CenterHorizontally){Text("${(fraction*100).toInt()}%",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold);Text("settled",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
                 Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("Settled",style=MaterialTheme.typography.bodySmall);Text(money(settled),fontWeight=FontWeight.SemiBold);Text("Outstanding",style=MaterialTheme.typography.bodySmall);Text(money(outstanding),fontWeight=FontWeight.SemiBold)}
             }
-            Text("All posted invoices · payments, advances and credits included.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Invoices through today · payments, advances and credits included.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick={vm.navigate("sales_invoice")}){Text("View sales invoices  →")}
         }}
-        item{Section("Profit & loss"){
+        item{FoldSection("Profit & loss details"){
             Text(financial?.let{money(it.s("net_profit"))}?:"—",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold)
             Text("Net profit for this period",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             for((key,label)in listOf("income" to "Income","expenses" to "Costs & expenses"))Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(label);Text(financial?.let{money(it.s(key))}?:"—",fontWeight=FontWeight.Medium)}
             TextButton(onClick={vm.navigate("reports")}){Text("Explore reports  →")}
         }}
-        if(vm.recordsReady)item{Section("Cash & bank"){
+        if(vm.recordsReady)item{Section("Cash & bank balances"){
             for(account in accounts)Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(account.s("name"),Modifier.weight(1f));Text(money(account.s("closing_balance")),fontWeight=FontWeight.Medium)}
             TextButton(onClick={vm.navigate("bank")}){Text("Manage cash & bank  →")}
         }}
@@ -150,20 +146,20 @@ private data class MonthMovement(val label:String,val sales:BigDecimal,val purch
 @Composable private fun MonthlyPerformance(records:List<JSONObject>,start:LocalDate,end:LocalDate){
     val movements=remember(records,start,end){
         generateSequence(start.withDayOfMonth(1)){it.plusMonths(1)}.takeWhile{!it.isAfter(end)}.take(13).map{month->
-            val rows=records.filter{it.optBoolean("posted")&&it.s("date")>=start.toString()&&it.s("date")<=end.toString()&&it.s("date").startsWith(month.toString().take(7))}
+            val rows=records.filter{isPostedRecord(it,end.toString())&&it.s("date")>=start.toString()&&it.s("date")<=end.toString()&&it.s("date").startsWith(month.toString().take(7))}
             MonthMovement(month.format(DateTimeFormatter.ofPattern("MMM")),rows.fold(BigDecimal.ZERO){sum,r->sum+when(r.s("kind")){"sales_invoice","pos"->r.decimal("amount");"credit_note"->-r.decimal("amount");else->BigDecimal.ZERO}},rows.fold(BigDecimal.ZERO){sum,r->sum+when(r.s("kind")){"purchase_bill"->r.decimal("amount");"debit_note"->-r.decimal("amount");else->BigDecimal.ZERO}})
         }.toList()
     }
-    Row(horizontalArrangement=Arrangement.spacedBy(16.dp)){Text("● Net sales",style=MaterialTheme.typography.labelSmall,color=ApexGreen);Text("● Net purchases",style=MaterialTheme.typography.labelSmall,color=Color(0xFF986B4A))}
+    Row(horizontalArrangement=Arrangement.spacedBy(16.dp)){Text("● Net sales",style=MaterialTheme.typography.labelSmall,color=ApexGreen);Text("● Net purchases",style=MaterialTheme.typography.labelSmall,color=Color(0xFF58677A))}
     val values=movements.flatMap{listOf(it.sales.toFloat(),it.purchases.toFloat())};val max=maxOf(0f,values.maxOrNull()?:0f);val min=minOf(0f,values.minOrNull()?:0f);val span=max-min
     if(span==0f){Box(Modifier.fillMaxWidth().height(140.dp),contentAlignment=Alignment.Center){Text("No net movement in this period",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)};return}
     val description=movements.joinToString("; "){"${it.label}: net sales ${money(it.sales)}, net purchases ${money(it.purchases)}"}
     Column{
         Canvas(Modifier.fillMaxWidth().height(150.dp).semantics{contentDescription=description}){
             val top=10.dp.toPx();val height=size.height-16.dp.toPx();fun y(value:Float)=top+(max-value)/span*height
-            for(value in listOf(max,(max+min)/2,min))drawLine(Color(0xFFF0E5DB),Offset(0f,y(value)),Offset(size.width,y(value)),1.dp.toPx())
+            for(value in listOf(max,(max+min)/2,min))drawLine(Color(0xFFE1E6ED),Offset(0f,y(value)),Offset(size.width,y(value)),1.dp.toPx())
             val base=y(0f);val step=size.width/movements.size;val width=minOf(18.dp.toPx(),step*.27f)
-            movements.forEachIndexed{i,row->for((value,color,shift)in listOf(Triple(row.sales.toFloat(),ApexGreen,-width-2.dp.toPx()),Triple(row.purchases.toFloat(),Color(0xFFE9BA90),2.dp.toPx()))){val at=y(value);drawRect(color,Offset(i*step+step/2+shift,minOf(at,base)),Size(width,kotlin.math.abs(base-at)))}}
+            movements.forEachIndexed{i,row->for((value,color,shift)in listOf(Triple(row.sales.toFloat(),ApexGreen,-width-2.dp.toPx()),Triple(row.purchases.toFloat(),Color(0xFF9AAAB9),2.dp.toPx()))){val at=y(value);drawRect(color,Offset(i*step+step/2+shift,minOf(at,base)),Size(width,kotlin.math.abs(base-at)))}}
         }
         Row(Modifier.fillMaxWidth()){movements.forEach{Box(Modifier.weight(1f),contentAlignment=Alignment.Center){Text(it.label,fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}}}
     }

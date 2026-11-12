@@ -2,6 +2,8 @@
 
 These commands describe the existing Apex Books VPS and native release tools. They have not been executed against production. Use the full pushed commit SHA printed in the handoff as `APEX_SOURCE_SHA` / `APEX_BUILD_SHA`; build from a clean checkout of that commit.
 
+The current workspace changes and local acceptance evidence are described in [the web release review](WEB_RELEASE_REVIEW.md) and [native review](../native/NATIVE_REVAMP_REVIEW.md). This revision adds no database schema migration, but the deployment procedure still explicitly checks/applies the repository's existing migrations for the installed server version.
+
 ## Existing VPS: stage the candidate
 
 Run as root on the existing Ubuntu x86-64 VPS, with Docker Compose v2 and Python 3.12 available. This procedure expects `/opt/apexbooks-vps/shared/activated.json` and the existing private `server.env`. For a new VPS, use [first-install packaging/bootstrap](../deploy/vps/README.md) instead.
@@ -52,6 +54,8 @@ docker compose -p apexbooks-vps -f deploy/vps/compose.yml ps
 ```
 
 Only resume writers after successful verification and report reconciliation. If migration/readiness fails, keep writers paused and use the reviewed recovery/forward-fix plan. Do not automatically start old code against a changed schema. The `update_from_git.py apply --without-backup` route is an explicit backup waiver and is not this procedure. Do not use the root development `docker-compose.yml` to update the dedicated production deployment.
+
+Review `verify-other-apps` output yourself: it compares with a persisted earlier baseline and prints differences without failing the command. It is a diagnostic, not proof that unrelated applications stayed unchanged during this upgrade.
 
 ## Windows installer ZIP
 

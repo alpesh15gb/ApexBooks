@@ -1,3 +1,4 @@
+import FinancialFigure from "./FinancialFigure.jsx";
 import { businessDate, businessFinancialYear } from "./businessDate.js";
 import React, {useEffect, useState} from 'react';
 import {downloadBlob} from './downloadBlob.js';
@@ -32,7 +33,7 @@ export default function CashBook({companyId, records, bankAccount}) {
     } catch (err) {setError(err.message);}
   }
   return <>
-    <div className="summary-grid bank-summary"><div className="summary-card"><div className="summary-top">CASH BALANCE</div><strong>{data ? rupees(data.closing.cash) : '—'}</strong><small>Through {to}</small></div><div className="summary-card"><div className="summary-top">{bankAccount?.name || 'Bank clearing'} BALANCE</div><strong>{data ? rupees(data.closing.bank) : '—'}</strong><small>Through {to}</small></div></div>
+    <div className="summary-grid bank-summary"><div className="summary-card"><div className="summary-top">CASH BALANCE</div><FinancialFigure>{data ? rupees(data.closing.cash) : '—'}</FinancialFigure><small>Through {to}</small></div><div className="summary-card"><div className="summary-top">{bankAccount?.name || 'Bank clearing'} BALANCE</div><FinancialFigure>{data ? rupees(data.closing.bank) : '—'}</FinancialFigure><small>Through {to}</small></div></div>
     {error && <div className="error banner">{error}</div>}
     <section className="panel register cash-book"><div className="panel-header"><div><h2>Cash and bank book</h2><p>Posted ledger movements for cash and the selected bank.</p></div><div className="heading-actions"><button className="button secondary" disabled={!data} onClick={() => download('xlsx')}>XLSX</button><button className="button secondary" disabled={!data} onClick={() => download('pdf')}>PDF</button></div></div>
       <div className="cash-book-filters"><label>From<input type="date" value={from} onChange={event => setFrom(event.target.value)}/></label><label>To<input type="date" value={to} onChange={event => setTo(event.target.value)}/></label>{data && <p>Opening cash {rupees(data.opening.cash)} · bank {rupees(data.opening.bank)}</p>}</div>

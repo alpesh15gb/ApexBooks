@@ -7,6 +7,8 @@ namespace ApexBooks_Windows.Services;
 /// <summary>Optional master defaults are validated before any request; the API remains authoritative.</summary>
 public static class WorkflowMasterValues
 {
+    /// <summary>Only active postings contribute to financial summaries; optional as-of bounds exclude future entries.</summary>
+    public static bool IsPostedRecord(JsonNode? row,string? asOf=null)=>row.Flag("posted")&&!row.Flag("cancelled")&&(asOf is null||row.Text("date").Length>0&&string.CompareOrdinal(row.Text("date"),asOf)<=0);
     public static bool IsActive(JsonNode? row)=>row?["data"]?["is_active"] is null || row["data"].Flag("is_active");
     public static string ShippingAddress(JsonNode? data)=>data.Text("shipping_address") is {Length:>0} delivery?delivery:data.Text("address");
     public static int RecurringInterval(string text)

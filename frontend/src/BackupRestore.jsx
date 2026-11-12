@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { Download, Upload } from "lucide-react";
+import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
+import { businessDate } from "./businessDate.js";
 const b64 = (bytes) => {
   let s = "";
   for (let i = 0; i < bytes.length; i += 8192)
@@ -32,6 +34,9 @@ export default function BackupRestore({ companyId, role, onRestored }) {
     [preview, setPreview] = useState(null),
     [encoded, setEncoded] = useState(""),
     [success, setSuccess] = useState("");
+  const processing = useRef(false);
+  const posting = usePostingRequest();
+  const locked = busy || posting.busy || posting.pending;
   if (role !== "owner") return null;
   async function request(path, body) {
     const response = await fetch("/api" + path, {
@@ -44,18 +49,24 @@ export default function BackupRestore({ companyId, role, onRestored }) {
     });
     if (!response.ok) {
       const detail = await response.json().catch(() => ({}));
-      throw Error(
+      const failure = Error(
         typeof detail.detail === "string"
           ? detail.detail
           : "The backup operation failed",
       );
+      failure.status = response.status;
+      throw failure;
     }
     return response;
   }
   async function download() {
+    if (processing.current || posting.pending) return;
+    processing.current = true;
     setBusy(true);
     setError("");
+    setSuccess("");
     try {
+      if (password && password.length < 12) throw Error("Use a backup password of at least 12 characters");
       let content = new Uint8Array(
           await (await request(`/companies/${companyId}/backup`)).arrayBuffer(),
         ),
@@ -88,7 +99,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
       const url = URL.createObjectURL(new Blob([content], { type: mime })),
         link = document.createElement("a");
       link.href = url;
-      link.download = `apex-${companyId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.${suffix}`;
+      link.download = `apex-${companyId.slice(0, 8)}-${businessDate()}.${suffix}`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       setSuccess(
@@ -97,18 +108,24 @@ export default function BackupRestore({ companyId, role, onRestored }) {
     } catch (e) {
       setError(e.message);
     } finally {
+      processing.current = false;
       setBusy(false);
     }
   }
   async function inspect(e) {
     e.preventDefault();
+    if (processing.current || posting.pending) return;
+    processing.current = true;
     setBusy(true);
     setError("");
+    setSuccess("");
     setPreview(null);
+    setEncoded("");
     try {
       if (!file) throw Error("Choose an Apex Books backup");
+      if (!name.trim()) throw Error("Enter the company name to use after restore");
       if (file.size > 50_000_000)
-        throw Error("Backup exceeds the 50 MB uncompressed file limit");
+        throw Error("Backup file exceeds the 50 MB upload limit");
       let content = new Uint8Array(await file.arrayBuffer());
       if (content[0] !== 31) {
         const text = new TextDecoder().decode(content);
@@ -150,7 +167,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
       const value = b64(content),
         report = await (
           await request("/backups/restore/preview", {
-            company_name: name,
+            company_name: name.trim(),
             backup_base64: value,
           })
         ).json();
@@ -159,26 +176,32 @@ export default function BackupRestore({ companyId, role, onRestored }) {
     } catch (e) {
       setError(e.message);
     } finally {
+      processing.current = false;
       setBusy(false);
     }
   }
   async function restore() {
+    if (processing.current || !preview || !encoded) return;
+    processing.current = true;
     setBusy(true);
     setError("");
     try {
-      const result = await (
+      const confirmed = await posting.run(async () => (
         await request("/backups/restore/commit", {
-          company_name: name,
+          company_name: name.trim(),
           backup_base64: encoded,
           digest: preview.digest,
         })
-      ).json();
+      ).json());
+      if (!confirmed) return;
+      const result = confirmed.value;
       setSuccess("Backup restored into a separate company.");
       setPreview(null);
       await onRestored?.(result.company_id);
     } catch (e) {
       setError(e.message);
     } finally {
+      processing.current = false;
       setBusy(false);
     }
   }
@@ -193,6 +216,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
         Backup password
         <input
           type="password"
+          disabled={locked}
           autoComplete="new-password"
           value={password}
           onChange={(e) => {
@@ -202,7 +226,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
           placeholder="Optional; at least 12 characters to encrypt a download"
         />
       </label>
-      <button className="button secondary" onClick={download} disabled={busy}>
+      <button className="button secondary" onClick={download} disabled={locked}>
         <Download size={16} />
         Download backup
       </button>
@@ -212,6 +236,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
           Company name after restore
           <input
             required
+            disabled={locked}
             maxLength={120}
             value={name}
             onChange={(e) => {
@@ -224,6 +249,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
           Backup file
           <input
             type="file"
+            disabled={locked}
             required
             accept=".json,.gz,.apexbackup"
             onChange={(e) => {
@@ -236,7 +262,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
           For encrypted backups, enter the password above. Team access and login
           credentials are excluded; invite team members after restoring.
         </p>
-        <button className="button secondary" disabled={busy || !file}>
+        <button className="button secondary" disabled={locked || !file}>
           <Upload size={16} />
           Validate backup
         </button>
@@ -251,12 +277,13 @@ export default function BackupRestore({ companyId, role, onRestored }) {
             balanced journals · {preview.counts.stock_movements} stock
             movements.
           </p>
-          <button className="button primary" onClick={restore} disabled={busy}>
-            Restore as separate company
+          <button className="button primary" onClick={restore} disabled={busy || posting.busy}>
+            {posting.pending ? "Retry same restore" : "Restore as separate company"}
           </button>
         </div>
       )}
       {busy && <p role="status">Processing backup…</p>}
+      {posting.pending && !busy && <p role="status" className="info-box">{pendingPostingMessage}</p>}
       {error && (
         <div className="error banner" role="alert">
           {error}

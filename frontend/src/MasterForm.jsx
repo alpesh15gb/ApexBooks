@@ -1,9 +1,10 @@
 import { supportsFeature, supportedMasterData } from "./capabilities.js";
 import {imageInput} from "./imageInput.js";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { registerPostingRequest } from "./postingRegistry.js";
 import { X } from "lucide-react";
 
-export default function MasterForm({ kind, close, save, record, features = [] }) {
+export default function MasterForm({ kind, close: onClose, save, record, features = [] }) {
   const supported = feature => supportsFeature(features, feature);
   const isParty = kind === "party";
   const [form, setForm] = useState({
@@ -30,9 +31,38 @@ export default function MasterForm({ kind, close, save, record, features = [] })
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [discard, setDiscard] = useState(false);
+  const operation = useRef({ busy: false });
+  const discardTrigger = useRef(null);
+  const keepEditingButton = useRef(null);
+  useEffect(() => registerPostingRequest(operation.current), []);
+  useEffect(() => {
+    if (discard) keepEditingButton.current?.focus();
+  }, [discard]);
+  useEffect(() => {
+    const warn = event => { if (dirty) { event.preventDefault(); event.returnValue = ""; } };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+  function close() {
+    if (operation.current.busy) return;
+    if (discard) { keepEditing(); return; }
+    if (dirty) {
+      discardTrigger.current = document.activeElement;
+      setDiscard(true);
+    } else onClose();
+  }
+  function keepEditing() {
+    setDiscard(false);
+    if (discardTrigger.current?.isConnected) discardTrigger.current.focus();
+  }
   const update=event=>{const key=event.target.name,value=event.target.value;setForm(current=>({...current,[key]:value,...(key==='gst_rate'?{tax_treatment:Number(value)>0?'taxable':current.tax_treatment==='taxable'?'nil_rated':current.tax_treatment}:key==='tax_treatment'&&value!=='taxable'?{gst_rate:'0'}:{})}))};
   async function submit(event) {
     event.preventDefault();
+    if (operation.current.busy) return;
+    if (!form.name.trim()) { setError(`Enter a ${isParty ? "party" : "item"} name.`); return; }
+    operation.current.busy = true;
     setBusy(true);
     setError("");
     try {
@@ -61,10 +91,11 @@ export default function MasterForm({ kind, close, save, record, features = [] })
             item_type: form.item_type,tax_treatment:form.tax_treatment,
             low_stock_threshold: form.low_stock_threshold !== "" && form.low_stock_threshold != null ? String(form.low_stock_threshold) : null,
           };
-      await save({ kind, name: form.name, data: supportedMasterData(data, features) });
+      await save({ kind, name: form.name.trim(), data: supportedMasterData(data, features) });
     } catch (err) {
       setError(err.message);
     } finally {
+      operation.current.busy = false;
       setBusy(false);
     }
   }
@@ -77,7 +108,7 @@ export default function MasterForm({ kind, close, save, record, features = [] })
         className="modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Entry form"
+        aria-label={`${record ? "Edit" : "New"} ${isParty ? "party" : "item"}`}
       >
         <div className="modal-heading">
           <div>
@@ -90,11 +121,13 @@ export default function MasterForm({ kind, close, save, record, features = [] })
                 : "Add a reusable record to this company."}
             </p>
           </div>
-          <button className="icon-button" aria-label="Close" onClick={close}>
+          <button className="icon-button" aria-label="Close" disabled={busy} onClick={close}>
             <X size={18} />
           </button>
         </div>
-        <form className="form-grid" onSubmit={submit}>
+        <form className="form-grid" onSubmit={submit} onChangeCapture={() => setDirty(true)} aria-busy={busy}>
+          {discard && <div className="info-box full" role="alert"><strong>Discard unsaved changes?</strong><p>Your {isParty ? "party" : "item"} details have not been saved.</p><div className="modal-actions"><button ref={keepEditingButton} type="button" className="button secondary" onClick={keepEditing}>Keep editing</button><button type="button" className="button danger-outline" onClick={onClose}>Discard changes</button></div></div>}
+          <fieldset className="form-grid full submission-fields" disabled={busy}>
           {!supported("master_lifecycle") && <p className="info-box full">Advanced master settings need an updated connected API. Core details can still be saved; unsupported settings will not be submitted.</p>}
           <label className="full">
             {isParty ? "Party name" : "Item name"}
@@ -173,7 +206,7 @@ export default function MasterForm({ kind, close, save, record, features = [] })
             </>
           ) : (
             <>
-              <div className="full"><label>Item image<input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={async e=>{const file=e.target.files?.[0];if(!file)return;setBusy(true);setError('');try{const [image,thumbnail]=await Promise.all([imageInput(file,600,64000),imageInput(file,160,15000)]);setForm(current=>({...current,image_data_url:image,image_thumbnail:thumbnail}))}catch(err){setError(err.message)}finally{setBusy(false);e.target.value=''}}}/></label>{(form.image_data_url||form.image_thumbnail)&&<><img src={form.image_data_url||form.image_thumbnail} alt="Item preview" style={{maxWidth:150,maxHeight:120}}/><button className="link" type="button" onClick={()=>setForm({...form,image_data_url:'',image_thumbnail:''})}>Remove item image</button></>}</div>
+              <div className="full"><label>Item image<input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={async e=>{const file=e.target.files?.[0];if(!file || operation.current.busy)return;operation.current.busy=true;setBusy(true);setError('');try{const [image,thumbnail]=await Promise.all([imageInput(file,600,64000),imageInput(file,160,15000)]);setForm(current=>({...current,image_data_url:image,image_thumbnail:thumbnail}))}catch(err){setError(err.message)}finally{operation.current.busy=false;setBusy(false);e.target.value=''}}}/></label>{(form.image_data_url||form.image_thumbnail)&&<><img src={form.image_data_url||form.image_thumbnail} alt="Item preview" style={{maxWidth:150,maxHeight:120}}/><button className="link" type="button" onClick={()=>{setDirty(true);setForm({...form,image_data_url:'',image_thumbnail:''});}}>Remove item image</button></>}</div>
               <label>
                 Item type
                 <select
@@ -265,9 +298,10 @@ export default function MasterForm({ kind, close, save, record, features = [] })
 
             </>
           )}
-          {error && <div className="error full">{error}</div>}
+          </fieldset>
+          {error && <div className="error full" role="alert">{error}</div>}
           <div className="modal-actions full">
-            <button type="button" className="button secondary" onClick={close}>
+            <button type="button" className="button secondary" onClick={close} disabled={busy}>
               Cancel
             </button>
             <button className="button primary" disabled={busy}>

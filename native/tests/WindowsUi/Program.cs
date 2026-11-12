@@ -9,7 +9,8 @@ using System.Text.Json.Nodes;
 using System.Windows.Automation;
 using Drawing=System.Drawing;
 
-if(args.Length!=3)throw new ArgumentException("Usage: WindowsUi <published-directory> <http-loopback-origin> <evidence-directory>");
+if(args.Length is <3 or >4||args.Length==4&&args[3]!="--navigation-only")throw new ArgumentException("Usage: WindowsUi <published-directory> <http-loopback-origin> <evidence-directory> [--navigation-only]");
+var navigationOnly=args.Length==4;
 var publish=Path.GetFullPath(args[0]);var origin=new Uri(args[1]);var evidence=Path.GetFullPath(args[2]);Directory.CreateDirectory(evidence);
 if(origin.Scheme!="http"||origin.Host is not("127.0.0.1" or "localhost" or "::1")||origin.UserInfo!=""||origin.Query!=""||origin.Fragment!=""||origin.AbsolutePath!="/")throw new Exception("Only an explicit loopback HTTP API is allowed.");
 // Inspect metadata without loading the target app or executing its module initializers.
@@ -44,6 +45,14 @@ AutomationElement? Find(string name,ControlType? type=null){
     return null;
 }
 AutomationElement? ReadyButton(string label){try{var button=Find(label,ControlType.Button);return button is not null&&button.Current.IsEnabled&&!button.Current.IsOffscreen?button:null;}catch(ElementNotAvailableException){return null;}}
+AutomationElement? RevealButton(string label){
+    var button=Find(label,ControlType.Button);if(button is null||!button.Current.IsEnabled)return null;
+    if(button.Current.IsOffscreen){
+        if(button.TryGetCurrentPattern(ScrollItemPattern.Pattern,out var scroll))((ScrollItemPattern)scroll).ScrollIntoView();
+        else button.SetFocus();
+    }
+    return !button.Current.IsOffscreen?button:null;
+}
 AutomationElement? EditField(string label)
 {
     if(window is null)return null;
@@ -62,6 +71,15 @@ AutomationElement? EditField(string label)
 string Value(AutomationElement element)=>((ValuePattern)element.GetCurrentPattern(ValuePattern.Pattern)).Current.Value;
 void Invoke(AutomationElement element){if(element.TryGetCurrentPattern(InvokePattern.Pattern,out var pattern))((InvokePattern)pattern).Invoke();else if(element.TryGetCurrentPattern(SelectionItemPattern.Pattern,out pattern))((SelectionItemPattern)pattern).Select();else throw new Exception("Control has no supported Invoke/Selection pattern: "+element.Current.Name);}
 void Set(AutomationElement element,string value){if(!element.TryGetCurrentPattern(ValuePattern.Pattern,out var pattern))throw new Exception("Control has no supported Value pattern: "+element.Current.Name);((ValuePattern)pattern).SetValue(value);}
+// Preserve the user's lock-key state while sending the exact synthetic text.
+string KeyboardLiteral(string value){
+    var caps=System.Windows.Forms.Control.IsKeyLocked(System.Windows.Forms.Keys.CapsLock);
+    return string.Concat(value.Select(c=>{
+        if(caps && c is >= 'a' and <= 'z')c=char.ToUpperInvariant(c);
+        else if(caps && c is >= 'A' and <= 'Z')c=char.ToLowerInvariant(c);
+        return c switch{'{'=>"{{}",'}'=>"{}}",'+' or '^' or '%' or '~' or '(' or ')'=>"{"+c+"}",_=>c.ToString()};
+    }));
+}
 void ChooseNativeFile(string title,string action,string path)
 {
     var dialog=Wait(()=>window?.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Window)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==title&&!e.Current.IsOffscreen),"owned system "+title+" picker",120);
@@ -76,7 +94,7 @@ void ChooseNativeFile(string title,string action,string path)
         var typed="";var deadline=Stopwatch.StartNew();
         foreach(var character in path){
             if(deadline.Elapsed>TimeSpan.FromSeconds(30)||!field.Current.HasKeyboardFocus)throw new Exception("Save filename lost focus or exceeded typing deadline.");
-            var key=character switch{'{'=>"{{}",'}'=>"{}}",'+' or '^' or '%' or '~' or '(' or ')'=>"{"+character+"}",_=>character.ToString()};
+            var key=KeyboardLiteral(character.ToString());
             System.Windows.Forms.SendKeys.SendWait(key);typed+=character;
             Wait(()=>Value(field)==typed?field:null,"Save filename character "+typed.Length,5);
         }
@@ -85,6 +103,10 @@ void ChooseNativeFile(string title,string action,string path)
         Wait(()=>!field.Current.HasKeyboardFocus?field:null,"Save filename committed on Tab",10);
     }else Set(field,path);
     Check(title+" picker contains exact requested path",Value(field)==path);
+    if(action=="Open"){
+        field.SetFocus();Wait(()=>field.Current.HasKeyboardFocus?field:null,"Open filename keyboard focus",10);
+        System.Windows.Forms.SendKeys.SendWait("{ENTER}");return;
+    }
     var confirm=Wait(()=>dialog.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Button)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name==action&&e.Current.IsEnabled),title+" "+action+" button");
     if(action=="Save"){
         // Shell Save can make outgoing COM calls. UIA Invoke dispatches a
@@ -96,7 +118,11 @@ void ChooseNativeFile(string title,string action,string path)
         System.Windows.Forms.SendKeys.SendWait(" ");
     }else Invoke(confirm);
 }
-void Snapshot(string name){if(window is null)return;var rectangle=window.Current.BoundingRectangle;if(rectangle.Width<1||rectangle.Height<1)throw new Exception("App has no visible capture rectangle.");using var bitmap=new Drawing.Bitmap((int)rectangle.Width,(int)rectangle.Height);using(var graphics=Drawing.Graphics.FromImage(bitmap))graphics.CopyFromScreen((int)rectangle.X,(int)rectangle.Y,0,0,bitmap.Size);bitmap.Save(Path.Combine(evidence,name+".png"),Drawing.Imaging.ImageFormat.Png);
+void Snapshot(string name){if(window is null)return;var rectangle=window.Current.BoundingRectangle;if(rectangle.Width<1||rectangle.Height<1)throw new Exception("App has no visible capture rectangle.");using var bitmap=new Drawing.Bitmap((int)rectangle.Width,(int)rectangle.Height);using(var graphics=Drawing.Graphics.FromImage(bitmap)){
+        var dc=graphics.GetHdc();
+        try{if(!NativeWindowCapture.PrintWindow(new IntPtr(window.Current.NativeWindowHandle),dc,2)){Console.WriteLine("App-window capture unavailable: "+name);return;}}
+        finally{graphics.ReleaseHdc(dc);}
+    }bitmap.Save(Path.Combine(evidence,name+".png"),Drawing.Imaging.ImageFormat.Png);
     // Only this synthetic app window, never the desktop or credentials. Bounded diagnostic for log-only artifact readers.
     if(name=="03-invoice-form"||name=="failure-visible-app"){
         var codec=Drawing.Imaging.ImageCodecInfo.GetImageEncoders().Single(c=>c.FormatID==Drawing.Imaging.ImageFormat.Jpeg.Guid);
@@ -149,7 +175,28 @@ try{
         var bounds=window.Current.BoundingRectangle;
         Check("narrow header controls stay within the app window",new[]{narrowCreate,narrowSearch}.All(control=>!control.Current.IsOffscreen&&control.Current.BoundingRectangle.Left>=bounds.Left&&control.Current.BoundingRectangle.Right<=bounds.Right));
         Snapshot("01b-narrow-dashboard");
+        if(navigationOnly){
+            var toggle=Wait(()=>ReadyButton("Open Navigation"),"compact navigation toggle");
+            var companyHeading=Wait(()=>Find("Windows UI Beta",ControlType.Text),"compact company heading");
+            var toggleBounds=toggle.Current.BoundingRectangle;var companyBounds=companyHeading.Current.BoundingRectangle;
+            Check("compact toggle has separate space from company title",toggleBounds.Right<=companyBounds.Left||toggleBounds.Bottom<=companyBounds.Top);
+            toggle.SetFocus();System.Windows.Forms.SendKeys.SendWait(" ");
+            var close=Wait(()=>ReadyButton("Close Navigation"),"keyboard opened compact navigation");
+            Check("keyboard opens company navigation",!Find("Choose company",ControlType.ComboBox)!.Current.IsOffscreen);
+            close.SetFocus();System.Windows.Forms.SendKeys.SendWait(" ");
+            Wait(()=>ReadyButton("Open Navigation"),"keyboard closed compact navigation");
+            Wait(()=>Find("Choose company",ControlType.ComboBox) is not { Current.IsOffscreen:false }?window:null,"company navigation is hidden after closing");
+            Check("keyboard closes compact navigation");Thread.Sleep(350);Snapshot("01c-compact-toggle-verified");
+        }
     }finally{transform.Resize(originalBounds.Width,originalBounds.Height);}
+    if(navigationOnly){
+        var handle=new IntPtr(window.Current.NativeWindowHandle);var scale=Math.Max(1d,NativeWindowCapture.GetDpiForWindow(handle)/96d);
+        try{
+            NativeWindowCapture.SetWindowPos(handle,IntPtr.Zero,0,0,(int)Math.Round(1280*scale),(int)Math.Round(900*scale),0x16);
+            Thread.Sleep(750);Console.WriteLine("Requested logical desktop size 1280x900; actual physical bounds "+window.Current.BoundingRectangle);Snapshot("01d-desktop-dashboard");
+        }finally{transform.Resize(originalBounds.Width,originalBounds.Height);}
+        await File.WriteAllTextAsync(Path.Combine(evidence,"result.json"),new JsonObject{["passed"]=true,["scope"]="navigation-only",["checks"]=new JsonArray(checks.Select(x=>(JsonNode)JsonValue.Create(x)!).ToArray())}.ToJsonString());return;
+    }
     Invoke(Wait(()=>Find("Sales & collections  ↗",ControlType.Button),"sales register shortcut"));var number=invoice["number"]!.GetValue<string>();Invoke(Wait(()=>Find(number,ControlType.Button),"seeded invoice in register"));
     Wait(()=>Find("Synthetic UI Buyer"),"invoice detail buyer");Wait(()=>Find("Record payment received",ControlType.Button),"invoice collection context action");Snapshot("02-invoice-detail");Dump();Check("real register opened invoice detail with collection action");
     Invoke(Wait(()=>Find("Done",ControlType.Button),"close seeded invoice detail"));
@@ -176,7 +223,7 @@ try{
     const string itemDescription="Invoice created through Windows UI";var entered="";
     foreach(var character in itemDescription){
         if(!ItemHasFocus())throw new Exception("Item selector lost keyboard focus before next character; refusing to type into another control.");
-        System.Windows.Forms.SendKeys.SendWait(character.ToString());entered+=character;AwaitItemValue(entered,"character "+entered.Length);
+        System.Windows.Forms.SendKeys.SendWait(KeyboardLiteral(character.ToString()));entered+=character;AwaitItemValue(entered,"character "+entered.Length);
     }
     Check("item selector contains the exact complete text before Tab",Value(itemSelector)==itemDescription);
     // A second, continuous burst is mandatory: paced entry must not hide dropped
@@ -184,7 +231,7 @@ try{
     var originalItemRuntimeId=itemSelector.GetRuntimeId();typingDeadline.Restart();
     System.Windows.Forms.SendKeys.SendWait("^a");System.Windows.Forms.SendKeys.SendWait("{BACKSPACE}");AwaitItemValue("","rapid-entry clear");
     if(!ItemHasFocus())throw new Exception("Item selector lost focus before rapid typing.");
-    System.Windows.Forms.SendKeys.SendWait(itemDescription);AwaitItemValue(itemDescription,"continuous rapid typing");
+    System.Windows.Forms.SendKeys.SendWait(KeyboardLiteral(itemDescription));AwaitItemValue(itemDescription,"continuous rapid typing");
     var currentItem=Wait(()=>EditField("Item / service"),"same item selector after rapid typing");
     Check("rapid typing retains exact text, keyboard focus and control identity",Value(currentItem)==itemDescription&&ItemHasFocus()&&originalItemRuntimeId.SequenceEqual(currentItem.GetRuntimeId()));
     System.Windows.Forms.SendKeys.SendWait("{TAB}");
@@ -240,12 +287,16 @@ try{
     // Hosted Windows evidence shows this owned dialog nested beneath the app, not a desktop child.
     var picker=Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Window)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name=="Open"&&!e.Current.IsOffscreen),"owned system Open file picker inside app UIA tree");
     var filename=Wait(()=>picker.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Edit)).Cast<AutomationElement>().FirstOrDefault(e=>(e.Current.Name is "File name:" or "File name"||e.Current.AutomationId=="1148")&&e.TryGetCurrentPattern(ValuePattern.Pattern,out _)),"system picker File name field");Set(filename,evidenceFile);
-    Invoke(Wait(()=>picker.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Button)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name=="Open"&&e.Current.IsEnabled),"system picker Open button"));
+    Check("Receipt picker contains exact requested path",Value(filename)==evidenceFile);
+    filename.SetFocus();Wait(()=>filename.Current.HasKeyboardFocus?filename:null,"receipt picker filename keyboard focus",10);
+    // The modern shell may expose Open as a split action rather than a Button.
+    // Enter commits this verified filename through the real picker; canonical bytes below verify the result.
+    System.Windows.Forms.SendKeys.SendWait("{ENTER}");
     Wait(()=>Find("Archive retained receipt",ControlType.Button),"receipt uploaded through system picker");Snapshot("07-retained-receipt");
     var evidencePath=$"/api/companies/{cid}/records/{evidenceBill["id"]!.GetValue<string>()}/attachments";var uploaded=(await Get(evidencePath))["attachments"]!.AsArray();var expectedSha=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(evidenceBytes)).ToLowerInvariant();
     Check("real receipt picker uploaded exactly one matching retained file",uploaded.Count==1&&uploaded[0]?["sha256"]?.ToString()==expectedSha&&Number(uploaded[0],"size_bytes")==evidenceBytes.Length);
     Invoke(Wait(()=>Find("Archive retained receipt",ControlType.Button),"archive receipt through UI"));Wait(()=>Find("Reactivate retained receipt",ControlType.Button),"archived receipt UI state");var archived=(await Get(evidencePath))["attachments"]!.AsArray();Check("archive UI retains the original evidence bytes and lineage",archived.Count==1&&archived[0]?["is_archived"]?.GetValue<bool>()==true&&archived[0]?["sha256"]?.ToString()==expectedSha);Snapshot("08-archived-receipt");
-    Invoke(Wait(()=>Find("Done",ControlType.Button),"close retained receipt panel"));Invoke(NavigationItem("Settings"));Set(Wait(()=>EditField("Find a setting, for example logo, Vyapar or prefixes"),"Settings search"),"Download backup");Invoke(Wait(()=>ReadyButton("Download backup"),"settings complete backup entry"));Wait(()=>Find("Complete portable backup"),"complete backup dialog");Wait(()=>ReadyButton("Verify and save backup"),"complete backup explicit save action");Snapshot("09-complete-backup-entry");Check("complete backup is discoverable after retaining receipt evidence");
+    Invoke(Wait(()=>Find("Done",ControlType.Button),"close retained receipt panel"));Invoke(NavigationItem("Settings"));Set(Wait(()=>EditField("Find a setting, for example logo, Vyapar or prefixes"),"Settings search"),"Download backup");Invoke(Wait(()=>RevealButton("Download backup"),"settings complete backup entry"));Wait(()=>Find("Complete portable backup"),"complete backup dialog");Wait(()=>ReadyButton("Verify and save backup"),"complete backup explicit save action");Snapshot("09-complete-backup-entry");Check("complete backup is discoverable after retaining receipt evidence");
     var reportQuery=$"?from_date={date}&to_date={date}";
     var sourceSummary=await Get($"/api/companies/{cid}/reports/summary{reportQuery}");
     var sourceFinancial=await Get($"/api/companies/{cid}/reports/financial{reportQuery}");
@@ -263,7 +314,7 @@ try{
     Check("actual Save picker produced encrypted v1 envelope",envelope["format"]?.ToString()=="apex-encrypted-backup"&&Number(envelope,"version")==1&&envelope["ciphertext"] is JsonValue);
     Snapshot("10-encrypted-export-saved");
     Set(Wait(()=>EditField("Find a setting, for example logo, Vyapar or prefixes"),"Settings search after export"),"Restore company backup");
-    Invoke(Wait(()=>ReadyButton("Restore company backup"),"restore from Settings"));
+    Invoke(Wait(()=>RevealButton("Restore company backup"),"restore from Settings"));
     ChooseNativeFile("Open","Open",backupPath);
     Wait(()=>Find("Restore complete backup into a new company"),"restore encrypted backup dialog");
     var restoredName="Windows UI Restored "+Guid.NewGuid().ToString("N")[..8];
@@ -271,12 +322,12 @@ try{
     Set(Wait(()=>EditField("Encrypted backup passphrase"),"restore passphrase"),backupPassword);
     var encryptedImport=Wait(()=>Find("This file uses Apex encrypted-backup v1",ControlType.CheckBox),"encrypted import mode");
     Check("encrypted file is recognized without plaintext fallback",((TogglePattern)encryptedImport.GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState==ToggleState.On);
-    Invoke(Wait(()=>ReadyButton("Validate / resume and preview"),"authenticate upload and preview"));
+    Invoke(Wait(()=>RevealButton("Validate / resume and preview"),"authenticate upload and preview"));
     Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Text)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name.Contains("Complete SHA256 verified. Review below",StringComparison.Ordinal)),"authenticated immutable preview",120);
     Check("preview has not created a company",(await Get("/api/companies")).AsArray().Count==sourceCompanies.Count);
     Snapshot("11-restore-reviewed-preview");
     Invoke(Wait(()=>ReadyButton("Restore reviewed backup"),"explicit new-company restore"));
-    Wait(()=>Find("Restore reviewed backup",ControlType.Button) is null?Find(restoredName):null,"restore dialog closed and new company loaded",120);Invoke(NavigationItem("Dashboard"));Wait(()=>Find("Business overview"),"restored dashboard");Wait(()=>ReadyButton("Sales & collections  ↗"),"restored company data ready",120);Snapshot("12-restored-company-dashboard");
+    Wait(()=>Find("Restore reviewed backup",ControlType.Button) is null?Find(restoredName):null,"restore dialog closed and new company loaded",120);Invoke(NavigationItem("Dashboard"));Wait(()=>Find("Business overview"),"restored dashboard");Wait(()=>Find("Sales & collections  ↗",ControlType.Button),"restored company data ready",120);Snapshot("12-restored-company-dashboard");
     var companiesAfter=(await Get("/api/companies")).AsArray();var restoredCompany=companiesAfter.OfType<JsonObject>().Single(c=>c["name"]?.ToString()==restoredName);var restoredCid=restoredCompany["id"]!.GetValue<string>();
     Check("explicit restore created exactly one distinct company",companiesAfter.Count==sourceCompanies.Count+1&&restoredCid!=cid);
     var restoredSummary=await Get($"/api/companies/{restoredCid}/reports/summary{reportQuery}");var restoredFinancial=await Get($"/api/companies/{restoredCid}/reports/financial{reportQuery}");
@@ -297,3 +348,14 @@ try{
     await File.WriteAllTextAsync(Path.Combine(evidence,"result.json"),new JsonObject{["passed"]=true,["api_origin"]=origin.ToString(),["checks"]=new JsonArray(checks.Select(x=>(JsonNode)JsonValue.Create(x)!).ToArray())}.ToJsonString());
 }catch(Exception e){try{Dump();Snapshot("failure-visible-app");}catch{}await File.WriteAllTextAsync(Path.Combine(evidence,"failure.txt"),e.ToString());throw;}
 finally{if(app is not null&&!app.HasExited){app.Kill(entireProcessTree:true);app.WaitForExit(10000);}}
+
+internal static class NativeWindowCapture
+{
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    internal static extern uint GetDpiForWindow(IntPtr window);
+    [System.Runtime.InteropServices.DllImport("user32.dll",SetLastError=true)]
+    internal static extern bool SetWindowPos(IntPtr window,IntPtr insertAfter,int x,int y,int width,int height,uint flags);
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError=true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    internal static extern bool PrintWindow(IntPtr window,IntPtr deviceContext,uint flags);
+}

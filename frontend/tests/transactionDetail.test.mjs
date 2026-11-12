@@ -14,3 +14,13 @@ test('read-only detail explains fixed and percentage discounts without changing 
  const markup=renderToStaticMarkup(React.createElement(Detail,{record:{id:'r',kind:'sales_invoice',amount:'81.00',posted:true,outstanding:'81.00',data:{lines:[{description:'Synthetic fixed',quantity:'1',rate:'100',discount_amount:'10.00',discount_percent:'0',document_discount:'9.00',taxable:'81.00',tax:'0'},{description:'Synthetic percentage',quantity:'1',rate:'20',discount_percent:'5',taxable:'19',tax:'0'}]}},records:[],company:{name:'Synthetic books',role:'viewer'},features:[],labels:{sales_invoice:'Invoice'}}));
  assert.match(markup,/Line discount: ₹10\.00/);assert.match(markup,/Document discount allocation: ₹9\.00/);assert.match(markup,/Line discount: 5%/);assert.match(markup,/₹81\.00/);assert.doesNotMatch(markup,/Edit details/);
 });
+
+test('cancelled documents show reversal and suppress payment and edit actions even with stale posting data',()=>{
+ const markup=renderToStaticMarkup(React.createElement(Detail,{record:{id:'r',kind:'sales_invoice',amount:'100',posted:true,cancelled:true,outstanding:'100',data:{}},records:[],company:{name:'Synthetic books',role:'owner'},features:[],labels:{sales_invoice:'Invoice'}}));
+ assert.match(markup,/Reversed/);assert.doesNotMatch(markup,/Still outstanding|Collect payment|Sales return|Edit details/);
+});
+
+test('unknown outstanding balances are not presented as zero or settled',()=>{
+ const markup=renderToStaticMarkup(React.createElement(Detail,{record:{id:'r',kind:'sales_invoice',amount:'100',posted:true,data:{}},records:[],company:{name:'Synthetic books',role:'viewer'},features:[],labels:{sales_invoice:'Invoice'}}));
+ assert.match(markup,/Refresh details to see the current balance/);assert.doesNotMatch(markup,/₹0\.00|>Settled</);
+});

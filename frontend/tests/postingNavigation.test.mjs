@@ -31,7 +31,7 @@ test('an uncertain inline POS save survives navigation, company switch, signout 
  try{
   const outfile=resolve(temp,'app.mjs');await build({entryPoints:['src/main.jsx'],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-dom/client','lucide-react'],loader:{'.css':'empty'}});
   await act(async()=>{await import(pathToFileURL(outfile));});
-  await click('POS');await act(async()=>document.querySelector('.pos-product').click());
+  await click('Sales');await click('POS');await act(async()=>document.querySelector('.pos-product').click());
   await act(async()=>new Promise(resolve=>setTimeout(resolve,250)));
   await click('Complete sale');assert.equal(submissions.length,1);
   assert.match(document.body.textContent,/previous response was not confirmed/);

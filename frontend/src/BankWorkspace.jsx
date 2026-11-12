@@ -1,3 +1,4 @@
+import FinancialFigure from "./FinancialFigure.jsx";
 import { businessDate } from "./businessDate.js";
 import StatementImportPreview from "./StatementImportPreview.jsx";
 import React, { useEffect, useMemo, useState } from "react";
@@ -20,12 +21,15 @@ async function api(path, options = {}) {
     },
   });
   const data = await response.json();
-  if (!response.ok)
-    throw Error(
+  if (!response.ok) {
+    const error = Error(
       typeof data.detail === "string"
         ? data.detail
         : `Request failed (${response.status})`,
     );
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 function parseBankCsv(source) {
@@ -102,7 +106,7 @@ function Metric({ label, value, icon: Icon, count = false }) {
         <span>{label}</span>
         <Icon size={18} />
       </div>
-      <strong>{count ? value : money(value)}</strong>
+      <FinancialFigure>{count ? value : money(value)}</FinancialFigure>
     </div>
   );
 }
@@ -304,6 +308,7 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
       .filter(
         (record) =>
           record.posted &&
+          !record.cancelled &&
           (!asOf || record.date <= asOf) &&
           [
             "payment_in",
@@ -332,7 +337,7 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
       record.kind === "supplier_refund" || record.kind === "advance_refund" && record.data?.payment_kind === "payment_out" ||
       (record.kind === "bank_transfer" &&
         (record.data?.direction === "cash_to_bank" || record.data?.direction === "bank_to_bank" && (record.data?.to_bank_account_id||"default")===bankId));
-    return positive === Number(amount) > 0;
+    return positive === (Number(amount) > 0);
   }
   function rankedCandidates(line) {
     return candidates

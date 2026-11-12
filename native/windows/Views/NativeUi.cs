@@ -41,21 +41,21 @@ public static class NativeUi
     public static bool DialogError(Exception e){if(active is null)return false;active.Error.Message=e.Message;active.Error.IsOpen=true;return true;}
     public static bool DialogOpen => active is not null;
     public static void CloseDialog(){var current=active;active=null;if(current is not null){current.ForcedClose=true;current.Dialog.Hide();}}
-    public static readonly SolidColorBrush Green = Brush(0xB6, 0x53, 0x24);
-    public static readonly SolidColorBrush Muted = Brush(0x79, 0x6C, 0x63);
+    public static readonly SolidColorBrush Green = Brush(0x00, 0x7A, 0x3D);
+    public static readonly SolidColorBrush Muted = Brush(0x58, 0x67, 0x7A);
     public static readonly FontFamily WorkspaceFont = new("ms-appx:///Assets/Fonts/DMSans.ttf#DM Sans");
     public static Border AppLogo(double width) => new() { MaxWidth=width, HorizontalAlignment=HorizontalAlignment.Stretch, Padding=new Thickness(10), CornerRadius=new CornerRadius(7), Background=Brush(255,255,255), Child=new Image{ MaxWidth=width-20, Stretch=Stretch.Uniform, Source=new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/ApexBooksWordmark.png")) } };
     public static SolidColorBrush Brush(byte r, byte g, byte b) => new(Windows.UI.Color.FromArgb(255, r, g, b));
-    public static TextBlock Text(string text, double size = 13, bool bold = false) => new() { Text = text, FontFamily=WorkspaceFont,Foreground=Brush(0x35, 0x2D, 0x28),FontSize = Math.Max(12,size), FontWeight = bold ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal, TextWrapping = TextWrapping.Wrap };
+    public static TextBlock Text(string text, double size = 13, bool bold = false) => new() { Text = text, FontFamily=WorkspaceFont,Foreground=Brush(0x20, 0x2C, 0x3C),FontSize = Math.Max(12,size), FontWeight = bold ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal, TextWrapping = TextWrapping.Wrap };
     public static StackPanel SectionHeading(string number,string title,string detail=""){
         var row=Stack(12);row.Orientation=Orientation.Horizontal;row.VerticalAlignment=VerticalAlignment.Center;
-        row.Children.Add(new Border{Width=30,Height=30,CornerRadius=new CornerRadius(8),Background=Brush(0xFF, 0xF2, 0xE8),BorderBrush=Brush(0xF1, 0xD8, 0xBF),BorderThickness=new Thickness(1),Child=new TextBlock{Text=number,FontFamily=WorkspaceFont,FontSize=11,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,Foreground=Green,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center}});
+        row.Children.Add(new Border{Width=30,Height=30,CornerRadius=new CornerRadius(8),Background=Brush(0xE0, 0xF2, 0xE7),BorderBrush=Brush(0xB5, 0xDC, 0xC5),BorderThickness=new Thickness(1),Child=new TextBlock{Text=number,FontFamily=WorkspaceFont,FontSize=11,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,Foreground=Green,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center}});
         var labels=Stack(3);labels.Children.Add(Text(title,14,true));if(detail.Length>0){var caption=Text(detail,11);caption.Foreground=Muted;labels.Children.Add(caption);}row.Children.Add(labels);return row;
     }
     public static StackPanel Stack(double spacing = 12) => new() { Spacing = spacing };
     public static Button Button(string label, Action click, bool primary = false)
     {
-        var button = new Button { Content = new TextBlock { Text=label, TextWrapping=TextWrapping.Wrap, TextAlignment=TextAlignment.Center }, FontFamily=WorkspaceFont, FontSize=14, MinHeight = 44, CornerRadius = new CornerRadius(11), Padding = new Thickness(17, 10, 17, 10) };
+        var button = new Button { Content = new TextBlock { Text=label, TextWrapping=TextWrapping.Wrap, TextAlignment=TextAlignment.Center }, FontFamily=WorkspaceFont, FontSize=14, MinHeight = 44, CornerRadius = new CornerRadius(8), Padding = new Thickness(17, 10, 17, 10) };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button,label);
         if (primary) button.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         button.Click += (_, _) => click(); return button;
@@ -84,7 +84,7 @@ public static class NativeUi
         };
         return button;
     }
-    public static Border Card(UIElement child) => new() { Child = child, Background = new SolidColorBrush(Colors.White), BorderBrush = Brush(0xF0, 0xE5, 0xDB), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(23) };
+    public static Border Card(UIElement child) => new() { Child = child, Background = new SolidColorBrush(Colors.White), BorderBrush = Brush(0xE1, 0xE6, 0xED), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(23) };
     public static TextBox Input(string label, string value = "", bool multi = false) => new() { Header = label, Text = value, FontFamily=WorkspaceFont,FontSize=14,MinHeight = 44, AcceptsReturn = multi, TextWrapping = multi ? TextWrapping.Wrap : TextWrapping.NoWrap, MaxLength = multi ? 2000 : 500 };
     public sealed class DateInput
     {
@@ -179,7 +179,7 @@ public static class NativeUi
             if(saveAndNew is not null){var next=Button("Save & new",()=>{});next.Click+=async(_,_)=>await Commit(true,true);context.NewButton=next;buttons.Add(next);}
             var primary=Button(action,()=>{},true);primary.Click+=async(_,_)=>await Commit(false,true);context.SaveButton=primary;buttons.Add(primary);
             var actions=ResponsiveGrid(130,buttons.ToArray());
-            var footer=ResponsiveGrid(480,stickyFooter,actions);footer.Padding=new Thickness(0,14,0,0);footer.BorderBrush=Brush(0xF0,0xE5,0xDB);footer.BorderThickness=new Thickness(0,1,0,0);
+            var footer=ResponsiveGrid(480,stickyFooter,actions);footer.Padding=new Thickness(0,14,0,0);footer.BorderBrush=Brush(0xE1,0xE6,0xED);footer.BorderThickness=new Thickness(0,1,0,0);
             Grid.SetRow(footer,1);layout.Children.Add(footer);context.Update();
             var accelerator = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key=Windows.System.VirtualKey.Enter, Modifiers=Windows.System.VirtualKeyModifiers.Control };
             accelerator.Invoked += async (_, args) => {
@@ -232,7 +232,7 @@ public static class NativeUi
         if (rows.Count == 0) { target.Children.Add(Card(Text("No entries in this view."))); return; }
         var keys = (columns ?? rows.OfType<JsonObject>().SelectMany(r => r.Select(p => p.Key)).Distinct().Where(k => k != "id" && !k.EndsWith("_id") && rows.Any(r => r?[k] is JsonValue))).ToArray();
         if (keys.Length == 0) return;
-        var table = Stack(0); var header = new Grid { ColumnSpacing = 14, Padding = new Thickness(12), Background = Brush(0xFF, 0xF7, 0xEF) };
+        var table = Stack(0); var header = new Grid { ColumnSpacing = 14, Padding = new Thickness(12), Background = Brush(0xF4, 0xF5, 0xF7) };
         foreach (var key in keys) header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(key is "name" or "party" or "description" or "section" ? 230 : 145) });
         for (var i = 0; i < keys.Length; i++) { var text = Text(Friendly(keys[i]), 12, true); Grid.SetColumn(text, i); header.Children.Add(text); }
         var page=0;const int pageSize=50;var objects=rows.OfType<JsonObject>().ToArray();

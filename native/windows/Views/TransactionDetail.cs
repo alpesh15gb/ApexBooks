@@ -46,10 +46,10 @@ public sealed partial class MainPage
         if(WhatsAppShare.CanRemind(row))Action("Send reminder","remind");
         if(cancelled)panel.Children.Add(Card(Text("Cancelled"+(data["cancelled"].Text("reason") is {Length:>0} why?" · "+why:"")+". The number stays in your records; its ledger, stock and balance effects were reversed.",13)));
         if(CanWrite&&!cancelled&&row.Text("converted_to").Length==0&&(FeatureCatalog.Documents.Contains(kind)||kind is "payment_in" or "payment_out" or "bank_transfer"))Action("Edit","edit");
-        panel.Children.Add(actions);
+        var secondaryActions=actions.Children.Cast<UIElement>().ToArray();actions.Children.Clear();
         var next=Stack(8);
-        void Next(string label,string key)=>next.Children.Add(Button(label,()=>{action=key;CloseDialog();},true));
-        if(CanWrite&&row.Number("outstanding")>0&&kind is "sales_invoice" or "purchase_bill")Next(kind=="sales_invoice"?"Record payment received":"Record supplier payment","payment");
+        void Next(string label,string key)=>next.Children.Add(Button(label,()=>{action=key;CloseDialog();},next.Children.Count==0));
+        if(CanWrite&&WorkflowMasterValues.IsPostedRecord(row)&&row.Number("outstanding")>0&&kind is "sales_invoice" or "purchase_bill")Next(kind=="sales_invoice"?"Record payment received":"Record supplier payment","payment");
         if(CanWrite&&kind is "estimate" or "proforma"&&row.Text("converted_to").Length==0)Next("Convert to sales order","sales_order");
         if(CanWrite&&Supports("recurring_drafts")&&FeatureCatalog.Drafts.Contains(kind)&&row.Text("converted_to").Length==0)Next("Create recurring draft schedule","recurring");
         if(CanWrite&&FeatureCatalog.Drafts.Contains(kind)&&row.Text("converted_to").Length==0)Next(kind=="purchase_order"?"Convert to purchase bill":"Convert to invoice","convert");
@@ -57,6 +57,7 @@ public sealed partial class MainPage
         if(CanWrite&&(row.Number("advance_remaining")>0||row.Number("credit_remaining")>0))Next("Apply / refund available balance","settle");
         if(Supports("document_cancellation")&&CanWrite&&!cancelled&&row.Flag("posted")&&kind is "sales_invoice" or "pos" or "purchase_bill" or "payment_in" or "payment_out" or "expense" or "credit_note" or "debit_note" or "bank_transfer")next.Children.Add(Button("Cancel this document",()=>{action="cancel";CloseDialog();}));
         if(next.Children.Count>0){panel.Children.Add(Text("Next steps",15,true));panel.Children.Add(next);}
+        if(secondaryActions.Length>0)panel.Children.Add(ResponsiveGrid(170,secondaryActions));
         if(!CanWrite)panel.Children.Add(Text("Read-only access · ask an owner for editor access to record payments, returns or changes.",12));
         foreach(var (label,id) in new[]{("Posted document",row.Text("converted_to")),("Source document",data.Text("source_document_id")),("Original invoice / bill",data.Text("applied_to"))}.Where(x=>x.Item2.Length>0&&x.Item2!="source-converted")){
             var linked=Records.FirstOrDefault(r=>r.Text("id")==id);var reference=linked.Text("number");

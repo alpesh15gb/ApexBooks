@@ -34,8 +34,7 @@ def install(app, m):
         m.company_for(company_id, user, session)
         if from_date > to_date:
             raise HTTPException(422, 'Start date must be before end date')
-        accounts, period = m.account_movements(company_id, from_date, to_date, session)
-        _, cumulative = m.account_movements(company_id, DateType(1900, 1, 1), to_date, session)
+        accounts, period, cumulative = m.account_balances(company_id, from_date, to_date, session)
 
         def line(account, amount):
             return {'code': account.code, 'name': account.name, 'amount': money(amount)}

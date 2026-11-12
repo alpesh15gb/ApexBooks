@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from uuid import uuid4
 from playwright.sync_api import sync_playwright, expect
+from browser_support import launch_browser, mobile_context_options
 
 base = os.environ.get('APEX_E2E_BASE', 'http://127.0.0.1:15173').rstrip('/')
 if urlparse(base).hostname not in {'127.0.0.1', 'localhost', '::1'}:
@@ -81,11 +82,7 @@ def register_company(page):
 with sync_playwright() as p:
     # A fresh headless profile can use an installed browser on Windows. Never
     # attach to the user's browser, profile, or existing debug endpoint.
-    channel = os.environ.get('APEX_BROWSER_CHANNEL')
-    if channel not in {None, 'chrome', 'msedge'}:
-        raise RuntimeError('Unsupported isolated browser channel')
-    progress('launching '+(channel or 'Playwright Chromium')+' in a fresh headless profile')
-    browser = p.chromium.launch(**({'channel': channel} if channel else {}))
+    browser = launch_browser(p)
     with fresh_page(browser,'desktop',viewport={'width':1280,'height':900},accept_downloads=True) as page:
         register_company(page)
         create = page.get_by_role('button', name='Create', exact=True)
@@ -175,6 +172,7 @@ with sync_playwright() as p:
 
         # The first keystroke/paste must reach controlled state before dirty
         # tracking renders. Exercise both document and recurring-template forms.
+        page.locator('.sidebar').get_by_role('button', name='Sales', exact=True).click()
         page.get_by_role('button', name='Estimates', exact=True).click()
         page.get_by_role('button', name='Add estimate', exact=True).first.click()
         estimate = page.get_by_role('dialog', name='New estimate', exact=True)
@@ -218,6 +216,9 @@ with sync_playwright() as p:
         expect(cancel_panel.get_by_label('Reason (required)', exact=True)).to_be_disabled()
         page.keyboard.press('Escape')
         expect(cancel_detail).to_be_visible()
+        page.evaluate('history.back()')
+        expect(cancel_detail).to_be_visible()
+        expect(page.locator('.error.banner').filter(has_text='pending save')).to_be_visible()
         assert len(held) == 1
         held[0].continue_()
         expect(cancel_detail.locator('.cancelled-note')).to_contain_text('Synthetic duplicate entry')
@@ -226,7 +227,7 @@ with sync_playwright() as p:
         page.get_by_role('button', name='Sign out', exact=True).click()
         expect(page.get_by_role('button', name='Sign in', exact=True)).to_be_visible()
 
-    with fresh_page(browser,'mobile',viewport={'width':390,'height':844},is_mobile=True,has_touch=True) as page:
+    with fresh_page(browser,'mobile',**mobile_context_options()) as page:
         register_company(page)
         for width in (320, 390, 768, 1024):
             page.set_viewport_size({'width':width,'height':844})

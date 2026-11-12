@@ -40,16 +40,22 @@ post('payment_in', party['name'], {'applied_to': invoice['id'], 'payment_account
 
 reports, errors = [], []
 with sync_playwright() as p:
-    browser = p.chromium.launch()
+    from browser_support import launch_browser
+    browser = launch_browser(p)
     context = browser.new_context(viewport={'width': 1440, 'height': 1000}, reduced_motion='reduce')
     context.tracing.start(screenshots=True, snapshots=True, sources=True)
     page = context.new_page()
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.set_default_timeout(15000)
     def capture(label, audit=True):
+        expect(page.locator('[data-workspace-load="loading"]')).to_have_count(0)
         # Fonts, data responses and two painted frames precede geometry/captures.
         page.evaluate('''async () => { await document.fonts.ready; await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); }''')
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'), f'{label}: horizontal page overflow'
+        assert page.locator('.financial-figure').evaluate_all('''nodes => nodes.every(n => {
+            const range = document.createRange(); range.selectNodeContents(n);
+            return range.getBoundingClientRect().width <= n.clientWidth + 1;
+        })'''), f'{label}: a financial summary is clipped'
         page.screenshot(path=str(ARTIFACTS/f'{label}.png'), full_page=not page.locator('[aria-modal="true"], :popover-open').count())
         if audit:
             if not page.evaluate('!!window.axe'):
@@ -68,7 +74,8 @@ with sync_playwright() as p:
         nav = page.locator('.sidebar')
         button = nav.get_by_role('button', name=name, exact=True)
         if not button.count():
-            nav.get_by_role('button', name='Sales', exact=True).click()
+            group = 'Purchases' if name in ('Purchase bills', 'Payment out', 'Expenses', 'Purchase orders', 'Debit notes') else 'Sales'
+            nav.get_by_role('button', name=group, exact=True).click()
         nav.get_by_role('button', name=name, exact=True).click()
         page.locator('#workspace-content').wait_for()
         page.evaluate('scrollTo(0,0)')
@@ -129,7 +136,7 @@ with sync_playwright() as p:
 
         for width in (390, 1440):
             page.set_viewport_size({'width': width, 'height': 1000})
-            for name in ('Parties', 'Items', 'Sales invoices', 'Cash & bank', 'Day book', 'Ledger', 'Reports', 'Settings'):
+            for name in ('Parties', 'Items', 'Sales invoices', 'Estimates', 'Sales orders', 'Proforma invoices', 'Payment in', 'Credit notes', 'Purchase bills', 'Payment out', 'Expenses', 'Purchase orders', 'Debit notes', 'Cash & bank', 'Day book', 'Ledger', 'Reports', 'Settings', 'POS', 'Recurring drafts', 'Ecommerce'):
                 navigate(name)
                 capture(f'{name.lower().replace(" & ", "-").replace(" ", "-")}-{width}')
                 if name == 'Sales invoices':
@@ -144,6 +151,16 @@ with sync_playwright() as p:
                     capture(f'register-actions-{width}')
                     page.keyboard.press('Escape')
                     expect(more).to_be_focused()
+
+            navigate('Items')
+            page.get_by_role('button', name='Low stock & reorder', exact=True).click()
+            capture(f'reorder-{width}')
+            navigate('Cash & bank')
+            page.get_by_role('button', name='Record cash/bank transfer', exact=True).click()
+            transfer = page.get_by_role('dialog', name='Entry form', exact=True)
+            expect(transfer).to_be_visible()
+            capture(f'cash-transfer-{width}')
+            transfer.get_by_role('button', name='Close', exact=True).click()
 
         # Every create path must remain usable on a phone as well as a desktop.
         for width in (390, 1440):
@@ -195,6 +212,25 @@ with sync_playwright() as p:
             page.locator('.report-choice').filter(has=page.get_by_text(title, exact=True)).click()
             capture('gst-'+title.lower().split(' · ')[0])
             page.get_by_role('button', name='All reports', exact=True).click()
+        # Full supported amounts must remain readable, not merely clipped into a card.
+        large_company = client.request('POST', '/api/companies', {
+            'name': 'Synthetic maximum amount layout', 'tax_mode': 'unregistered', 'state_code': '27',
+        })
+        client.request('POST', '/api/companies/' + large_company['id'] + '/records', {
+            'kind': 'sales_invoice', 'name': 'Synthetic large customer', 'date': '2026-11-01',
+            'data': {'lines': [{'description': 'Layout range acceptance', 'quantity': 1, 'rate': '9999999999999.99', 'gst_rate': 0}]},
+        }, key=uuid4().hex)
+        page.reload(wait_until='domcontentloaded')
+        page.get_by_role('combobox', name='Choose company', exact=True).select_option(large_company['id'])
+        navigate('Dashboard')
+        expect(page.locator('.overview-metric').first).to_contain_text('99,99,99,99,99,999.99')
+        for width in (320, 390, 768, 1440):
+            page.set_viewport_size({'width': width, 'height': 1000})
+            capture(f'large-balance-{width}')
+            assert page.locator('.overview-metric > strong').evaluate_all('''nodes => nodes.every(n => {
+                const range = document.createRange(); range.selectNodeContents(n);
+                return range.getBoundingClientRect().width <= n.clientWidth + 1;
+            })'''), f'A financial amount is clipped at {width}px'
         assert not errors, errors
         violations = [r for r in reports if r['violations']]
         assert not violations, json.dumps(violations, indent=2)

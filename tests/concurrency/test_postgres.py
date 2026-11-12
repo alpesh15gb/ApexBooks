@@ -11,6 +11,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from uuid import uuid4
+from decimal import Decimal
 
 url = os.environ.get('APEX_TEST_DATABASE_URL', '')
 parsed = urlparse(url)
@@ -226,6 +227,77 @@ class ConcurrentPostingTest(unittest.TestCase):
         self.assertEqual(float(report['rows'][0]['closing_quantity']), -1)
         self.assertEqual(float(report['rows'][0]['closing_value']), -60)
 
+    def test_same_retry_key_with_different_payload_has_one_winner(self):
+        first = self.sale()
+        second = {**first, 'name': 'Different buyer'}
+        replies = self.race([('/records', first, 'conflicting-key'), ('/records', second, 'conflicting-key')])
+        self.assertEqual(sorted(r.status_code for r in replies), [200, 409], [r.text for r in replies])
+        self.assertEqual(len(self.client.get(self.base + '/journals', headers=self.headers).json()), 1)
+
+    def test_concurrent_split_payments_cannot_partially_overallocate(self):
+        invoices = [self.create(self.sale()) for _ in range(2)]
+        body = {'kind': 'payment_in', 'name': 'Buyer', 'date': '2026-04-03', 'amount': 150,
+            'data': {'allocations': [{'document_id': row['id'], 'amount': 75} for row in invoices]}}
+        replies = self.race([('/records', body, uuid4().hex) for _ in range(2)])
+        self.assertEqual(sorted(r.status_code for r in replies), [200, 422], [r.text for r in replies])
+        rows = self.client.get(self.base + '/records', headers=self.headers).json()
+        self.assertEqual(sum(r['kind'] == 'payment_in' for r in rows), 1)
+        self.assertTrue(all(Decimal(r['outstanding']) == 25 for r in rows if r['kind'] == 'sales_invoice'))
+        summary = self.client.get(self.base + '/reports/summary', headers=self.headers,
+            params={'from_date': '2026-04-01', 'to_date': '2026-04-30'}).json()
+        self.assertEqual(Decimal(summary['receivables']), 50)
+
+    def test_concurrent_cancellations_reverse_once(self):
+        invoice = self.create(self.sale())
+        replies = self.race([('/records/' + invoice['id'] + '/cancel', {'reason': 'Duplicate entry'}, uuid4().hex)] * 4)
+        self.assertEqual([r.status_code for r in replies], [200] * 4, [r.text for r in replies])
+        journals = self.client.get(self.base + '/journals', headers=self.headers).json()
+        self.assertEqual(len(journals), 2)
+        self.assertEqual(sum(j['reference'].startswith('CANCEL:') for j in journals), 1)
+        balance = self.client.get(self.base + '/trial-balance', headers=self.headers, params={'through': '2026-04-30'}).json()
+        self.assertEqual(Decimal(balance['total_debit']), 0)
+        self.assertEqual(Decimal(balance['total_credit']), 0)
+
+    def test_payment_and_cancellation_are_serialized(self):
+        invoice = self.create(self.sale())
+        payment = {'kind': 'payment_in', 'name': 'Buyer', 'date': '2026-04-03', 'amount': 100,
+            'data': {'applied_to': invoice['id']}}
+        cancelled, received = self.race([
+            ('/records/' + invoice['id'] + '/cancel', {'reason': 'Wrong invoice'}, uuid4().hex),
+            ('/records', payment, uuid4().hex)])
+        self.assertIn((cancelled.status_code, received.status_code), ((200, 422), (409, 200)),
+            (cancelled.text, received.text))
+        detail = self.client.get(self.base + '/records/' + invoice['id'], headers=self.headers).json()
+        if cancelled.status_code == 200:
+            self.assertTrue(detail['cancelled'])
+            self.assertFalse(detail['posted'])
+        else:
+            self.assertTrue(detail['posted'])
+            self.assertEqual(Decimal(detail['outstanding']), 0)
+        report = self.client.get(self.base + '/reports/financial', headers=self.headers,
+            params={'from_date': '2026-04-01', 'to_date': '2026-04-30'}).json()
+        self.assertEqual(Decimal(report['balance_difference']), 0)
+
+    def test_concurrent_versions_cannot_overwrite_an_expense_revision(self):
+        expense = self.create({'kind': 'expense', 'name': 'Rent', 'date': '2026-04-02', 'amount': 100})
+        payload = {'kind': 'expense', 'name': 'Rent', 'number': expense['number'], 'date': '2026-04-02',
+            'amount': 150, 'data': {'version': 0}}
+        gate = Barrier(2)
+        def amend(value):
+            with TestClient(app) as client:
+                gate.wait(timeout=15)
+                return client.put(self.base + '/documents/' + expense['id'],
+                    headers={**self.headers, 'Idempotency-Key': uuid4().hex}, json={**payload, 'amount': value})
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(amend, (150, 200)))
+        self.assertEqual(sorted(r.status_code for r in results), [200, 409], [r.text for r in results])
+        winner = next(r.json() for r in results if r.status_code == 200)
+        report = self.client.get(self.base + '/reports/financial', headers=self.headers,
+            params={'from_date': '2026-04-01', 'to_date': '2026-04-30'}).json()
+        self.assertEqual(Decimal(report['expenses']), Decimal(winner['amount']))
+        self.assertEqual(Decimal(report['balance_difference']), 0)
+        self.assertEqual(len(self.client.get(self.base + '/journals', headers=self.headers).json()), 3)
+
 
     def test_compact_projection_preserves_fresh_status_and_detail(self):
         invoice=self.create(self.sale())
@@ -249,6 +321,54 @@ class ConcurrentPostingTest(unittest.TestCase):
         self.assertEqual(reorder.status_code,200,reorder.text);self.assertEqual(float(reorder.json()['rows'][0]['on_hand']),2)
         due=self.client.get(self.base+'/parties/'+party['id']+'/due-date',headers=self.headers,params={'document_date':'2026-04-02'})
         self.assertEqual(due.status_code,200,due.text);self.assertEqual(due.json()['suggested_due_date'],'2026-05-02')
+
+    def test_ledger_reports_keep_one_snapshot_when_posting_creates_accounts(self):
+        from sqlalchemy import event
+        from main import engine
+
+        # Force the interleaving that caused a real HTTP 500 under load: the
+        # account SELECT sees empty books, then another connection commits the
+        # first expense (including new ledger accounts) before report assembly.
+        for route in ('reports/financial', 'reports/statements', 'trial-balance'):
+            with self.subTest(route=route):
+                company = self.client.post('/api/companies', headers=self.headers,
+                    json={'name': 'Report snapshot QA', 'tax_mode': 'unregistered'}).json()
+                self.base = '/api/companies/' + company['id']
+                pending_write = []
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    def commit_after_account_snapshot(connection, cursor, statement, parameters, context, many):
+                        if not pending_write and statement.lstrip().startswith('SELECT') and 'FROM ledger_accounts' in statement:
+                            pending_write.append(True)  # Do not intercept the writer's account lookups.
+                            pool.submit(self.create, {'kind': 'expense', 'name': 'Concurrent first expense',
+                                'date': '2026-04-02', 'amount': 25, 'data': {}}).result(timeout=15)
+                    event.listen(engine, 'after_cursor_execute', commit_after_account_snapshot)
+                    try:
+                        params = ({'through': '2026-04-30'} if route == 'trial-balance' else
+                            {'from_date': '2026-04-01', 'to_date': '2026-04-30'})
+                        response = self.client.get(self.base + '/' + route, headers=self.headers, params=params)
+                    finally:
+                        event.remove(engine, 'after_cursor_execute', commit_after_account_snapshot)
+                self.assertTrue(pending_write, 'The concurrent write was not interleaved with the report')
+                self.assertEqual(response.status_code, 200, response.text)
+                snapshot = response.json()
+                latest = self.client.get(self.base + '/' + route, headers=self.headers, params=params).json()
+                if route == 'trial-balance':
+                    self.assertEqual(Decimal(snapshot['total_debit']), 0)
+                    self.assertEqual(Decimal(snapshot['total_credit']), 0)
+                    self.assertEqual(Decimal(latest['total_debit']), 25)
+                    self.assertEqual(Decimal(latest['total_credit']), 25)
+                elif route == 'reports/financial':
+                    self.assertEqual(Decimal(snapshot['net_profit']), 0)
+                    self.assertEqual(Decimal(snapshot['retained_earnings']), 0)
+                    self.assertEqual(Decimal(snapshot['balance_difference']), 0)
+                    self.assertEqual(Decimal(latest['net_profit']), -25)
+                    self.assertEqual(Decimal(latest['balance_difference']), 0)
+                else:
+                    self.assertEqual(Decimal(snapshot['profit_loss']['net_profit']), 0)
+                    self.assertEqual(Decimal(snapshot['balance_sheet']['equity']['total']), 0)
+                    self.assertEqual(Decimal(snapshot['balance_sheet']['difference']), 0)
+                    self.assertEqual(Decimal(latest['profit_loss']['net_profit']), -25)
+                    self.assertEqual(Decimal(latest['balance_sheet']['difference']), 0)
 
     def test_login_waiting_for_password_reset_cannot_issue_old_password_session(self):
         from threading import Event

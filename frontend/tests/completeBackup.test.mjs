@@ -29,6 +29,16 @@ test('unknown snapshot preparation retries original request and blocks upload op
  await act(async()=>find('Retry original preparation').click());assert.deepEqual(writes[0],writes[1]);assert.equal(writes.length,2);
  await act(async()=>root.unmount());
 });
+
+test('backup transfer operations start once even before the busy state renders',async()=>{
+ let calls=0,finish;
+ const root=await mount(async()=>{calls++;return new Promise(resolve=>{finish=resolve;});});
+ await act(async()=>{find('Find my active transfers').click();find('Find my active transfers').click();});
+ assert.equal(calls,1);
+ await act(async()=>finish({transfers:[]}));
+ assert.match(document.body.textContent,/No retained unexpired transfers/);
+ await act(async()=>root.unmount());
+});
 test('restore creation and commit lost responses retry same operation; validation never auto-commits',async()=>{
  const writes=[];let creates=0,commits=0,restored;
  const root=await mount(async(path,options)=>{

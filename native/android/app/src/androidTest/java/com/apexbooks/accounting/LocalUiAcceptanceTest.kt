@@ -161,7 +161,7 @@ class LocalUiAcceptanceTest {
         fields[0].click();fields[0].text=email;fields[1].click();fields[1].text=password
         device.pressBack()
         device.findObject(By.text("Sign in")).click()
-        assertTrue("Native dashboard opens",device.wait(Until.hasObject(By.text("Your business")),60000))
+        assertTrue("Native dashboard opens",device.wait(Until.hasObject(By.text("Business overview")),60000))
         assertTrue("Synthetic company visible",device.wait(Until.hasObject(By.text("UI Local Alpha")),30000)||device.hasObject(By.text("UI Local Beta")))
         val target=if(device.hasObject(By.text("UI Local Alpha")))"UI Local Beta"else"UI Local Alpha"
         device.findObject(By.desc("Switch company")).click()
@@ -186,6 +186,7 @@ class LocalUiAcceptanceTest {
         // The remaining journeys are review-only: no order or second invoice is posted.
         device.pressBack()
         assertTrue(device.wait(Until.hasObject(By.text("Home")),15000));device.findObject(By.text("Home")).click()
+        clickReadyAction(device,"Planning tools")
         clickReadyAction(device,"Low stock review")
         assertTrue("Reorder report loaded",device.wait(Until.hasObject(By.textContains("items at or below threshold")),30000))
         device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-reorder-open.png"))
@@ -357,7 +358,7 @@ class LocalUiAcceptanceTest {
             device.executeShellCommand("settings put system font_scale 1.5")
             assertTrue("Home remains accessible with enlarged system text",device.wait(Until.hasObject(By.desc("Home")),15000))
             device.findObject(By.desc("Home")).click()
-            assertTrue("Dashboard opens with enlarged system text",device.wait(Until.hasObject(By.text("Your business")),15000))
+            assertTrue("Dashboard opens with enlarged system text",device.wait(Until.hasObject(By.text("Business overview")),15000))
             device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-large-text-dashboard.png"))
             clickReadyAction(device,"New invoice")
             assertTrue("Entry actions remain visible with enlarged system text",device.wait(Until.hasObject(By.text("Next: add items")),15000))
