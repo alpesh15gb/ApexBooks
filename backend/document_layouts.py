@@ -1,4 +1,5 @@
 from currency import format_inr
+from document_fonts import REGULAR_FONT, BOLD_FONT
 """Five reference-inspired A4 layouts sharing a single accounting data source."""
 import base64
 import io
@@ -39,8 +40,8 @@ def render_document(record, supplier, branding, template, title, paid=Decimal('0
     out = io.BytesIO(); width = A4[0] - 48
     grid = template in {'vintage', 'evergreen'}
     accent = colors.black if template == 'elegant' else colors.HexColor('#19365b')
-    body = ParagraphStyle('body', fontName='Helvetica', fontSize=8, leading=11)
-    bold = ParagraphStyle('bold', parent=body, fontName='Helvetica-Bold')
+    body = ParagraphStyle('body', fontName=REGULAR_FONT, fontSize=8, leading=11)
+    bold = ParagraphStyle('bold', parent=body, fontName=BOLD_FONT)
     right = ParagraphStyle('right', parent=body, alignment=TA_RIGHT)
     heading = ParagraphStyle('heading', parent=bold, fontSize=12, leading=16, textColor=accent)
     company_style = ParagraphStyle('company', parent=heading, textColor=colors.black)
@@ -189,7 +190,7 @@ def render_document(record, supplier, branding, template, title, paid=Decimal('0
         for label,key in [('Notes','notes'),('Terms and conditions','terms')]:
             if branding.get(key):elements += [Spacer(1,7),p(label,bold),p(branding[key])]
     def footer(c,doc):
-        c.setFont('Helvetica',7);c.drawString(24,20,'Page '+str(doc.page));c.drawRightString(A4[0]-24,20,'Generated with Apex Books')
+        c.setFont(REGULAR_FONT,7);c.drawString(24,20,'Page '+str(doc.page));c.drawRightString(A4[0]-24,20,'Generated with Apex Books')
     pdf=SimpleDocTemplate(out,pagesize=A4,leftMargin=24,rightMargin=24,topMargin=24,bottomMargin=34,title=title)
     pdf.build(elements,onFirstPage=footer,onLaterPages=footer)
     return out.getvalue()
@@ -203,8 +204,8 @@ def render_thermal(record, supplier, branding, template, title, paid=Decimal('0'
     roll = THERMAL[template] * mm; margin = 3 * mm - 6; width = roll - 2 * margin - 12  # the page frame pads 6pt per side
     small = template == 'thermal_58'
     size = 7 if small else 8
-    body = ParagraphStyle('t-body', fontName='Helvetica', fontSize=size, leading=size + 2.5)
-    bold = ParagraphStyle('t-bold', parent=body, fontName='Helvetica-Bold')
+    body = ParagraphStyle('t-body', fontName=REGULAR_FONT, fontSize=size, leading=size + 2.5)
+    bold = ParagraphStyle('t-bold', parent=body, fontName=BOLD_FONT)
     center = ParagraphStyle('t-center', parent=body, alignment=TA_CENTER)
     center_bold = ParagraphStyle('t-center-bold', parent=bold, alignment=TA_CENTER)
     shop = ParagraphStyle('t-shop', parent=center_bold, fontSize=size + 4, leading=size + 6)

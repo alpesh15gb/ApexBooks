@@ -3060,11 +3060,12 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
         'modern': (colors.HexColor('#1a6475'), colors.HexColor('#e7f2f5'), 12, False),
         'compact': (colors.HexColor('#343c45'), colors.HexColor('#f3f4f5'), 5, True),
         'bold': (colors.HexColor('#752f39'), colors.HexColor('#f8ecee'), 13, True),
-        'minimal': (colors.HexColor('#343c45'), colors.white, 7, False),
+        'minimal': (colors.HexColor('#343c45'), colors.white, 5, False),
     }
     if not template:
         preference = session.get(CompanyPreference, company_id)
         template = preference.document_template if preference else 'classic'
+    from document_fonts import REGULAR_FONT, BOLD_FONT
     from document_layouts import LAYOUTS, THERMAL, render_document, render_thermal, line_discount_label
     if template in LAYOUTS or template in THERMAL:
         data = record.data or {}
@@ -3095,11 +3096,11 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     out = io.BytesIO()
     pdf = SimpleDocTemplate(out, pagesize=A4, leftMargin=40, rightMargin=40, topMargin=40, bottomMargin=40, title=title)
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name='ApexTitle', parent=styles['Title'], fontName='Helvetica-Bold', fontSize=20 if template != 'compact' else 15, leading=23, textColor=accent, spaceAfter=10))
-    styles.add(ParagraphStyle(name='ApexBody', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=13))
-    styles.add(ParagraphStyle(name='ApexHead', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=13, textColor=colors.white))
-    styles.add(ParagraphStyle(name='ApexSmall', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=11, textColor=colors.HexColor('#52605b')))
-    styles.add(ParagraphStyle(name='ApexRight', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, alignment=TA_RIGHT, textColor=accent))
+    styles.add(ParagraphStyle(name='ApexTitle', parent=styles['Title'], fontName=BOLD_FONT, fontSize=20 if template != 'compact' else 15, leading=23, textColor=accent, spaceAfter=10))
+    styles.add(ParagraphStyle(name='ApexBody', parent=styles['Normal'], fontName=REGULAR_FONT, fontSize=8 if template == 'minimal' else 9, leading=11 if template == 'minimal' else 13))
+    styles.add(ParagraphStyle(name='ApexHead', parent=styles['Normal'], fontName=BOLD_FONT, fontSize=9, leading=13, textColor=colors.white))
+    styles.add(ParagraphStyle(name='ApexSmall', parent=styles['Normal'], fontName=REGULAR_FONT, fontSize=8, leading=11, textColor=colors.HexColor('#52605b')))
+    styles.add(ParagraphStyle(name='ApexRight', parent=styles['Normal'], fontName=BOLD_FONT, fontSize=10, alignment=TA_RIGHT, textColor=accent))
     elements = [Paragraph(safe(title), styles['ApexTitle'])]
     legacy_branding=data.get('document_branding') or {}
     if legacy_branding.get('logo'):
@@ -3134,7 +3135,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
         rows.append(base)
     if len(rows) == 1: rows.append([safe(record.name)] + [''] * (len(headings) - 2) + [safe(record.amount)])
     table = Table(rows, colWidths=widths, repeatRows=1, hAlign='LEFT')
-    table_style = [('BACKGROUND', (0, 0), (-1, 0), accent), ('TEXTCOLOR', (0, 0), (-1, 0), colors.white), ('VALIGN', (0, 0), (-1, -1), 'TOP'), ('TOPPADDING', (0, 0), (-1, -1), padding), ('BOTTOMPADDING', (0, 0), (-1, -1), padding)]
+    table_style = [('FONTNAME', (0, 0), (-1, -1), REGULAR_FONT), ('BACKGROUND', (0, 0), (-1, 0), accent), ('TEXTCOLOR', (0, 0), (-1, 0), colors.white), ('VALIGN', (0, 0), (-1, -1), 'TOP'), ('TOPPADDING', (0, 0), (-1, -1), padding), ('BOTTOMPADDING', (0, 0), (-1, -1), padding)]
     if grid: table_style.append(('LINEBELOW', (0, 0), (-1, -1), .3, colors.HexColor('#dce4df')))
     table.setStyle(TableStyle(table_style)); elements += [table, Spacer(1, 18)]
     total_discount = sum((Decimal(str(line.get('discount', 0))) for line in data.get('lines', [])), Decimal('0'))
