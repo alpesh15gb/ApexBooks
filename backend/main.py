@@ -2398,6 +2398,9 @@ def export_financial(company_id: str, fmt: str, from_date: DateType, to_date: Da
 def export_parties(company_id: str, fmt: str, from_date: DateType, to_date: DateType, party: str = Query(default='', max_length=120), user: User = Depends(current_user), session: Session = Depends(db)):
     company = company_for(company_id, user, session)
     data = party_report(company_id, from_date, to_date, party, user, session)
+    if fmt == 'pdf':
+        from party_report_pdf import render
+        return Response(render(company.name, data), media_type='application/pdf', headers={'Content-Disposition':'attachment; filename="party-statement.pdf"'})
     rows = [[r[key] for key in ('date', 'party', 'kind', 'number', 'amount', 'receivable', 'payable')] for r in data['rows']]
     return export_table(company.name, f"Party statement {from_date} to {to_date}", ['Date', 'Party', 'Type', 'Number', 'Amount', 'Receivable', 'Payable'], rows, fmt, 'party-statement')
 
