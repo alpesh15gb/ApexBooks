@@ -184,4 +184,14 @@ class ExpandedVyaparTests(unittest.TestCase):
         self.assertEqual(discount['kind'],'credit_note');self.assertEqual(Decimal(discount['amount']),10)
         sale=next(x for x in r if x['kind']=='sales_invoice' and x['posted']);self.assertEqual(Decimal(sale['outstanding']),76)
 
+    def test_immediate_payment_source_reference_requires_retained_archive_lineage(self):
+        from company_restore import validate
+        c,h,b,records=self.post(fixture())
+        payload=c.get(b+'/data-export.json',headers=h).json();validate(payload)
+        payment=next(r for r in payload['records'] if r['kind']=='payment_in' and r['data'].get('vyapar_immediate_payment'))
+        for key,value in [('source_document_id','missing'),('vyapar_payment_mapping_id',999999),('vyapar_digest','forged'),('vyapar_immediate_payment',False)]:
+            forged=copy.deepcopy(payload);next(r for r in forged['records'] if r['id']==payment['id'])['data'][key]=value
+            with self.subTest(key=key),self.assertRaises(ValueError):validate(forged)
+        self.roundtrip(c,h,b)
+
 if __name__=='__main__':unittest.main()

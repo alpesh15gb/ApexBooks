@@ -132,6 +132,17 @@ def validate(payload):
             if (source['source_id'],source['source_payment_mapping_id'],source['kind'],source['date'],number(source['amount'])) != (data.get('vyapar_source_id'),data.get('vyapar_payment_mapping_id'),payment['kind'],payment['date'],number(payment['amount'])):continue
             if any(a['document_source_id']==source_doc['source_id'] and number(a['amount'])==amount for a in source['allocations']):return True
         return False
+    def verified_immediate_source(payment, document):
+        data=payment['data'];digest=data.get('vyapar_digest')
+        if payment['kind'] not in {'payment_in','payment_out'} or not data.get('vyapar_immediate_payment') or not document or not digest or document['data'].get('vyapar_digest')!=digest:return False
+        plan=verified_source_plan(digest)
+        if plan is None:return False
+        source_doc=next((r for r in plan['documents'] if r['source_id']==document['data'].get('vyapar_source_id')),None)
+        if not source_doc or source_doc['apex_kind']!=document['kind'] or source_doc['date']!=document['date'] or number(source_doc['amount'])!=number(document['amount']) or payment['name'].strip().casefold()!=document['name'].strip().casefold():return False
+        return any(not row['standalone'] and row['source_id']==source_doc['source_id'] and
+            (row['source_id'],row['source_payment_mapping_id'],row['kind'],row['date'],number(row['amount']),bool(row['is_advance']))==
+            (data.get('vyapar_source_id'),data.get('vyapar_payment_mapping_id'),payment['kind'],payment['date'],number(payment['amount']),bool(data.get('is_advance')))
+            for row in plan['payments'])
     links=set();allocated=defaultdict(Decimal);payment_totals=defaultdict(Decimal)
     for row in groups['payment_allocations']:
         pid,did=row.get('payment_id'),row.get('document_id');amount=number(row['amount'])
@@ -190,7 +201,8 @@ def validate(payload):
     conversion_sources={row['target_record_id']:row['source_record_id'] for row in groups['document_conversions']}
     for row in groups['records']:
         value=row['data'].get('source_document_id')
-        if value not in (None,'') and (not isinstance(value,str) or conversion_sources.get(row['id'])!=value):raise ValueError('Missing or mismatched conversion lineage')
+        if value not in (None,''):
+            if not isinstance(value,str) or (conversion_sources.get(row['id'])!=value and not verified_immediate_source(row,indexes['records'].get(value))):raise ValueError('Missing or mismatched conversion or imported payment lineage')
     reversed_ids=set();reversal_targets=set()
     journal_accounts=defaultdict(lambda:defaultdict(Decimal))
     for line in groups['journal_lines']:journal_accounts[line['journal_id']][line['account_id']]+=number(line['debit'])-number(line['credit'])

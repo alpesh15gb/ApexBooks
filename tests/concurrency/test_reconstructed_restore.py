@@ -24,6 +24,8 @@ CASES = [
     'test_purchase_return_lines.PurchaseReturnLinesTest',
     'test_purchase_return_lines.RemainingSourceQuantityTest',
     'test_return_tax_residual.ReturnTaxResidualTest',
+    'test_vyapar_expanded.ExpandedVyaparTests',
+    'test_vyapar_tax_and_openings.VyaparTaxAndOpeningTests',
 ]
 if __name__ == '__main__':
     suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromName(name) for name in CASES)
