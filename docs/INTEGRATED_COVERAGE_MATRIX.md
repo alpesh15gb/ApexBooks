@@ -1224,3 +1224,19 @@ WinUI screen execution. Actual process/device restart, OS file permissions and
 full native builds remain acceptance gates. Full Android build still needs its
 Gradle plugin/SDK; WinUI requires a Windows build host. No production access,
 migration, publication retry or deployment.
+
+### Integrated receipt regression checkpoint (2026-11-12)
+
+Product revision c0cecc0a4fb3f1787b1c4d2ded52fe15615ec75f: all 471 frontend
+tests pass. Twenty-one combined bank/master import API, receipt, row-retry and
+migration tests pass against disposable SQLite databases. Logs are retained as
+docs/evidence/bank-integrated-web.log and bank-integrated-api.log. These are
+integration regression results, not new device or PostgreSQL evidence.
+
+Independent review separately reported compiled native receipt/changed-payload/
+capability/role/stale checks passing at this revision. No new defect was
+reproduced by this integration run. Remaining highest-value acceptance: final
+integrated browser import/reload and access recovery, full Android/Windows build,
+actual native file-picker/import/process-restart flows, and verified release
+backup/restore/writer-pause/rollback gates. Publication remains blocked and was
+not retried; production and deployment remain untouched.
