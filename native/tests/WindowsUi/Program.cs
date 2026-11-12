@@ -351,7 +351,7 @@ try{
     var quoteNavigation=ReadyButton("Open Navigation");if(quoteNavigation is not null)Invoke(quoteNavigation);
     combo=Wait(()=>Find("Choose company",ControlType.ComboBox),"quotation company picker");SelectCompany("Windows UI Quotation");
     var quoteCloseNavigation=ReadyButton("Close Navigation");if(quoteCloseNavigation is not null)Invoke(quoteCloseNavigation);
-    Wait(()=>Find("Windows UI Quotation"),"quotation company heading");Invoke(NavigationItem("Estimates"));
+    Wait(()=>Find("Windows UI Quotation"),"quotation company heading");Invoke(NavigationItem("Dashboard"));Invoke(Wait(()=>RevealButton("1 open estimates"),"dashboard open quotation shortcut"));
     Invoke(Wait(()=>Find(seededQuote["number"]!.ToString(),ControlType.Button),"nine-line quotation row"));
     Invoke(Wait(()=>ReadyButton("Edit"),"reopen nine-line quotation"));Wait(()=>Find("Save changes",ControlType.Button),"nine-line edit form");Snapshot("13-nine-line-quotation-edit");
     Invoke(Wait(()=>ReadyButton("Save changes"),"save unchanged nine-line quotation"));Wait(()=>Find("Save changes",ControlType.Button) is null?window:null,"quotation edit saved");
