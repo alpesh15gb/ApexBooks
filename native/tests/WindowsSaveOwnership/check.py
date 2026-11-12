@@ -4,7 +4,7 @@ import argparse,subprocess,tempfile,os
 root=Path(__file__).resolve().parents[3]
 p=argparse.ArgumentParser();p.add_argument('--dotnet',default='dotnet');args=p.parse_args()
 s=(root/'native/windows/Services/ApexFiles.cs').read_text();methods=s[s.index('    public static async Task<bool> Save('):s.index('    public static async Task<byte[]> Read(')]
-app=(root/'native/windows/MainPage.xaml.cs').read_text();wiring=app[app.index('    private Action CaptureFileSaveAccess()'):app.index('    internal string PathFor')]
+app=(root/'native/windows/MainPage.xaml.cs').read_text();wiring=app[app.index('    private Action CaptureFileSaveAccess()'):app.index('    private Action CaptureOwnerImportAccess()')]
 assert 'ApexFiles.CaptureSaveAccess=CaptureFileSaveAccess;' in app
 assert 'saveAccessEpoch++;Records=new();Banks=new();recordsReady=false;' in app
 fixture=r'''

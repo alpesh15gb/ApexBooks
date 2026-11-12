@@ -54,6 +54,7 @@ public sealed partial class MainPage
     private async Task RecurringTemplateForm(JsonObject source)
     {
         RequireFeature("recurring_drafts");
+        var writeAccess=CaptureRecurringWriteAccess();
         var cid=CompanyId;var stamp=generation;var calendar=await Api.Send(Api.CompanyPath(cid,"/recurring-templates/due"));if(cid!=CompanyId||stamp!=generation)return;var panel=Stack(12);var name=Input("Schedule name",source.Text("number")+" · "+source.Text("name"));name.MaxLength=120;
         var start=new DateInput("First occurrence",calendar.Text("business_date"));var end=new DateInput("End date · optional","");var frequency=Select("Frequency",[("monthly","Monthly"),("weekly","Weekly")]);var interval=Input("Every · interval (1–12)","1");
         panel.Children.Add(Text("Source: "+Friendly(source.Text("kind"))+" · "+source.Text("number")+" · "+source.Text("name"),15,true));panel.Children.Add(Text("A snapshot of this saved draft is used for future occurrences. Dates are anchored by the server; short months clamp to the final valid day. Schedules never post automatically. To change frequency or dates later, pause this schedule and create a replacement.",13));
@@ -61,10 +62,11 @@ public sealed partial class MainPage
         var key=Guid.NewGuid().ToString();var submission=new RetrySubmission();
         string Signature()=>name.Text+"|"+start.Value+"|"+end.Value+"|"+Value(frequency)+"|"+interval.Text;var baseline=Signature();
         var saved=await Dialog("Create recurring draft schedule",panel,async()=>{
+            writeAccess();
             if(!submission.Unresolved){if(name.Text.Trim().Length==0)throw new Exception("Enter a schedule name.");WorkflowMasterValues.RecurringInterval(interval.Text);if(start.Value.Length==0)throw new Exception("Choose the first occurrence date.");if(end.Value.Length>0&&string.CompareOrdinal(end.Value,start.Value)<0)throw new Exception("End date must not precede the first occurrence.");}
             var body=new JsonObject{["name"]=name.Text.Trim(),["source_record_id"]=source.Text("id"),["start_date"]=start.Value,["frequency"]=Value(frequency),["interval"]=WorkflowMasterValues.RecurringInterval(interval.Text),["end_date"]=end.Value.Length==0?null:JsonValue.Create(end.Value),["is_active"]=true};
             try{await Api.Send(Api.CompanyPath(cid,"/recurring-templates"),HttpMethod.Post,submission.Body(body),key);submission.Succeeded();}catch(Exception e){WorkflowMasterValues.RecurringWriteFailed(submission,e);SetFormEnabled(panel,!submission.Unresolved);if(submission.Unresolved)throw new Exception("The schedule may already exist. Retry Save with the original details before closing or creating a replacement.",e);throw;}
-        },"Save schedule",unresolved:()=>submission.Unresolved,hasChanges:()=>Signature()!=baseline);
+        },"Save schedule",canSave:()=>CanWrite&&ScopedFileExport.Current(writeAccess),unresolved:()=>submission.Unresolved,hasChanges:()=>Signature()!=baseline);
         if(saved&&cid==CompanyId&&stamp==generation){Success("Recurring draft schedule saved. No transaction has been posted.");await RecurringDrafts();}
     }
 
@@ -76,23 +78,27 @@ public sealed partial class MainPage
         panel.Children.Add(name);panel.Children.Add(active);var refresh=new CheckBox{Content="Refresh future draft snapshot from a saved draft",IsChecked=false};var source=Select("Future snapshot source",new[]{("","Keep existing snapshot")}.Concat(Records.Where(r=>r.Text("kind")==row.Text("draft_kind")&&r.Text("converted_to").Length==0).Select(r=>(r.Text("id"),r.Text("number")+" · "+r.Text("name")))),row.Text("source_record_id"));panel.Children.Add(refresh);panel.Children.Add(source);panel.Children.Add(Text("Refreshing affects only future occurrences; generated drafts and posted records are not rewritten.",12));
         var draft=row["draft"].Object();foreach(var line in draft["data"]?["lines"].Array()??new())panel.Children.Add(Text(line.Text("description")+" · "+line.Text("quantity")+" × "+J.Money(line.Number("rate")),12));
         if(!edit||!CanWrite){SetFormEnabled(panel,false);await Dialog("Recurring draft snapshot",panel,()=>Task.CompletedTask,"Done");return;}
+        var writeAccess=CaptureRecurringWriteAccess();
         var key=Guid.NewGuid().ToString();var submission=new RetrySubmission();string Signature()=>name.Text+"|"+active.IsChecked+"|"+refresh.IsChecked+"|"+Value(source);var baseline=Signature();
         var saved=await Dialog("Manage recurring schedule",panel,async()=>{
+            writeAccess();
             if(!submission.Unresolved&&name.Text.Trim().Length==0)throw new Exception("Enter a schedule name.");var body=new JsonObject{["version"]=row["version"].Copy(),["name"]=name.Text.Trim(),["is_active"]=active.IsChecked==true};
             if(refresh.IsChecked==true){if(Value(source).Length==0)throw new Exception("Choose the saved draft whose snapshot should be used.");body["source_record_id"]=Value(source);}
             try{await Api.Send(Api.CompanyPath(cid,"/recurring-templates/"+Uri.EscapeDataString(id)),HttpMethod.Put,submission.Body(body),key);submission.Succeeded();}catch(Exception e){WorkflowMasterValues.RecurringWriteFailed(submission,e);SetFormEnabled(panel,!submission.Unresolved);if(submission.Unresolved)throw new Exception("The schedule change has an unknown outcome. Retry the original change before closing.",e);throw;}
-        },"Save schedule changes",unresolved:()=>submission.Unresolved,hasChanges:()=>Signature()!=baseline);
+        },"Save schedule changes",canSave:()=>CanWrite&&ScopedFileExport.Current(writeAccess),unresolved:()=>submission.Unresolved,hasChanges:()=>Signature()!=baseline);
         if(saved&&cid==CompanyId&&stamp==generation)await RecurringDrafts();
     }
 
     private async Task GenerateRecurringDraft(JsonObject template,string businessDate)
     {
+        var writeAccess=CaptureRecurringWriteAccess();
         var cid=CompanyId;var stamp=generation;var date=template.Text("next_due");if(!WorkflowMasterValues.RecurringOccurrenceAllowed(template.Flag("is_active"),date,businessDate))throw new Exception("Only an active schedule's next due occurrence, on or before the server business date, can be generated.");
         var panel=Stack(12);panel.Children.Add(Text(template.Text("name"),20,true));panel.Children.Add(Text($"Generate {Friendly(template.Text("draft_kind"))} dated {date} for {template.Text("party_name")}. Server business date: {businessDate} (Asia/Kolkata). This creates a draft only; no invoice, expense or stock movement is posted.",14));panel.Children.Add(Text("After generation, review the saved draft in the editor. Convert or post it only through its normal explicit workflow.",12));
         var key=Guid.NewGuid().ToString();var submission=new RetrySubmission();JsonObject? generated=null;
         var saved=await Dialog("Generate next due draft",panel,async()=>{
+            writeAccess();
             try{var response=await Api.Send(Api.CompanyPath(cid,$"/recurring-templates/{Uri.EscapeDataString(template.Text("id"))}/occurrences"),HttpMethod.Post,submission.Body(new JsonObject{["occurrence_date"]=date}),key);generated=response["record"].Object();if(generated.Text("id").Length==0||!FeatureCatalog.Drafts.Contains(generated.Text("kind")))throw new ApiFailure(502,"The server did not return the generated draft. Retry to recover the same occurrence.");submission.Succeeded();}catch(Exception e){WorkflowMasterValues.RecurringWriteFailed(submission,e);if(submission.Unresolved)throw new Exception("The draft may already have been generated. Retry this original date to recover it; do not create another occurrence.",e);throw;}
-        },"Generate draft for review",unresolved:()=>submission.Unresolved);
+        },"Generate draft for review",canSave:()=>CanWrite&&ScopedFileExport.Current(writeAccess),unresolved:()=>submission.Unresolved);
         if(saved&&generated is not null&&cid==CompanyId&&stamp==generation){var beforeRefresh=generation;await Refresh();if(cid==CompanyId&&generation==beforeRefresh+1)await EditDocument(generated.Text("kind"),previous:generated);}
     }
 }

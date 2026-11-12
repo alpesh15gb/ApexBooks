@@ -159,6 +159,7 @@ jobs:
       - name: Verify opaque master-import receipt recovery
         run: |
           python native/tests/WindowsImportReceipt/check.py
+          python native/tests/WindowsRecurringAccess/check.py
           python native/tests/WindowsImportReceipt/workflow.py
           python native/tests/WindowsBankImportReceipt/check.py
       - name: Verify streaming encrypted backups with a 64 MiB managed heap

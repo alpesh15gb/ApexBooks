@@ -68,6 +68,13 @@ public sealed partial class MainPage : Page
         Verify();return Verify;
     }
 
+    private Action CaptureRecurringWriteAccess()
+    {
+        var access=CaptureFileSaveAccess();
+        void Verify(){access();if(!CanWrite)throw new InvalidOperationException("Current editor or owner access is required to save a recurring schedule or generate a draft. Your inputs and any unresolved request are preserved.");}
+        Verify();return Verify;
+    }
+
     internal string PathFor(string suffix = "") => Api.CompanyPath(CompanyId, suffix);
     internal void Error(Exception e) {if(NativeUi.DialogError(e))return; notice.Severity = InfoBarSeverity.Error; notice.Message = e.Message; notice.IsOpen = true; }
     internal void Success(string message) { notice.Severity = InfoBarSeverity.Success; notice.Message = message; notice.IsOpen = true; }
