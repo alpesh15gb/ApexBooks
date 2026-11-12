@@ -99,6 +99,17 @@ def validate(payload):
         if row.get('ledger_account_id') not in indexes['accounts'] or row['ledger_account_id'] in bank_ledgers:raise ValueError('Invalid bank ledger')
         if indexes['accounts'][row['ledger_account_id']]['category']!='asset':raise ValueError('Bank must map to an asset ledger')
         bank_ids.add(row['id']);bank_ledgers.add(row['ledger_account_id'])
+    # Explicit local references must resolve inside this snapshot. Embedded
+    # historical/source archives are deliberately not traversed or rewritten here.
+    for row in groups['records']:
+        data=row['data']
+        party_id=data.get('party_id')
+        if party_id not in (None,'') and (not isinstance(party_id,str) or party_id not in indexes['records'] or indexes['records'][party_id]['kind']!='party'):raise ValueError('Invalid local party reference')
+        for field in ('bank_account_id','to_bank_account_id'):
+            value=data.get(field)
+            if value not in (None,'','default') and (not isinstance(value,str) or value not in bank_ids):raise ValueError('Invalid local bank reference')
+    for row in groups['bank_reconciliation_reviews']:
+        if row.get('bank_account_id','default') not in bank_ids|{'default'}:raise ValueError('Invalid reconciliation bank reference')
     historical_plans={}
     def verified_source_plan(digest):
         if not digest:return None
@@ -176,6 +187,10 @@ def validate(payload):
         if origin['kind'] not in conversions.get(target['kind'],set()) or origin['name'].strip().casefold()!=target['name'].strip().casefold() or target['date']<origin['date']:raise ValueError('Conversion source type, party or chronology mismatch')
         if target['data'].get('source_document_id') not in (None,'',src):raise ValueError('Conversion target reference mismatch')
         sources.add(src);targets.add(dst)
+    conversion_sources={row['target_record_id']:row['source_record_id'] for row in groups['document_conversions']}
+    for row in groups['records']:
+        value=row['data'].get('source_document_id')
+        if value not in (None,'') and (not isinstance(value,str) or conversion_sources.get(row['id'])!=value):raise ValueError('Missing or mismatched conversion lineage')
     reversed_ids=set();reversal_targets=set()
     journal_accounts=defaultdict(lambda:defaultdict(Decimal))
     for line in groups['journal_lines']:journal_accounts[line['journal_id']][line['account_id']]+=number(line['debit'])-number(line['credit'])
@@ -215,6 +230,7 @@ def validate(payload):
     movements=set()
     for row in groups['stock_movements']:
         source=indexes['records'].get(row.get('source_record_id'))
+        if source and source['data'].get('cancelled'):raise ValueError('Cancelled source retains a stock movement')
         zero_inventory_only=source and source['kind']=='stock_return' and number(source['amount'])==0 and row.get('cost_value') is not None and number(row['cost_value'],signed=True)==0
         if row.get('item_id') not in indexes['records'] or indexes['records'][row['item_id']]['kind']!='item' or not source or (source['id'] not in posted and not zero_inventory_only and not verified_zero_source_stock(source,row)):raise ValueError('Orphan stock movement')
         if row.get('date')!=source['date']:raise ValueError('Stock movement date mismatch')

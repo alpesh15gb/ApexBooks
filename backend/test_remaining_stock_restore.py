@@ -50,6 +50,9 @@ class RemainingStockRestoreTest(unittest.TestCase):
             f.event('return.received','restore-receipt',{'order_id':'o1','credit_id':'restore-credit','date':'2026-11-02','lines':[{'product_id':'p1','quantity':'1'}]});workspace=f.drain();self.assertEqual(workspace['summary']['inbox']['review'],0)
             payload=f.client.get(f.base+'/data-export.json',headers=f.headers).json();self.assertEqual(self.preview(f.client,f.headers,payload).status_code,200)
             receipt=next(r for r in payload['records'] if r['kind']=='stock_return')
+            forged=copy.deepcopy(payload);cancelled=next(r for r in forged['records'] if r['id']==receipt['id']);cancelled['data'].update(cancelled=True,credit_note_id='missing');cancelled['data']['lines'][0]['quantity']='999'
+            next(r for r in forged['stock_movements'] if r['source_record_id']==receipt['id'])['quantity']='999'
+            self.rejected(f.client,f.headers,forged)
             for field,value in [('credit_note_id','missing'),('applied_to','missing')]:
                 forged=copy.deepcopy(payload);next(r for r in forged['records'] if r['id']==receipt['id'])['data'][field]=value;self.rejected(f.client,f.headers,forged)
             forged=copy.deepcopy(payload);row=next(r for r in forged['records'] if r['id']==receipt['id']);row['data']['lines'][0]['quantity']='2'
@@ -87,3 +90,22 @@ class RemainingStockRestoreTest(unittest.TestCase):
             elif mutation=='party':next(r for r in forged['records'] if r['id']==quote['id'])['name']='Different party'
             else:next(r for r in forged['records'] if r['id']==invoice['id'])['data']['source_document_id']=pid
             self.rejected(c,h,forged)
+
+    def test_genuinely_cancelled_purchase_has_no_stock_movement_and_restores(self):
+        c,h,payload,pid=self.fixture();base='/api/companies/'+payload['company']['id']
+        item=c.post(base+'/records',headers=h,json={'kind':'item','name':'Cancelled stock fixture','data':{'track_stock':True}}).json()
+        bill=c.post(base+'/records',headers=h,json={'kind':'purchase_bill','name':'Supplier','date':'2026-04-03','data':{'lines':[{'item_id':item['id'],'description':item['name'],'quantity':2,'rate':60,'gst_rate':0}]}}).json()
+        cancelled=c.post(base+'/records/'+bill['id']+'/cancel',headers=h,json={'reason':'Synthetic correction'});self.assertEqual(cancelled.status_code,200,cancelled.text)
+        payload=c.get(base+'/data-export.json',headers=h).json();self.assertFalse(any(r['source_record_id']==bill['id'] for r in payload['stock_movements']))
+        preview=self.preview(c,h,payload);self.assertEqual(preview.status_code,200,preview.text)
+        raw=json.dumps(payload).encode();body={'company_name':'Valid cancelled books','backup_base64':base64.b64encode(raw).decode(),'digest':hashlib.sha256(raw).hexdigest()}
+        response=c.post('/api/backups/restore/commit',headers=h,json=body);self.assertEqual(response.status_code,200,response.text)
+
+    def test_explicit_party_bank_and_conversion_references_cannot_escape_snapshot(self):
+        c,h,payload,pid=self.fixture()
+        for field,value in [('party_id','other-company-party'),('party_id',pid),('bank_account_id','other-company-bank'),('to_bank_account_id','missing'),('source_document_id','missing')]:
+            forged=copy.deepcopy(payload);next(r for r in forged['records'] if r['id']==pid)['data'][field]=value
+            self.rejected(c,h,forged)
+        # Name-only historical parties and the implicit default bank remain valid.
+        next(r for r in payload['records'] if r['id']==pid)['data']['bank_account_id']='default'
+        response=self.preview(c,h,payload);self.assertEqual(response.status_code,200,response.text)
