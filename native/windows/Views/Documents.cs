@@ -13,7 +13,7 @@ public sealed partial class MainPage
 {
     private async Task EditDocument(string kind, JsonObject? previous = null, JsonObject? conversion = null,JsonObject? returnSource=null,JsonObject? draftSeed=null)
     {
-        var cid = CompanyId; var stamp = generation;
+        var cid = CompanyId; var stamp = generation;var editorWorkspace=workspaceGeneration;var editorSession=Api.SessionGeneration;
         var writeAccess=CaptureDocumentWriteAccess();var readAccess=CaptureFileSaveAccess();
         if (conversion is not null) conversion = (await Api.Record(cid, conversion.Text("id"))).Object();
         if (stamp != generation||!ScopedFileExport.Current(readAccess)) return;
@@ -285,19 +285,45 @@ public sealed partial class MainPage
             if (kind is "credit_note" or "debit_note" && appliedTo.Length == 0) throw new Exception("Choose the original posted document.");
             var pay = submission.Unresolved ? null : PaymentBody(); var paymentFrozen = pay ?? lastPayment;
             try{if(paymentFrozen is null)savedResult=await Api.SaveRecord(cid, submission.Body(BodyValue()), retryKey, previous);else{lastPayment=paymentFrozen;savedResult=await Api.SaveRecordWithPayment(cid, submission.Body(BodyValue()), paymentFrozen, retryKey);}submission.Succeeded();}
-            catch(Exception e){submission.Failed(e);NativeUi.SetFormEnabled(panel,!submission.Unresolved);if(submission.Unresolved)throw new Exception("The save outcome is unknown. The original values are locked; press Save again to safely recover the same document.",e);throw;}
+            catch(Exception e){submission.Failed(e);if(!submission.Unresolved)lastPayment=null;NativeUi.SetFormEnabled(panel,!submission.Unresolved);if(submission.Unresolved)throw new Exception("The save outcome is unknown. The original values are locked; press Save again to safely recover the same document.",e);throw;}
         }
         var saved = await Dialog((previous is not null ? "Edit " : "New ") + FeatureCatalog.Singular(kind), panel, Save,
             previous is null ? "Save " + (kind=="purchase_bill"?"bill":kind=="sales_invoice"?"invoice":"document") : "Save changes",
             canSave:()=>ScopedFileExport.Current(writeAccess)&&!sourceLoading&&pendingSourceId is null,unresolved:()=>submission.Unresolved,hasChanges:()=>BodyValue().ToJsonString()!=baseline||payNow.IsChecked==true,
             saveAndNew:previous is null&&conversion is null?async()=>{await Save();keepNew=true;}:null,stickyFooter:Card(totals));
-        editorOpen=false;sourceRequest.Invalidate();previewRequest?.Cancel(); if (saved && cid == CompanyId) await Refresh();
-        if(saved&&keepNew&&cid==CompanyId)await EditDocument(kind);
-        // Like Vyapar / Swipe: a newly saved customer document opens ready to share, print or collect.
-        else if(saved&&previous is null&&conversion is null&&cid==CompanyId&&kind is "sales_invoice" or "estimate" or "proforma" or "sales_order" or "credit_note"
-            &&(savedResult?["document"]?.Text("id") is {Length:>0} docId?docId:savedResult.Text("id")) is {Length:>0} savedId)
-            await TransactionDetails(new JsonObject{["id"]=savedId});
+        editorOpen=false;sourceRequest.Invalidate();previewRequest?.Cancel();
+        if(!saved||!Api.SignedIn||cid!=CompanyId||editorWorkspace!=workspaceGeneration||editorSession!=Api.SessionGeneration)return;
+        var confirmed=(savedResult?["document"]??savedResult)?.AsObject()??new JsonObject();
+        var showDetails=!keepNew&&previous is null&&conversion is null&&kind is ("sales_invoice" or "estimate" or "proforma" or "sales_order" or "credit_note");
+        if(await FinishConfirmedDocument(confirmed,showDetails)&&keepNew&&CanWrite)await EditDocument(kind);
     }
+    private async Task<bool> FinishConfirmedDocument(JsonObject confirmed,bool showDetails)
+    {
+        var cid=CompanyId;var workspace=workspaceGeneration;var session=Api.SessionGeneration;var page=CurrentPage;var navigation=generation;
+        var id=confirmed.Text("id");var reference=confirmed.Text("number");if(reference.Length==0)reference=id;
+        bool Current()=>Api.SignedIn&&Api.SessionGeneration==session&&CompanyId==cid&&workspaceGeneration==workspace&&CurrentPage==page&&generation==navigation;
+        while(Current()){
+            try{
+                var before=navigation;
+                try{await Refresh();}finally{if(generation==before+1&&CurrentPage==page)navigation=generation;}
+                if(!Current())return false;
+                if(!recordsReady)throw new InvalidOperationException("Company access must be refreshed before viewing the saved document.");
+                if(showDetails&&id.Length>0)await TransactionDetails(new JsonObject{["id"]=id});
+                return Current();
+            }
+            catch(OperationCanceledException){throw;}
+            catch(Exception error){
+                if(!Current())return false;
+                var panel=Stack(12);
+                panel.Children.Add(Text("Document "+reference+" is saved. Do not submit it again to recover the screen.",16,true));
+                panel.Children.Add(Text("Refresh or opening the saved document failed: "+error.Message,13));
+                panel.Children.Add(Text("Retry only refreshes company data and opens the saved document where applicable. Cancel to find it later in its document list. Save and new continues only after recovery and with editor access.",13));
+                if(!await Dialog("Document saved · refresh pending",panel,()=>Task.CompletedTask,"Retry refresh / open",canSave:Current))return false;
+            }
+        }
+        return false;
+    }
+
     private Action CaptureDocumentWriteAccess()
     {
         var cid=CompanyId;var workspace=workspaceGeneration;var session=Api.SessionGeneration;

@@ -40,6 +40,7 @@ class Program{
   f.recordsReady=false;await Reject(f.Save);Check(f.Api.Calls==1&&f.submission.Unresolved);f.recordsReady=true;f.role="viewer";await Reject(f.Save);Check(f.Api.Calls==1&&f.submission.Unresolved);
   f.party.Text="Changed while uncertain";if(paid)f.Pay=new JsonObject{["amount"]="500"};f.role="editor";f.Api.Failure=null;await f.Save();Check(f.Api.Calls==2&&f.Api.Bodies.All(x=>x==original)&&f.Api.Keys.All(x=>x==key)&&!f.submission.Unresolved);if(paid)Check(f.Api.Payments.Distinct().Count()==1);
  }
+ var rejected=new Screen();rejected.Pay=new JsonObject{["amount"]="100"};rejected.Api.Failure=new ApiFailure(422,"invalid document");await Reject(rejected.Save);Check(!rejected.submission.Unresolved&&rejected.Api.Payments.Count==1);rejected.Pay=null;rejected.party.Text="Corrected";rejected.Api.Failure=null;await rejected.Save();Check(rejected.Api.Calls==2&&rejected.Api.Payments.Count==1&&rejected.Api.Bodies.Last().Contains("Corrected"),"Definitive rejection retained unwanted payment");
  foreach(var mode in new[]{"company","session","workspace","logout"}){var f=new Screen();if(mode=="company")f.CompanyId="b";if(mode=="session")f.Api.SessionGeneration++;if(mode=="workspace")f.workspaceGeneration++;if(mode=="logout")f.Api.SignedIn=false;await Reject(f.Save);Check(f.Api.Calls==0);}
  Console.WriteLine("PASS actual Windows document Save/guard: viewer blocked, read denial/recovery preserves original body/key and payment, four stale scopes blocked");
  }
