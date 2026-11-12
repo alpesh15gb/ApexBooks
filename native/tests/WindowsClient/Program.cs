@@ -4,11 +4,12 @@ using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 
-var sourceChoiceRows=new[]{new JsonObject{["source_line_id"]="0:first",["source_line_number"]=1,["description"]="Same service",["quantity"]="2",["itc_treatment"]="ineligible"},new JsonObject{["source_line_id"]="1:second",["source_line_number"]=2,["description"]="Same service",["quantity"]="2",["itc_treatment"]="pending_review"}};
+var sourceChoiceRows=new[]{new JsonObject{["source_line_id"]="0:first",["remaining_return_quantity"]="0",["source_line_number"]=1,["description"]="Same service",["quantity"]="2",["itc_treatment"]="ineligible"},new JsonObject{["source_line_id"]="1:second",["source_line_number"]=2,["description"]="Same service",["quantity"]="2",["itc_treatment"]="pending_review"}};
 var unselectedSourceChoices=SourceLineChoices.Build(sourceChoiceRows,"","");
 if(unselectedSourceChoices.Count!=3||unselectedSourceChoices[0].Key!="")throw new Exception("New legacy row must expose matching placeholder");
 var explicitSourceChoices=SourceLineChoices.Build(sourceChoiceRows,"1:second","2");
 if(explicitSourceChoices.Count!=2||explicitSourceChoices.Any(choice=>choice.Key=="")||explicitSourceChoices.Select(choice=>choice.Key).Distinct().Count()!=2)throw new Exception("Explicit source choice must not offer a misleading blank selection");
+if(!explicitSourceChoices[0].Label.Contains("additional return qty 0")||!explicitSourceChoices[1].Label.Contains("additional return qty needs review"))throw new Exception("Zero remaining and unknown capacity must be distinct");
 var unavailableSourceChoice=SourceLineChoices.Build(Array.Empty<JsonObject>(),"1:second","2");
 if(unavailableSourceChoice.Single().Label!="Saved source line 2")throw new Exception("Unavailable options must preserve readable saved selection");
 

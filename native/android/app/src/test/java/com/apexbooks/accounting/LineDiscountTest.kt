@@ -16,8 +16,9 @@ class LineDiscountTest {
     }
     @Test fun explicitSourceChoicesNeverOfferBlankAndMissingOptionsKeepReadableSelection(){
         val rows=listOf(JSONObject().put("source_line_id","0:first").put("description","Same service"),JSONObject().put("source_line_id","1:second").put("description","Same service"))
+        rows[0].put("remaining_return_quantity","0")
         val line=LineState();assertTrue(purchaseReturnChoices(rows,line).any{it.first.isBlank()})
         line.selectSource(JSONObject(rows[1].toString()).put("source_line_number",2))
-        val choices=purchaseReturnChoices(rows,line);assertEquals(2,choices.size);assertTrue(choices.none{it.first.isBlank()});assertEquals("Saved source line 2",purchaseReturnChoices(emptyList(),line).single().second)
+        val choices=purchaseReturnChoices(rows,line);assertTrue(choices[0].second.contains("additional return qty 0"));assertTrue(choices[1].second.contains("additional return qty needs review"));assertEquals(2,choices.size);assertTrue(choices.none{it.first.isBlank()});assertEquals("Saved source line 2",purchaseReturnChoices(emptyList(),line).single().second)
     }
 }

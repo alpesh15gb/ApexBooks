@@ -31,7 +31,7 @@ class LineState(initial:JSONObject=JSONObject(),regular:Boolean=false,val import
 }
 fun purchaseReturnChoices(rows:List<JSONObject>,line:LineState):List<Pair<String,String>> {
     val selected=line.get("source_line_id")
-    val choices=rows.filter{it.s("source_line_id").isNotBlank()}.map{it.s("source_line_id") to "Line ${it.s("source_line_number")} · ${it.s("description")} · source qty ${it.s("quantity")} · GST ${it.s("gst_rate")}% · ${it.s("itc_treatment")}"}
+    val choices=rows.filter{it.s("source_line_id").isNotBlank()}.map{it.s("source_line_id") to "Line ${it.s("source_line_number")} · ${it.s("description")} · source qty ${it.s("quantity")} · additional return qty ${it.s("remaining_return_quantity").ifBlank{"needs review"}} · GST ${it.s("gst_rate")}% · ${it.s("itc_treatment")}"}
     val saved=if(selected.isNotBlank()&&choices.none{it.first==selected})listOf(selected to "Saved source line ${line.get("source_line_number")}")else emptyList()
     return (if(selected.isBlank())listOf("" to "Choose source line or match item/description")else emptyList())+saved+choices
 }

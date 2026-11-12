@@ -75,11 +75,12 @@ test('linked debit-note preview includes the source bill required for inherited 
 });
 
 test('duplicate purchase descriptions select distinct source lines and preserve the reference on reopen',async()=>{
- const original={id:'bill-ref',kind:'purchase_bill',posted:true,name:'Supplier',data:{lines:[0,1].map(i=>({description:'Same service',quantity:'2',rate:'100',gst_rate:'18',tax_treatment:'taxable',itc_treatment:i?'pending_review':'ineligible',source_line_id:`${i}:fingerprint`,source_document_id:'bill-ref',source_line_number:i+1}))}};
+ const original={id:'bill-ref',kind:'purchase_bill',posted:true,name:'Supplier',data:{lines:[0,1].map(i=>({description:'Same service',quantity:'2',rate:'100',gst_rate:'18',tax_treatment:'taxable',itc_treatment:i?'pending_review':'ineligible',source_line_id:`${i}:fingerprint`,source_document_id:'bill-ref',source_line_number:i+1,remaining_return_quantity:i?null:'0'}))}};
  const api=async path=>path.includes('/records/')?original:path.endsWith('bank-accounts')?[]:{amount:'118',data:{lines:[]}};
  const view=await mount({kind:'debit_note',documentKinds:['debit_note'],edit:false,source:undefined,relatedSource:original,api,labels:{debit_note:'Debit notes'}});
  assert.equal(document.querySelector('[aria-label="Item 1 source purchase line"]').value,'0:fingerprint');
  assert.equal(document.querySelector('[aria-label="Item 1 source purchase line"] option[value=""]'),null);
+ const choiceText=document.querySelector('[aria-label="Item 1 source purchase line"]').textContent;assert.match(choiceText,/additional return qty 0/);assert.match(choiceText,/additional return qty needs review/);
  await act(async()=>document.querySelector('[aria-label="Remove item 2"]').click());
  await change('[aria-label="Item 1 source purchase line"]','1:fingerprint');await change('[name=quantity]','1');await submit();
  assert.equal(view.saved.data.lines.length,1);assert.equal(view.saved.data.lines[0].source_line_id,'1:fingerprint');assert.equal(view.saved.data.lines[0].source_document_id,'bill-ref');assert.equal(view.saved.data.lines[0].itc_treatment,'pending_review');
