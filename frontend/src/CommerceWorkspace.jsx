@@ -1,5 +1,5 @@
 import {createCommerceRecovery} from './commerceRecovery.js';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ShoppingBag, RefreshCw, Plus, Link2, ShieldCheck, ArrowUpRight, AlertCircle, Package, CheckCircle2 } from 'lucide-react';
 import './commerce.css';
 import CommerceMoneyForm from './CommerceMoneyForm.jsx';
@@ -58,6 +58,8 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
   const pendingCommands = useRef(new Map());
   const moneyRecoveries = useRef(new Map());
   if (!moneyRecoveries.current.has(path)) moneyRecoveries.current.set(path,createCommerceRecovery());
+  const moneyRecovery = moneyRecoveries.current.get(path);
+  const moneyRecoveryState = useSyncExternalStore(moneyRecovery.subscribe, moneyRecovery.snapshot, moneyRecovery.snapshot);
   const send = async (operation, payload={}) => {
     const intent = JSON.stringify([path,operation,payload]);
     const id = pendingCommands.current.get(intent) || commandId();
@@ -100,6 +102,7 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
       <div className="commerce-actions"><button disabled={busy || !selected} onClick={() => act(refresh, 'Updated', false)}><RefreshCw size={16}/>Refresh</button>{owner && <button className="primary" onClick={() => setAdding(!adding)}><Plus size={16}/>Connect Bagisto</button>}</div></div>
     {error && <div role="alert" className="commerce-alert error"><AlertCircle size={18}/>{error}</div>}
     {notice && <div role="status" className="commerce-alert"><CheckCircle2 size={18}/>{notice}</div>}
+    {tab !== 'payments' && (moneyRecoveryState.busy || moneyRecoveryState.uncertain) && <section className="commerce-alert" role="status"><div><strong>{moneyRecoveryState.busy ? 'Waiting for the original money command response.' : 'The original money command response is uncertain.'}</strong><p>Reference: {moneyRecoveryState.request?.payload.source_id || 'not supplied'}. Do not record it again.</p><p>Reloading, signing out or leaving Ecommerce clears local recovery. Keep this workspace open until the result is recovered.</p><button onClick={()=>setTab('payments')}>Review original money command</button></div></section>}
     {adding && <form onSubmit={createConnection} className="commerce-card"><h3>Connect a Bagisto channel</h3><p>Each connection belongs to {company.name}. Use a separate channel and inventory source for another company.</p><div className="commerce-fields">
       <Field label="Store name"><input required maxLength={100} value={form.name} onChange={e => setForm({...form,name:e.target.value})}/></Field>
       <Field label="Store HTTPS origin"><input required type="url" placeholder="https://shop.example.com" value={form.base_url} onChange={e => setForm({...form,base_url:e.target.value})}/></Field>

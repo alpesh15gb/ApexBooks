@@ -291,3 +291,14 @@ latest-200 outbox window is not authoritative absence evidence. See
 COMMERCE_RECOVERY_BOUNDARIES.md for exact limits and durable recovery prerequisites.
 No financial payload is persisted in browser storage; reload/sign-out replay remains
 unimplemented. Final lint/build/bundle budgets passed. No publication retry or deployment was performed.
+
+### Commerce recovery warning across tabs
+
+A rendered regression showed the recovery warning disappeared when Payments closed
+while its request remained unresolved. Other tabs now show the current store's
+in-flight/uncertain status, original reference and a direct return to Payments.
+The money form also explains reload/sign-out/workspace-exit limitations before
+submission. Twenty rendered tests passed, including notice removal on success or
+definitive rejection and retention on unknown outcome; lint/build budgets passed.
+No persistent payload storage or automatic replay was introduced. Real-browser
+acceptance remains open; no publication retry or deployment.
