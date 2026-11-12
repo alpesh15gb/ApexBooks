@@ -110,3 +110,39 @@ write, checks stop subsequent chunks but cannot undo bytes already written. We d
 not delete user-selected files as a rollback. Android print/external share and
 Windows Save/SaveStream picker boundaries remain separate acceptance/review
 items. Full builds and physical-device acceptance are still open.
+
+## Windows picker and Android pre-picker follow-up
+
+Windows actual Save/SaveStream methods reproduced a stale byte export after a
+delayed picker returned (`/tmp/apex-windows-picker-red.log`). Both now require a
+captured verifier installed by MainPage, checking session generation, company,
+workspace generation and an access-denial epoch. Byte saves check before writing;
+stream saves also check after asynchronous destination opening and between chunks.
+Access loss followed by recovery does not make the old picker valid again.
+The previous catch-and-delete cleanup is removed: a failed stream export must not
+automatically delete a selected pre-existing user file. A later failure can leave
+a partial file; no rollback or atomic replacement claim is made.
+
+Fourteen compiled actual-method/wiring scenarios pass: current/stale byte/stream
+saves, seven scope states, byte/stream cancellation, and access change during
+destination opening with original synthetic bytes preserved. Log:
+`/tmp/apex-windows-picker-final.log`. Picker/storage/WinRT types are test doubles;
+full Windows build, actual picker/providers and filesystem acceptance remain open.
+
+Independent e1a818e review correctly identified an earlier Android boundary:
+legacy backup/data-export fetched or encrypted before capturing picker ownership.
+ToolsScreen now delegates those paths to a scoped operation capturing the original
+session/company/read stamp and tool before fetch. It rechecks after fetch and
+encryption and immediately before Save. Stale successes/errors do not open a
+picker or close/update the replacement workspace; current errors remain visible.
+Twenty-four compiled cases passed for delayed fetch/encryption, company/session
+changes, denial/recovery, closed tool, current and stale errors; log
+`/tmp/apex-legacy-export-final.log`. Encryption is deliberately a delayed fixture
+in this flow test, not a fresh cryptographic test.
+
+Both harnesses are wired into existing check.yml. No CI dispatch, publication or
+production action occurred. Remaining review: Windows callers that fetch/encrypt
+before invoking Save need their original context checked before entering the
+picker; a guard captured only at Save cannot establish the origin of old bytes.
+Full native builds, real picker/runtime and final sharing/printing acceptance
+remain open.

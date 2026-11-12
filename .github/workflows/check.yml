@@ -110,6 +110,7 @@ jobs:
           python3 native/tests/AndroidEditorAccess/check.py
           python3 native/tests/AndroidResponseSession/check.py
           python3 native/tests/AndroidSaveOwnership/check.py
+          python3 native/tests/AndroidLegacyExport/check.py
           python3 native/tests/AndroidSourceSelection/check.py
       - name: Verify restored-company navigation survives dialog disposal
         run: python3 native/tests/AndroidLifecycle/check.py
@@ -137,6 +138,10 @@ jobs:
       - run: dotnet build native/windows/ApexBooks.Windows.csproj -c Debug -p:Platform=x64 -p:RuntimeIdentifier=win-x64
       - run: dotnet run --project native/tests/PortableClient/PortableClient.csproj -c Debug
       - run: dotnet run --project native/tests/WindowsClient/WindowsClient.csproj -c Debug
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python native/tests/WindowsSaveOwnership/check.py
       - name: Verify streaming encrypted backups with a 64 MiB managed heap
         shell: pwsh
         run: |

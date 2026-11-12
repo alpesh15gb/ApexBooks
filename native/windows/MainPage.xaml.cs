@@ -26,7 +26,7 @@ public sealed partial class MainPage : Page
     private readonly InfoBar notice = new() { IsClosable = true, Margin = new Thickness(24, 8, 24, 0) };
     private readonly ProgressBar progress = new() { IsIndeterminate = true, Height = 3, Visibility = Visibility.Collapsed };
     private bool changingCompanies, shellReady;
-    private int generation, workspaceGeneration, companyLoads, refreshSequence;
+    private int generation, workspaceGeneration, companyLoads, refreshSequence, saveAccessEpoch;
     private sealed record PosDraft(JsonObject Body,string Key,RetrySubmission Submission);
     private readonly Dictionary<string,PosDraft> posDrafts=new();
     private Action? leavePage;
@@ -48,8 +48,16 @@ public sealed partial class MainPage : Page
             ?? "http://127.0.0.1:8012";
 #endif
         Api = new ApexApi(origin);
+        ApexFiles.CaptureSaveAccess=CaptureFileSaveAccess;
         Api.SessionExpired += () => DispatcherQueue.TryEnqueue(()=>{if(!Api.SignedIn)ShowLogin();});
         Loaded += async (_, _) => { if (Api.RestoreSession()) await Run(LoadCompanies); else ShowLogin(); };
+    }
+
+    private Action CaptureFileSaveAccess()
+    {
+        var session=Api.SessionGeneration;var cid=CompanyId;var workspace=workspaceGeneration;var access=saveAccessEpoch;var ready=recordsReady;
+        void Verify(){if(!Api.SignedIn||Api.SessionGeneration!=session||CompanyId!=cid||workspaceGeneration!=workspace||saveAccessEpoch!=access||(ready&&!recordsReady))throw new InvalidOperationException("Company or sign-in access changed while choosing a save location. Reopen the export in the current workspace.");}
+        Verify();return Verify;
     }
 
     internal string PathFor(string suffix = "") => Api.CompanyPath(CompanyId, suffix);
@@ -173,7 +181,7 @@ public sealed partial class MainPage : Page
         var current=workspaceGeneration;var session=Api.SessionGeneration;var request=++refreshSequence;
         await ScopedCoreRefresh.Run(Api.Records(cid),Api.Send(Api.CompanyPath(cid,"/bank-accounts")),
             ()=>Api.SignedIn&&session==Api.SessionGeneration&&cid==CompanyId&&current==workspaceGeneration&&request==refreshSequence,
-            ()=>{Records=new();Banks=new();recordsReady=false;},
+            ()=>{saveAccessEpoch++;Records=new();Banks=new();recordsReady=false;},
             (rows,banks)=>{Records=rows;Banks=banks.Array();recordsReady=true;},
             ()=>Navigate(CurrentPage));
     }

@@ -13,6 +13,22 @@ import java.math.BigDecimal
 @Composable fun ToolsScreen(vm:AppModel){val required=if(vm.tool.startsWith("recurring"))"recurring_drafts" else if(vm.tool=="reorder")"low_stock_reorder" else if(vm.tool=="attachments")"document_attachments" else "";if(required.isNotBlank()&&!vm.supports(required)){ActionDialog("Server feature availability",vm,confirm="Done",onDismiss={vm.tool=""},onSave={vm.tool=""}){FeatureUpgradeHint(vm)};return};key(vm.companyId,vm.tool){when(vm.tool){"backup"->if(vm.supports("chunked_backups"))CompleteBackupTool(vm)else BasicTool(vm);"restore"->if(vm.supports("chunked_backups"))CompleteBackupTool(vm)else ImportTool(vm);"attachments"->AttachmentsTool(vm);"recurring","recurring_new","recurring_edit","recurring_occurrence"->RecurringTools(vm);"reorder"->ReorderTool(vm);"branding"->BrandingTool(vm);"vyapar","master_import","statement_import"->ImportTool(vm);"period"->PeriodLockTool(vm);"cashbook"->CashBookTool(vm);"journal"->JournalTool(vm);"members"->MembersTool(vm);else->BasicTool(vm)}}}
 @Composable private fun ToolInput(values:MutableMap<String,String>,key:String,label:String,number:Boolean=false,password:Boolean=false,multiline:Boolean=false,maximum:Int=500){Field(label,values[key]?:"",{values[key]=it},number=number,password=password,multiline=multiline,maximum=maximum)}
 
+private suspend fun legacyFileExport(vm:AppModel,cid:String,tool:String,values:JSONObject):Boolean {
+    val session=vm.api.captureSession();val access=vm.readStamp()
+    fun current()=runCatching{session();vm.canRead(cid,access)&&vm.tool==tool}.getOrDefault(false)
+    if(!current())return false
+    try{
+        val password=values.optString("password","");val kind=values.optString("export_kind","");val fmt=values.optString("format","")
+        if(tool=="backup"&&password.isNotEmpty()&&password.length<12)throw Exception("Use at least 12 characters.")
+        val endpoint=if(tool=="backup")"/backup" else when(kind){"all"->"/data-export.json";"reconciliation"->"/imports/vyapar-posting/reconciliation";"archive"->"/imports/vyapar/archive.json";else->"/masters/export.$fmt?kind=$kind"}
+        var bytes=vm.api.bytes(vm.api.company(cid,endpoint));if(!current())return false
+        if(tool=="backup"&&password.isNotBlank())bytes=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default){NativeFiles.encrypt(bytes,password)}
+        if(!current())return false
+        val name=if(tool=="backup")"apex-${cid.take(8)}-${today()}."+if(password.isBlank())"json.gz"else"apexbackup" else "apex-$kind."+if(kind in setOf("all","archive","reconciliation"))"json"else fmt
+        vm.files.save(bytes,name);return true
+    }catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;if(current())throw e;return false}
+}
+
 @Composable private fun BasicTool(vm:AppModel){
     val tool=vm.tool;val cid=vm.companyId;val original=vm.toolData;val data=original?.o("data")?:JSONObject()
     val protectedWrite=tool in setOf("transfer","stock_opening","stock_adjust","openings","settle_credit","settle_advance")
@@ -30,6 +46,7 @@ import java.math.BigDecimal
     val readOnly=tool in setOf("audit","cashbook","recovery_saved")
     val title=mapOf("bank_new" to "Add bank account","transfer" to "Cash and bank transfer","stock_opening" to "Opening stock","stock_adjust" to "Stock adjustment","openings" to "Opening balance","prefixes" to "Transaction prefixes","period" to "Lock accounting period","security" to "Password and sessions","recovery" to "Generate recovery codes","recovery_saved" to "Save your recovery codes","backup" to "Download company backup","data_export" to "Export company data","audit" to "Audit history","ledger_account" to "Add ledger account","reverse_journal" to "Reverse journal","cashbook" to "Cash and bank book","settle_credit" to "Apply or refund note credit","settle_advance" to "Apply or refund advance")[tool]?:friendly(tool)
     ActionDialog(title,vm,unresolved={unresolved},confirm=if(unresolved)"Retry original save"else if(readOnly)"Done"else if(tool in setOf("backup","data_export"))"Download"else if(tool=="period")"Lock through date"else"Save",onDismiss=::close,onSave={
+        if(tool in setOf("backup","data_export")){if(legacyFileExport(vm,cid,tool,JSONObject(v.toMap())))close();return@ActionDialog}
         if(!unresolved && tool in setOf("settle_credit","settle_advance") && sources.none{it.s("id")==v["source"]})throw Exception("Choose an available balance.")
         val submitted=if(protectedWrite)submission.body(JSONObject(v.toMap()))else JSONObject(v.toMap())
         fun value(key:String)=submitted.optString(key,"")
@@ -47,8 +64,6 @@ fun root(suffix:String)=vm.api.company(cid,suffix)
             "settle_credit","settle_advance"->{val source=sources.find{it.s("id")==value("source")}?:throw Exception("Choose an available balance.");val values=JSONObject().put("action",value("action")).put("applied_to",value("target")).put("payment_account",value("method")).put("bank_account_id",value("bank_account_id"));val endpoint=if(tool=="settle_credit")"/credits/${source.s("id")}/settle"else"/advances/${source.s("id")}/${value("action")}";vm.api.request(root(endpoint),"POST",JSONObject().put("kind","advance_application").put("name",source.s("name")).put("date",value("date")).put("amount",value("amount")).put("data",values),retry)}
             "security"->{vm.api.request("/api/auth/change-password","POST",JSONObject().put("current_password",value("current_password")).put("new_password",value("new_password")));vm.endLocalSession();return@ActionDialog}
             "recovery"->{val result=vm.api.request("/api/auth/recovery-codes","POST",JSONObject().put("current_password",value("current_password")))as JSONObject;vm.toolData=result;vm.tool="recovery_saved";return@ActionDialog}
-            "backup"->{val password=value("password");if(password.isNotEmpty()&&password.length<12)throw Exception("Use at least 12 characters.");var bytes=vm.api.bytes(root("/backup"));if(password.isNotBlank())bytes=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default){NativeFiles.encrypt(bytes,password)};vm.files.save(bytes,"apex-${cid.take(8)}-${today()}."+if(password.isBlank())"json.gz"else"apexbackup")}
-            "data_export"->{val kind=value("export_kind");val fmt=value("format");val endpoint=when(kind){"all"->"/data-export.json";"reconciliation"->"/imports/vyapar-posting/reconciliation";"archive"->"/imports/vyapar/archive.json";else->"/masters/export.$fmt?kind=$kind"};vm.files.save(vm.api.bytes(root(endpoint)),"apex-$kind."+if(kind in setOf("all","archive","reconciliation"))"json"else fmt)}
         }
         } catch(e:Exception){if(protectedWrite){submission.failed(e);unresolved=submission.unresolved};throw e}
         submission.succeeded();unresolved=false
