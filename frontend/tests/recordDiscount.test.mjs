@@ -1,4 +1,4 @@
-import test,{after} from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm} from 'node:fs/promises';import {resolve} from 'node:path';import {pathToFileURL} from 'node:url';import {build} from 'esbuild';import {JSDOM} from 'jsdom';import React,{act} from 'react';
+import test,{after} from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm,readFile} from 'node:fs/promises';import {resolve} from 'node:path';import {pathToFileURL} from 'node:url';import {build} from 'esbuild';import {JSDOM} from 'jsdom';import React,{act} from 'react';
 const temp=await mkdtemp(resolve('node_modules/.discount-tests-'));await build({entryPoints:['src/RecordEditor.jsx'],outfile:resolve(temp,'editor.mjs'),bundle:true,platform:'node',format:'esm',external:['react','react-dom','lucide-react']});
 const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});const {createRoot}=await import('react-dom/client');const Editor=(await import(pathToFileURL(resolve(temp,'editor.mjs')))).default;
 after(async()=>{dom.window.close();await rm(temp,{recursive:true,force:true});});
@@ -102,4 +102,19 @@ test('debit-note amendment preview identifies the edited note without sending pr
  const api=async(path,options)=>{if(path.endsWith('/documents/preview'))calls.push(JSON.parse(options.body));return path.endsWith('/bank-accounts')?[]:path.includes('/records/')?{data:{lines:[]}}:{amount:'118',data:{lines:[]}};};
  const view=await mount({kind:'debit_note',documentKinds:['debit_note'],source:note,api,labels:{debit_note:'Debit notes'}});await act(async()=>new Promise(resolve=>setTimeout(resolve,400)));
  assert.equal(calls.at(-1).data.editing_record_id,'note-context');await submit();assert.equal(view.saved.data.editing_record_id,undefined);await act(async()=>view.root.unmount());
+});
+
+
+test('nine-line quotation reopen and invoice conversion preserve all entry fields',async()=>{
+ const fixture=JSON.parse(await readFile('../native/shared/fixtures/quotation-nine-lines.json','utf8'));
+ const source={id:'quote-nine',kind:'estimate',number:'EST-9',...fixture};
+ for(const conversion of [false,true]){
+  const view=await mount({kind:conversion?'sales_invoice':'estimate',source,edit:!conversion,documentKinds:['estimate','sales_invoice'],labels:{estimate:'Estimates',sales_invoice:'Sales invoices'}});
+  assert.equal(document.querySelectorAll('[name=description]').length,9);
+  await submit();const saved=view.saved;assert.ok(saved);
+  for(const key of ['notes','terms','round_total','place_of_supply'])assert.deepEqual(saved.data[key],fixture.data[key]);
+  for(let i=0;i<9;i++)for(const key of ['description','quantity','rate','unit','hsn','gst_rate'])assert.equal(saved.data.lines[i][key],fixture.data.lines[i][key]);
+  if(conversion)assert.equal(saved.data.source_document_id,source.id);
+  await act(async()=>view.root.unmount());
+ }
 });

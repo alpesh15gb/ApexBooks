@@ -99,6 +99,7 @@ def render_document(record, supplier, branding, template, title, paid=Decimal('0
         qty, rate, taxable, tax = [Decimal(str(line.get(key, 0))) for key in ('quantity','rate','taxable','tax')]
         total_qty += qty
         desc = line.get('description', '')
+        if line.get('unit'): desc += '\nUnit: ' + str(line['unit'])
         if template == 'mrp_discount': desc += '\nHSN: ' + str(line.get('hsn') or '—')
         if line.get('price_includes_tax'):desc += chr(10)+'Rate includes GST'
         if 'discount_amount' in line or Decimal(str(line.get('discount_percent',0))):desc+=chr(10)+'Line discount: '+line_discount_label(line)
@@ -139,7 +140,9 @@ def render_document(record, supplier, branding, template, title, paid=Decimal('0
     else:
         block=table(total_rows,[width*.29,width*.20]);block.setStyle(TableStyle([('LINEABOVE',(0,next(i for i,row in enumerate(totals) if row[0]=='Total INR')),(-1,next(i for i,row in enumerate(totals) if row[0]=='Total INR')),.5,accent)]))
         total_wrapper=table([['',block]],[width*.51,width*.49]);total_wrapper.setStyle(TableStyle([('LEFTPADDING',(1,0),(1,0),0),('RIGHTPADDING',(1,0),(1,0),0),('TOPPADDING',(1,0),(1,0),0),('BOTTOMPADDING',(1,0),(1,0),0)]));elements.append(total_wrapper)
-    elements.append(table([[p(f'Total items / Qty: {len(lines)} / {total_qty}' if lines else ''), p('Amount in words: INR ' + words(record.amount),right)]], [width*.27,width*.73],grid))
+    units = {str(line.get('unit', '')).strip() for line in lines}
+    quantity_summary = f'Total items / Qty: {len(lines)} / {total_qty}' if len(units) <= 1 else f'Total items: {len(lines)} (mixed units)'
+    elements.append(table([[p(quantity_summary if lines else ''), p('Amount in words: INR ' + words(record.amount),right)]], [width*.27,width*.73],grid))
     if grid and has_tax:
         central=Decimal(str(data.get('cgst',0)));state_tax=Decimal(str(data.get('sgst',0)));integrated=Decimal(str(data.get('igst',0)))
         if central or state_tax:

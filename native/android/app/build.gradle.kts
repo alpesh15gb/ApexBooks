@@ -54,6 +54,7 @@ android {
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     buildFeatures { compose = true; buildConfig = true }
     sourceSets["main"].assets.srcDir(sharedAssetDirectory)
+    sourceSets["test"].resources.srcDir("../../shared/fixtures")
 }
 
 dependencies {

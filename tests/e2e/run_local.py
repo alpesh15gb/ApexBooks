@@ -125,6 +125,7 @@ def run():
                     check([sys.executable, str(ROOT/'tests/e2e/browser_accessibility.py')], cwd=ROOT, env=env)
                 if args.business:
                     check([sys.executable, str(ROOT/'tests/e2e/browser_business.py')], cwd=ROOT, env=env)
+                    check([sys.executable, str(ROOT/'tests/e2e/browser_quotation.py')], cwd=ROOT, env=env)
             except BaseException:
                 api_log.flush(); web_log.flush()
                 for name in ('api.log', 'web.log'):

@@ -144,6 +144,10 @@ try{
     var invoice=await Post($"/api/companies/{cid}/records",new(){["kind"]="sales_invoice",["name"]="Synthetic UI Buyer",["date"]=date,["data"]=new JsonObject{["lines"]=new JsonArray(new JsonObject{["description"]="Synthetic UI service",["quantity"]="1",["rate"]="100",["gst_rate"]="0"})}});
     var evidenceBill=await Post($"/api/companies/{cid}/records",new(){["kind"]="purchase_bill",["name"]="Synthetic UI Evidence Supplier",["date"]=date,["data"]=new JsonObject{["lines"]=new JsonArray(new JsonObject{["description"]="Receipt evidence fixture",["quantity"]="1",["rate"]="75",["gst_rate"]="0"})}});
     var evidenceBytes=Encoding.ASCII.GetBytes("%PDF-1.4\n% Deliberately synthetic Windows UI receipt\n%%EOF\n");var evidenceFile=Path.Combine(evidence,"synthetic-ui-receipt.pdf");await File.WriteAllBytesAsync(evidenceFile,evidenceBytes);
+    var quotationFixture=JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory,"quotation-nine-lines.json")))!.AsObject();
+    var quoteCompany=await Post("/api/companies",new(){["name"]="Windows UI Quotation",["tax_mode"]="regular",["gstin"]="27AAAAA0000A1Z5",["state_code"]="27"});var quoteCid=quoteCompany["id"]!.ToString();
+    var quoteBody=quotationFixture.DeepClone().AsObject();quoteBody.Remove("expected");quoteBody["kind"]="estimate";quoteBody["date"]=date;
+    var seededQuote=await Post($"/api/companies/{quoteCid}/records",quoteBody);
     Check("synthetic loopback companies and invoice seeded");
     var start=new ProcessStartInfo(Path.Combine(publish,"ApexBooks.Windows.exe")){WorkingDirectory=publish,UseShellExecute=false};start.Environment["APEX_BOOKS_API_ORIGIN"]=origin.GetLeftPart(UriPartial.Authority);app=Process.Start(start)??throw new Exception("Could not launch unpackaged WinUI executable.");
     window=Wait(()=>AutomationElement.RootElement.FindFirst(TreeScope.Children,new PropertyCondition(AutomationElement.ProcessIdProperty,app.Id)),"WinUI app window");Check("actual unpackaged Debug WinUI window launched");
@@ -344,6 +348,24 @@ try{
     Check("original archived receipt remains unchanged",JsonNode.DeepEquals(archived,(await Get(evidencePath))["attachments"]));
     await File.WriteAllTextAsync(Path.Combine(evidence,"backup-roundtrip-verification.json"),new JsonObject{["source_company_id"]=cid,["restored_company_id"]=restoredCid,["encrypted_v1"]=true,["native_save_and_open_pickers"]=true,["summary"]=restoredSummary.DeepClone(),["financial"]=restoredFinancial.DeepClone(),["receipt_sha256"]=expectedSha,["receipt_bytes"]=evidenceBytes.Length,["original_unchanged"]=true}.ToJsonString());
     await File.WriteAllTextAsync(Path.Combine(evidence,"receipt-verification.json"),new JsonObject{["record_id"]=evidenceBill["id"]!.DeepClone(),["attachment_id"]=archived[0]?["id"]?.DeepClone(),["sha256"]=expectedSha,["is_archived"]=true,["ui_file_picker_used"]=true}.ToJsonString());
+    var quoteNavigation=ReadyButton("Open Navigation");if(quoteNavigation is not null)Invoke(quoteNavigation);
+    combo=Wait(()=>Find("Choose company",ControlType.ComboBox),"quotation company picker");SelectCompany("Windows UI Quotation");
+    var quoteCloseNavigation=ReadyButton("Close Navigation");if(quoteCloseNavigation is not null)Invoke(quoteCloseNavigation);
+    Wait(()=>Find("Windows UI Quotation"),"quotation company heading");Invoke(NavigationItem("Dashboard"));Invoke(Wait(()=>RevealButton("1 open estimates"),"dashboard open quotation shortcut"));
+    Invoke(Wait(()=>Find(seededQuote["number"]!.ToString(),ControlType.Button),"nine-line quotation row"));
+    Invoke(Wait(()=>RevealButton("Edit"),"reopen nine-line quotation"));Wait(()=>Find("Save changes",ControlType.Button),"nine-line edit form");Snapshot("13-nine-line-quotation-edit");
+    Invoke(Wait(()=>ReadyButton("Save changes"),"save unchanged nine-line quotation"));Wait(()=>Find("Save changes",ControlType.Button) is null?window:null,"quotation edit saved");
+    if(ReadyButton("Done") is { } quoteDone)Invoke(quoteDone);
+    Invoke(Wait(()=>Find(seededQuote["number"]!.ToString(),ControlType.Button),"saved quotation row"));Invoke(Wait(()=>ReadyButton("Convert to invoice"),"quotation conversion action"));
+    Wait(()=>window.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Text)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name.StartsWith("Subtotal ",StringComparison.Ordinal)&&e.Current.Name.Contains("17,385.00",StringComparison.Ordinal)),"converted nine-line server preview");
+    Snapshot("14-nine-line-conversion-preview");Invoke(Wait(()=>ReadyButton("Save invoice"),"save converted quotation"));Wait(()=>Find("Save invoice",ControlType.Button) is null?window:null,"conversion saved");
+    var quoteStatus=await Get($"/api/companies/{quoteCid}/records/{seededQuote["id"]}");var convertedQuoteId=quoteStatus["converted_to"]!.ToString();var nineInvoice=await Get($"/api/companies/{quoteCid}/records/{convertedQuoteId}");
+    Check("native quotation conversion total and linkage",Number(nineInvoice,"amount")==17385m&&nineInvoice["data"]?["source_document_id"]?.ToString()==seededQuote["id"]?.ToString());
+    foreach(var key in new[]{"notes","terms","round_total"})Check("native quotation retains "+key,JsonNode.DeepEquals(nineInvoice["data"]?[key],quotationFixture["data"]?[key]));
+    var nineLines=nineInvoice["data"]!["lines"]!.AsArray();Check("native quotation retains nine rows",nineLines.Count==9);
+    for(var i=0;i<9;i++)foreach(var key in new[]{"description","quantity","rate","unit","hsn","gst_rate"})Check($"native quotation line {i+1} retains {key}",nineLines[i]?[key]?.ToString()==quotationFixture["data"]?["lines"]?[i]?[key]?.ToString());
+    foreach(var key in new[]{"taxable","cgst","sgst","round_off"})Check("native quotation retains calculated "+key,Number(nineInvoice["data"],key)==Number(quotationFixture["expected"],key));
+    Snapshot("15-nine-line-converted-detail");await File.WriteAllTextAsync(Path.Combine(evidence,"quotation-verification.json"),nineInvoice.ToJsonString());
     Dump();
     await File.WriteAllTextAsync(Path.Combine(evidence,"result.json"),new JsonObject{["passed"]=true,["api_origin"]=origin.ToString(),["checks"]=new JsonArray(checks.Select(x=>(JsonNode)JsonValue.Create(x)!).ToArray())}.ToJsonString());
 }catch(Exception e){try{Dump();Snapshot("failure-visible-app");}catch{}await File.WriteAllTextAsync(Path.Combine(evidence,"failure.txt"),e.ToString());throw;}
