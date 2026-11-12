@@ -1002,3 +1002,25 @@ fix. Fake network and download sinks only; lint/build/bundle checks pass. This
 batch does not harden the separate Vyapar preview/commit/file-read callbacks;
 those remain a priority audit boundary, especially company changes and uncertain
 mutation outcomes. No production, real migration, publication retry or deployment.
+
+### Vyapar preview/commit ownership and unknown outcome (2026-11-12)
+
+File read and preview now capture company/role/scope/session/access before awaits;
+stale reads cannot dispatch preview or publish a report in another company. Preview
+identity gates commit, including away-and-back invalidation. A synchronous mutation
+guard prevents competing reads/submits. Uncertain commits use the existing posting
+registry with an immutable original endpoint/body (backup and digest), lock file and
+scope edits, and expose explicit Retry original migration only in the original
+company/scope/session with owner access. An initial definitive rejection permits
+correction; a later rejection after uncertainty keeps the original request frozen.
+No backup body or credentials are persisted to browser storage.
+
+Validation: 26 rendered mutation/export tests pass, including stale read/preview,
+late commit after company change (no refresh), unknown exact retry, company mismatch,
+initial vs later 422 and prior export scopes. Two synthetic backend posting tests
+pass, including original-backup replay, allocations/tax/stock/conversion checks and
+unsupported source rejection. Lint/build/bundle budgets pass. Actual browser and
+real .vyb source acceptance remain open. Recovery is memory-only across unmount or
+restart; confirmed commit followed by parent refresh failure still uses existing
+confirmed summary/generic error and deserves a dedicated read-only recovery action.
+No production access, publication retry or deployment.
