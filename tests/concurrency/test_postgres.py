@@ -198,6 +198,16 @@ class ConcurrentPostingTest(unittest.TestCase):
         journals = self.client.get(self.base + '/journals', headers=self.headers).json()
         self.assertEqual(len(journals), 1)
 
+    def test_source_purchase_line_capacity_has_one_winner(self):
+        source=self.create({'kind':'purchase_bill','name':'Supplier','date':'2026-04-01','data':{'lines':[
+            {'description':'Same service','quantity':1,'rate':100,'gst_rate':0},
+            {'description':'Same service','quantity':1,'rate':100,'gst_rate':0}]}})
+        body={'kind':'debit_note','name':'Supplier','date':'2026-04-02','data':{'applied_to':source['id'],'return_stock':False,'lines':[source['data']['lines'][0]]}}
+        results=self.race([('/records',body,uuid4().hex) for _ in range(2)])
+        self.assertEqual(sorted(r.status_code for r in results),[200,422],[r.text for r in results])
+        body['data']['lines']=[source['data']['lines'][1]]
+        self.create(body)
+
     def test_concurrent_numbering_is_unique(self):
         body = self.sale('estimate')
         results = self.race([('/records', body, uuid4().hex) for _ in range(8)])

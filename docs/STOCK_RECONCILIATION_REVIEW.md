@@ -20,7 +20,7 @@ A source's shortage must be fully replenished before its physical return can be 
 
 No live historical audit was run for this batch; the above is the execution and evidence plan.
 
-## Safe source-line selection: next implementation
+## Safe source-line selection: design and follow-up
 
 The current mixed-treatment purchase-return safeguard rejects ambiguity. Replace guesswork with explicit source-line identity across API, web, Windows and Android:
 
@@ -30,4 +30,4 @@ The current mixed-treatment purchase-return safeguard rejects ambiguity. Replace
 - Older returns without line identity require unambiguous matching or manual review before new per-line allocations; do not allocate them arbitrarily. Repeated same-item lines with different discounts, rates or treatment must remain distinct.
 - Required regressions: identical descriptions/items with different treatment, partial and full mixed returns, repeated selection in one request, concurrent requests, cancelled/amended returns, stale source revisions, spoofed identities, cross-company references, rounding, preview/save parity and native/web reopen behavior.
 
-This identity workflow is a planned follow-up, not implemented by the stock reconciliation batch.
+The stock reconciliation batch did not implement this workflow. The subsequent source-line batch implements a source-local index plus financial fingerprint and conservative legacy allocation checks; see `PURCHASE_RETURN_SOURCE_LINES.md` for the actual contract and remaining limitations.

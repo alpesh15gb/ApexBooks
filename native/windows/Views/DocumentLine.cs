@@ -18,11 +18,12 @@ public sealed class DocumentLine
     private readonly LineDiscountState discountState;
     private readonly CheckBox inclusive;
     private string itemId = "";
+    private string sourceLineId="",sourceDocumentId="",sourceLineNumber="";
     public string DiscountReviewIdentity {get;}=Guid.NewGuid().ToString("N");
     public long DiscountReviewRevision {get;private set;}
     public event Action? Changed;
 
-    public DocumentLine(IEnumerable<JsonObject> masters, bool purchase, bool regular, JsonObject? initial = null, bool preserveImportedValues = false)
+    public DocumentLine(IEnumerable<JsonObject> masters, bool purchase, bool regular, JsonObject? initial = null, bool preserveImportedValues = false, IEnumerable<JsonObject>? returnLines = null)
     {
         var data = initial ?? new(); var items = masters.ToList(); itemId = data.Text("item_id");
         var panel = Stack(12); var link = Text("", 12); link.Foreground = Muted;
@@ -68,7 +69,7 @@ public sealed class DocumentLine
         var details = Stack(12); details.Children.Add(Columns(hsn, mrp)); details.Children.Add(inclusive);
         if (regular || purchase) { details.Children.Add(treatment); if (regular && purchase) details.Children.Add(credit); }
         panel.Children.Add(new Expander { Header = "Tax, HSN and discount", Content = details, HorizontalContentAlignment = HorizontalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Stretch });
-        details.Children.Add(Button("Unlink product", () => { itemId = "";Description.IsReadOnly=false; link.Text = "Unlinked description · no stock movement"; Changed?.Invoke(); }));
+        details.Children.Add(Button("Unlink product", () => { if(sourceLineId.Length>0)return; itemId = "";Description.IsReadOnly=false; link.Text = "Unlinked description · no stock movement"; Changed?.Invoke(); }));
         void LinkLabel() => link.Text = itemId.Length == 0 ? "Description entry · no product linked" : preserveImportedValues ? "Product linked · scanned rate and GST kept" : "Product selected";
         LinkLabel();
         selector.TextChanged += (_, args) => { if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput){itemId="";Description.IsReadOnly=false;Description.Text=selector.Text;LinkLabel();selector.ItemsSource = items.Where(r => r.Text("name").Contains(selector.Text, StringComparison.OrdinalIgnoreCase) || r["data"].Text("barcode") == selector.Text).Take(20).Select(r => r.Text("name")).ToArray();Changed?.Invoke();} };
@@ -84,6 +85,23 @@ public sealed class DocumentLine
         discountMode.SelectionChanged+=(_,_)=>{DiscountReviewRevision++;discountState.Select(Value(discountMode));discount.Text=discountState.Value;discount.Header=discountState.Mode=="amount"?"Discount (₹)":"Discount (%)";Changed?.Invoke();};
         treatment.SelectionChanged += (_, _) => { if (Value(treatment) != "taxable") gst.Text = "0"; Changed?.Invoke(); };
         credit.SelectionChanged += (_, _) => Changed?.Invoke(); inclusive.Checked += (_, _) => Changed?.Invoke(); inclusive.Unchecked += (_, _) => Changed?.Invoke();
+        if(returnLines is not null){
+            sourceLineId=data.Text("source_line_id");sourceDocumentId=data.Text("source_document_id");sourceLineNumber=data.Text("source_line_number");
+            var originals=returnLines.Where(row=>row.Text("source_line_id").Length>0).ToList();
+            var choices=SourceLineChoices.Build(originals,sourceLineId,sourceLineNumber);
+            var sourceChoice=Select("Source purchase line",choices,sourceLineId);panel.Children.Insert(0,sourceChoice);
+            void LockSourceTax(){gst.IsReadOnly=sourceLineId.Length>0;treatment.IsEnabled=credit.IsEnabled=selector.IsEnabled=sourceLineId.Length==0;Description.IsReadOnly=sourceLineId.Length>0||itemId.Length>0;}
+            sourceChoice.SelectionChanged+=(_,_)=>{
+                var selected=originals.FirstOrDefault(row=>row.Text("source_line_id")==Value(sourceChoice));if(selected is null)return;
+                if(sourceChoice.Items[0] is ComboBoxItem placeholder && placeholder.Tag?.ToString()=="")sourceChoice.Items.Remove(placeholder);
+                sourceLineId=selected.Text("source_line_id");sourceDocumentId=selected.Text("source_document_id");sourceLineNumber=selected.Text("source_line_number");
+                itemId=selected.Text("item_id");selector.Text=Description.Text=selected.Text("description");Description.IsReadOnly=itemId.Length>0;
+                Quantity.Text=selected.Text("quantity");Rate.Text=selected.Text("rate");hsn.Text=selected.Text("hsn");unit.Text=selected.Text("unit");
+                var mode=selected.ContainsKey("discount_amount")?"amount":"percent";SelectValue(discountMode,mode);discount.Text=selected.Text(mode=="amount"?"discount_amount":"discount_percent");
+                SelectValue(treatment,selected.Text("tax_treatment"));SelectValue(credit,selected.Text("itc_treatment"));gst.Text=selected.Text("gst_rate");inclusive.IsChecked=selected.Flag("price_includes_tax");
+                LockSourceTax();Changed?.Invoke();
+            };LockSourceTax();
+        }
         View = Card(panel);View.Padding=new Thickness(14);
         linkCreated=created=>{items.Add(created);itemId=created.Text("id");selector.Text=Description.Text=created.Text("name");Description.IsReadOnly=true;link.Text="Saved as a new item";Changed?.Invoke();};
     }
@@ -107,6 +125,7 @@ public sealed class DocumentLine
         ["gst_rate"] = gst.Text.Trim().Length == 0 ? "0" : gst.Text.Trim(),
         ["price_includes_tax"] = inclusive.IsChecked == true, ["tax_treatment"] = Value(treatment), ["itc_treatment"] = Value(credit)
         };
+        if(sourceLineId.Length>0){result["source_line_id"]=sourceLineId;result["source_document_id"]=sourceDocumentId;result["source_line_number"]=sourceLineNumber;}
         discountState.Value=discount.Text;discountState.WriteTo(result);return result;
     }
 }

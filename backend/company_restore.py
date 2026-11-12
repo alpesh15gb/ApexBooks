@@ -174,6 +174,18 @@ def validate(payload):
         key=(row['source_record_id'],row['line_index'])
         if key in movements:raise ValueError('Duplicate stock movement')
         movements.add(key)
+    # Active explicit return references must be valid in the exported namespace
+    # before any IDs are remapped. Never turn a stale/forged token into a valid one.
+    from types import SimpleNamespace
+    from purchase_returns import candidates
+    for row in groups['records']:
+        if row['kind'] != 'debit_note' or row['id'] not in posted: continue
+        for line in row['data'].get('lines', []):
+            if not line.get('source_line_id'): continue
+            source = indexes['records'].get(row['data'].get('applied_to'))
+            if not source or source['kind'] != 'purchase_bill': raise ValueError('Invalid return source line reference')
+            try: candidates(line, SimpleNamespace(**source))
+            except (HTTPException, ValueError, ArithmeticError, TypeError): raise ValueError('Invalid return source line reference') from None
     return groups,indexes
 
 def pack(payload):
@@ -236,7 +248,18 @@ def restore_payload(m,user,session,payload,digest,company_name,*,action='commit'
         def remap(value):
             if isinstance(value,str):return mapping.get(value,value)
             if isinstance(value,list):return [remap(v) for v in value]
-            if isinstance(value,dict):return {k:remap(v) for k,v in value.items()}
+            if isinstance(value,dict):
+                result={k:remap(v) for k,v in value.items()}
+                source_record=indexes['records'].get(value.get('source_document_id')) if isinstance(value.get('source_document_id'),str) else None
+                if value.get('source_line_id') and source_record and source_record['kind']=='purchase_bill':
+                    from purchase_returns import reference
+                    for index,line in enumerate(source_record['data'].get('lines',[])):
+                        if reference(line,index)==value['source_line_id']:
+                            # Item identity is part of the fingerprint. Recompute
+                            # only after matching the original exported evidence.
+                            result['source_line_id']=reference({**line,'item_id':mapping.get(line.get('item_id'),line.get('item_id',''))},index)
+                            break
+                return result
             return value
         for row in groups['accounts']:session.add(m.LedgerAccount(id=mapping[row['id']],company_id=cid,code=row['code'],name=row['name'],category=row['category']))
         for row in groups['records']:session.add(m.Record(id=mapping[row['id']],company_id=cid,kind=row['kind'],name=row['name'],number=row['number'],date=date.fromisoformat(row['date']),amount=Decimal(row['amount']),data=remap(row['data'])))

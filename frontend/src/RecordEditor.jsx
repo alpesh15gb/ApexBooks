@@ -165,6 +165,9 @@ export default function RecordEditor({
     [lines, setLines] = useState(
       initial?.data?.lines?.map((line) => ({
         ...line,
+        source_line_id: kind === "debit_note" ? line.source_line_id : undefined,
+        source_document_id: kind === "debit_note" ? line.source_document_id : undefined,
+        source_line_number: kind === "debit_note" ? line.source_line_number : undefined,
         description: line.description || "",
         item_id: line.item_id || "",
         hsn: line.hsn || "",
@@ -178,6 +181,18 @@ export default function RecordEditor({
     ),
     [error, setError] = useState(""),
     [scanning, setScanning] = useState(false);
+  const [returnSourceLines, setReturnSourceLines] = useState([]);
+  const [returnSourceError, setReturnSourceError] = useState(""), [returnSourceRetry, setReturnSourceRetry] = useState(0);
+  useEffect(() => {
+    if (kind !== "debit_note" || !form.applied_to) { setReturnSourceLines([]); return; }
+    let active = true;
+    setReturnSourceLines([]);
+    setReturnSourceError("");
+    api(`/companies/${companyId}/records/${form.applied_to}`).then(row => {
+      if (active) setReturnSourceLines(row.data?.lines || []);
+    }).catch(() => { if (active) setReturnSourceError("Source lines could not be loaded. Saved references are preserved; retry to change selection."); });
+    return () => { active = false; };
+  }, [api, companyId, kind, form.applied_to, returnSourceRetry]);
   const [reviewedReturnDiscounts, setReviewedReturnDiscounts] = useState("");
   const requiresDiscountReview = !edit && ["credit_note", "debit_note"].includes(kind) && !!form.applied_to && lines.some(line => lineDiscountMode(line) === "amount" && Number(line.discount_amount) > 0);
   const returnDiscountReviewKey = JSON.stringify([form.applied_to, lines.map(line => [line.item_id, line.description, line.quantity, line.rate, line.discount_amount, line.discount_percent])]);
@@ -548,6 +563,7 @@ export default function RecordEditor({
     form,
     lines: lines.map(serializeLineDiscount),
     enabled: doc,
+    editingRecordId: edit && kind === "debit_note" ? source?.id : undefined,
   });
   const saveLabel =
     {
@@ -859,7 +875,9 @@ export default function RecordEditor({
               </datalist>
               {!edit && (source || relatedSource || form.applied_to) && lines.some(line => lineDiscountMode(line) === "amount") && <p className="info-box full">Fixed rupee discounts were copied unchanged from the source. They are not automatically prorated when you change quantities. Review each discount against the quantities being converted or returned before saving.</p>}
               {requiresDiscountReview && <label className="checkbox full"><input type="checkbox" required checked={reviewedReturnDiscounts === returnDiscountReviewKey} onChange={event => setReviewedReturnDiscounts(event.target.checked ? returnDiscountReviewKey : "")} />I reviewed the copied fixed discounts for these returned quantities.</label>}
+              {kind === "debit_note" && returnSourceError && <p className="error full" role="alert">{returnSourceError} <button type="button" onClick={() => setReturnSourceRetry(value => value + 1)}>Retry source lines</button></p>}
               <DocumentItems
+                returnSourceLines={kind === "debit_note" ? returnSourceLines : null}
                 lines={lines}
                 setLines={(next) => {
                   if (quickFlight.current) return;
