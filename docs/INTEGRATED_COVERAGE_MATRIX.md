@@ -1129,3 +1129,33 @@ unknown. A durable solution needs an optional operation key and actor/payload-bo
 receipt committed with rows, an authorized GET lookup and legacy capability gating.
 Missing lookup must remain unknown; no inference from a bounded statement list.
 No automatic historical edits, production access, publication retry or deployment.
+
+### Durable bank-import receipt backend (2026-11-12)
+
+Optional Idempotency-Key now binds the full ordered bank-import request to the
+company and actor. Accepted results and newly created statement IDs are stored
+atomically with imported rows. Identical retries return the original result;
+changed payloads/actors reject. Authorized GET lookup recovers the result; 404
+explicitly does not prove an in-flight request failed. Preview creates no receipt,
+and unkeyed legacy imports retain their existing row-deduplication response.
+Capability and native OpenAPI contract advertise the optional feature.
+
+Migration j129ab697c14 adds the separate receipt table. Nonempty downgrade refuses
+to delete recovery history. Company JSON export/restore does not transplant
+operation keys; a restored company has a fresh namespace. Full database backup
+and rollback planning must retain receipts. No production migration was run.
+
+Validation: nine SQLite tests pass (seven receipt cases, existing row-retry
+boundary and migration safeguard), including injected failure after flush,
+response loss after commit, exact lookup/retry, concurrent identical/changed
+requests, role/actor/tenant restrictions and restored namespace. Six original
+receipt tests pass on disposable PostgreSQL 17, including four concurrent
+identical requests and four conflicting payloads. The subsequently added
+post-commit response-loss test ran on SQLite only. Ten migration/master-receipt
+regressions also pass. Logs are under docs/evidence/bank-receipts-*.log.
+
+Remaining: capability-gated web/native adoption, opaque restart recovery and
+exact-payload retry UI are not implemented by this batch. Existing native bank
+imports do not yet use these receipts. Full native UI/device testing, deployment
+migration/backup/restore gates and production readiness remain open. No external
+store calls, publication retry or deployment.

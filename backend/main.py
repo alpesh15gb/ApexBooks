@@ -203,6 +203,17 @@ class MasterImportReceipt(Base):
     response: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
+class BankImportReceipt(Base):
+    __tablename__ = 'bank_import_receipts'
+    __table_args__ = (UniqueConstraint('company_id', 'operation_key'),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    company_id: Mapped[str] = mapped_column(ForeignKey('companies.id'), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(ForeignKey('users.id'), nullable=False)
+    operation_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    response: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
 class AuditEvent(Base):
     __tablename__ = 'audit_events'
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
@@ -2694,9 +2705,23 @@ def export_transaction_register(company_id: str, fmt: str, from_date: DateType, 
     rows.append(['', '', '', 'Net total', '', '', '', '', '', '', data['total']])
     return export_table(company.name, f"{group.title()} register {from_date} to {to_date}", ['Date', 'Type', 'Number', 'Party', 'Subtotal', 'CGST', 'SGST', 'IGST', 'Supplier tax', 'GST in cost', 'Total'], rows, fmt, f'{group}-register')
 
-@app.post('/api/companies/{company_id}/bank-statement/import')
-def import_bank_statement(company_id: str, body: StatementImport, user: User = Depends(current_user), session: Session = Depends(db)):
+@app.post('/api/companies/{company_id}/bank-statement/import', openapi_extra={
+    'parameters':[{'name':'Idempotency-Key','in':'header','required':False,
+        'schema':{'type':'string','minLength':1,'maxLength':80,'pattern':'^[A-Za-z0-9._:-]+$'},
+        'description':'Optional exact bank-import receipt key. Preview ignores it; omitted keys retain row-deduplication behavior.'}]})
+def import_bank_statement(company_id: str, body: StatementImport, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):
     lock_company(company_id, user, session)
+    import_key = request.headers.get('Idempotency-Key') if not body.dry_run else None
+    fingerprint = None
+    if import_key is not None:
+        if not re.fullmatch(r'[A-Za-z0-9._:-]{1,80}', import_key): raise HTTPException(422, 'Use an idempotency key of 1 to 80 letters, digits, dots, underscores, colons or hyphens')
+        canonical = {'operation':'bank-import-v1','body':body.model_dump(mode='json')}
+        fingerprint = hashlib.sha256(json.dumps(canonical,sort_keys=True,separators=(',', ':')).encode()).hexdigest()
+        receipt = session.scalar(select(BankImportReceipt).where(BankImportReceipt.company_id==company_id,BankImportReceipt.operation_key==import_key))
+        if receipt:
+            if receipt.actor_id!=user.id or receipt.request_hash!=fingerprint: raise HTTPException(409,'Import key belongs to a different actor or request')
+            return receipt.response
+    created_ids = []
     bank_account = bank_account_for(company_id, body.bank_account_id, session)
     bank_id = bank_account.id if bank_account else None
     occurrences = {};existing={}
@@ -2711,16 +2736,29 @@ def import_bank_statement(company_id: str, body: StatementImport, user: User = D
             duplicates += 1
             continue
         fingerprint_key = (*key, occurrences[key]) if bank_id is None else (bank_id, *key, occurrences[key])
-        fingerprint = hashlib.sha256(repr(fingerprint_key).encode()).hexdigest()
-        if not body.dry_run:session.add(BankStatementLine(company_id=company_id, bank_account_id=bank_id, date=line.date, description=line.description.strip(), reference=line.reference.strip(), amount=line.amount, fingerprint=fingerprint))
+        row_fingerprint = hashlib.sha256(repr(fingerprint_key).encode()).hexdigest()
+        if not body.dry_run:
+            row_id=str(uuid4());created_ids.append(row_id)
+            session.add(BankStatementLine(id=row_id,company_id=company_id, bank_account_id=bank_id, date=line.date, description=line.description.strip(), reference=line.reference.strip(), amount=line.amount, fingerprint=row_fingerprint))
         added += 1
     if body.dry_run:return {'added':added,'duplicates':duplicates,'dry_run':True}
+    response={'added':added,'duplicates':duplicates}
+    if import_key is not None:
+        response={**response,'operation_key':import_key,'statement_ids':created_ids}
+        session.add(BankImportReceipt(company_id=company_id,actor_id=user.id,operation_key=import_key,request_hash=fingerprint,response=response))
     if added: audit(session, company_id, user, 'bank_statement.imported', 'company', company_id, {'bank_account_id': bank_id or 'default', 'added': added, 'duplicates': duplicates})
     try: session.commit()
     except IntegrityError:
         session.rollback()
         raise HTTPException(409, 'Concurrent import conflict; retry')
-    return {'added': added, 'duplicates': duplicates}
+    return response
+
+@app.get('/api/companies/{company_id}/bank-statement/import-receipts/{operation_key}')
+def bank_import_receipt(company_id: str, operation_key: str, user: User = Depends(current_user), session: Session = Depends(db)):
+    lock_company(company_id,user,session)
+    receipt=session.scalar(select(BankImportReceipt).where(BankImportReceipt.company_id==company_id,BankImportReceipt.actor_id==user.id,BankImportReceipt.operation_key==operation_key))
+    if receipt is None: raise HTTPException(404,'No confirmed import receipt found. This does not prove that an in-flight import failed.')
+    return receipt.response
 
 @app.get('/api/companies/{company_id}/bank-statement')
 def bank_statement(company_id: str, bank_account_id: str = 'default', as_of: DateType | None = None, user: User = Depends(current_user), session: Session = Depends(db)):

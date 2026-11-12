@@ -3386,6 +3386,18 @@
               "type": "string",
               "title": "Company Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "description": "Optional exact bank-import receipt key. Preview ignores it; omitted keys retain row-deduplication behavior."
           }
         ],
         "requestBody": {
@@ -7640,6 +7652,57 @@
               "type": "string",
               "format": "date",
               "title": "Occurrence Date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/bank-statement/import-receipts/{operation_key}": {
+      "get": {
+        "summary": "Bank Import Receipt",
+        "operationId": "bank_import_receipt_api_companies__company_id__bank_statement_import_receipts__operation_key__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "operation_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Operation Key"
             }
           }
         ],
