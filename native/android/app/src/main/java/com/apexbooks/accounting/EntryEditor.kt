@@ -63,7 +63,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     val submission=RetrySubmission()
     val saveIntent=EntrySaveIntent()
     var retryPending by mutableStateOf(false);private set
-    val canEdit get()=!saving&&!scanning&&!sourceLoading&&!retryPending&&quickAdding.isBlank()
+    val canEdit get()=vm.canWrite&&!saving&&!scanning&&!sourceLoading&&!retryPending&&quickAdding.isBlank()
     val canSaveAndNew get()=document&&previous==null&&conversion==null
     val canPayNow get()=previous==null&&conversion==null&&kind in setOf("sales_invoice","purchase_bill")&&vm.supports("payment_at_entry")
     fun paymentBody():JSONObject?{
@@ -100,25 +100,29 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     fun chooseItem(line:LineState,id:String){val item=items(line).find{it.s("id")==id}?:return;line.linkProduct(item,purchase,regular)}
     // Quick-add (Vyapar / MyBillBook style): save the typed customer or line as a master without leaving the document.
     var quickAdding by mutableStateOf("");private set
-    val canQuickAdd get()=document&&kind !in setOf("credit_note","debit_note","expense")&&vm.company.s("role") in setOf("owner","editor")
+    val canQuickAdd get()=vm.canWrite&&document&&kind !in setOf("credit_note","debit_note","expense")&&vm.company.s("role") in setOf("owner","editor")
     private suspend fun createMaster(masterKind:String,name:String,data:JSONObject):JSONObject=
         vm.api.request(vm.api.company(companyId,"/records"),"POST",JSONObject().put("kind",masterKind).put("name",name.trim()).put("date",today()).put("amount","0").put("data",data)) as JSONObject
     fun quickAddParty(){
+        if(!vm.canWrite)return
+        val access=vm.readStamp()
         val name=get("name").trim();if(name.isBlank()||get("party_id").isNotBlank()||quickAdding.isNotBlank())return
         quickAdding="party"
         vm.task{try{
             val created=createMaster("party",name,JSONObject().put("party_type",if(purchase)"supplier" else "customer").put("phone",get("party_phone").trim()).put("gstin",get("party_gstin").trim().uppercase()).put("address",get("party_address")).put("shipping_address",get("shipping_address")))
-            if(!vm.inWorkspace(companyId,workspaceStamp))return@task
+            if(!vm.inWorkspace(companyId,workspaceStamp)||!vm.canRead(companyId,access))return@task
             vm.rememberMaster(created);fields["name"]=created.s("name");fields["party_id"]=created.s("id");vm.notice="Saved ${created.s("name")} as a new ${if(purchase)"supplier" else "customer"}."
         }finally{quickAdding=""}}
     }
     fun quickAddItem(line:LineState){
+        if(!vm.canWrite)return
+        val access=vm.readStamp()
         val name=line.get("description").trim();if(name.isBlank()||line.get("item_id").isNotBlank()||quickAdding.isNotBlank())return
         quickAdding=line.uiKey
         vm.task{try{
             fun amount(value:String)=(value.toBigDecimalOrNull()?:BigDecimal.ZERO).setScale(2,java.math.RoundingMode.HALF_UP).toPlainString()
             val created=createMaster("item",name,JSONObject().put("item_type","goods").put("hsn",line.get("hsn")).put("unit",line.get("unit")).put(if(purchase)"purchase_rate" else "sale_rate",amount(line.get("rate"))).put("gst_rate",amount(line.get("gst_rate"))).put("tax_treatment",line.get("tax_treatment").ifBlank{"taxable"}))
-            if(!vm.inWorkspace(companyId,workspaceStamp))return@task
+            if(!vm.inWorkspace(companyId,workspaceStamp)||!vm.canRead(companyId,access))return@task
             vm.rememberMaster(created);line.set("item_id",created.s("id"));line.set("description",created.s("name"));vm.notice="Saved ${created.s("name")} as a new item."
         }finally{quickAdding=""}}
     }
@@ -189,7 +193,7 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
         return JSONObject().put("kind",kind).put("name",get("name")).put("number",get("number")).put("date",get("date")).put("amount",if(document||master)"0"else get("amount")).put("data",values)
     }
     fun save(keepOpen:Boolean=false){
-        if(saving||scanning||sourceLoading||quickAdding.isNotBlank()||!vm.inWorkspace(companyId,workspaceStamp))return
+        if(!vm.canWrite||saving||scanning||sourceLoading||quickAdding.isNotBlank()||!vm.inWorkspace(companyId,workspaceStamp))return
         saving=true
         vm.task{try{
             if(!retryPending){

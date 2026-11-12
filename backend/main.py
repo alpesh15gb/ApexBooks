@@ -720,9 +720,8 @@ def calculate(data, company, tax_mode, kind, session, *, exclude_return_id=None)
                 if item.data.get('track_stock') and (qty.as_tuple().exponent < -3 or qty > Decimal('999999999999.999')):
                     raise HTTPException(422, 'Tracked stock quantity must have at most three decimal places')
             else:
-                named_item = session.scalar(select(Record).where(Record.company_id == company.id,
-                    Record.kind == 'item', func.lower(Record.name) == description.lower()))
-                if named_item and named_item.data.get('track_stock'):
+                named_items = master_name_matches(company.id, 'item', description, session)
+                if any(item.data.get('track_stock') for item in named_items):
                     raise HTTPException(422, 'Choose the tracked item from this company to post stock')
             if not tax_applies and gst != 0: raise HTTPException(422, 'Non-GST sales cannot charge GST')
             treatment = line.get('tax_treatment', 'taxable')
@@ -1583,9 +1582,9 @@ def validate_active_references(company_id, kind, name, data, session, historical
         if not isinstance(line,dict):continue
         iid=line.get('item_id')
         if isinstance(iid,str) and iid:identities.add(iid)
-        else:names.add(str(line.get('description','')).strip().lower())
+        else:names.add(str(line.get('description','')).strip().casefold())
     if identities or names:
-        candidates=session.scalars(select(Record).where(Record.company_id==company_id,Record.kind=='item',or_(Record.id.in_(identities),func.lower(Record.name).in_(names))))
+        candidates=[item for item in session.scalars(select(Record).where(Record.company_id==company_id,Record.kind=='item')) if item.id in identities or item.name.strip().casefold() in names]
         for item in candidates:
             if item.data.get('is_active',True) is False and item.id not in allowed_items and item.name.strip().casefold() not in allowed_items:
                 raise HTTPException(422,'Reactivate this item before adding it to a new document')

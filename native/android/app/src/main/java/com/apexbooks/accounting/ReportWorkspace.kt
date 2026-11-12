@@ -57,8 +57,8 @@ import org.json.JSONObject
         try{val dates=requireNotNull(range){"Choose a valid date range. The end date must follow the start date."};val url=path(dates);val result=vm.api.request(url);currentCoroutineContext().ensureActive();value=result;ready=url;filename=(if(feature.key=="gstr2a")"gstr2a-purchase-books"else if(gst)feature.key+"-preparation"else feature.key)+"-${dates.first}-${dates.second}"}
         catch(e:Exception){currentCoroutineContext().ensureActive();failure=e.message?:"This report could not be loaded.";vm.failure(e)}finally{loading=false}
     }
-    fun export(format:String){if(ready.isBlank()||ready!=wanted)return;val url=ready;val name=filename;vm.task{val bytes=vm.api.bytes(url.substringBefore('?')+".$format?"+url.substringAfter('?'));if(vm.companyId!=cid||vm.page!="reports")return@task;if(format=="pdf")vm.pdf=PdfView(bytes,"$name.pdf")else vm.files.save(bytes,"$name.$format")}}
-    val exportReady=ready.isNotBlank()&&ready==wanted&&!loading&&vm.busy==0
+    fun export(format:String){if(!vm.recordsReady||ready.isBlank()||ready!=wanted)return;val access=vm.readStamp();val url=ready;val name=filename;vm.task{val bytes=vm.api.bytes(url.substringBefore('?')+".$format?"+url.substringAfter('?'));if(!vm.canRead(cid,access)||vm.page!="reports")return@task;if(format=="pdf")vm.pdf=PdfView(bytes,"$name.pdf")else vm.files.save(bytes,"$name.$format")}}
+    val exportReady=vm.recordsReady&&ready.isNotBlank()&&ready==wanted&&!loading&&vm.busy==0
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=16.dp,top=16.dp,end=16.dp,bottom=104.dp),verticalArrangement=Arrangement.spacedBy(15.dp)){
         item{TextButton(onClick={selected=null}){Icon(Icons.Outlined.ArrowBack,null);Text("Report library")};Heading(feature.title,feature.description)}
         item{Section("Report period"){

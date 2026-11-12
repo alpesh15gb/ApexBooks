@@ -37,3 +37,5 @@ The immutable 9159 checkpoint remains unsuitable for release. Current work requi
 ## Follow-up correction
 
 The subsequent party/native-cache batch reconstructs the two explicit gaps above; see `PARTY_IDENTITY_NATIVE_CACHE_RECONSTRUCTION.md`. The original gap descriptions are retained as reproduction history. Closure still requires independent review and native acceptance, and does not imply all historical lost changes are recovered. An additional SQLite concurrent duplicate race was reproduced and fixed with a transaction writer guard.
+
+The next review caught incomplete Android read-cache invalidation after e46744f; the local access-cache follow-up closes the reviewed detail/PDF/statement and export boundaries. It also corrects casefold item-name stock/archive bypasses. Web revocation caches and the lost Android cash-book applied-export snapshot remain open: see `ACCESS_CACHE_ITEM_IDENTITY_FOLLOWUP.md`. Do not interpret the earlier two-gap reconstruction as closing these adjacent findings.

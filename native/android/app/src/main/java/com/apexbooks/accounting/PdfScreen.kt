@@ -48,7 +48,7 @@ private class PdfOwner:AutoCloseable {
     var openAttempt by remember(document.bytes){mutableIntStateOf(0)}
     var openError by remember(document.bytes,openAttempt){mutableStateOf("")}
     val owner=remember(document.bytes,openAttempt){PdfOwner()}
-    fun active()=vm.pdf===document&&!vm.pdfLoading
+    fun active()=vm.recordsReady&&vm.pdf===document&&!vm.pdfLoading
     fun external(){if(active())try{vm.files.openPdf(activity,document.bytes,document.name)}catch(e:Exception){vm.failure(e)}}
     DisposableEffect(owner){onDispose{owner.close()}}
     LaunchedEffect(owner){

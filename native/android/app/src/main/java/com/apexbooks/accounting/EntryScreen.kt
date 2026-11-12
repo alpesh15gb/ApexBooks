@@ -41,13 +41,14 @@ import org.json.JSONObject
         editor.previewError.isNotBlank() -> "Total unavailable"
         else -> "Calculating…"
     }
-    LaunchedEffect(serialized) {
-        if (!editor.document) return@LaunchedEffect
+    LaunchedEffect(serialized,vm.recordsReady) {
+        val access=vm.readStamp()
+        if (!editor.document || !vm.recordsReady) return@LaunchedEffect
         editor.preview = null; editor.previewError = ""
         if (!previewReady) return@LaunchedEffect
         delay(350)
-        try { val payload=JSONObject(serialized);if(editor.kind=="debit_note"&&editor.previous!=null)payload.getJSONObject("data").put("editing_record_id",editor.previous.s("id"));editor.preview = vm.api.request(vm.api.company(editor.companyId, "/documents/preview"), "POST", payload) as JSONObject }
-        catch (e: Exception) { currentCoroutineContext().ensureActive(); editor.previewError = e.message ?: "Preview is unavailable."; if (e is ApiFailure && e.status == 401) vm.failure(e) }
+        try { val payload=JSONObject(serialized);if(editor.kind=="debit_note"&&editor.previous!=null)payload.getJSONObject("data").put("editing_record_id",editor.previous.s("id"));val result = vm.api.request(vm.api.company(editor.companyId, "/documents/preview"), "POST", payload) as JSONObject;if(vm.canRead(editor.companyId,access))editor.preview=result }
+        catch (e: Exception) { currentCoroutineContext().ensureActive(); if(vm.canRead(editor.companyId,access))editor.previewError = e.message ?: "Preview is unavailable."; if (e is ApiFailure && e.status == 401) vm.failure(e) }
     }
     LaunchedEffect(step) { scroll.scrollTo(0); stepError = "" }
     fun close() { if (idle) { if (editor.retryPending) { discard = false; stepError = "The previous save may already have posted. Retry original save to recover its outcome before closing; do not create a replacement entry." } else if (editor.changed()) discard = true else { vm.error = ""; vm.notice = ""; vm.editor = null } } }
@@ -77,6 +78,7 @@ import org.json.JSONObject
             } }, bottomBar = { Surface(shadowElevation = 8.dp) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (vm.error.isNotBlank()) Message(vm.error, true) { vm.error = "" }
+                    if(!vm.recordsReady){Text("Company access is unverified. Your draft is preserved; reload before saving.");TextButton(enabled=vm.busy==0,onClick={vm.task{vm.refresh()}}){Text("Retry company data")}}
                     if (stepError.isNotBlank()) Text(stepError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                     if (editor.document) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -89,8 +91,8 @@ import org.json.JSONObject
                         if (editor.document && step > 0) OutlinedButton(enabled = idle, onClick = { step-- }, modifier = Modifier.weight(1f)) { Text("Back") }
                         if (editor.document && step < 2) Button(enabled = idle, onClick = { next() }, modifier = Modifier.weight(1f)) { Text(if (step == 0) "Next: add items" else "Review document"); Icon(Icons.Outlined.ChevronRight, null) }
                         else {
-                            if (editor.document && step == 2 && editor.canSaveAndNew) OutlinedButton(onClick = { editor.save(true) }, enabled = editor.canEdit && vm.busy == 0 && previewReady && editor.preview != null && editor.previewError.isBlank(), modifier = Modifier.weight(1f)) { Text("Save & new") }
-                            Button(onClick = { editor.save() }, enabled = idle && vm.busy == 0 && (editor.retryPending || !editor.document || editor.preview != null), modifier = Modifier.weight(1f)) {
+                            if (editor.document && step == 2 && editor.canSaveAndNew) OutlinedButton(onClick = { editor.save(true) }, enabled = vm.canWrite && editor.canEdit && vm.busy == 0 && previewReady && editor.preview != null && editor.previewError.isBlank(), modifier = Modifier.weight(1f)) { Text("Save & new") }
+                            Button(onClick = { editor.save() }, enabled = vm.canWrite && idle && vm.busy == 0 && (editor.retryPending || !editor.document || editor.preview != null), modifier = Modifier.weight(1f)) {
                                 if (editor.saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                                 else Text(if(editor.retryPending) "Retry original save" else if (editor.sourceLoading) "Loading source…" else if (editor.previous != null) "Save changes" else "Save ${when (editor.kind) { "sales_invoice" -> "invoice"; "purchase_bill" -> "bill"; "payment_in" -> "receipt"; "payment_out" -> "payment"; else -> "record" }}")
                             }

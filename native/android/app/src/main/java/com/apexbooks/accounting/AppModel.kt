@@ -75,12 +75,15 @@ class AppModel(application:Application):AndroidViewModel(application) {
     private var generation=0
     private var companyLoads=0
     private var refreshSequence=0
+    private var readEpoch=0
+    fun readStamp()=(generation.toLong() shl 32) or readEpoch.toLong()
+    fun canRead(id:String,stamp:Long)=signedIn&&recordsReady&&companyId==id&&readStamp()==stamp
     fun workspaceStamp()=generation
     fun inWorkspace(id:String,stamp:Int)=signedIn&&companyId==id&&generation==stamp
     /** Keeps a party or item created from inside an editor (quick-add) selectable until the next refresh. */
     fun rememberMaster(row:JSONObject){if(records.none{it.s("id")==row.s("id")})records=records+row}
     val companyId get()=company.s("id")
-    val canWrite get()=company.s("role") in setOf("owner","editor")
+    val canWrite get()=signedIn&&recordsReady&&company.s("role") in setOf("owner","editor")
     val isOwner get()=company.s("role")=="owner"
     val regular get()=company.s("tax_mode")=="regular"
     fun title(key:String)=navigation.find{it.key==key}?.title?:friendly(key)
@@ -97,7 +100,7 @@ class AppModel(application:Application):AndroidViewModel(application) {
             first={api.records(id)},second={(api.request(api.company(id,"/bank-accounts")) as JSONArray).objects()},
             current={inWorkspace(id,stamp)&&request==refreshSequence},
             denied={it is ApiFailure&&it.status in setOf(403,404)},
-            invalidate={records=emptyList();banks=emptyList();recordsReady=false},
+            invalidate={readEpoch++;records=emptyList();banks=emptyList();recordsReady=false;detail=null;statement=null;closePdf();editor?.preview=null},
             publish={rows,accounts->records=rows;banks=accounts;recordsReady=true;revision++})
     }
     fun navigate(key:String){page=key;error="";notice=""}
@@ -108,10 +111,10 @@ class AppModel(application:Application):AndroidViewModel(application) {
     fun convert(row:JSONObject,targetKind:String?=null){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));if(stamp==generation)editor=EntryEditor(this,targetKind?:if(full.s("kind")=="purchase_order")"purchase_bill" else "sales_invoice",conversion=full)}}
     fun closePdf(){pdfRequest++;pdfLoading=false;pdfError="";pdf=null}
     fun documentPdf(row:JSONObject,template:String=""){
-        val id=companyId;val stamp=generation;val previous=pdf;val requestedPage=page;val request=++pdfRequest
+        val id=companyId;val stamp=generation;val previous=pdf;val requestedPage=page;val request=++pdfRequest;val access=readStamp()
         val snapshot=JSONObject(row.toString())
         pdfLoading=true;pdfError="";pdfRequestedTemplate=template
-        fun current()=request==pdfRequest&&inWorkspace(id,stamp)&&pdf===previous&&page==requestedPage
+        fun current()=request==pdfRequest&&inWorkspace(id,stamp)&&canRead(id,access)&&pdf===previous&&page==requestedPage
         task{
             try{
                 val bytes=api.bytes(api.company(id,"/documents/${encode(snapshot.s("id"))}.pdf")+if(template.isBlank())"" else "?template=${encode(template)}")

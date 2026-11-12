@@ -103,12 +103,12 @@ import org.json.JSONObject
                 if (!cancelled && record != null && (WhatsAppShare.shareable(row.s("kind")) || WhatsAppShare.canRemind(row))) item {
                     val context = androidx.compose.ui.platform.LocalContext.current
                     fun share(reminder: Boolean) {
-                        val companyId=vm.companyId;val stamp=vm.workspaceStamp();val detail=vm.detail
+                        val companyId=vm.companyId;val stamp=vm.workspaceStamp();val access=vm.readStamp();val detail=vm.detail
                         val snapshot=JSONObject(row.toString());val company=vm.company.s("name")
                         val phone=WhatsAppShare.partyPhone(snapshot,vm.records)
                         vm.task { scopedExternalAction(
                             load={ (vm.api.request(vm.api.company(companyId,"/document-branding")) as JSONObject).s("upi_id") },
-                            current={ vm.api.signedIn&&vm.inWorkspace(companyId,stamp)&&vm.detail===detail },
+                            current={ vm.api.signedIn&&vm.inWorkspace(companyId,stamp)&&vm.canRead(companyId,access)&&vm.detail===detail },
                             prepare={ upi -> if(reminder)WhatsAppShare.reminderMessage(snapshot,company,upi)else WhatsAppShare.documentMessage(snapshot,company,upi) },
                             launch={ text -> WhatsAppShare.open(context,phone,text) }) }
                     }

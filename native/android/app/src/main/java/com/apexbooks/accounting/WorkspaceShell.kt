@@ -79,7 +79,7 @@ import com.apexbooks.accounting.data.*
                     Heading("Create your first company", "Keep each business in its own books. Choose GST or non-GST accounting, then add an invoice, purchase or opening balance.")
                     Button(onClick = { vm.companyEdit = false; vm.companyForm = true }) { Text("Create company") }
                 } else AnimatedContent(targetState = vm.page, modifier = Modifier.fillMaxSize(), label = "Workspace destination") { page -> key(vm.companyId, page) {
-                    if(!vm.recordsReady && page !in setOf("dashboard","reports","more","settings"))Column(Modifier.padding(24.dp)){Heading("Loading company history","Waiting for complete records before showing balances or starting billing.");if(vm.busy==0)Button(onClick={vm.task{vm.refresh()}}){Text("Retry company data")}}else when (page) {
+                    if(!vm.recordsReady && page !in setOf("more","settings"))Column(Modifier.padding(24.dp)){Heading("Loading company history","Waiting for complete records before showing balances or starting billing.");if(vm.busy==0)Button(onClick={vm.task{vm.refresh()}}){Text("Retry company data")}}else when (page) {
                         "dashboard" -> DashboardScreen(vm)
                         "reports" -> ReportsScreen(vm)
                         "more" -> MoreScreen(vm)
@@ -110,12 +110,12 @@ import com.apexbooks.accounting.data.*
     }
     if (createOpen) CreateTransactionSheet(vm) { createOpen = false }
     if (searchOpen) WorkspaceSearch(vm) { searchOpen = false }
-    vm.detail?.let { TransactionDetail(vm, it) }
+    vm.detail?.takeIf{vm.recordsReady}?.let { TransactionDetail(vm, it) }
     vm.editor?.let { key(it) { EntryScreen(it) } }
     if (vm.companyForm) CompanyDialog(vm)
-    vm.statement?.let { PartyStatementScreen(vm, it) }
+    vm.statement?.takeIf{vm.recordsReady}?.let { PartyStatementScreen(vm, it) }
     if (vm.tool.isNotBlank()) ToolsScreen(vm)
-    vm.pdf?.let { PdfScreen(vm, activity, it) }
+    vm.pdf?.takeIf{vm.recordsReady}?.let { PdfScreen(vm, activity, it) }
 }
 
 private fun mobileIcon(key: String) = when (key) {
