@@ -1,0 +1,35 @@
+{
+  "date": "2026-11-12",
+  "tool": "age and age-keygen",
+  "reported_version": "1.2.1",
+  "package_version": "1.2.1-1+b5",
+  "package_source": "https://deb.debian.org/debian/pool/main/a/age/age_1.2.1-1+b5_amd64.deb",
+  "authentication": "APT signed InRelease metadata verified with the installed Debian archive keyring; package SHA256 matched authenticated package metadata; no insecure/allow-unauthenticated options used",
+  "package_sha256": "a87ab5ba69a99bc6d8c95935ae467fa877daef50d11d9dabe0520ae01411f85c",
+  "keyring_sha256": "506b815cbb32d9b6066b4a2aa524071e071761e7e7f68c3ac74f3061ba852017",
+  "script_sha256": {
+    "deploy/test-secure-backup.sh": "4af0e8d704e468c8f8cd17f8643fab213f0d0ca0cdc3bc9ea7ec40a63060157a",
+    "deploy/backup-secure.sh": "a45e15abae9220e22e6e06b0c222ff95e8873afb6ff79d233ec5d41913da66cd",
+    "deploy/restore-secure.sh": "b416197d8baa3f5d66de55cae7263011c9a79224e0a18370a5e292fef1272be0"
+  },
+  "test_exit_code": 0,
+  "output": "Secure backup and restore flow passed with simulated database and remote storage.",
+  "covered": [
+    "real age encryption and correct-identity decryption",
+    "encrypted archive mode 0600",
+    "mock remote ciphertext equality",
+    "failed upload retains local archive",
+    "failed dump produces no completed backup",
+    "corrupt remote verification rejects",
+    "wrong identity rejects before stopping services",
+    "correct identity follows mocked stop/restore/start flow"
+  ],
+  "limits": [
+    "database dump and restore commands mocked",
+    "remote storage commands mocked",
+    "ephemeral synthetic identities only; private identities deleted by test cleanup",
+    "no production backup, credentials, database, remote storage or deployment accessed",
+    "no guarantee of production recoverability"
+  ],
+  "installation": "package extracted only under /tmp; no system installation or configuration change"
+}

@@ -21,6 +21,10 @@ class CancelInput(BaseModel):
 def dependents(m, cid, record, session):
     """Human-readable blockers: documents that still depend on this record."""
     blockers = []
+    from return_dependencies import dependent_return
+    dependent = dependent_return(m, cid, record, session)
+    if dependent is not None:
+        blockers.append(f'{dependent.number or dependent.kind} depends on this allocation; resolve the linked return first')
     posted = select(m.RecordPosting.record_id).where(m.RecordPosting.company_id == cid)
     if record.kind in {'sales_invoice', 'purchase_bill', 'pos'}:
         paid = Decimal(0)

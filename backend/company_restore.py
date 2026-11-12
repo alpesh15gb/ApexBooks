@@ -178,6 +178,22 @@ def validate(payload):
         links.add((pid,did));allocated[did]+=amount;payment_totals[pid]+=amount
     if any(value>number(indexes['records'][rid]['amount']) for rid,value in allocated.items()):raise ValueError('Overallocated document')
     if any(value>number(indexes['records'][rid]['amount']) for rid,value in payment_totals.items()):raise ValueError('Overallocated payment')
+    # A return's excess credit depends on allocations retained against its source.
+    # Check the aggregate invariant without guessing historical same-day order.
+    returned=defaultdict(Decimal);excess=defaultdict(Decimal);other_paid=defaultdict(Decimal)
+    for allocation in groups['payment_allocations']:
+        if indexes['records'][allocation['payment_id']]['kind'] not in {'credit_note','debit_note'}:
+            other_paid[allocation['document_id']]+=number(allocation['amount'])
+    for note in groups['records']:
+        if note['id'] not in posted or note['kind'] not in {'credit_note','debit_note'}:continue
+        target_id=note['data'].get('applied_to')
+        target=indexes['records'].get(target_id) if isinstance(target_id,str) else None
+        if not target or target['kind'] not in {'sales_invoice','purchase_bill'}:continue
+        returned[target['id']]+=number(note['amount'])
+        excess[target['id']]+=number(note['data'].get('unallocated_credit',0))
+    for target_id,credit in excess.items():
+        capacity=max(Decimal(0),returned[target_id]+other_paid[target_id]-number(indexes['records'][target_id]['amount']))
+        if credit>capacity:raise ValueError('Return credit exceeds retained source settlement capacity; review the original payment and return history')
     source_used=defaultdict(Decimal)
     for row in groups['records']:
         if row['id'] not in posted:continue

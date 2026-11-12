@@ -94,6 +94,11 @@ def install(app,m):
             intent=intent or sorted(existing)!=sorted(proposed)
         amount_entered = record.kind not in m.DOCUMENTS or (record.kind == 'expense' and not data.get('lines'))
         intent=intent or (amount_entered and m.money(body.amount)!=record.amount)
+        from return_dependencies import settled_note, dependent_return
+        if (intent or data.get('party_id') != record.data.get('party_id')) and settled_note(m, company_id, record, session):
+            raise HTTPException(409, 'This return note has credit applications or refunds. Its date, party and financial details cannot change; notes and other nonfinancial details remain editable.')
+        if (intent or data.get('party_id') != record.data.get('party_id')) and dependent_return(m, company_id, record, session) is not None:
+            raise HTTPException(409, 'A linked return note depends on this allocation. Financial changes require resolving the return dependency first; nonfinancial details remain editable.')
         if record.data.get('commerce_connection_id') and (intent or any(data.get(k) != record.data.get(k) for k in metadata-{'notes','terms','due_date'})):
             raise HTTPException(409,'This document is linked to an ecommerce source. Use its source correction / credit workflow to keep both systems reconciled.')
         if intent and record.kind in m.DOCUMENTS and (record.kind!='expense' or data.get('lines')):data,amount=m.calculate(data,company,profile.mode if profile else 'regular',record.kind,session,exclude_return_id=record.id)
