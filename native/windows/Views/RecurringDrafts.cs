@@ -14,11 +14,17 @@ public sealed partial class MainPage
     {
         RequireFeature("recurring_drafts");
         var cid=CompanyId;var stamp=generation;var panel=Stack(14);var rows=Stack(12);var loaded=new List<JsonObject>();var sequence=0;var businessDate="";string action="";JsonObject? selected=null;
+        var access=CaptureFileSaveAccess();var closed=false;var accessLost=false;
+        bool Context()=>cid==CompanyId&&stamp==generation&&ScopedFileExport.Current(access);
+        bool Owned()=>!accessLost&&Context();bool Current()=>!closed&&Owned();
+        var calendarLabel=Text("Loading server business calendar…",12);
+        void Invalidate(){if(closed)return;accessLost=true;++sequence;loaded.Clear();selected=null;businessDate="";rows.Children.Clear();calendarLabel.Text="Company access removed or unavailable.";panel.Children.Clear();panel.Children.Add(Text("Company access removed or unavailable. Close schedules and reopen after company access is restored."));}
         var view=Select("Show",[("due","Due for review"),("all","All schedules")]);var asOf=new DateInput("Review as of · blank uses server business date","");var search=Input("Find schedule or party");
         panel.Children.Add(Text("Recurring drafts · review before posting",22,true));panel.Children.Add(Text("Schedules create only estimates, proformas or orders when you explicitly generate a due occurrence. They do not automatically invoice, post expenses, move stock or run in the background.",13));
-        void Choose(string command,JsonObject row){action=command;selected=row;CloseDialog();}
+        void Choose(string command,JsonObject row){if(!Current()||(command!="view"&&!CanWrite))return;action=command;selected=row;CloseDialog();}
         void Draw()
         {
+            if(!Current())return;
             rows.Children.Clear();var matches=loaded.Where(r=>(r.Text("name")+" "+r.Text("party_name")).Contains(search.Text.Trim(),StringComparison.OrdinalIgnoreCase)).ToList();
             rows.Children.Add(Text($"Showing {Math.Min(matches.Count,100)} of {matches.Count} matching schedules",12));
             foreach(var row in matches.Take(100)){
@@ -31,21 +37,33 @@ public sealed partial class MainPage
             }
             if(matches.Count==0)rows.Children.Add(Text("No schedules match this view. Create one from a saved estimate, proforma, sales order or purchase order. Paused and completed schedules appear in All schedules.",13));
         }
-        var calendarLabel=Text("Loading server business calendar…",12);
         async Task Load(){
+            if(!Current())return;
             var request=++sequence;var filter=Value(view);var query=asOf.Value.Length>0?"?as_of="+asOf.Value:"";
-            var dueTask=Api.Send(Api.CompanyPath(cid,"/recurring-templates/due"+query));var listTask=filter=="due"?dueTask:Api.Send(Api.CompanyPath(cid,"/recurring-templates"));await Task.WhenAll(dueTask,listTask);
-            if(cid!=CompanyId||stamp!=generation||request!=sequence)return;
-            var context=await dueTask;var result=await listTask;businessDate=context.Text("business_date");
-            calendarLabel.Text=$"Server business date {businessDate} · {context.Text("timezone")} · review as of {context.Text("as_of")}. Future preview never enables generation.";
-            if(asOf.Value.Length==0&&DateTime.TryParseExact(context.Text("as_of"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out var serverDate))asOf.Picker.Date=new DateTimeOffset(serverDate);
-            loaded=result[filter=="due"?"rows":"templates"].Array().OfType<JsonObject>().ToList();Draw();
+            loaded.Clear();rows.Children.Clear();businessDate="";calendarLabel.Text="Loading server business calendar…";
+            var dueTask=Api.Send(Api.CompanyPath(cid,"/recurring-templates/due"+query));var listTask=filter=="due"?dueTask:Api.Send(Api.CompanyPath(cid,"/recurring-templates"));
+            try{
+                await ScopedCoreRefresh.Run(dueTask,listTask,()=>Current()&&request==sequence,Invalidate,(context,result)=>{
+                    businessDate=context.Text("business_date");
+                    calendarLabel.Text=$"Server business date {businessDate} · {context.Text("timezone")} · review as of {context.Text("as_of")}. Future preview never enables generation.";
+                    if(asOf.Value.Length==0&&DateTime.TryParseExact(context.Text("as_of"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out var serverDate))asOf.Picker.Date=new DateTimeOffset(serverDate);
+                    loaded=result[filter=="due"?"rows":"templates"].Array().OfType<JsonObject>().ToList();Draw();
+                },()=>Task.CompletedTask);
+            }catch{
+                if(closed||!Context())return;
+                if(accessLost)throw new InvalidOperationException("Company access removed or unavailable. Reopen schedules after access is restored.");
+                if(request!=sequence)return;
+                calendarLabel.Text="Schedules could not load. Use Refresh schedules to retry.";throw;
+            }
         }
         panel.Children.Add(calendarLabel);
         panel.Children.Add(Columns(view,asOf.View,AsyncButton("Refresh schedules",Load,Error)));panel.Children.Add(Text("Use Refresh schedules after changing the view or review date. Generate always uses the server’s next due date and never a future occurrence.",12));panel.Children.Add(search);search.TextChanged+=(_,_)=>Draw();panel.Children.Add(rows);
         if(CanWrite){var sources=Select("Source draft",new[]{("","Choose a saved draft")}.Concat(Records.Where(r=>FeatureCatalog.Drafts.Contains(r.Text("kind"))&&r.Text("converted_to").Length==0).Select(r=>(r.Text("id"),r.Text("number")+" · "+r.Text("name")))));panel.Children.Add(sources);panel.Children.Add(Button("Create recurring schedule",()=>{var source=Records.FirstOrDefault(r=>r.Text("id")==Value(sources));if(source is null){Error(new Exception("Choose a saved source draft."));return;}Choose("create",source.Object());},true));}
         else panel.Children.Add(Text("Read-only access · owners and editors can manage schedules and generate drafts.",12));
-        await Load();if(cid!=CompanyId||stamp!=generation)return;await Dialog("Recurring drafts",panel,()=>Task.CompletedTask,"Done");if(cid!=CompanyId||stamp!=generation||selected is null)return;
+        ReadAccessInvalidated+=Invalidate;
+        try{await Load();if(!Current())return;await Dialog("Recurring drafts",panel,()=>Task.CompletedTask,"Done");}
+        finally{closed=true;ReadAccessInvalidated-=Invalidate;}
+        if(!Owned()||selected is null)return;
         if(action=="create")await RecurringTemplateForm(selected);
         else if(action=="generate")await GenerateRecurringDraft(selected,businessDate);
         else await RecurringTemplateDetails(selected,action=="edit");
@@ -55,7 +73,7 @@ public sealed partial class MainPage
     {
         RequireFeature("recurring_drafts");
         var writeAccess=CaptureRecurringWriteAccess();
-        var cid=CompanyId;var stamp=generation;var calendar=await Api.Send(Api.CompanyPath(cid,"/recurring-templates/due"));if(cid!=CompanyId||stamp!=generation)return;var panel=Stack(12);var name=Input("Schedule name",source.Text("number")+" · "+source.Text("name"));name.MaxLength=120;
+        var cid=CompanyId;var stamp=generation;var calendar=await Api.Send(Api.CompanyPath(cid,"/recurring-templates/due"));if(cid!=CompanyId||stamp!=generation||!ScopedFileExport.Current(writeAccess))return;var panel=Stack(12);var name=Input("Schedule name",source.Text("number")+" · "+source.Text("name"));name.MaxLength=120;
         var start=new DateInput("First occurrence",calendar.Text("business_date"));var end=new DateInput("End date · optional","");var frequency=Select("Frequency",[("monthly","Monthly"),("weekly","Weekly")]);var interval=Input("Every · interval (1–12)","1");
         panel.Children.Add(Text("Source: "+Friendly(source.Text("kind"))+" · "+source.Text("number")+" · "+source.Text("name"),15,true));panel.Children.Add(Text("A snapshot of this saved draft is used for future occurrences. Dates are anchored by the server; short months clamp to the final valid day. Schedules never post automatically. To change frequency or dates later, pause this schedule and create a replacement.",13));
         foreach(var field in new UIElement[]{name,Columns(start.View,end.View),Columns(frequency,interval)})panel.Children.Add(field);
@@ -70,14 +88,29 @@ public sealed partial class MainPage
         if(saved&&cid==CompanyId&&stamp==generation){Success("Recurring draft schedule saved. No transaction has been posted.");await RecurringDrafts();}
     }
 
+    private async Task<JsonObject?> ReadRecurringSchedule(string id)
+    {
+        if(!recordsReady)return null;
+        var cid=CompanyId;var navigation=generation;var readAccess=CaptureFileSaveAccess();
+        bool Current()=>cid==CompanyId&&navigation==generation&&ScopedFileExport.Current(readAccess);
+        try{var result=(await Api.Send(Api.CompanyPath(cid,"/recurring-templates/"+Uri.EscapeDataString(id)))).Object();return Current()?result:null;}
+        catch(Exception)when(!Current()){return null;}
+    }
+
     private async Task RecurringTemplateDetails(JsonObject summary,bool edit)
     {
-        var cid=CompanyId;var stamp=generation;var id=summary.Text("id");var row=(await Api.Send(Api.CompanyPath(cid,"/recurring-templates/"+Uri.EscapeDataString(id)))).Object();if(cid!=CompanyId||stamp!=generation)return;
+        var cid=CompanyId;var stamp=generation;var id=summary.Text("id");var row=await ReadRecurringSchedule(id);if(row is null||cid!=CompanyId||stamp!=generation)return;
         var panel=Stack(12);var name=Input("Schedule name",row.Text("name"));name.MaxLength=120;var active=new CheckBox{Content="Active schedule",IsChecked=row.Flag("is_active")};
         panel.Children.Add(Text($"{Friendly(row.Text("draft_kind"))} · {row.Text("party_name")} · next due {row.Text("next_due")}",16,true));panel.Children.Add(Text($"Every {row.Text("interval")} {row.Text("frequency")} from {row.Text("start_date")} through {(row.Text("end_date").Length>0?row.Text("end_date"):"no end date")}",13));panel.Children.Add(Text("Schedule dates and frequency cannot be changed. Pause and create a replacement for a different schedule. Generating requires a separate explicit action.",12));
         panel.Children.Add(name);panel.Children.Add(active);var refresh=new CheckBox{Content="Refresh future draft snapshot from a saved draft",IsChecked=false};var source=Select("Future snapshot source",new[]{("","Keep existing snapshot")}.Concat(Records.Where(r=>r.Text("kind")==row.Text("draft_kind")&&r.Text("converted_to").Length==0).Select(r=>(r.Text("id"),r.Text("number")+" · "+r.Text("name")))),row.Text("source_record_id"));panel.Children.Add(refresh);panel.Children.Add(source);panel.Children.Add(Text("Refreshing affects only future occurrences; generated drafts and posted records are not rewritten.",12));
         var draft=row["draft"].Object();foreach(var line in draft["data"]?["lines"].Array()??new())panel.Children.Add(Text(line.Text("description")+" · "+line.Text("quantity")+" × "+J.Money(line.Number("rate")),12));
-        if(!edit||!CanWrite){SetFormEnabled(panel,false);await Dialog("Recurring draft snapshot",panel,()=>Task.CompletedTask,"Done");return;}
+        if(!edit||!CanWrite){
+            SetFormEnabled(panel,false);
+            void InvalidateSnapshot(){panel.Children.Clear();panel.Children.Add(Text("Company access removed or unavailable. Close this snapshot and reopen after access is restored."));}
+            ReadAccessInvalidated+=InvalidateSnapshot;
+            try{await Dialog("Recurring draft snapshot",panel,()=>Task.CompletedTask,"Done");}finally{ReadAccessInvalidated-=InvalidateSnapshot;}
+            return;
+        }
         var writeAccess=CaptureRecurringWriteAccess();
         var key=Guid.NewGuid().ToString();var submission=new RetrySubmission();string Signature()=>name.Text+"|"+active.IsChecked+"|"+refresh.IsChecked+"|"+Value(source);var baseline=Signature();
         var saved=await Dialog("Manage recurring schedule",panel,async()=>{
