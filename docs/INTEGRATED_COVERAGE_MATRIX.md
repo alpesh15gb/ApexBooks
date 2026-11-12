@@ -120,3 +120,32 @@ The immutable `9159cbf` candidate is blocked by subsequently reproduced settled-
 The native PDF/share follow-up is documented in `NATIVE_PDF_SHARE_REVIEW.md`. Compiled request/helper tests do not close the full native build, device, PdfRenderer or TalkBack gates. All these changes remain local; the old checkpoint and earlier CI must not be represented as covering them.
 
 The subsequent critical-reconstruction pass found and corrected missing XLSX formula/text fidelity protection. It also confirmed that party casefold identity and native access-denial cache handling remain incompletely reconstructed; see `CRITICAL_RECONSTRUCTION_INVENTORY.md`. These gaps prevent declaring the reconstruction complete despite passing targeted suites.
+
+
+## Current native follow-up reconciliation (2026-11-12)
+
+The earlier matrix is historical evidence, not a declaration that the current tree
+has passed a full release run. Through `66dce6e`, independent reviews have confirmed
+the targeted native transport, picker/export, PDF/report, retained receipt/recovery
+and statement-preview fixes. The subsequent Android import snapshot correction is
+local and awaits independent review. No percentage-complete or delivery date is
+supported by the remaining acceptance gaps.
+
+| Area | Completed evidence | Unresolved dependency / acceptance |
+|---|---|---|
+| Windows/Android session and revocation | Compiled actual transport/ownership methods; independent delayed-success/failure reviews | Full app login, expiry, same-token replacement, offline and process-death device flows |
+| Native PDF/report/file export | Actual callback and save/print/share boundary harnesses with synthetic launchers; independent review through 654f7f4 | Real WinUI/Compose rendering, OS picker, external viewer, print and share UI |
+| Receipt/recovery data | Independent c0f4d2b and 66dce6e checks: 32 Android ownership/selection cases and Windows code/download cases | Real attachment selection/error/retry and recovery-code lifecycle; no real secrets used in tests |
+| Native import | Windows seven actual preview callback cases independently passed; Android 11 production request-gate cases passed locally | Android full callback/UI acceptance and all native import commit/lost-response/restart paths; old previews no longer acquire edited option identity |
+| Web visual | Parent observed sampled 9159cbf invoice/return, GST, stock, zoom/reflow, import, backup and role flows | Repeat relevant scenarios on final SHA; exhaustive feature and screen-reader matrix still incomplete |
+| Accounting/API | Prior lifecycle, restore, numerical and PostgreSQL evidence remains in earlier sections | Fresh complete integrated regression run and historical read-only audit on an authorized snapshot |
+| Native full builds | Portable C#/Kotlin methods compile | Android SDK plus AGP 8.13.1 dependency resolution; Windows SDK/WinUI runner; exact-SHA CI artifacts |
+| Production activation | No production action performed | Verified full backup+objects+keys restore, migration rehearsal, all-writer pause, rollback/forward recovery; user owns deployment |
+
+The Android import correction binds file/preview reads to an original access and
+input revision, rejects duplicate preview work, preserves the old selection on
+failed replacement, and records the preview's starting options rather than options
+edited during the request. The harness exercises the production request gate with
+synthetic delayed operations and checks source wiring; it does not compile Compose
+or prove the entire UI callback. Native full-build and real-device gates therefore
+remain open even when these targeted checks pass.
