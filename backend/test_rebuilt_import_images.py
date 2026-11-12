@@ -11,9 +11,23 @@ class RebuiltImportImagesTest(unittest.TestCase):
         raw=output.getvalue();raw=raw[:-truncate] if truncate else raw
         return 'data:image/'+(mime or {'PNG':'png','JPEG':'jpeg','GIF':'png'}[fmt])+';base64,'+base64.b64encode(raw).decode()
 
+    def animated_png(self, corrupt=False):
+        import struct,zlib
+        output=io.BytesIO()
+        Image.new('RGB',(12,12),'red').save(output,format='PNG',save_all=True,append_images=[Image.new('RGB',(12,12),'blue')],duration=100,loop=0)
+        raw=output.getvalue()
+        if corrupt:
+            pos=8;parts=[raw[:8]]
+            while pos<len(raw):
+                size=struct.unpack('>I',raw[pos:pos+4])[0];kind=raw[pos+4:pos+8];data=raw[pos+8:pos+8+size]
+                if kind==b'fdAT':data=data[:4]+b'x'*len(data[4:])
+                parts.append(struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data)&0xffffffff));pos+=size+12
+            raw=b''.join(parts)
+        return 'data:image/png;base64,'+base64.b64encode(raw).decode()
+
     def test_malformed_images_reject_creation_and_atomic_import(self):
         c,h,b=test_completion.CompletionTest.client_context(self,'unregistered')
-        cases=[self.image('JPEG',truncate=20),self.image('JPEG',mime='png'),self.image('GIF'),self.image(size=(1001,1000)),'data:image/png;base64,bm90LWFuLWltYWdl']
+        cases=[self.animated_png(),self.animated_png(corrupt=True),self.image('JPEG',truncate=20),self.image('JPEG',mime='png'),self.image('GIF'),self.image(size=(1001,1000)),'data:image/png;base64,bm90LWFuLWltYWdl']
         for index,value in enumerate(cases):
             for field in ('image_data_url','image_thumbnail'):
                 with self.subTest(index=index,field=field):

@@ -4,6 +4,8 @@ using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 
+CsvRegression.Run();
+
 var sourceChoiceRows=new[]{new JsonObject{["source_line_id"]="0:first",["remaining_return_quantity"]="0",["source_line_number"]=1,["description"]="Same service",["quantity"]="2",["itc_treatment"]="ineligible"},new JsonObject{["source_line_id"]="1:second",["source_line_number"]=2,["description"]="Same service",["quantity"]="2",["itc_treatment"]="pending_review"}};
 var unselectedSourceChoices=SourceLineChoices.Build(sourceChoiceRows,"","");
 if(unselectedSourceChoices.Count!=3||unselectedSourceChoices[0].Key!="")throw new Exception("New legacy row must expose matching placeholder");

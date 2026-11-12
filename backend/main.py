@@ -460,13 +460,13 @@ def validate_item_image(master):
             if len(raw)>67500:raise ValueError()
             with PillowImage.open(io.BytesIO(raw)) as image:
                 expected = {'png':'PNG','jpeg':'JPEG'}[match.group(1)]
-                if image.format != expected or image.width*image.height>1_000_000:raise ValueError()
+                if image.format != expected or image.width*image.height>1_000_000 or getattr(image,'n_frames',1)!=1:raise ValueError()
                 image.verify()
             # verify() checks structure but JPEG scan truncation can survive it.
             # Decode only after the byte, format and pixel bounds have passed.
             with PillowImage.open(io.BytesIO(raw)) as image:
                 image.load()
-        except Exception:raise HTTPException(422,'Use a valid item image below 67 KB and one megapixel')
+        except Exception:raise HTTPException(422,'Use a valid static PNG or JPEG below 67 KB and one megapixel')
 
 class MasterImport(BaseModel):
     kind: str
