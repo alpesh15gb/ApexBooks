@@ -37,6 +37,41 @@ class CommerceTest(unittest.TestCase):
         with patch('commerce.remote', return_value={'protocol': 1, 'channel': self.tag, 'currency': 'INR'}):
             self.client.post(self.path + '/verify', headers=self.headers).raise_for_status()
         self.client.put(self.path + '/state', headers=self.headers, json={'status': 'active'}).raise_for_status()
+    def test_reservation_invalid_quantities_reject_atomically_and_allow_corrected_retry(self):
+        self.mapped_item()
+        def snapshot():
+            with Session(engine) as session:
+                return {name:[dict(row) for row in session.execute(select(m.commerce.t[name]).where(m.commerce.t[name].c.connection_id==self.c['id'])).mappings()] for name in ('reservations','outbox')}
+        for index,quantity in enumerate(['NaN','Infinity','-Infinity','0','-1','0.0001','10000000000000','not-a-number']):
+            with self.subTest(quantity=quantity):
+                body={'reference':'invalid-'+str(index),'channel':self.tag,'lines':[{'external_product_id':'p1','quantity':quantity}]}
+                before=snapshot();response=self.signed('/reservations',body)
+                self.assertEqual(response.status_code,422,response.text);self.assertEqual(snapshot(),before)
+                body['lines'][0]['quantity']='0.001';corrected=self.signed('/reservations',body)
+                self.assertEqual(corrected.status_code,200,corrected.text)
+                replay=self.signed('/reservations',body);self.assertEqual(replay.json()['id'],corrected.json()['id'])
+
+    def test_archived_item_blocks_new_checkout_but_preserves_existing_reservation_retry(self):
+        for tracked in (True,False):
+            with self.subTest(tracked=tracked):
+                if tracked:item=self.mapped_item();product='p1'
+                else:
+                    item=self.record('item','Untracked synthetic '+self.tag,{'track_stock':False});product='untracked'
+                    self.client.post(self.path+'/links',headers=self.headers,json={'entity_type':'product','external_id':product,'record_id':item['id'],'sku':'untracked-'+self.tag}).raise_for_status()
+                body={'reference':'original-'+product,'channel':self.tag,'lines':[{'external_product_id':product,'quantity':'1'}]}
+                old=self.signed('/reservations',body);self.assertEqual(old.status_code,200,old.text)
+                self.client.put(self.base+'/masters/'+item['id'],headers=self.headers,json={'name':item['name'],'track_stock':tracked,'is_active':False}).raise_for_status()
+                with Session(engine) as session:
+                    before={name:set(session.scalars(select(m.commerce.t[name].c.id).where(m.commerce.t[name].c.connection_id==self.c['id'])).all()) for name in ('reservations','outbox')}
+                replay=self.signed('/reservations',body);self.assertEqual(replay.json()['id'],old.json()['id'])
+                body['reference']='new-'+product;rejected=self.signed('/reservations',body)
+                self.assertEqual(rejected.status_code,422,rejected.text)
+                with Session(engine) as session:
+                    after={name:set(session.scalars(select(m.commerce.t[name].c.id).where(m.commerce.t[name].c.connection_id==self.c['id'])).all()) for name in ('reservations','outbox')}
+                self.assertEqual(after,before)
+                self.client.put(self.base+'/masters/'+item['id'],headers=self.headers,json={'name':item['name'],'track_stock':tracked,'is_active':True}).raise_for_status()
+                self.signed('/reservations',body).raise_for_status()
+
     def test_repeated_connection_state_put_does_not_repeat_activation_side_effects(self):
         def snapshot():
             with Session(engine) as session:

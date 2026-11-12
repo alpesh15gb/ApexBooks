@@ -393,3 +393,17 @@ and one exact-retry action remain; changing placement sends no command. All 43
 focused frontend tests passed, including the new actual-manager integration repro,
 plus lint/build/bundle budgets. Real browser/screen-reader acceptance remains open.
 No production access, publication retry or deployment occurred.
+
+### Archived-item checkout and reservation numeric validation
+
+Synthetic signed requests reproduced new checkout reservations accepting archived
+tracked and untracked items. New reservations now require an active item; exact
+replays of reservations accepted before archival retain their existing identity.
+Reactivation permits a corrected new request. No existing reservation is changed.
+Eight malformed quantity cases (NaN, infinities, zero, negative, excess precision,
+excess magnitude and invalid text) already rejected atomically and allow corrected
+same-reference retries; these behaviors now have explicit regression coverage.
+All 23 commerce/item-identity backend tests passed. This batch does not alter store
+catalogue visibility or claim acceptance of already-open orders after archival;
+real-store delivery and PostgreSQL remain separate gates. No external store calls,
+production access, publication retry or deployment occurred.

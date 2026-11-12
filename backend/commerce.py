@@ -217,6 +217,7 @@ class Commerce:
             if not link: raise HTTPException(422, 'Map each store product to an item before accepting checkout')
             item = session.get(self.m.Record, link['record_id'])
             if not item or item.company_id != c['company_id'] or item.kind != 'item': raise HTTPException(422, 'Invalid company item mapping')
+            if item.data.get('is_active', True) is False: raise HTTPException(422, 'Reactivate this item before accepting a new checkout')
             if not item.data.get('track_stock'): continue
             totals[item.id] = totals.get(item.id, Decimal(0)) + line.quantity
             lines.append({'item_id': item.id, 'external_product_id': line.external_product_id, 'quantity': str(line.quantity), 'consumed': '0'})
