@@ -45,8 +45,8 @@ public sealed partial class MainPage
         var head = DayBookRow("TYPE", "NUMBER / PARTY", "AMOUNT", "MONEY IN", "MONEY OUT", true); list.Children.Add(head);
         foreach (var row in book["rows"].Array().OfType<JsonObject>())
         {
-            var kind = row.Text("kind"); var state = row.Flag("cancelled") ? " · cancelled" : !row.Flag("posted") && kind != "journal" ? " · draft" : "";
-            var label = FeatureCatalog.Singular(kind); var line = DayBookRow(char.ToUpperInvariant(label[0]) + label[1..] + state, (row.Text("number") is { Length: > 0 } n ? n + "  ·  " : "") + row.Text("name"), J.Money(row.Number("amount")),
+            var kind = row.Text("kind"); var state = row.Flag("cancelled") ? " · cancelled" : row.Text("status") == "converted" ? " · converted" : !row.Flag("posted") && kind != "journal" ? row.Text("status") == "non_posting" ? " · non-posting" : " · unposted" : "";
+            var label = FeatureCatalog.Singular(kind); var line = DayBookRow(char.ToUpperInvariant(label[0]) + label[1..] + state, ((row.Text("display_number") is { Length: > 0 } display ? display : row.Text("number")) is { Length: > 0 } n ? n + "  ·  " : "") + row.Text("name"), J.Money(row.Number("amount")),
                 row.Number("money_in") > 0 ? J.Money(row.Number("money_in")) : "", row.Number("money_out") > 0 ? J.Money(row.Number("money_out")) : "");
             if (kind != "journal" && Records.OfType<JsonObject>().FirstOrDefault(r => r.Text("id") == row.Text("id")) is { } record)
             {

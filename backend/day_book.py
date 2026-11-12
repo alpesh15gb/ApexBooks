@@ -9,6 +9,7 @@ NON_TRANSACTION_KINDS = {'party', 'item', 'bank_account', 'recurring_template',
                          'vyapar_backup_archive', 'document_branding', 'restore_marker'}
 SALES = {'sales_invoice', 'pos'}
 PURCHASES = {'purchase_bill'}
+NON_POSTING = {'estimate', 'proforma', 'sales_order', 'purchase_order'}
 
 
 def install(app, m):
@@ -31,13 +32,16 @@ def install(app, m):
                 key = record_id or journal.id
                 movement[key] = movement.get(key, Decimal('0')) + line.debit - line.credit
         posted = set(session.scalars(select(m.RecordPosting.record_id).where(m.RecordPosting.company_id == company_id)))
+        conversions = dict(session.execute(select(m.DocumentConversion.source_record_id, m.DocumentConversion.target_record_id).where(m.DocumentConversion.company_id == company_id)).all())
         rows = []
         records = session.scalars(select(m.Record).where(m.Record.company_id == company_id, m.Record.date == day,
             m.Record.kind.not_in(NON_TRANSACTION_KINDS)).order_by(m.Record.kind, m.Record.number))
         for r in records:
             moved = movement.pop(r.id, Decimal('0'))
+            converted = conversions.get(r.id) or ('source-converted' if r.data.get('vyapar_converted') else None)
+            status = 'cancelled' if r.data.get('cancelled') else 'converted' if converted else 'posted' if r.id in posted else 'non_posting' if r.kind in NON_POSTING else 'unposted'
             rows.append({'id': r.id, 'kind': r.kind, 'number': r.number, 'name': r.name, 'amount': str(r.amount),
-                'posted': r.id in posted, 'cancelled': bool(r.data.get('cancelled')),
+                'posted': r.id in posted, 'cancelled': bool(r.data.get('cancelled')), 'status': status, 'converted_to': converted,
                 'money_in': str(max(moved, Decimal('0'))), 'money_out': str(max(-moved, Decimal('0')))})
         # Discover all journals without a current document posting, not only
         # those touching cash/bank. Linked document journals are already rows.
@@ -57,10 +61,13 @@ def install(app, m):
             moved = movement.get(journal.id, Decimal('0'))
             debit, credit = journal_totals.get(journal.id,(Decimal('0'),Decimal('0')))
             label = journal.memo or journal.reference
+            display_number = journal.reference
             if journal.id in reversed_ids and journal.reference.startswith(('AUTO:', 'CANCEL:')):
                 origin = session.scalar(select(m.Record).where(m.Record.company_id == company_id, m.Record.id == journal.reference.split(':', 1)[1]))
-                if origin is not None and origin.data.get('cancelled'): label = f"Cancelled · {origin.number or origin.name}"
-            rows.append({'id': journal.id, 'kind': 'journal', 'number': journal.reference, 'name': label, 'amount': str(debit),
+                if origin is not None and origin.data.get('cancelled'):
+                    label = f"Cancelled · {origin.number or origin.name}"
+                    display_number = ("Cancellation reversal · " if journal.reference.startswith("CANCEL:") else "Original posting · ") + (origin.number or origin.name)
+            rows.append({'id': journal.id, 'kind': 'journal', 'number': journal.reference, 'display_number': display_number, 'name': label, 'amount': str(debit),
                 'debit_total':str(debit),'credit_total':str(credit),'posted': True, 'cancelled': False,
                 'money_in': str(max(moved, Decimal('0'))), 'money_out': str(max(-moved, Decimal('0')))})
         live = [row for row in rows if row['posted'] and not row['cancelled']]

@@ -93,6 +93,22 @@ class DayBookTest(unittest.TestCase):
         preview=c.post('/api/backups/restore/preview',headers=h,json=body);self.assertEqual(preview.status_code,200,preview.text)
         body['digest']=preview.json()['digest'];restored=c.post('/api/backups/restore/commit',headers=h,json=body);self.assertEqual(restored.status_code,200,restored.text);check('/api/companies/'+restored.json()['company_id'])
 
+    def test_converted_nonposting_documents_and_cancelled_journal_labels(self):
+        for source_kind,target_kind in [('estimate','sales_invoice'),('proforma','sales_invoice'),('sales_order','sales_invoice'),('purchase_order','purchase_bill')]:
+            c,h,b=test_completion.CompletionTest.client_context(self,'unregistered');day='2026-04-01'
+            data={'lines':[{'description':'Synthetic service','quantity':1,'rate':100,'gst_rate':0}]}
+            source=self.post(c,h,b,source_kind,'Synthetic party',day,data=data)
+            def rows():return {r['id']:r for r in c.get(b+'/day-book',headers=h,params={'day':day}).json()['rows']}
+            self.assertEqual(rows()[source['id']]['status'],'non_posting')
+            target=self.post(c,h,b,target_kind,'Synthetic party',day,data={**data,'source_document_id':source['id']})
+            row=rows()[source['id']];self.assertEqual(row['status'],'converted');self.assertEqual(row['converted_to'],target['id']);self.assertFalse(row['posted'])
+            c.post(b+'/records/'+target['id']+'/cancel',headers=h,json={'reason':'Synthetic cancellation'}).raise_for_status()
+            result=rows();self.assertEqual(result[source['id']]['status'],'non_posting');self.assertIsNone(result[source['id']]['converted_to']);self.assertEqual(result[target['id']]['status'],'cancelled')
+            journals=[r for r in result.values() if r['kind']=='journal'];self.assertEqual(len(journals),2)
+            self.assertEqual({r['display_number'].split(' · ')[0] for r in journals},{'Original posting','Cancellation reversal'})
+            self.assertTrue(all(target['number'] in r['display_number'] for r in journals))
+            self.assertTrue(all(r['number'].startswith(('AUTO:','CANCEL:')) for r in journals))
+
 
 if __name__ == '__main__':
     unittest.main()

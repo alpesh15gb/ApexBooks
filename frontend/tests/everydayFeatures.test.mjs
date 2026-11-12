@@ -88,3 +88,13 @@ test('changing item classification never silently drops an existing threshold or
  await act(async()=>document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));assert.equal(saved.data.low_stock_threshold,null);
  await act(async()=>root.unmount());
 });
+test('day book distinguishes converted and non-posting rows and keeps journal diagnostics secondary', async()=>{
+ const DayBook=await component('DayBook');const root=createRoot(document.getElementById('root'));
+ const row=(id,status)=>({id,kind:'purchase_order',status,posted:false,cancelled:false,number:id,name:'Synthetic',amount:'100',money_in:'0',money_out:'0'});
+ const rows=[row('PO1','converted'),row('PO2','non_posting'),{...row('j','posted'),kind:'journal',posted:true,number:'AUTO:synthetic-id',display_number:'Original posting · INV1',name:'Cancelled · INV1'}];
+ await act(async()=>root.render(React.createElement(DayBook,{companyId:'c1',records:[],labels:{purchase_order:'Purchase order'},api:async()=>({rows,totals:{},count:3})})));
+ const types=[...document.querySelectorAll('tbody tr')].map(r=>r.cells[0].textContent);
+ assert.match(types[0],/converted/);assert.match(types[1],/non-posting/);assert.ok(types.every(t=>!t.includes('draft')));
+ assert.equal(document.querySelector('details').open,false);assert.match(document.querySelector('details').textContent,/AUTO:synthetic-id/);assert.match(document.querySelector('tbody tr:last-child td:nth-child(2)').textContent,/Original posting · INV1/);
+ await act(async()=>root.unmount());
+});

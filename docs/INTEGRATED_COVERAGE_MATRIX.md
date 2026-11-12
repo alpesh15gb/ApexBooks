@@ -149,3 +149,22 @@ edited during the request. The harness exercises the production request gate wit
 synthetic delayed operations and checks source wiring; it does not compile Compose
 or prove the entire UI callback. Native full-build and real-device gates therefore
 remain open even when these targeted checks pass.
+
+### Day book conversion labels follow-up
+
+The exact-10fcf92 browser audit identified non-posting source documents labelled
+as drafts after conversion. Day book now reports company-scoped conversion status;
+all three clients show converted/non-posting/unposted distinctly. Cancelling a
+converted target reopens the source as non-posting. Existing posted/cancelled flags
+and financial totals are unchanged. Recognized cancellation journals display
+Original posting / Cancellation reversal plus voucher number; raw references remain
+in the API, with a collapsed technical-reference disclosure on web. Manual journals
+retain their entered reference.
+
+Validation: ten backend Day book/trail tests and nine rendered everyday-feature
+checks passed, plus frontend lint/build/bundle budgets. Native display edits are
+source-reviewed only: temporary Kotlin/.NET toolchains were lost in the environment
+reset, and full native builds remain open. The disposable Python environment was
+recreated from repository requirements. This follow-up supersedes 10fcf92 for product
+acceptance; it has not been published. The previous GitHub blob upload was denied
+by automatic review and was not retried or bypassed.

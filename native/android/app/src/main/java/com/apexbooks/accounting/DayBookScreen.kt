@@ -69,8 +69,8 @@ private val MoneyOut = Color(0xFFB42318)
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(listOf(row.s("number"), row.s("name")).filter { it.isNotBlank() }.joinToString(" · "), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val state = if (row.optBoolean("cancelled")) " · cancelled" else if (!row.optBoolean("posted") && kind != "journal") " · draft" else ""
+                        Text(listOf(row.s("display_number").ifBlank{row.s("number")}, row.s("name")).filter { it.isNotBlank() }.joinToString(" · "), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val state = if (row.optBoolean("cancelled")) " · cancelled" else if(row.s("status")=="converted") " · converted" else if (!row.optBoolean("posted") && kind != "journal") if(row.s("status")=="non_posting") " · non-posting" else " · unposted" else ""
                         Text(vm.title(kind) + state + " · " + money(row.s("amount")), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     val moneyIn = row.decimal("money_in"); val moneyOut = row.decimal("money_out")
