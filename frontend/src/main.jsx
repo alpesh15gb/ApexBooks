@@ -1,7 +1,8 @@
-import {setActiveCompanyAccess,allowCompanyRecovery,blockCompanyAccess} from './companyAccess.js';
+import {refreshRestoredCompany} from './restoreNavigation.js';
+import {setActiveCompanyAccess,allowCompanyRecovery,blockCompanyAccess,captureCompanyAccess} from './companyAccess.js';
 import JournalSource from './JournalSource.jsx';
 import SessionBoundary from './SessionBoundary.jsx';
-import {acceptLocalSession, requireCurrentSession} from './sessionScope.js';
+import {acceptLocalSession, requireCurrentSession, captureSession} from './sessionScope.js';
 import {sessionFetch as fetch} from './sessionScope.js';
 import { businessDate, businessFinancialYear } from "./businessDate.js";
 import { CORE_ENHANCEMENTS, capabilityFeatures, supportsFeature, routeFeature, companyDisplayName } from "./capabilities.js";
@@ -541,6 +542,9 @@ function App() {
   setActiveCompanyAccess(companyId);
   const workspaceScope = useRef(createRequestScope(companyId));
   workspaceScope.current.setContext(companyId);
+  const restoreNavigationScope = useRef(createRequestScope(`${companyId}:${company?.role}:${signed}`));
+  restoreNavigationScope.current.setContext(`${companyId}:${company?.role}:${signed}`);
+  useEffect(() => () => restoreNavigationScope.current.setContext(Symbol("unmounted")), []);
   const editorRequests = useRef(createRequestScope(companyId));
   editorRequests.current.setContext(companyId);
   const recordsAbort = useRef(null);
@@ -573,6 +577,16 @@ function App() {
       setAccessLost(false); setError(''); setAccessRecoveryRevision(value => value + 1);
     } catch (reason) { if (activeCompany.current === id && localStorage.token === session) setError(reason.message); }
     finally { setAccessRecovering(false); }
+  }
+  async function onCompanyRestored(id) {
+    const current = restoreNavigationScope.current.capture();
+    const verifySession = captureSession();
+    const access = captureCompanyAccess(`/api/companies/${companyId}`);
+    return refreshRestoredCompany({id, current,
+      verify: () => { verifySession(); access?.verify(); },
+      readCompanies: () => api("/companies"),
+      apply: (rows, restoredId) => { setCompanies(rows); setCompanyId(restoredId); },
+    });
   }
   async function loadCompanies() {
     const requestToken = localStorage.token;
@@ -1477,13 +1491,10 @@ function App() {
                       />
                     </div>
                     <div className="settings-block" id="setting-backup">
-                      {supportsFeature(features, 'chunked_backups') && company?.role === 'owner' ? <React.Suspense fallback={<p role="status">Loading complete backup tools…</p>}><CompleteBackup key={companyId} companyId={companyId} api={api} onRestored={async id => { await loadCompanies(); setCompanyId(id); }} /></React.Suspense> : <BackupRestore
+                      {supportsFeature(features, 'chunked_backups') && company?.role === 'owner' ? <React.Suspense fallback={<p role="status">Loading complete backup tools…</p>}><CompleteBackup key={companyId} companyId={companyId} api={api} onRestored={onCompanyRestored} /></React.Suspense> : <BackupRestore
                         companyId={companyId}
                         role={company?.role}
-                        onRestored={async (id) => {
-                          await loadCompanies();
-                          setCompanyId(id);
-                        }}
+                        onRestored={onCompanyRestored}
                       />}
                     </div>
                   </>

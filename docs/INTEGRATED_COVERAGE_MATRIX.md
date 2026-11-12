@@ -721,3 +721,21 @@ ESLint, production build and bundle budgets pass. This covers dispatch-to-comple
 ownership, not context changes *inside* the parent's awaited onRestored callback.
 That callback's loadCompanies/navigation ordering remains a follow-up inspection.
 No real backup restore, production access, publication retry or deployment occurred.
+
+### Parent restore navigation after refresh (2026-11-12)
+
+Both legacy and complete backup callbacks now use onCompanyRestored. It captures
+session, company/role workspace generation and access ownership before fetching the
+company list, verifies after awaiting, then updates list/selection synchronously.
+A stale read success/failure cannot navigate; a current failure propagates without
+switching. A missing restored ID produces an actionable already-completed warning.
+It does not call loadCompanies, whose swallowed error formerly allowed selection
+without a successful refresh. Restores themselves are not reissued.
+
+Validation: original callback extracted from main reproduced company B overwritten
+by restored company. 27 tests pass: four actual rendered App handler cases (current
+and switched workspace, successful/failed refresh), 15 helper ownership/list cases,
+eight legacy commit cases. Actual App tests expose the real callback through a
+build-only test seam, not a real file-picker or backup restore. Lint, frontend build
+and bundle budgets pass. Native/device acceptance remains separate. No production,
+publication retry, merge or deployment.
