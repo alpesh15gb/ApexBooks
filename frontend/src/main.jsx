@@ -1597,6 +1597,31 @@ function App() {
                   )}
                 </div>
               </div>
+                  {["payment_in", "payment_out"].includes(page) && (
+                    <React.Fragment>
+                      <CreditSettlements
+                        key={companyId + page + "credit"}
+                        companyId={companyId}
+                        kind={page}
+                        records={records}
+                        onParty={setActiveParty}
+                        api={api}
+                        refresh={refreshPostedRecords}
+                        canWrite={["owner", "editor"].includes(company?.role)}
+                      />
+                      <Advances
+                        key={companyId + page}
+                        companyId={companyId}
+                        kind={page}
+                        records={records}
+                        onParty={setActiveParty}
+                        api={api}
+                        refresh={refreshPostedRecords}
+                        canWrite={["owner", "editor"].includes(company?.role)}
+                      />
+                    </React.Fragment>
+                  )}
+
               {!recordsReady ? (
                 <section
                   className="panel report-loading"
@@ -1623,30 +1648,6 @@ function App() {
                 </section>
               ) : (
                 <>
-                  {["payment_in", "payment_out"].includes(page) && (
-                    <React.Fragment>
-                      <CreditSettlements
-                        key={companyId + page + "credit"}
-                        companyId={companyId}
-                        kind={page}
-                        records={records}
-                        onParty={setActiveParty}
-                        api={api}
-                        refresh={refreshPostedRecords}
-                        canWrite={["owner", "editor"].includes(company?.role)}
-                      />
-                      <Advances
-                        key={companyId + page}
-                        companyId={companyId}
-                        kind={page}
-                        records={records}
-                        onParty={setActiveParty}
-                        api={api}
-                        refresh={loadRecords}
-                        canWrite={["owner", "editor"].includes(company?.role)}
-                      />
-                    </React.Fragment>
-                  )}
                   {transactionRegister && (
                     <RegisterControls
                       value={query}

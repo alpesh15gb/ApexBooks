@@ -1,7 +1,9 @@
-import {sessionFetch as fetch} from './sessionScope.js';
+import {createRequestScope} from './requestScope.js';
+import {useBalanceRefresh, BalanceRefreshNotice} from './postingRefresh.jsx';
+import {sessionFetch as fetch, captureSession} from './sessionScope.js';
 import { businessDate } from "./businessDate.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { downloadBlob } from "./downloadBlob.js";
 
 const money = (value) =>
@@ -44,19 +46,31 @@ export default function Advances({
   const [key, setKey] = useState(() => crypto.randomUUID());
   const posting = usePostingRequest();
   const { busy, pending } = posting;
+  const flow = useRef(false);
+  const balanceRefresh = useBalanceRefresh(refresh);
+  const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [asOf, setAsOf] = useState(today);
+  const exportContext = JSON.stringify([companyId, kind, asOf]);
+  const exportScope = useRef(createRequestScope(exportContext)); exportScope.current.setContext(exportContext);
+  React.useEffect(() => () => exportScope.current.setContext(Symbol('unmounted')), []);
   async function download(fmt) {
+    if (!asOf) return;
+    const current = exportScope.current.capture();
     setError("");
     try {
+      const verifySession = captureSession();
       const response = await fetch(
         `/api/companies/${companyId}/reports/advances.${fmt}?as_of=${encodeURIComponent(asOf)}`,
         { headers: { Authorization: `Bearer ${localStorage.token}` } },
       );
       if (!response.ok) throw Error("Advance report could not be exported");
-      downloadBlob(await response.blob(), `apex-advances.${fmt}`);
+      const blob = await response.blob();
+      if (!current()) return;
+      verifySession();
+      downloadBlob(blob, `apex-advances.${fmt}`);
     } catch (reason) {
-      setError(reason.message);
+      if (current()) setError(reason.message);
     }
   }
   const advances = records.filter(
@@ -86,7 +100,8 @@ export default function Advances({
   }
   async function submit(event) {
     event.preventDefault();
-    if (busy) return;
+    if (!canWrite || flow.current || balanceRefresh.busy || (!pending && !advance)) return;
+    flow.current = true; setSuccess("");
     setError("");
     try {
       const path = `/companies/${companyId}/advances/${selected}/${form.action}`;
@@ -95,7 +110,7 @@ export default function Advances({
         headers: { "Idempotency-Key": key },
         body: JSON.stringify({
           kind: "advance_application",
-          name: advance.name,
+          name: advance?.name,
           date: form.date,
           amount: form.amount,
           data: {
@@ -106,7 +121,7 @@ export default function Advances({
         }),
       };
       if (!await posting.run(() => api(path, options))) return;
-      await refresh();
+      setSuccess("Advance settlement saved.");
       setForm({
         date: today(),
         target: "",
@@ -116,11 +131,12 @@ export default function Advances({
         bank_account_id: "default",
       });
       setKey(crypto.randomUUID());
+      await balanceRefresh.run();
     } catch (reason) {
       setError(reason.message);
-    }
+    } finally { flow.current = false; }
   }
-  if (!advances.length) return null;
+  if (!advances.length && !pending && !success) return null;
   return (
     <section className="panel settings-panel">
       <h2>{kind === "payment_in" ? "Customer" : "Supplier"} advances</h2>
@@ -157,6 +173,8 @@ export default function Advances({
           </button>
         </div>
       </div>
+      {success && <p role="status">{success}</p>}
+      <BalanceRefreshNotice state={balanceRefresh} />
       {pending && !busy && <p className="info-box" role="status">{pendingPostingMessage}</p>}
       {error && (
         <div className="error" role="alert">
@@ -167,7 +185,7 @@ export default function Advances({
         Advance payment
         <select
           className="form-select"
-          disabled={busy || pending}
+          disabled={busy || pending || balanceRefresh.busy}
           value={selected}
           onChange={(event) => {
             setSelected(event.target.value);
@@ -183,12 +201,12 @@ export default function Advances({
           ))}
         </select>
       </label>
-      {advance && (
+      {(advance || pending) && (
         <>
-          <p>
+          {advance && <p>
             Original {money(advance.amount)} · Available{" "}
             {money(advance.advance_remaining)}
-          </p>
+          </p>}
           {applications.map((row) => (
             <p key={row.id}>
               {row.date} ·{" "}
@@ -198,9 +216,9 @@ export default function Advances({
               · {money(row.amount)}
             </p>
           ))}
-          {canWrite && Number(advance.advance_remaining) > 0 && (
+          {canWrite && (pending || Number(advance?.advance_remaining) > 0) && (
             <form className="form-grid" onSubmit={submit}>
-              <fieldset className="form-grid full submission-fields" disabled={busy || pending}>
+              <fieldset className="form-grid full submission-fields" disabled={busy || pending || balanceRefresh.busy}>
               <label>
                 Date
                 <input
@@ -208,7 +226,7 @@ export default function Advances({
                   required
                   min={earliestDate}
                   value={form.date}
-                  disabled={busy || pending}
+                  disabled={busy || pending || balanceRefresh.busy}
                   onChange={(event) => change({ date: event.target.value })}
                 />
                 {earliestDate && <small>On or after {earliestDate}, when both source documents exist.</small>}
@@ -234,7 +252,7 @@ export default function Advances({
                     className="form-select"
                     required
                     value={form.target}
-                    disabled={busy || pending}
+                    disabled={busy || pending || balanceRefresh.busy}
                     onChange={(event) => change({ target: event.target.value })}
                   >
                     <option value="">Choose document</option>
@@ -288,15 +306,15 @@ export default function Advances({
                   type="number"
                   min="0.01"
                   step="0.01"
-                  max={Math.min(
+                  max={advance ? Math.min(
                     Number(advance.advance_remaining),
                     Number(
                       targets.find((row) => row.id === form.target)
                         ?.outstanding || advance.advance_remaining,
                     ),
-                  )}
+                  ) : undefined}
                   required
-                  disabled={busy || pending}
+                  disabled={busy || pending || balanceRefresh.busy}
                   value={form.amount}
                   onChange={(event) => change({ amount: event.target.value })}
                 />
@@ -304,7 +322,7 @@ export default function Advances({
               </fieldset>
               <button
                 className="button primary"
-                disabled={busy || (form.action === "apply" && !targets.length)}
+                disabled={busy || balanceRefresh.busy || (!pending && form.action === "apply" && !targets.length)}
               >
                 {busy
                   ? "Saving…"

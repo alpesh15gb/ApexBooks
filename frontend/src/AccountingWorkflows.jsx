@@ -1,3 +1,4 @@
+import {useBalanceRefresh, BalanceRefreshNotice} from './postingRefresh.jsx';
 import { businessDate } from "./businessDate.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
 import React, { useEffect, useRef, useState } from "react";
@@ -6,23 +7,6 @@ const money = (n) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(
     Number(n || 0),
   );
-function useBalanceRefresh(refresh) {
-  const inFlight = useRef(false);
-  const live = useRef(true);
-  const [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
-  async function run() {
-    if (inFlight.current) return;
-    inFlight.current = true; setBusy(true); setError('');
-    try { await refresh(); }
-    catch (reason) { if (live.current) setError(reason.message); }
-    finally { inFlight.current = false; if (live.current) setBusy(false); }
-  }
-  return { run, busy, error };
-}
-function BalanceRefreshNotice({state}) {
-  return state.error && <div className="info-box" role="alert">The posting was confirmed, but balances could not refresh: {state.error}.<button type="button" disabled={state.busy} onClick={state.run}>Refresh balances</button></div>;
-}
 export function CreditSettlements({
   companyId,
   kind,
@@ -117,6 +101,7 @@ export function CreditSettlements({
       <p>
         Apply an unused note balance to another document or record a refund.
       </p>
+      {pending && !busy && <p className="info-box full" role="status">{pendingPostingMessage}{!canWrite && " Editor access is required to retry the original settlement."}</p>}
       {canWrite && (
         <form className="form-grid" onSubmit={submit}>
           <fieldset className="form-grid full submission-fields" disabled={busy || pending || balanceRefresh.busy || !canWrite}>
@@ -227,7 +212,6 @@ export function CreditSettlements({
             />
           </label>
           </fieldset>
-          {pending && !busy && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
           <button className="button primary full" disabled={busy || balanceRefresh.busy || (!note && !pending)}>
             {busy
               ? "Saving…"

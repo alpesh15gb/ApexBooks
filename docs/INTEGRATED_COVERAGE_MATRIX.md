@@ -614,3 +614,29 @@ records/trial balance; existing opening restore and credit settlement lifecycles
 Lint/build/budgets passed. No backend posting rules changed. Actual browser/native
 acceptance and durable reload recovery remain open. No production, publication retry
 or deployment.
+
+### Advance recovery and settlement access-loss retention (after 96b2207)
+
+Seven synthetic advance cases failed before the fix: an exhausted/missing source
+removed the only frozen retry control, and stale report downloads/errors completed
+after changing company/date or closing the view. Advance retries now remain reachable
+for the original operation, confirmed success is separated from read-refresh failure,
+and exports verify context/session before file saving. The opening/credit refresh
+feedback helper is shared rather than duplicated.
+
+Independent review found that recordsReady=false unmounted CreditSettlements on
+access loss, discarding an uncertain command. Credit and advance forms now stay
+mounted above that conditional in the company workspace. The access-loss overlay
+still hides/locks the workspace. Records/balances clear, while the in-memory original
+request survives. Viewer recovery displays unresolved status without write controls;
+editor recovery retries the identical key/payload. Normal navigation remains blocked
+while the registered operation is unresolved. This does not persist recovery through
+sign-out, reload or process loss.
+
+Validation: 21 frontend tests passed, including actual App revocation/recovery for
+credit and advance as viewer/editor, original request identity, source exhaustion/
+removal, export completion scope, prior opening/credit flows and posting-request
+semantics. Four backend SQLite tests passed, including customer/supplier advance
+refund replay with identical record ID, changed-payload rejection and unchanged books.
+Lint/build/budgets passed. These are synthetic DOM/API checks; real browser/native
+acceptance remains open. No production, denied publication retry or deployment.

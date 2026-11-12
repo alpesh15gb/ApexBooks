@@ -21,3 +21,9 @@ class AccountingWorkflowRetryTest(unittest.TestCase):
   c.post(b+'/records',headers=h,json={'kind':'payment_in','name':'Credit retry party','date':'2026-04-01','amount':'100','data':{'applied_to':invoice.json()['id']}}).raise_for_status()
   note=c.post(b+'/records',headers=h,json={'kind':'credit_note','name':'Credit retry party','date':'2026-04-02','data':{'lines':[line],'applied_to':invoice.json()['id'],'return_stock':False}});note.raise_for_status()
   self.replay(c,h,b,'/credits/'+note.json()['id']+'/settle',{'kind':'credit','date':'2026-04-03','amount':'50','data':{'action':'refund','payment_account':'cash','bank_account_id':'default','applied_to':''}})
+
+ def test_customer_and_supplier_advance_refund_replay_preserves_single_settlement(self):
+  for kind in ['payment_in','payment_out']:
+   c,h,b=test_completion.CompletionTest.client_context(self,'unregistered')
+   advance=c.post(b+'/records',headers=h,json={'kind':kind,'name':'Synthetic advance party','date':'2026-04-01','amount':'100','data':{'is_advance':True,'payment_account':'cash'}});advance.raise_for_status()
+   self.replay(c,h,b,'/advances/'+advance.json()['id']+'/refund',{'kind':'advance_application','name':'Synthetic advance party','date':'2026-04-02','amount':'50','data':{'applied_to':'','payment_account':'cash','bank_account_id':'default'}})
