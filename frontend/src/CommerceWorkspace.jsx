@@ -22,6 +22,8 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
   const root = `/companies/${company.id}/commerce/connections`;
   const owner = company.role === 'owner', canWrite = ['owner','editor'].includes(company.role);
   const connection = workspace?.connection, path = `${root}/${selected}`;
+  const actionContext = useRef({path, generation:0, flight:null});
+  if (actionContext.current.path !== path) actionContext.current = {path, generation:actionContext.current.generation+1, flight:null};
   useEffect(() => {alive.current = true; return () => {alive.current = false; requestVersion.current++;};}, []);
   useEffect(() => {
     const controller = new AbortController();
@@ -43,16 +45,20 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
     }
   }, [selected, api, root]);
   useEffect(() => {
-    setWorkspace(null); setOrder(null); setScan([]); setSetup(null); setError('');
+    setWorkspace(null); setOrder(null); setScan([]); setSetup(null); setError(''); setNotice(''); setBusy(false);
     refresh().catch(e => {if(alive.current) setError(e.message);});
     const timer = setInterval(() => refresh().catch(() => {}), 5000);
     return () => {clearInterval(timer); requestVersion.current++;};
   }, [refresh]);
   async function act(action, success='Saved', refreshAfter=true) {
+    const context = actionContext.current;
+    if (!alive.current || context.path !== path || context.flight) return;
+    const flight = {}; context.flight = flight;
+    const current = () => alive.current && actionContext.current === context && context.flight === flight;
     setBusy(true); setError(''); setNotice('');
-    try {await action(); if(alive.current) {setNotice(success); if(refreshAfter) await refresh();}}
-    catch(e) {if(alive.current) setError(e.message);}
-    finally {if(alive.current) setBusy(false);}
+    try {await action(current); if(current()) {setNotice(success); if(refreshAfter) await refresh();}}
+    catch(e) {if(current()) setError(e.message);}
+    finally {if(current()) {context.flight=null;setBusy(false);}}
   }
   const moneyContext = `${company.id}:${selected}`;
   const currentMoneyContext = useRef(moneyContext);
@@ -81,8 +87,9 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
   }
   async function createConnection(event) {
     event.preventDefault();
-    await act(async () => {
+    await act(async (current) => {
       const result = await api(root, {method:'POST', body:JSON.stringify(form)});
+      if (!current()) return;
       const {setup_secret: oneTimeSecret, ...safe} = result;
       setConnections(old => [...old, safe]); setSelected(result.id); setAdding(false);
       // Keep the one-time credential in memory only. Selection effect runs
@@ -129,6 +136,6 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
         {tab === 'reconciliation' && <section className="commerce-card"><div className="commerce-heading"><div><h3>Store reconciliation</h3><p>Compare source totals and mapped sellable stock. Results stay in this company’s audit trail.</p></div>{canWrite&&<button className="primary" disabled={!active||busy} onClick={()=>act(()=>send('reconcile.snapshot'),'Reconciliation queued')}>Reconcile now</button>}</div>{workspace.reconciliations.length?workspace.reconciliations.map(r=><div className="commerce-reconciliation" key={r.id}><span className={`commerce-status ${r.status}`}>{r.status}</span><time>{new Date(r.created_at).toLocaleString()}</time><p>{(r.report.stock_differences||[]).length} stock differences · Store invoices {money(r.report.store?.invoice_total)} · Store credits {money(r.report.store?.credit_total)}</p>{(r.report.stock_differences||[]).map(d=><p key={d.product_id}>Product {d.product_id}: Books {d.expected}, store {d.actual??'missing'}</p>)}</div>):<Empty>Run the first reconciliation after mapping products and importing orders.</Empty>}</section>}
       </>}
     </>}
-    {order && <div className="commerce-dialog-backdrop"><section className="commerce-dialog" role="dialog" aria-modal="true" aria-labelledby="commerce-order-title"><div className="commerce-heading"><div><div className="commerce-eyebrow">BAGISTO ORDER</div><h3 id="commerce-order-title">{order.number} · {money(order.amount)}</h3></div><button onClick={()=>setOrder(null)}>Close</button></div><p>{human(order.status)} · Source {order.external_id}</p><div className="commerce-table"><table><thead><tr><th>Item</th><th>Ordered / invoiced / shipped</th><th>Action qty</th></tr></thead><tbody>{(order.snapshot.items||[]).map(line=><tr key={line.id}><td>{line.name}<small>{line.sku}</small></td><td>{line.quantity} / {line.invoiced} / {line.shipped}</td><td><input aria-label={`Action quantity for ${line.name}`} type="number" min="0" step="1" max={line.quantity} value={quantities[line.id]||''} onChange={e=>setQuantities({...quantities,[line.id]:e.target.value})}/></td></tr>)}</tbody></table></div>{canWrite&&<><div className="commerce-fields"><Field label="Carrier"><input value={carrier} onChange={e=>setCarrier(e.target.value)}/></Field><Field label="Tracking number"><input value={tracking} onChange={e=>setTracking(e.target.value)}/></Field></div><div className="commerce-actions">{[['order.invoice','Create invoice'],['order.ship','Create shipment'],['order.refund','Create credit / refund']].map(([operation,label])=><button key={operation} disabled={!active||busy} onClick={()=>act(async()=>{const items=Object.fromEntries(Object.entries(quantities).filter(([,q])=>Number(q)>0).map(([k,q])=>[k,Number(q)]));if(!Object.keys(items).length)throw new Error('Enter the quantities for this action.');await send(operation,{order_id:order.external_id,items,carrier,tracking});setOrder(null);},'Order action queued')}>{label}</button>)}<button disabled={!active||busy} onClick={()=>act(async()=>{await send('order.cancel',{order_id:order.external_id});setOrder(null);},'Cancellation queued')}>Cancel unfulfilled order</button></div><p className="commerce-muted">A credit note and a cash refund are separate accounting events. Source quantities and payment evidence are validated before posting.</p></>}</section></div>}
+    {order && <div className="commerce-dialog-backdrop"><section className="commerce-dialog" role="dialog" aria-modal="true" aria-labelledby="commerce-order-title"><div className="commerce-heading"><div><div className="commerce-eyebrow">BAGISTO ORDER</div><h3 id="commerce-order-title">{order.number} · {money(order.amount)}</h3></div><button onClick={()=>setOrder(null)}>Close</button></div><p>{human(order.status)} · Source {order.external_id}</p><div className="commerce-table"><table><thead><tr><th>Item</th><th>Ordered / invoiced / shipped</th><th>Action qty</th></tr></thead><tbody>{(order.snapshot.items||[]).map(line=><tr key={line.id}><td>{line.name}<small>{line.sku}</small></td><td>{line.quantity} / {line.invoiced} / {line.shipped}</td><td><input aria-label={`Action quantity for ${line.name}`} type="number" min="0" step="1" max={line.quantity} value={quantities[line.id]||''} onChange={e=>setQuantities({...quantities,[line.id]:e.target.value})}/></td></tr>)}</tbody></table></div>{canWrite&&<><div className="commerce-fields"><Field label="Carrier"><input value={carrier} onChange={e=>setCarrier(e.target.value)}/></Field><Field label="Tracking number"><input value={tracking} onChange={e=>setTracking(e.target.value)}/></Field></div><div className="commerce-actions">{[['order.invoice','Create invoice'],['order.ship','Create shipment'],['order.refund','Create credit / refund']].map(([operation,label])=><button key={operation} disabled={!active||busy} onClick={()=>act(async(current)=>{const items=Object.fromEntries(Object.entries(quantities).filter(([,q])=>Number(q)>0).map(([k,q])=>[k,Number(q)]));if(!Object.keys(items).length)throw new Error('Enter the quantities for this action.');await send(operation,{order_id:order.external_id,items,carrier,tracking});if(current())setOrder(null);},'Order action queued')}>{label}</button>)}<button disabled={!active||busy} onClick={()=>act(async(current)=>{await send('order.cancel',{order_id:order.external_id});if(current())setOrder(null);},'Cancellation queued')}>Cancel unfulfilled order</button></div><p className="commerce-muted">A credit note and a cash refund are separate accounting events. Source quantities and payment evidence are validated before posting.</p></>}</section></div>}
   </div>;
 }

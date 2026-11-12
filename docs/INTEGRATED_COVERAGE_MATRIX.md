@@ -314,3 +314,18 @@ successful reads. Twenty-four rendered tests passed (three newly red cases now
 green, plus stale workspace success control). Lint/build/bundle budgets passed.
 This covers read completion ownership, not every commerce mutation callback or
 real-browser acceptance. No production access, publication retry or deployment.
+
+### Commerce mutation dispatch and completion ownership
+
+A synthetic same-turn double click dispatched two history commands before rerender;
+a synchronous per-context action flight now prevents duplicate dispatch. Generic
+mutation success/failure/refresh completion is scoped to its original context and
+lifetime. Connection creation and order-action callbacks check ownership before
+changing setup/order state. Context changes clear obsolete busy/notice state.
+Twenty-eight rendered tests passed, including current one-time setup completion,
+duplicate dispatch and late company-change success/failure. The company prop-reuse
+cases are defensive component tests: main normally keys this view by company ID,
+so they are not proof of a production cross-company leak. Lint/build budgets passed.
+Unknown outcomes for non-money commands and same-context order-dialog replacement
+remain separate audit work; this is not a complete commerce acceptance claim.
+No production access, publication retry or deployment was performed.

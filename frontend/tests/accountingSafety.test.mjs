@@ -137,3 +137,22 @@ for(const outcome of ['success','failure'])test(`commerce ignores obsolete store
  await change(label('Store channel').querySelector('select'),'b');await act(async()=>outcome==='success'?finish(view('a')):fail(Error('OBSOLETE STORE ERROR')));
  assert.equal(label('Store channel').querySelector('select').value,'b');assert.doesNotMatch(document.body.textContent,/OBSOLETE STORE ERROR/);assert.ok(document.querySelector('.commerce-tabs'));
 });
+for(const outcome of ['success','failure'])test(`commerce mutation ignores late ${outcome} after company switch and prevents duplicate dispatch`,async(t)=>{
+ const root=createRoot(document.getElementById('root'));t.after(async()=>act(async()=>root.unmount()));let finish,fail;const writes=[],reads=[];
+ const api=async(path,options={})=>{if(options.method==='POST'){writes.push(path);return new Promise((resolve,reject)=>{finish=resolve;fail=reject;});}if(path.endsWith('/bank-accounts'))return [];if(path.endsWith('/connections'))return [{id:'store',name:'Store',channel:'test'}];reads.push(path);return {connection:{id:'store',status:'active',config:{}},orders:[],stock:[],links:[],outbox:[],reconciliations:[],summary:{}};};
+ const render=id=>root.render(React.createElement(components.CommerceWorkspace,{company:{id,name:id,role:'editor'},records:[],api}));await act(async()=>render('a'));
+ const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Scan store history');await act(async()=>{button.click();button.click();});assert.equal(writes.length,1);
+ await act(async()=>render('b'));const before=reads.length;await act(async()=>outcome==='success'?finish({status:'pending'}):fail(Error('PRIVATE OLD MUTATION ERROR')));
+ assert.equal(reads.length,before);assert.doesNotMatch(document.body.textContent,/History repair queued|PRIVATE OLD MUTATION ERROR/);assert.equal([...document.querySelectorAll('button')].find(b=>b.textContent==='Scan store history').disabled,false);
+});
+test('commerce connection creation does not expose late setup in another company',async(t)=>{
+ const root=createRoot(document.getElementById('root'));t.after(async()=>act(async()=>root.unmount()));let finish;
+ const api=async(path,options={})=>{if(options.method==='POST')return new Promise(resolve=>{finish=resolve;});if(path.endsWith('/bank-accounts'))return [];if(path.endsWith('/connections'))return [];throw Error('Unexpected read '+path);};
+ const render=id=>root.render(React.createElement(components.CommerceWorkspace,{company:{id,name:id,role:'owner'},records:[],api}));await act(async()=>render('a'));await act(async()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Connect Bagisto').click());await act(async()=>submit(document.querySelector('form')));await act(async()=>render('b'));
+ await act(async()=>finish({id:'old-store',name:'OLD PRIVATE STORE',channel:'test',setup_secret:'SYNTHETIC-ONLY-OLD-SECRET'}));assert.doesNotMatch(document.body.textContent,/OLD PRIVATE STORE|Server bridge setup|Connection created/);assert.equal(document.querySelector('input[type=password]'),null);
+});
+test('commerce current connection creation still displays one-time setup',async(t)=>{
+ const root=createRoot(document.getElementById('root'));t.after(async()=>act(async()=>root.unmount()));
+ const api=async(path,options={})=>{if(options.method==='POST')return {id:'new',name:'Synthetic new store',channel:'test',setup_secret:'SYNTHETIC-CURRENT-SECRET'};if(path.endsWith('/bank-accounts')||path.endsWith('/connections'))return [];return {connection:{id:'new',status:'paused',config:{}},orders:[],stock:[],links:[],outbox:[],reconciliations:[],summary:{}};};
+ await act(async()=>root.render(React.createElement(components.CommerceWorkspace,{company:{id:'c',name:'Synthetic',role:'owner'},records:[],api})));await act(async()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Connect Bagisto').click());await act(async()=>submit(document.querySelector('form')));assert.equal(document.querySelector('input[type=password]').value,'SYNTHETIC-CURRENT-SECRET');assert.match(document.body.textContent,/Synthetic new store/);
+});
