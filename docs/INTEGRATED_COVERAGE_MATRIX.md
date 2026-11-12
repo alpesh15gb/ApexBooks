@@ -237,3 +237,18 @@ are unchanged. Fifteen rendered everyday-feature tests passed, including a selec
 zero recommendation corrected to 1.234, plus lint/build/bundle budgets. No real
 browser/screen-reader, native UI or posting coverage is claimed for this small fix.
 Publication remains paused; no denied upload was retried.
+
+### Commerce money submission ownership
+
+The full frontend suite passed 230 tests at 7bd94d6 before this follow-up. A new
+rendered probe then reproduced two money-form send calls from duplicate submit events.
+The form now uses a synchronous in-flight guard, disables its fields while pending,
+retains inputs on failure, and suppresses completion after unmount. The parent keys
+the form by company/connection and only refreshes the original active store after
+its command completes. Eleven accounting-safety rendered tests passed, including
+double submit, close, switched-store completion and error/retry, plus lint/build
+and bundle budgets. All sends were synthetic; no real integration was contacted.
+This proves duplicate UI dispatch prevention, not a reproduced duplicate accounting
+posting (server command IDs already provide a separate idempotency boundary).
+Other commerce mutations, process-death/unknown-outcome recovery and real-browser
+acceptance remain separate audit scope. Publication was not retried.

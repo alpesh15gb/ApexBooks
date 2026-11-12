@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm} from 'node:fs/promises';import {resolve} from 'node:path';import {pathToFileURL} from 'node:url';import {build} from 'esbuild';import {JSDOM} from 'jsdom';import React,{act} from 'react';
 const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});Object.assign(globalThis,{window:dom.window,document:dom.window.document,localStorage:dom.window.localStorage,IS_REACT_ACT_ENVIRONMENT:true});window.scrollTo=()=>{};
 const {createRoot}=await import('react-dom/client');const tmp=await mkdtemp(resolve('node_modules/.accounting-safety-'));const components={};
-for(const name of ['BankWorkspace','CommerceMoneyForm','Reports','ReorderWorkspace','DayBook']){const outfile=resolve(tmp,name+'.mjs');await build({entryPoints:['src/'+name+'.jsx'],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','lucide-react']});components[name]=(await import(pathToFileURL(outfile))).default;}
+for(const name of ['BankWorkspace','CommerceWorkspace','CommerceMoneyForm','Reports','ReorderWorkspace','DayBook']){const outfile=resolve(tmp,name+'.mjs');await build({entryPoints:['src/'+name+'.jsx'],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','lucide-react']});components[name]=(await import(pathToFileURL(outfile))).default;}
 const response=data=>({ok:true,json:async()=>data});const label=text=>[...document.querySelectorAll('label')].find(x=>x.textContent.trim().startsWith(text));
 async function change(node,value){const proto=node.tagName==='SELECT'?window.HTMLSelectElement.prototype:window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(node,value);await act(async()=>node.dispatchEvent(new window.Event(node.tagName==='SELECT'?'change':'input',{bubbles:true})));}
 const submit=form=>form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));
@@ -57,3 +57,28 @@ test('item activity and party statements explain their quantity and opening-bala
  await act(async()=>root.unmount());
 });
 test.after(async()=>{dom.window.close();await rm(tmp,{recursive:true,force:true});});
+test('commerce money submission is single-flight, freezes fields, and suppresses completion after close',async()=>{
+ const root=createRoot(document.getElementById('root'));let finish,writes=0,done=0;
+ const workspace={connection:{id:'connection-a',status:'active',config:{}},links:[],orders:[],stock:[]};
+ await act(async()=>root.render(React.createElement(components.CommerceMoneyForm,{workspace,banks:[],busy:false,send:()=>{writes++;return new Promise(resolve=>{finish=resolve;});},onDone:()=>done++})));
+ await act(async()=>{submit(document.querySelector('form'));submit(document.querySelector('form'));});assert.equal(writes,1);assert.equal(document.querySelector('fieldset').disabled,true);
+ await act(async()=>root.unmount());await act(async()=>finish());assert.equal(done,0);
+});
+test('commerce money completion does not refresh an old store after switching connection',async()=>{
+ const root=createRoot(document.getElementById('root'));let finish;const urls=[];
+ const connections=['a','b'].map(id=>({id,name:id,channel:'synthetic'}));
+ const api=async(path,options={})=>{urls.push(path);if(options.method==='POST')return new Promise(resolve=>{finish=resolve;});if(path.endsWith('/bank-accounts'))return [];if(path.endsWith('/connections'))return connections;const id=path.includes('/b/')?'b':'a';return {connection:{id,status:'active',base_url:`https://${id}.invalid`,config:{}},orders:[],stock:[],links:[],outbox:[],reconciliations:[],summary:{}};};
+ await act(async()=>root.render(React.createElement(components.CommerceWorkspace,{company:{id:'c',name:'Synthetic',role:'editor'},records:[],api})));
+ await act(async()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='payments').click());await act(async()=>submit(document.querySelector('form')));
+ await change(label('Store channel').querySelector('select'),'b');const oldReads=urls.filter(p=>p.endsWith('/a/workspace')).length;
+ await act(async()=>finish({queued:true}));assert.equal(urls.filter(p=>p.endsWith('/a/workspace')).length,oldReads);assert.match(document.body.textContent,/https:\/\/b.invalid/);assert.doesNotMatch(document.body.textContent,/Source transaction queued/);
+ await act(async()=>root.unmount());
+});
+test('commerce money failure preserves input and unlocks explicit retry',async()=>{
+ const root=createRoot(document.getElementById('root'));let reject,writes=0,done=0;
+ const workspace={connection:{id:'a',status:'active',config:{}},links:[],orders:[],stock:[]};
+ await act(async()=>root.render(React.createElement(components.CommerceMoneyForm,{workspace,banks:[],send:()=>{writes++;return writes===1?new Promise((resolve,fail)=>{reject=fail;}):Promise.resolve();},onDone:()=>done++})));
+ await change(label('Bank / provider').querySelector('input'),'SYNTHETIC-REF');await act(async()=>submit(document.querySelector('form')));await act(async()=>reject(Error('Synthetic network failure')));
+ assert.equal(document.querySelector('fieldset').disabled,false);assert.equal(label('Bank / provider').querySelector('input').value,'SYNTHETIC-REF');assert.match(document.querySelector('[role=alert]').textContent,/Synthetic network/);
+ await act(async()=>submit(document.querySelector('form')));assert.equal(writes,2);assert.equal(done,1);await act(async()=>root.unmount());
+});

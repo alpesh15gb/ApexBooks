@@ -1,9 +1,11 @@
 import { businessDate } from "./businessDate.js";
-import React, {useState} from 'react';
+import React, {useEffect,useRef,useState} from 'react';
 const today = businessDate;
 const Field=({label,children})=><label className="commerce-field"><span>{label}</span>{children}</label>;
 export default function CommerceMoneyForm({workspace,banks,busy,send,onDone}){
   const [f,setF]=useState({kind:'capture',order:'',source:'',date:today(),amount:'',target:'',net:'',fee:'0',bank:'',supply:'goods',gst:'0'});
+  const inFlight=useRef(false),mounted=useRef(true);const [submitting,setSubmitting]=useState(false);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
   const [captures,setCaptures]=useState([]),[refunds,setRefunds]=useState([]),[quantities,setQuantities]=useState({}),[error,setError]=useState('');
   const change=(key,value)=>{if(['kind','order','target'].includes(key))setQuantities({});setF(old=>({...old,[key]:value,...(['kind','order'].includes(key)?{target:''}:{})}));};
   const links=workspace.links, docs=type=>links.filter(r=>r.entity_type===type&&r.snapshot.order_id===f.order);
@@ -12,15 +14,15 @@ export default function CommerceMoneyForm({workspace,banks,busy,send,onDone}){
   const toggle=(list,set,id)=>set(list.includes(id)?list.filter(x=>x!==id):[...list,id]);
   const input=(label,key,type='text',required=true)=><Field label={label}><input required={required} type={type} step={type==='number'?'0.01':undefined} min={type==='number'?'0':undefined} value={f[key]} onChange={e=>change(key,e.target.value)}/></Field>;
   const select=(label,key,options,required=true)=><Field label={label}><select required={required} value={f[key]} onChange={e=>change(key,e.target.value)}>{options.map(([id,text])=><option key={id} value={id}>{text}</option>)}</select></Field>;
-  async function submit(e){e.preventDefault();setError('');try{
+  async function submit(e){e.preventDefault();if(inFlight.current||busy||workspace.connection.status!=='active')return;inFlight.current=true;setSubmitting(true);setError('');try{
     let operation,data={order_id:f.order,date:f.date,amount:f.amount};
     if(f.kind==='capture'){operation='payment.capture';if(f.target)data.allocations=[{invoice_id:f.target,amount:f.amount}];else Object.assign(data,{advance_supply:f.supply,advance_gst_rate:f.gst,place_of_supply:workspace.connection.config.capabilities?.company_state_code||''});}
     else if(f.kind==='refund'){operation='payment.refund';const [type,...id]=f.target.split(':');data[type==='credit'?'credit_id':'capture_id']=id.join(':');}
     else if(f.kind==='receipt'){operation='return.receive';data={order_id:f.order,date:f.date,credit_id:f.target,lines:Object.entries(quantities).filter(([id,q])=>note?.snapshot.lines?.some(line=>line.product_id===id)&&Number(q)>0).map(([product_id,quantity])=>({product_id,quantity}))};if(!data.lines.length)throw new Error('Enter the quantities physically received.');}
     else{operation='settlement.record';const gross=captures.reduce((sum,id)=>sum+Number(links.find(r=>r.entity_type==='capture'&&r.external_id===id)?.snapshot.amount||0),0);data={date:f.date,gross:gross.toFixed(2),net:f.net,fee:f.fee||'0',capture_ids:captures,refund_ids:refunds,bank_account_id:f.bank};}
-    await send(operation,{source_id:f.source.trim(),confirmed:true,data});setF(old=>({...old,source:'',amount:''}));setCaptures([]);setRefunds([]);setQuantities({});onDone();
-  }catch(e){setError(e.message);}}
-  return <form className="commerce-card" onSubmit={submit}><h3>Payments, payouts & physical returns</h3><p>Record confirmed source transactions. Invoice status alone does not prove money was received.</p>{error&&<div className="commerce-alert error" role="alert">{error}</div>}<div className="commerce-fields">
+    await send(operation,{source_id:f.source.trim(),confirmed:true,data});if(!mounted.current)return;setF(old=>({...old,source:'',amount:''}));setCaptures([]);setRefunds([]);setQuantities({});onDone();
+  }catch(e){if(mounted.current)setError(e.message);}finally{inFlight.current=false;if(mounted.current)setSubmitting(false);}}
+  return <form className="commerce-card" onSubmit={submit}><h3>Payments, payouts & physical returns</h3><p>Record confirmed source transactions. Invoice status alone does not prove money was received.</p>{error&&<div className="commerce-alert error" role="alert">{error}</div>}<fieldset className="commerce-money-fields" disabled={busy||submitting||workspace.connection.status!=='active'}><div className="commerce-fields">
     {select('Action','kind',[['capture','Payment received / captured'],['refund','Cash / gateway refund'],['settlement','Gateway settlement'],['receipt','Goods physically received']])}
     {input('Bank / provider / receipt reference','source')}{input('Accounting date','date','date')}
     {f.kind!=='settlement'&&select('Store order','order',[['','Choose…'],...workspace.orders.map(r=>[r.external_id,r.number])])}
@@ -32,5 +34,5 @@ export default function CommerceMoneyForm({workspace,banks,busy,send,onDone}){
   </div>
   {f.kind==='receipt'&&<div className="commerce-fields">{(note?.snapshot.lines||[]).map(line=><Field key={line.product_id} label={`${workspace.stock.find(r=>r.external_id===line.product_id)?.name||line.product_id} · credited ${line.quantity}`}><input type="number" min="0" max={line.quantity} step="0.001" value={quantities[line.product_id]||''} onChange={e=>setQuantities({...quantities,[line.product_id]:e.target.value})}/></Field>)}</div>}
   {f.kind==='settlement'&&<><div className="commerce-grid">{[['capture',captures,setCaptures,'Captured receipts in this payout'],['refund',refunds,setRefunds,'Refunds deducted by provider']].map(([type,list,set,label])=><section key={type}><h3>{label}</h3>{unsettled(type).map(r=><label className="commerce-check" key={r.id}><input type="checkbox" checked={list.includes(r.external_id)} onChange={()=>toggle(list,set,r.external_id)}/>{r.external_id} · ₹{r.snapshot.amount}</label>)}</section>)}</div><div className="commerce-fields">{input('Bank net received (₹)','net','number')}{input('Provider fee, excluding supplier GST (₹)','fee','number',false)}{select('Destination bank account','bank',[['','Choose…'],...banks.filter(b=>b.id!==workspace.connection.config.gateway_bank_id).map(b=>[b.id,b.name])])}</div><p className="commerce-muted">Captured gross − selected refunds − fee must equal bank net. Record GST on provider fees using its supplier bill.</p></>}
-  <button className="primary" disabled={busy||workspace.connection.status!=='active'}>Confirm source & queue</button></form>;
+  <button className="primary" disabled={busy||submitting||workspace.connection.status!=='active'}>{submitting?'Queueing source…':'Confirm source & queue'}</button></fieldset></form>;
 }
