@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { decodeMasterCsv } from "./masterCsv.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
+import {captureCompanyAccess} from "./companyAccess.js";
+import {bankImportActor, bankImportStore, bankImportHash} from "./bankImportRecovery.js";
 const aliases = {
   date: ["date", "transactiondate", "txndate", "valuedate", "postingdate"],
   description: [
@@ -124,6 +126,7 @@ export default function StatementImportPreview({
   bankId,
   bankName,
   role,
+  receiptSupport = false,
   api,
   onClose,
   onImported,
@@ -136,6 +139,19 @@ export default function StatementImportPreview({
     [report, setReport] = useState(null),
     [busy, setBusy] = useState(false),
     [payload, setPayload] = useState(null);
+  const [marker, setMarker] = useState(null), [recoveryFault, setRecoveryFault] = useState(""),
+    [confirmed, setConfirmed] = useState(null);
+  const receiptRef = useRef(null), frozen = useRef(null);
+  const access = useRef({role, receiptSupport});
+  if (access.current.role !== role || access.current.receiptSupport !== receiptSupport) access.current = {role, receiptSupport};
+  const store = () => bankImportStore(companyId, localStorage.token);
+  useEffect(() => {
+    frozen.current = null; setConfirmed(null);
+    try {
+      const saved = receiptSupport || bankImportActor(localStorage.token) ? store().read() : null;
+      receiptRef.current = saved; setMarker(saved); setRecoveryFault("");
+    } catch (failure) { setRecoveryFault(failure.message); }
+  }, [companyId]);
   const canWrite = ["owner", "editor"].includes(role);
   const writeAccess = useRef(canWrite); writeAccess.current = canWrite;
   const processing = useRef(false);
@@ -145,11 +161,11 @@ export default function StatementImportPreview({
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const posting = usePostingRequest();
-  const locked = busy || posting.busy || posting.pending;
-  const requestClose = () => { if (!processing.current && !posting.pending) onClose(); };
+  const locked = busy || posting.busy || posting.pending || !!confirmed || (!!marker && !!frozen.current);
+  const requestClose = () => { if (!processing.current && !posting.pending && !receiptRef.current) onClose(); };
   useEffect(() => {
     let live = true;
-    reviewedContext.current = null; setTable([]); setReport(null); setPayload(null); setError("");
+    reviewedContext.current = null; frozen.current=null; setTable([]); setReport(null); setPayload(null); setError("");
     if (file.size > 5_000_000) { setError("CSV exceeds 5 MB"); return; }
     file
       .arrayBuffer()
@@ -230,49 +246,107 @@ export default function StatementImportPreview({
     }
   }, [table, header, mapping, format]);
   async function validate() {
-    if (!writeAccess.current || processing.current || posting.pending) return;
-    const owner = context.current;
+    if (!writeAccess.current || processing.current || posting.pending || confirmed || recoveryFault) return;
+    const owner = context.current, current = capture();
     processing.current = true;
     setBusy(true);
     setError("");
     try {
       if (parsed.error) throw Error(parsed.error);
+      if(!current())return;
       const body = { bank_account_id: bankId, lines: parsed.rows };
+      if (receiptRef.current) {
+        if (!receiptSupport) throw Error("Reconnect to a server supporting bank import receipts before recovering this import.");
+        const hash = await bankImportHash(body);
+        if (!current()) return;
+        if (hash !== receiptRef.current.hash) throw Error("The bank or mapped rows do not match the original import. Select the original CSV, bank and mapping.");
+        frozen.current = body; reviewedContext.current = owner; setPayload(body); setReport({added:body.lines.length,duplicates:0});
+        return;
+      }
       const value = await api(`/companies/${companyId}/bank-statement/import`, {
         method: "POST",
         body: JSON.stringify({ ...body, dry_run: true }),
       });
-      if (!mounted.current || context.current !== owner) return;
+      if (!current()) return;
       reviewedContext.current = owner;
       setPayload(body);
       setReport(value);
     } catch (e) {
-      if (mounted.current && context.current === owner) setError(e.message);
+      if (current()) setError(e.message);
     } finally {
       processing.current = false;
       setBusy(false);
     }
   }
-  async function commit() {
-    if (!writeAccess.current || processing.current || !payload || !report || reviewedContext.current !== context.current) return;
-    const owner = context.current;
-    processing.current = true;
-    setBusy(true);
-    setError("");
+  function capture() {
+    const owner = context.current, permission = access.current, token = localStorage.token;
+    let accessStamp;
+    try {accessStamp=captureCompanyAccess(`/api/companies/${companyId}/bank-statement`);} catch {return ()=>false;}
+    return () => {
+      try {accessStamp?.verify();} catch {return false;}
+      return mounted.current && context.current === owner && access.current === permission && localStorage.token === token;
+    };
+  }
+  async function finish(result, current) {
+    setConfirmed(result); setReport(null); setPayload(null);
+    await onImported(result);
+    if (current()) onClose();
+  }
+  async function refreshConfirmed() {
+    if (processing.current || !confirmed) return;
+    const current=capture(); processing.current=true; setBusy(true); setError("");
+    try { if(!current())return; await onImported(confirmed); if(current()) onClose(); }
+    catch(failure) { if(current())setError(failure.message); }
+    finally {processing.current=false;setBusy(false);}
+  }
+  async function checkReceipt() {
+    if (!writeAccess.current || processing.current || !receiptRef.current || !receiptSupport) return;
+    const current=capture(), original=receiptRef.current, recoveryStore=store();
+    processing.current=true;setBusy(true);setError("");
     try {
-      const result = await posting.run(() => api(`/companies/${companyId}/bank-statement/import`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      }));
-      if (!result || !mounted.current || context.current !== owner) return;
-      await onImported(result.value);
-      if (mounted.current && context.current === owner) onClose();
-    } catch (e) {
-      if (mounted.current && context.current === owner) setError(e.message);
-    } finally {
-      processing.current = false;
-      setBusy(false);
-    }
+      if(!current())return;
+      const result=await api(`/companies/${companyId}/bank-statement/import-receipts/${encodeURIComponent(original.key)}`);
+      if(!current())return;
+      if(result.operation_key!==original.key)throw Error("Unexpected receipt. The original import remains unresolved.");
+      recoveryStore.clear(original.key);receiptRef.current=null;setMarker(null);frozen.current=null;
+      await finish(result,current);
+    } catch(failure) {if(current())setError(failure.status===404 ? "No confirmed receipt found. This does not prove failure; keep the reference and verify the original file before retrying." : failure.message);}
+    finally{processing.current=false;setBusy(false);}
+  }
+  async function commit() {
+    if (!writeAccess.current || processing.current || confirmed || recoveryFault || !payload || !report || reviewedContext.current !== context.current) return;
+    if(receiptRef.current && (!receiptSupport || !frozen.current))return;
+    const current=capture(), retrying=!!receiptRef.current;
+    let original=receiptRef.current, recoveryStore;
+    processing.current = true; setBusy(true); setError("");
+    try {
+      const body=frozen.current || payload;
+      if(receiptSupport) {
+        recoveryStore=store();
+        if(!original) {
+          original={key:crypto.randomUUID(),hash:await bankImportHash(body)};
+          if(!current())return;
+          recoveryStore.save(original); receiptRef.current=original;setMarker(original);frozen.current=body;
+        }
+      }
+      if(!current())return;
+      let value;
+      if(original) value=await api(`/companies/${companyId}/bank-statement/import`,{method:"POST",headers:{"Idempotency-Key":original.key},body:JSON.stringify(body)});
+      else {const result=await posting.run(()=>api(`/companies/${companyId}/bank-statement/import`,{method:"POST",body:JSON.stringify(body)}));if(!result)return;value=result.value;}
+      if(!current())return;
+      if(original) {
+        if(value.operation_key!==original.key)throw Error("The server did not confirm the original receipt. Keep the reference and check the import.");
+        recoveryStore.clear(original.key);receiptRef.current=null;setMarker(null);frozen.current=null;
+      }
+      await finish(value,current);
+    } catch(failure) {
+      if(current()) {
+        if(original && !retrying && failure.status>=400 && failure.status<500 && ![408,409].includes(failure.status)) {
+          try{recoveryStore?.clear(original.key);receiptRef.current=null;setMarker(null);frozen.current=null;}catch{/* Retain uncertainty on storage failure. */}
+        }
+        setError(failure.message);
+      }
+    } finally {processing.current=false;setBusy(false);}
   }
   return (
     <div className="overlay">
@@ -289,11 +363,20 @@ export default function StatementImportPreview({
               {file.name} → {bankName}
             </p>
           </div>
-          <button className="icon-button" aria-label="Close" onClick={requestClose} disabled={locked}>
+          <button className="icon-button" aria-label="Close" onClick={requestClose} disabled={locked || !!marker}>
             ×
           </button>
         </div>
         {!canWrite && <p className="info-box" role="status">Read-only access. Your reviewed statement is preserved; an owner or editor is required to import.</p>}
+        {!receiptSupport && <p>Exact bank-import receipts are unavailable on this server. Legacy retries deduplicate rows but do not recover the original result.</p>}
+        {recoveryFault && <p role="alert">{recoveryFault}</p>}
+        {marker && <div role="status" className="info-box">Original import unconfirmed. Recovery reference: <code>{marker.key}</code>. Only the reference and a fingerprint are retained in this tab, not statement contents. Reload can recover the receipt; closing the tab may lose the reference. Do not start another import.
+          <button disabled={busy || !canWrite || !receiptSupport} onClick={checkReceipt}>Check original import</button>
+          <p>To retry, select the original bank, CSV and mapping, then validate them.</p>
+        </div>}
+        {confirmed && <div role="status" className="info-box">Import confirmed: {confirmed.added} added, {confirmed.duplicates} duplicates. Do not import again.
+          <button disabled={busy} onClick={refreshConfirmed}>Refresh imported transactions</button>
+        </div>}
         <div className="form-grid">
           <label>
             Header row
@@ -320,7 +403,7 @@ export default function StatementImportPreview({
               value={format}
               onChange={(e) => {
                 setFormat(e.target.value);
-                setReport(null);
+                setReport(null); frozen.current=null;
               }}
             >
               <option value="dmy">DD/MM/YYYY (India)</option>
@@ -337,7 +420,7 @@ export default function StatementImportPreview({
                 value={mapping[key] ?? ""}
                 onChange={(e) => {
                   setMapping({ ...mapping, [key]: e.target.value });
-                  setReport(null);
+                  setReport(null); frozen.current=null;
                 }}
               >
                 <option value="">Not mapped</option>
@@ -386,8 +469,7 @@ export default function StatementImportPreview({
           {parsed.error && <p className="error full" role="alert">{parsed.error}</p>}
           {report && (
             <div className="info-box full">
-              {report.added} new transactions · {report.duplicates} duplicates
-              will be skipped.
+              {marker ? "Original bank and mapped rows verified. Retry uses the original operation key; counts will come from its receipt." : `${report.added} new transactions · ${report.duplicates} duplicates will be skipped.`}
             </div>
           )}
           {error && (
@@ -400,23 +482,23 @@ export default function StatementImportPreview({
             <button
               className="button secondary"
               onClick={requestClose}
-              disabled={locked}
+              disabled={locked || !!marker}
             >
               Cancel
             </button>
-            {report ? (
+            {confirmed ? null : report ? (
               <button
                 className="button primary"
                 onClick={commit}
-                disabled={!canWrite || busy || posting.busy || !report.added}
+                disabled={!canWrite || busy || posting.busy || !report.added || !!recoveryFault || (!!marker && !receiptSupport)}
               >
-                {busy ? "Importing…" : posting.pending ? "Retry same import" : `Import ${report.added} transactions`}
+                {busy ? "Importing…" : marker ? "Retry original import" : posting.pending ? "Retry same import" : `Import ${report.added} transactions`}
               </button>
             ) : (
               <button
                 className="button primary"
                 onClick={validate}
-                disabled={!canWrite || busy || !!parsed.error}
+                disabled={!canWrite || busy || !!parsed.error || !!recoveryFault || (!!marker && !receiptSupport)}
               >
                 {busy ? "Validating…" : "Validate mapped rows"}
               </button>

@@ -1272,6 +1272,7 @@ function App() {
             <Ledger key={companyId} drafts={ledgerDrafts.current} companyId={companyId} role={company?.role} onOpen={beginDetail} />
           ) : page === "bank_account" ? (
             <BankWorkspace
+              receiptSupport={supportsFeature(features, "bank_import_receipts")}
               key={companyId}
               companyId={companyId}
               records={records}

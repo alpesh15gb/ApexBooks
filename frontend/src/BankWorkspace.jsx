@@ -112,7 +112,7 @@ function Metric({ label, value, icon: Icon, count = false }) {
   );
 }
 
-export default function BankWorkspace({ companyId, records, role, onSaved }) {
+export default function BankWorkspace({ companyId, records, role, onSaved, receiptSupport = false }) {
   const [banks, setBanks] = useState([
     { id: "default", name: "Bank clearing (legacy)", ledger_code: "SYS-BANK" },
   ]);
@@ -502,7 +502,7 @@ export default function BankWorkspace({ companyId, records, role, onSaved }) {
           onSaved();
         }}
       />
-      {importFile&&<StatementImportPreview role={role} file={importFile} companyId={companyId} bankId={bankId} bankName={banks.find(b=>b.id===bankId)?.name||"Bank clearing"} api={api} onClose={()=>setImportFile(null)} onImported={async value=>{setImportMessage(`${value.added} transactions imported; ${value.duplicates} duplicates skipped.`);setRevision(v=>v+1)}}/>}{importMessage&&<p role="status">{importMessage}</p>}
+      {importFile&&<StatementImportPreview receiptSupport={receiptSupport} role={role} file={importFile} companyId={companyId} bankId={bankId} bankName={banks.find(b=>b.id===bankId)?.name||"Bank clearing"} api={api} onClose={()=>setImportFile(null)} onImported={async value=>{setImportMessage(`${value.added} transactions imported; ${value.duplicates} duplicates skipped.`);setRevision(v=>v+1)}}/>}{importMessage&&<p role="status">{importMessage}</p>}
       <div className="info-box bank-info">
         Map the date, description, reference and amount columns in your bank CSV. Separate debit and credit columns are supported. Positive
         amounts are received; negative amounts are paid. Import into the

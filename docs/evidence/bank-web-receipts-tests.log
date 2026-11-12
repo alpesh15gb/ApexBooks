@@ -1,0 +1,32 @@
+✔ receipt recovery after remount by lookup (115.987938ms)
+✔ receipt recovery after remount by retry (168.099974ms)
+✔ viewer and capability loss cannot dispatch retained retry (56.832828ms)
+✔ storage failure prevents POST; legacy remains unkeyed (64.12109ms)
+✔ confirmed import refresh failure offers read-only recovery (36.211629ms)
+✔ opaque store isolates actor/company and rejects corruption (1.43601ms)
+✔ 422 before uncertainty permits correction (26.737148ms)
+✔ 422 after uncertainty preserves original key (32.18313ms)
+✔ original bank hash and stale role response preserve unresolved reference (58.963783ms)
+✔ actual App forwards role recovery to retained bank statement dialog (923.149322ms)
+✔ master import freezes record type from file read through preview and commit (73.200237ms)
+✔ bank import locks mapping and dismiss controls and retries the exact reviewed rows (61.730414ms)
+✔ legacy backup restore freezes validated inputs and replays an uncertain commit (38.830669ms)
+✔ bank CSV rejects text after quoted description before any preview request (19.896688ms)
+✔ bank CSV blocks invalid UTF-8 before preview (18.758626ms)
+✔ bank CSV blocks quote in bare field before preview (20.285323ms)
+✔ bank CSV blocks unclosed quote before preview (18.996104ms)
+✔ bank CSV preserves BOM quoted multiline description with "," separator (56.418845ms)
+✔ bank CSV preserves BOM quoted multiline description with ";" separator (24.924621ms)
+✔ bank CSV preserves BOM quoted multiline description with "\t" separator (22.192311ms)
+✔ bank file replacement invalidates reviewed payload before failed replacement read (30.755462ms)
+✔ old bank validation response cannot restore a preview after file replacement (27.25ms)
+✔ retained bank import reviewed commit is read-only for viewer and resumes for editor (32.318093ms)
+✔ retained bank import unknown retry is read-only for viewer and resumes for editor (35.365455ms)
+ℹ tests 24
+ℹ suites 0
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1863.251511

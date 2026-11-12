@@ -1,0 +1,37 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> apex-books@1.5.0 build
+> vite build && node scripts/check-bundle.mjs
+
+vite v6.4.5 building for production...
+transforming...
+✓ 1682 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                               4.68 kB │ gzip:  1.65 kB
+dist/.vite/manifest.json                      5.79 kB │ gzip:  0.90 kB
+dist/assets/index-Iu9MMI-B.css              171.93 kB │ gzip: 35.40 kB
+dist/assets/arrow-left-BlxflNum.js            0.33 kB │ gzip:  0.27 kB
+dist/assets/upload-hnQ_65C0.js                0.43 kB │ gzip:  0.32 kB
+dist/assets/CompanyDataExport-C28d17-4.js     1.51 kB │ gzip:  0.87 kB
+dist/assets/AccountSecurity-D16Po1ix.js       2.03 kB │ gzip:  0.93 kB
+dist/assets/masterCsv-DDqQFR6Q.js             2.37 kB │ gzip:  1.20 kB
+dist/assets/AuditLog-CJacrPph.js              2.59 kB │ gzip:  1.17 kB
+dist/assets/DocumentBranding-CFLM0Ng9.js      3.98 kB │ gzip:  1.83 kB
+dist/assets/PeriodLock-CHZJ6kw2.js            4.72 kB │ gzip:  1.78 kB
+dist/assets/DayBook-EwXxWTyb.js               4.89 kB │ gzip:  1.89 kB
+dist/assets/ReorderWorkspace-bqPwx0CH.js      5.87 kB │ gzip:  2.38 kB
+dist/assets/SettingsWorkspace-DG0Jiqq8.js     6.76 kB │ gzip:  2.87 kB
+dist/assets/BackupRestore-BXOTvyJ0.js         7.65 kB │ gzip:  2.96 kB
+dist/assets/MasterImport-CrMJPokJ.js          9.18 kB │ gzip:  3.58 kB
+dist/assets/PosWorkspace-CKGfes7x.js         10.14 kB │ gzip:  3.56 kB
+dist/assets/VyaparImport-CIDRKl_g.js         10.16 kB │ gzip:  3.67 kB
+dist/assets/RecurringWorkspace-r6WcPVxm.js   14.64 kB │ gzip:  5.12 kB
+dist/assets/CompleteBackup-hSJ7q4mK.js       19.65 kB │ gzip:  6.86 kB
+dist/assets/CommerceWorkspace-Dhw0-vwa.js    31.87 kB │ gzip:  9.71 kB
+dist/assets/BankWorkspace-DKUwpwk7.js        35.61 kB │ gzip: 11.06 kB
+dist/assets/Reports-C9AZfgWJ.js              36.28 kB │ gzip:  9.38 kB
+dist/assets/react-vendor-BxTT-i9p.js        186.62 kB │ gzip: 58.59 kB
+dist/assets/index-C-tSLZbX.js               278.99 kB │ gzip: 77.86 kB
+✓ built in 2.79s
+Web bundle budgets passed: {"initialJavascriptGzipBytes":136447,"initialCssGzipBytes":35402,"largestJavascriptChunkBytes":278986}

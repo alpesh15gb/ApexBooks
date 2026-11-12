@@ -1159,3 +1159,33 @@ exact-payload retry UI are not implemented by this batch. Existing native bank
 imports do not yet use these receipts. Full native UI/device testing, deployment
 migration/backup/restore gates and production readiness remain open. No external
 store calls, publication retry or deployment.
+
+### Web bank-import receipt adoption (2026-11-12)
+
+App passes bank_import_receipts capability into the bank import dialog. Supported
+imports persist only an opaque operation key and SHA-256 mapped-payload fingerprint
+in actor/company-scoped session storage before POST. Bank ID and complete ordered
+rows are covered by that fingerprint; no CSV, amounts, descriptions or token are
+persisted in the marker. Unknown imports retain their key, and changed bank/rows
+cannot retry. Initial definitive rejection permits correction; rejection after an
+unknown response preserves uncertainty. Unsupported servers retain legacy imports,
+but an existing recovery marker cannot fall through to unkeyed submission.
+
+Reopening the dialog after tab reload permits authorized GET receipt recovery.
+Reselecting the original CSV/bank/mapping verifies the fingerprint before retry.
+A missing receipt remains unknown. Confirmed import plus parent-refresh failure
+retains success and offers a read-only refresh; it cannot repeat the import.
+Ownership checks suppress stale company/role/access/token responses.
+
+Twenty-four synthetic rendered tests pass: nine receipt cases plus existing bank
+CSV/role and actual-App role-forwarding regressions. Coverage includes remount
+lookup/retry, exact payload/key, changed bank/file, storage failure, actor/company
+isolation, corruption, definitive/unknown rejection, stale role response, legacy
+server and refresh failure. ESLint and Vite bundle budgets pass. Logs under
+docs/evidence/bank-web-receipts*.log.
+
+Limits: tests simulate remount, not a real browser restart. Session storage is
+not cross-device recovery and may be lost when closing the tab. Recovery is
+visible after reopening the bank import dialog, not an automatic dashboard task.
+Native adoption, full native builds/device acceptance and production migration
+gates remain open. No publication retry or deployment.
