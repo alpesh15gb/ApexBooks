@@ -558,6 +558,7 @@ def install(app, m):
             referenced=set(session.scalars(select(m.Record.data['commerce_connection_id'].as_string()).where(m.Record.company_id==company_id)).all())-{None,''}
             connected=set(session.scalars(select(service.t['connections'].c.id).where(service.t['connections'].c.company_id==company_id)).all())
             if referenced-connected:raise HTTPException(409, 'Restored commerce postings need source identity reconciliation before live activation. Restore the full database or review the original source mappings first.')
+        if c['status'] == body.status: return service.public_connection(c)
         session.execute(update(service.t['connections']).where(service.t['connections'].c.id == c['id']).values(status=body.status, updated_at=now()))
         if body.status == 'active': service.stock_changed(company_id, session)
         m.audit(session, co.id, user, 'commerce.' + body.status, 'commerce', connection_id); session.commit()

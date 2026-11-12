@@ -37,6 +37,21 @@ class CommerceTest(unittest.TestCase):
         with patch('commerce.remote', return_value={'protocol': 1, 'channel': self.tag, 'currency': 'INR'}):
             self.client.post(self.path + '/verify', headers=self.headers).raise_for_status()
         self.client.put(self.path + '/state', headers=self.headers, json={'status': 'active'}).raise_for_status()
+    def test_repeated_connection_state_put_does_not_repeat_activation_side_effects(self):
+        def snapshot():
+            with Session(engine) as session:
+                connection=m.commerce.one(session,m.commerce.t['connections'],m.commerce.t['connections'].c.id==self.c['id'])
+                outbox=session.execute(select(m.commerce.t['outbox']).where(m.commerce.t['outbox'].c.connection_id==self.c['id'])).mappings().all()
+                return connection['version'],connection['updated_at'],{r['id'] for r in outbox}
+        active=snapshot()
+        response=self.client.put(self.path+'/state',headers=self.headers,json={'status':'active'})
+        self.assertEqual(response.status_code,200,response.text);self.assertEqual(snapshot(),active)
+        self.client.put(self.path+'/state',headers=self.headers,json={'status':'paused'}).raise_for_status()
+        paused=snapshot();self.client.put(self.path+'/state',headers=self.headers,json={'status':'paused'}).raise_for_status();self.assertEqual(snapshot(),paused)
+        self.client.put(self.path+'/state',headers=self.headers,json={'status':'active'}).raise_for_status()
+        reactivated=snapshot();self.assertEqual(len(reactivated[2]),len(active[2])+1)
+        self.client.put(self.path+'/state',headers=self.headers,json={'status':'active'}).raise_for_status();self.assertEqual(snapshot(),reactivated)
+
     def test_lost_connection_setup_response_cannot_be_recovered_by_reposting(self):
         body={'name':'Synthetic lost setup','base_url':'http://127.0.0.1:18082','channel':self.tag+'-lost'}
         first=self.client.post(self.base+'/commerce/connections',headers=self.headers,json=body)

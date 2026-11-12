@@ -351,3 +351,16 @@ Thirty-nine rendered tests passed, including found/not-found recovery and correc
 result, secret-free lists and company isolation; no external store was contacted.
 Lint/build/bundle budgets passed. Secure credential recovery remains unimplemented,
 and the local warning/lock is memory-only. No publication retry or deployment.
+
+### Integrated frontend and repeat state-change verification
+
+At ee1182d the complete frontend suite passed: 261 tests. This is rendered/synthetic
+coverage, not browser/device certification. A separate synthetic backend probe
+reproduced repeated Active PUTs incrementing version and queuing another stock
+projection after the state was already active. Matching-state PUTs now return the
+public connection without new timestamp/version/projection/audit mutations, after
+existing authorization and activation validation. A true Paused-to-Active transition
+still performs its normal projection. All 18 commerce backend tests passed, including
+this regression and existing lifecycle cases. No external store worker, production
+access, publication retry or deployment was used. PostgreSQL concurrency and actual
+store delivery remain separate acceptance gates for this change.
