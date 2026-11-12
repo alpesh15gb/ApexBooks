@@ -4,6 +4,18 @@ using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 
+foreach(var scenario in new[]{"current","stale-success","stale-failure","current-failure","stale-final"})
+{
+ var pending=new TaskCompletionSource<string>();var current=true;var launches=new List<string>();
+ var task=ScopedExternalAction.Run(()=>pending.Task,()=>current,value=>{if(scenario=="stale-final")current=false;return "captured-company:"+value;},value=>{launches.Add(value);return Task.CompletedTask;});
+ if(scenario.StartsWith("stale-"))current=scenario=="stale-final";
+ if(scenario.EndsWith("failure"))pending.SetException(new IOException("Synthetic branding error"));else pending.SetResult("synthetic-upi");
+ await task;
+ if(launches.Count!=(scenario.StartsWith("current")?1:0))throw new Exception("Stale external launch");
+ if(launches.Count>0&&launches[0]!=(scenario=="current"?"captured-company:synthetic-upi":"captured-company:"))throw new Exception("Wrong share context");
+}
+Console.WriteLine("PASS external action scoped before/after delayed branding and immediately before synthetic launch");
+
 CsvRegression.Run();
 
 var returnRows=new JsonArray(new JsonObject{["quantity"]="2",["rate"]="100",["discount_amount"]="7",["return_capacity_scope"]="additional_returns",["remaining_return_quantity"]="1"},new JsonObject{["quantity"]="2",["return_capacity_scope"]="additional_returns",["remaining_return_quantity"]="0"},new JsonObject{["quantity"]="2"});

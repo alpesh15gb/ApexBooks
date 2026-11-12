@@ -13,7 +13,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 data class Feature(val key:String,val title:String,val group:String="",val path:String="",val description:String="")
-data class PdfView(val bytes:ByteArray,val name:String,val record:JSONObject?=null)
+data class PdfView(val bytes:ByteArray,val name:String,val record:JSONObject?=null,val template:String="")
 
 class AppModel(application:Application):AndroidViewModel(application) {
     val api=ApexApi(BuildConfig.API_ORIGIN,SessionVault(application))
@@ -52,6 +52,10 @@ class AppModel(application:Application):AndroidViewModel(application) {
     var companyEdit by mutableStateOf(false)
     var statement by mutableStateOf<JSONObject?>(null)
     var pdf by mutableStateOf<PdfView?>(null)
+    var pdfLoading by mutableStateOf(false);private set
+    var pdfError by mutableStateOf("");private set
+    var pdfRequestedTemplate by mutableStateOf("");private set
+    private var pdfRequest=0
     var tool by mutableStateOf("")
     var toolData by mutableStateOf<JSONObject?>(null)
     private val backupDrafts=mutableMapOf<String,CompleteBackupDraft>()
@@ -93,7 +97,22 @@ class AppModel(application:Application):AndroidViewModel(application) {
     fun add(kind:String){if(!recordsReady){error="Wait for the complete company history before starting an entry.";return};editor=EntryEditor(this,kind)}
     fun edit(row:JSONObject){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));val source=if(full.s("kind")=="debit_note"&&full.o("data").s("applied_to").isNotBlank())api.record(id,full.o("data").s("applied_to"))else null;if(stamp==generation)editor=EntryEditor(this,full.s("kind"),previous=full).also{if(source!=null)it.setReturnSourceLines(source)}}}
     fun convert(row:JSONObject,targetKind:String?=null){val id=companyId;val stamp=generation;task{val full=api.record(id,row.s("id"));if(stamp==generation)editor=EntryEditor(this,targetKind?:if(full.s("kind")=="purchase_order")"purchase_bill" else "sales_invoice",conversion=full)}}
-    fun documentPdf(row:JSONObject,template:String=""){val id=companyId;val stamp=generation;task{val bytes=api.bytes(api.company(id,"/documents/${encode(row.s("id"))}.pdf")+if(template.isBlank())"" else "?template=${encode(template)}");if(id==companyId&&stamp==generation)pdf=PdfView(bytes,"${friendly(row.s("kind"))} ${row.s("number")}.pdf",row)}}
+    fun closePdf(){pdfRequest++;pdfLoading=false;pdfError="";pdf=null}
+    fun documentPdf(row:JSONObject,template:String=""){
+        val id=companyId;val stamp=generation;val previous=pdf;val requestedPage=page;val request=++pdfRequest
+        val snapshot=JSONObject(row.toString())
+        pdfLoading=true;pdfError="";pdfRequestedTemplate=template
+        fun current()=request==pdfRequest&&inWorkspace(id,stamp)&&pdf===previous&&page==requestedPage
+        task{
+            try{
+                val bytes=api.bytes(api.company(id,"/documents/${encode(snapshot.s("id"))}.pdf")+if(template.isBlank())"" else "?template=${encode(template)}")
+                if(current())pdf=PdfView(bytes,"${friendly(snapshot.s("kind"))} ${snapshot.s("number")}.pdf",snapshot,template)
+            }catch(e:Exception){
+                if(e is kotlinx.coroutines.CancellationException)throw e
+                if(current()){pdfError=e.message?:"Could not load this format. The previous PDF is unchanged.";if(previous==null||e is ApiFailure&&e.status==401)failure(e)}
+            }finally{if(request==pdfRequest)pdfLoading=false}
+        }
+    }
     fun key()=UUID.randomUUID().toString()
 }
 

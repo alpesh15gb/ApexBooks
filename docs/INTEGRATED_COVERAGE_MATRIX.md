@@ -72,3 +72,11 @@ Independent review then reproduced two lost lifecycle protections in candidate 9
 The lifecycle reconstruction is described in [SETTLED_RETURN_LIFECYCLE_RECONSTRUCTION.md](SETTLED_RETURN_LIFECYCLE_RECONSTRUCTION.md). It closes the two reproduced write-path gaps and adds restore rejection for excess return credit without retained source capacity, subject to final test/review results. It does not close the remaining original-lost-fix inventory or justify declaring the app release-ready.
 
 Lifecycle correction final evidence: 366 SQLite tests; 18 PostgreSQL concurrency tests, 106 PostgreSQL regressions, five HTTP workflows and bounded zero-error workload passed. No frontend/native code changed in this correction. The prior 9159cbf branch remains an immutable historical checkpoint; review the new correction commit before release consideration.
+
+## Post-checkpoint corrections requiring independent review
+
+The immutable `9159cbf` candidate is blocked by subsequently reproduced settled-return lifecycle defects. `9db279c` reconstructs those guards: 366 backend tests and disposable PostgreSQL 18 concurrency/106 regression/five HTTP tests passed. A real age 1.2.1 encrypt/decrypt backup safety test also passed using a verified Debian package; see `SETTLED_RETURN_LIFECYCLE_RECONSTRUCTION.md` and `evidence/encrypted-backup-2026-11-12.json`.
+
+`41ef08e` improves party report PDFs with explicit scope, opening/closing balances, INR formatting, human-readable types and embedded fonts. Seventeen targeted tests and all nine rendered proof pages passed inspection. These PDFs are searchable, but are not tagged/PDF-UA certified.
+
+The native PDF/share follow-up is documented in `NATIVE_PDF_SHARE_REVIEW.md`. Compiled request/helper tests do not close the full native build, device, PdfRenderer or TalkBack gates. All these changes remain local; the old checkpoint and earlier CI must not be represented as covering them.

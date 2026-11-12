@@ -11,10 +11,14 @@ public sealed partial class MainPage
 {
     private async Task OpenWhatsApp(JsonObject row,bool reminder)
     {
-        var upi="";try{upi=(await Api.Send(PathFor("/document-branding"))).Text("upi_id");}catch(Exception){/* the message still works without a UPI ID */}
-        var phone=WhatsAppShare.PartyPhone(row,Records.OfType<JsonObject>());
-        var text=reminder?WhatsAppShare.ReminderMessage(row,Company.Text("name"),upi,J.Today):WhatsAppShare.DocumentMessage(row,Company.Text("name"),upi);
-        await Windows.System.Launcher.LaunchUriAsync(WhatsAppShare.Url(phone,text));
+        var cid=CompanyId;var stamp=generation;var session=Api.SessionGeneration;
+        var snapshot=(JsonObject)row.DeepClone();var companyName=Company.Text("name");
+        var phone=WhatsAppShare.PartyPhone(snapshot,Records.OfType<JsonObject>());
+        await ScopedExternalAction.Run(
+            async()=>(await Api.Send(Api.CompanyPath(cid,"/document-branding"))).Text("upi_id"),
+            ()=>Api.SignedIn&&Api.SessionGeneration==session&&cid==CompanyId&&stamp==generation,
+            upi=>WhatsAppShare.Url(phone,reminder?WhatsAppShare.ReminderMessage(snapshot,companyName,upi,J.Today):WhatsAppShare.DocumentMessage(snapshot,companyName,upi)),
+            async uri=>{await Windows.System.Launcher.LaunchUriAsync(uri);});
     }
 
     private async Task TransactionDetails(JsonObject initial)

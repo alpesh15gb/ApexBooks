@@ -57,6 +57,11 @@ class NativeFiles(private val context:Context,private val error:(String)->Unit) 
             while(bitmap.width>=80&&bitmap.height>=80){for(quality in listOf(90,80,65,50)){val out=ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.JPEG,quality,out);if(out.size()<=maximumBytes)return@withContext "data:image/jpeg;base64,"+Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP)};val scaled=Bitmap.createScaledBitmap(bitmap,(bitmap.width*.8).toInt(),(bitmap.height*.8).toInt(),true);bitmap.recycle();bitmap=scaled};throw Exception("The image is too complex. Choose a smaller image.")
         }finally{bitmap.recycle()}
     }
+    fun openPdf(activity:Activity,bytes:ByteArray,name:String){
+        val file=File(File(context.cacheDir,"exports").apply{mkdirs()},"${UUID.randomUUID()}.pdf");file.writeBytes(bytes)
+        val uri=FileProvider.getUriForFile(context,context.packageName+".files",file,name.replace(Regex("[\\\\/:*?\"<>|]"),"_"))
+        activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).apply{setDataAndType(uri,"application/pdf");clipData=android.content.ClipData.newRawUri(name,uri);addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)},"Open PDF with"))
+    }
     fun share(activity:Activity,bytes:ByteArray,name:String){val file=File(File(context.cacheDir,"exports").apply{mkdirs()},"${UUID.randomUUID()}.pdf");file.writeBytes(bytes);val uri=FileProvider.getUriForFile(context,context.packageName+".files",file,name.replace(Regex("[\\\\/:*?\"<>|]"),"_"));activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply{type="application/pdf";putExtra(Intent.EXTRA_STREAM,uri);putExtra(Intent.EXTRA_TITLE,name);clipData=android.content.ClipData.newRawUri(name,uri);addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)},"Share document"))}
     fun print(activity:Activity,bytes:ByteArray,name:String){(activity.getSystemService(Context.PRINT_SERVICE) as PrintManager).print(name,PdfPrinter(activity,bytes,name.replace(Regex("[\\\\/:*?\"<>|]"),"_")),PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4).setColorMode(PrintAttributes.COLOR_MODE_COLOR).build())}
 
