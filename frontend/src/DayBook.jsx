@@ -58,7 +58,7 @@ export default function DayBook({ companyId, records, api, labels, onOpen }) {
                   <tr key={row.id} className={row.cancelled ? "muted" : ""} onClick={() => open(row)} style={{ cursor: row.kind === "journal" ? "default" : "pointer" }}>
                     <td>{labels[row.kind] || row.kind.replaceAll("_", " ")}{row.cancelled ? " · cancelled" : !row.posted && row.kind !== "journal" ? " · draft" : ""}</td>
                     <td>{row.number || "—"}<small className="bank-ref">{row.name}</small></td>
-                    <td className="right">{rupees(row.amount)}</td>
+                    <td className="right">{rupees(row.amount)}{row.kind === "journal" && row.debit_total != null && <small className="bank-ref">Debit {rupees(row.debit_total)} · Credit {rupees(row.credit_total)}</small>}</td>
                     <td className="right positive">{Number(row.money_in) ? rupees(row.money_in) : ""}</td>
                     <td className="right negative">{Number(row.money_out) ? rupees(row.money_out) : ""}</td>
                   </tr>

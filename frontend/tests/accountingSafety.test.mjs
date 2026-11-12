@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm} from 'node:fs/promises';import {resolve} from 'node:path';import {pathToFileURL} from 'node:url';import {build} from 'esbuild';import {JSDOM} from 'jsdom';import React,{act} from 'react';
 const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});Object.assign(globalThis,{window:dom.window,document:dom.window.document,localStorage:dom.window.localStorage,IS_REACT_ACT_ENVIRONMENT:true});window.scrollTo=()=>{};
 const {createRoot}=await import('react-dom/client');const tmp=await mkdtemp(resolve('node_modules/.accounting-safety-'));const components={};
-for(const name of ['BankWorkspace','CommerceMoneyForm','Reports','ReorderWorkspace']){const outfile=resolve(tmp,name+'.mjs');await build({entryPoints:['src/'+name+'.jsx'],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','lucide-react']});components[name]=(await import(pathToFileURL(outfile))).default;}
+for(const name of ['BankWorkspace','CommerceMoneyForm','Reports','ReorderWorkspace','DayBook']){const outfile=resolve(tmp,name+'.mjs');await build({entryPoints:['src/'+name+'.jsx'],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','lucide-react']});components[name]=(await import(pathToFileURL(outfile))).default;}
 const response=data=>({ok:true,json:async()=>data});const label=text=>[...document.querySelectorAll('label')].find(x=>x.textContent.trim().startsWith(text));
 async function change(node,value){const proto=node.tagName==='SELECT'?window.HTMLSelectElement.prototype:window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(node,value);await act(async()=>node.dispatchEvent(new window.Event(node.tagName==='SELECT'?'change':'input',{bubbles:true})));}
 const submit=form=>form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));
@@ -39,5 +39,21 @@ test('reorder keeps saved purchase-order confirmation across refresh and scopes 
  await act(async()=>[...document.querySelectorAll('button')].find(x=>x.textContent==='Open purchase order PO-007').click());assert.equal(opened.id,'po-1');
  await act(async()=>[...document.querySelectorAll('button')].find(x=>x.textContent==='Refresh').click());assert.equal(reads,2);assert.match(document.body.textContent,/Purchase order PO-007 created/);assert.match(document.body.textContent,/Synthetic goods/);
  await act(async()=>render('b'));assert.doesNotMatch(document.body.textContent,/PO-007/);await act(async()=>root.unmount());
+});
+test('noncash Day book journal exposes debit and credit totals without inventing money movement',async()=>{
+ const root=createRoot(document.getElementById('root'));
+ const api=async()=>({count:1,totals:{sales:'0',purchases:'0',expenses:'0',money_in:'0',money_out:'0',net:'0'},rows:[{id:'j',kind:'journal',number:'MANUAL-100',name:'Noncash correction',amount:'100',debit_total:'100',credit_total:'100',posted:true,money_in:'0',money_out:'0'}]});
+ await act(async()=>root.render(React.createElement(components.DayBook,{companyId:'a',records:[],api,labels:{},onOpen:()=>{}})));
+ const row=document.querySelector('tbody tr');assert.match(row.textContent,/Noncash correction/);assert.match(row.textContent,/Debit ₹100.00 · Credit ₹100.00/);
+ assert.equal(row.children[3].textContent,'');assert.equal(row.children[4].textContent,'');await act(async()=>root.unmount());
+});
+test('item activity and party statements explain their quantity and opening-balance basis',async()=>{
+ globalThis.fetch=async()=>response({rows:[{id:'doc',kind:'sales_invoice',name:'Synthetic movement',hsn:'',opening_quantity:'0',purchased_quantity:'7',sold_quantity:'1',closing_quantity:'6',sales_value:'80'}],opening_receivable:'1500',opening_payable:'0',closing_receivable:'1500',closing_payable:'0'});
+ const root=createRoot(document.getElementById('root'));await act(async()=>root.render(React.createElement(components.Reports,{companyId:'a',records:[]})));
+ await act(async()=>[...document.querySelectorAll('button')].find(x=>x.textContent.includes('Sales register')).click());
+ await change(label('Report').querySelector('select'),'items');
+ assert.match(document.body.textContent,/NET THROUGH END DATE/);assert.match(document.body.textContent,/not stock on hand/);assert.doesNotMatch(document.querySelector('thead').textContent,/CLOSING|OPENING/);
+ await change(label('Report').querySelector('select'),'parties');assert.match(document.body.textContent,/Posted opening balances and settlements are included/);assert.doesNotMatch(document.body.textContent,/until linked/);
+ await act(async()=>root.unmount());
 });
 test.after(async()=>{dom.window.close();await rm(tmp,{recursive:true,force:true});});

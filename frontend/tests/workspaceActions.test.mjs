@@ -242,3 +242,18 @@ test('older API disables new workflows while core invoice register remains usabl
   assert.equal(requests.filter(path=>path==='/api/capabilities').length,1);
  },[],null);
 });
+
+test('company GSTIN/state mismatch is actionable, announced and linked to both inputs',async()=>{
+ await workspace('owner',async({click,dom,requests})=>{
+  await click('Add company');
+  const field=text=>[...document.querySelectorAll('.modal label')].find(n=>n.textContent.trim().startsWith(text)).querySelector('input,select');
+  async function change(el,value){const proto=el.tagName==='SELECT'?dom.window.HTMLSelectElement.prototype:dom.window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(el,value);await act(async()=>el.dispatchEvent(new dom.window.Event(el.tagName==='SELECT'?'change':'input',{bubbles:true})));}
+  await change(field('Company name'),'Synthetic GST');await change(field('Tax registration'),'regular');await change(field('GSTIN'),'27ABCDE1234F1Z5');await change(field('State code'),'36');
+  const before=requests.filter(p=>p==='/api/companies').length;
+  await act(async()=>document.querySelector('.modal form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})));
+  const alert=document.querySelector('#company-validation-error');assert.equal(alert.getAttribute('role'),'alert');assert.match(alert.textContent,/27.*36.*Correct/);
+  for(const name of ['GSTIN','State code']){assert.equal(field(name).getAttribute('aria-invalid'),'true');assert.equal(field(name).getAttribute('aria-describedby'),alert.id);}
+  assert.equal(document.activeElement,field('State code'));assert.equal(requests.filter(p=>p==='/api/companies').length,before);
+  await change(field('State code'),'27');assert.equal(field('State code').hasAttribute('aria-invalid'),false);assert.equal(document.querySelector('#company-validation-error'),null);
+ });
+});

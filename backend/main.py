@@ -2467,7 +2467,8 @@ def item_report(company_id: str, from_date: DateType, to_date: DateType, user: U
             qty = Decimal(str(line.get('quantity', 0))) if record.data.get('return_stock') is not False else Decimal('0')
             taxable = Decimal(str(line.get('taxable', 0)))
             movement = qty if record.kind in {'purchase_bill', 'credit_note'} else -qty
-            # Services and untracked goods have no stock position; only tracked items carry opening/closing quantity.
+            # These legacy quantity keys represent document movement, not stock on hand.
+            # Stock introductions and adjustments are intentionally in the tracked-stock report.
             carries_stock = line.get('item_id') in tracked_items
             if record.date < from_date:
                 if carries_stock: item['opening_quantity'] += movement
@@ -2482,6 +2483,8 @@ def item_report(company_id: str, from_date: DateType, to_date: DateType, user: U
                     item['sold_quantity'] -= qty; item['sales_value'] -= taxable
             if carries_stock: item['closing_quantity'] += movement
     return {'from_date': from_date.isoformat(), 'to_date': to_date.isoformat(),
+            'quantity_basis':'purchase_sales_documents_only',
+            'quantity_note':'Document movement only; excludes stock introductions and adjustments. Use tracked stock for on-hand quantities.',
             'rows': [{**item, **{field: str(item[field]) for field in ('opening_quantity', 'purchased_quantity', 'sold_quantity', 'closing_quantity', 'purchase_value', 'sales_value')}}
                      for item in sorted(values.values(), key=lambda row: (row['name'].casefold(), row['hsn']))]}
 
@@ -2491,7 +2494,7 @@ def export_items(company_id: str, fmt: str, from_date: DateType, to_date: DateTy
     data = item_report(company_id, from_date, to_date, user, session)
     keys = ('name', 'hsn', 'opening_quantity', 'purchased_quantity', 'sold_quantity', 'closing_quantity', 'purchase_value', 'sales_value')
     rows = [[row[key] for key in keys] for row in data['rows']]
-    return export_table(company.name, f"Item activity {from_date} to {to_date}", ['Item', 'HSN/SAC', 'Opening', 'Purchased', 'Sold', 'Closing', 'Purchase value', 'Sales value'], rows, fmt, 'item-activity')
+    return export_table(company.name, f"Purchase/sales document movement {from_date} to {to_date}", ['Item', 'HSN/SAC', 'Net before period', 'Purchased net', 'Sold net', 'Net through end date', 'Purchase value', 'Sales value'], rows, fmt, 'item-activity')
 
 @app.get('/api/companies/{company_id}/reports/stock')
 def stock_report(company_id: str, from_date: DateType, to_date: DateType, user: User = Depends(current_user), session: Session = Depends(db)):

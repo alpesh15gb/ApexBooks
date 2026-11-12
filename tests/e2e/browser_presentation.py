@@ -231,6 +231,28 @@ with sync_playwright() as p:
                 const range = document.createRange(); range.selectNodeContents(n);
                 return range.getBoundingClientRect().width <= n.clientWidth + 1;
             })'''), f'A financial amount is clipped at {width}px'
+        navigate('Reports')
+        page.locator('.report-choice').filter(has=page.get_by_text('Party statement',exact=True)).click()
+        for width in (1200,768,390,320):
+            page.set_viewport_size({'width':width,'height':790})
+            fields=page.locator('.report-workbench-filters input, .report-workbench-filters select')
+            assert fields.evaluate_all('''nodes => nodes.every((n,i) => {const a=n.getBoundingClientRect();return a.width>=160 && a.left>=0 && a.right<=innerWidth+1 && nodes.every((m,j)=>{if(i===j)return true;const b=m.getBoundingClientRect();return a.right<=b.left+1||b.right<=a.left+1||a.bottom<=b.top+1||b.bottom<=a.top+1;});})'''), 'Report controls must remain wide, visible and non-overlapping'
+            page.screenshot(path=str(ARTIFACTS/f'party-report-controls-{width}.png'))
+        # CSS viewport equivalents of high zoom and short landscape screens.
+        for width,height in ((320,200),(303,199)):
+            page.set_viewport_size({'width':width,'height':height})
+            page.get_by_role('button',name='Open menu',exact=True).click()
+            drawer=page.get_by_role('dialog',name='Workspace navigation',exact=True)
+            nav=drawer.get_by_role('navigation',name='Main navigation',exact=True)
+            assert nav.bounding_box()['height']>0, 'Short drawer must not collapse navigation'
+            buttons=nav.locator('button:visible')
+            for button in (buttons.first,buttons.last):
+                button.scroll_into_view_if_needed()
+                bounds=button.bounding_box()
+                assert bounds['y']>=0 and bounds['y']+bounds['height']<=height+1, 'Navigation control must scroll into view'
+            page.screenshot(path=str(ARTIFACTS/f'short-drawer-{width}x{height}.png'))
+            drawer.get_by_role('button',name='Close',exact=True).click()
+            expect(drawer).to_have_count(0)
         assert not errors, errors
         violations = [r for r in reports if r['violations']]
         assert not violations, json.dumps(violations, indent=2)

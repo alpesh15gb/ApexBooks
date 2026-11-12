@@ -582,8 +582,8 @@ export default function Reports({ companyId, records }) {
             </div>
           </section>
           <div className="info-box">
-            Party names are matched by text. Use consistent names until linked
-            party IDs and opening balances are added.
+            Party names are matched by text. Posted opening balances and settlements are included;
+            activity before the selected start date forms the opening balance.
           </div>
         </>
       )}
@@ -769,10 +769,10 @@ export default function Reports({ companyId, records }) {
                 <thead>
                   <tr>
                     <th>ITEM / HSN</th>
-                    <th className="right">OPENING</th>
-                    <th className="right">PURCHASED</th>
-                    <th className="right">SOLD</th>
-                    <th className="right">CLOSING</th>
+                    <th className="right">NET BEFORE PERIOD</th>
+                    <th className="right">PURCHASED NET</th>
+                    <th className="right">SOLD NET</th>
+                    <th className="right">NET THROUGH END DATE</th>
                     <th className="right">SALES VALUE</th>
                   </tr>
                 </thead>
@@ -800,9 +800,9 @@ export default function Reports({ companyId, records }) {
             </div>
           </section>
           <div className="info-box">
-            Quantities are grouped by item description and HSN/SAC. Services
-            appear here too. Use the tracked stock report for controlled
-            quantities and moving-average cost value.
+            Purchase/sales document movement only, grouped by description and HSN/SAC.
+            Stock introductions and adjustments are excluded; these net quantities are not stock on hand.
+            Use the tracked stock report for on-hand quantities and moving-average cost value.
           </div>
         </>
       )}

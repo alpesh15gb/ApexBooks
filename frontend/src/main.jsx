@@ -338,6 +338,8 @@ function CompanyModal({ close, save, features = [] }) {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const submitting = useRef(false);
+  const stateInput = useRef(null);
+  const [stateMismatch, setStateMismatch] = useState(false);
   const requestClose = () => { if (!submitting.current) close(); };
   async function submit(e) {
     e.preventDefault();
@@ -345,7 +347,14 @@ function CompanyModal({ close, save, features = [] }) {
     submitting.current = true;
     setBusy(true);
     setError("");
+    setStateMismatch(false);
     try {
+      if (form.tax_mode !== "unregistered" && /^\d{2}/.test(form.gstin) && form.state_code && form.gstin.slice(0, 2) !== form.state_code) {
+        setStateMismatch(true);
+        setError(`GSTIN starts with state code ${form.gstin.slice(0, 2)}, but State code is ${form.state_code}. Correct the GSTIN or State code so they match.`);
+        stateInput.current?.focus();
+        return;
+      }
       const { book_label, ...legal } = form;
       await save({ ...legal, ...(supportsFeature(features,"company_book_labels") ? { book_label: book_label.trim() } : {}) });
     } catch (err) {
@@ -391,9 +400,11 @@ function CompanyModal({ close, save, features = [] }) {
             GSTIN <span className="muted">(required)</span>
             <input
               required={form.tax_mode !== "unregistered"}
+              aria-invalid={stateMismatch || undefined}
+              aria-describedby={stateMismatch ? "company-validation-error" : undefined}
               value={form.gstin}
               onChange={(e) =>
-                setForm({ ...form, gstin: e.target.value.toUpperCase() })
+                (setForm({ ...form, gstin: e.target.value.toUpperCase() }), setStateMismatch(false), setError(""))
               }
               placeholder="15-character GSTIN"
             />
@@ -404,8 +415,11 @@ function CompanyModal({ close, save, features = [] }) {
           <input
             required={form.tax_mode !== "unregistered"}
             pattern="[0-9]{2}"
+            ref={stateInput}
+            aria-invalid={stateMismatch || undefined}
+            aria-describedby={stateMismatch ? "company-validation-error" : undefined}
             value={form.state_code}
-            onChange={(e) => setForm({ ...form, state_code: e.target.value })}
+            onChange={(e) => { setForm({ ...form, state_code: e.target.value }); setStateMismatch(false); setError(""); }}
             placeholder="e.g. 27"
           />
         </label>
@@ -417,7 +431,7 @@ function CompanyModal({ close, save, features = [] }) {
             placeholder="Business address"
           />
         </label>
-        {error && <div className="error full">{error}</div>}
+        {error && <div id="company-validation-error" className="error full" role="alert">{error}</div>}
         <div className="modal-actions full">
           <button type="button" className="button secondary" onClick={requestClose} disabled={busy}>
             Cancel
