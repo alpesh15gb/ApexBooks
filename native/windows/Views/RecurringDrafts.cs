@@ -117,20 +117,24 @@ public sealed partial class MainPage
             if(result.Text("id")!=id||!FeatureCatalog.Drafts.Contains(result.Text("kind")))throw new ApiFailure(409,"The saved record needs review in the document list.");
             fresh=result;
         }
-        try{await Reload();}
-        catch(OperationCanceledException){throw;}
-        catch(Exception error){
-            if(!Current())return;
-            var panel=Stack(12);panel.Children.Add(Text("Draft "+reference+" is saved. No invoice or stock posting occurred. Do not generate another occurrence to recover it.",16,true));
-            panel.Children.Add(Text("The saved draft could not be opened: "+error.Message,13));
-            panel.Children.Add(Text("Refresh and open only reads company data and this saved draft. You can also cancel and find it later in its document list.",13));
-            if(!await Dialog("Scheduled draft saved · review pending",panel,async()=>{
-                try{await Reload();}catch(OperationCanceledException){throw;}catch(Exception retryError){if(Current())throw new ApiFailure((retryError as ApiFailure)?.Status??0,"Draft "+reference+" remains saved. Refresh/open failed; no occurrence was generated again. "+retryError.Message);}
-            },"Refresh and open saved draft",canSave:Current))return;
+        while(Current()){
+            try{
+                fresh=null;await Reload();if(!Current()||fresh is null)return;
+                if(CanWrite&&!fresh.Flag("cancelled")&&fresh.Text("converted_to").Length==0)await EditDocument(fresh.Text("kind"),previous:fresh);
+                else await TransactionDetails(fresh);
+                return;
+            }
+            catch(OperationCanceledException){throw;}
+            catch(Exception error){
+                if(!Current())return;
+                var panel=Stack(12);panel.Children.Add(Text("Draft "+reference+" is saved. No invoice or stock posting occurred. Do not generate another occurrence to recover it.",16,true));
+                panel.Children.Add(Text("The saved draft could not be opened: "+error.Message,13));
+                panel.Children.Add(Text("Refresh and open only reads company data and this saved draft. You can also cancel and find it later in its document list.",13));
+                // Close this dialog before opening the editor/details ContentDialog.
+                if(!await Dialog("Scheduled draft saved · review pending",panel,()=>Task.CompletedTask,
+                    "Refresh and open saved draft",canSave:Current))return;
+            }
         }
-        if(!Current()||fresh is null)return;
-        if(CanWrite&&!fresh.Flag("cancelled")&&fresh.Text("converted_to").Length==0)await EditDocument(fresh.Text("kind"),previous:fresh);
-        else await TransactionDetails(fresh);
     }
 
 }
