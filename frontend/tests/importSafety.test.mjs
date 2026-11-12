@@ -93,3 +93,24 @@ for(const sep of [',',';','\t'])test(`bank CSV preserves BOM quoted multiline de
  const text='\uFEFF'+['date','description','amount'].join(sep)+'\r\n'+['2026-11-12','"Receipt, with ""quote""\r\nnext line"','100'].join(sep)+'\r\n';const bytes=new TextEncoder().encode(text);
  try{await act(async()=>root.render(React.createElement(StatementImport,{file:{name:'valid.csv',size:bytes.length,arrayBuffer:async()=>bytes.buffer},companyId:'company',bankId:'bank',bankName:'Bank',api:async(path,options)=>{preview=JSON.parse(options.body);return{added:1,duplicates:0};},onClose:()=>{},onImported:()=>{}})));await click('Validate mapped rows');assert.equal(preview.dry_run,true);assert.equal(preview.lines[0].description,'Receipt, with "quote"\r\nnext line');assert.equal(preview.lines[0].amount,'100');}finally{await act(async()=>root.unmount());}
 });
+test('bank file replacement invalidates reviewed payload before failed replacement read',async()=>{
+ const root=createRoot(document.getElementById('root'));let commits=0;
+ const api=async(path,options)=>{const body=JSON.parse(options.body);if(!body.dry_run)commits++;return{added:1,duplicates:0};};
+ const base={companyId:'company',bankId:'bank',bankName:'Bank',api,onClose:()=>{},onImported:()=>{}};
+ const file=text=>({name:'bank.csv',size:text.length,arrayBuffer:async()=>new TextEncoder().encode(text).buffer});
+ try{
+ await act(async()=>root.render(React.createElement(StatementImport,{...base,file:file('date,description,amount\n2026-11-12,Original,100')})));await click('Validate mapped rows');assert.ok(button('Import 1 transactions'));
+ await act(async()=>root.render(React.createElement(StatementImport,{...base,file:file('date,description,amount\n2026-11-12,"Bad"junk,200')})));
+ assert.equal(!!button('Import 1 transactions'),false);assert.equal(button('Validate mapped rows').disabled,true);assert.equal(commits,0);
+ }finally{await act(async()=>root.unmount());}
+});
+test('old bank validation response cannot restore a preview after file replacement',async()=>{
+ const root=createRoot(document.getElementById('root'));let finish;
+ const base={companyId:'company',bankId:'bank',bankName:'Bank',api:async()=>new Promise(resolve=>{finish=resolve;}),onClose:()=>{},onImported:()=>{}};
+ const file=text=>({name:'bank.csv',size:text.length,arrayBuffer:async()=>new TextEncoder().encode(text).buffer});
+ try{
+ await act(async()=>root.render(React.createElement(StatementImport,{...base,file:file('date,description,amount\n2026-11-12,Original,100')})));await click('Validate mapped rows');
+ await act(async()=>root.render(React.createElement(StatementImport,{...base,file:file('date,description,amount\n2026-11-12,"Bad"junk,200')})));
+ await act(async()=>finish({added:1,duplicates:0}));assert.equal(!!button('Import 1 transactions'),false);assert.equal(button('Validate mapped rows').disabled,true);
+ }finally{await act(async()=>root.unmount());}
+});

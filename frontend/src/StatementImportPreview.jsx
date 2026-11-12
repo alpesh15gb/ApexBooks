@@ -136,11 +136,17 @@ export default function StatementImportPreview({
     [busy, setBusy] = useState(false),
     [payload, setPayload] = useState(null);
   const processing = useRef(false);
+  const context = useRef({file, companyId, bankId});
+  if (context.current.file !== file || context.current.companyId !== companyId || context.current.bankId !== bankId) context.current = {file, companyId, bankId};
+  const reviewedContext = useRef(null);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const posting = usePostingRequest();
   const locked = busy || posting.busy || posting.pending;
   const requestClose = () => { if (!processing.current && !posting.pending) onClose(); };
   useEffect(() => {
     let live = true;
+    reviewedContext.current = null; setTable([]); setReport(null); setPayload(null); setError("");
     if (file.size > 5_000_000) { setError("CSV exceeds 5 MB"); return; }
     file
       .arrayBuffer()
@@ -161,7 +167,7 @@ export default function StatementImportPreview({
     return () => {
       live = false;
     };
-  }, [file]);
+  }, [file, companyId, bankId]);
   const headers = table[header] || [];
   useEffect(() => {
     const next = {};
@@ -222,6 +228,7 @@ export default function StatementImportPreview({
   }, [table, header, mapping, format]);
   async function validate() {
     if (processing.current || posting.pending) return;
+    const owner = context.current;
     processing.current = true;
     setBusy(true);
     setError("");
@@ -232,17 +239,20 @@ export default function StatementImportPreview({
         method: "POST",
         body: JSON.stringify({ ...body, dry_run: true }),
       });
+      if (!mounted.current || context.current !== owner) return;
+      reviewedContext.current = owner;
       setPayload(body);
       setReport(value);
     } catch (e) {
-      setError(e.message);
+      if (mounted.current && context.current === owner) setError(e.message);
     } finally {
       processing.current = false;
       setBusy(false);
     }
   }
   async function commit() {
-    if (processing.current || !payload || !report) return;
+    if (processing.current || !payload || !report || reviewedContext.current !== context.current) return;
+    const owner = context.current;
     processing.current = true;
     setBusy(true);
     setError("");
@@ -251,11 +261,11 @@ export default function StatementImportPreview({
         method: "POST",
         body: JSON.stringify(payload),
       }));
-      if (!result) return;
+      if (!result || !mounted.current || context.current !== owner) return;
       await onImported(result.value);
-      onClose();
+      if (mounted.current && context.current === owner) onClose();
     } catch (e) {
-      setError(e.message);
+      if (mounted.current && context.current === owner) setError(e.message);
     } finally {
       processing.current = false;
       setBusy(false);

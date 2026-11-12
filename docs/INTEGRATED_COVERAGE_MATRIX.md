@@ -965,3 +965,24 @@ Bank-specific header selection and manual column mapping remain supported; this
 is not a claim that every bank CSV layout or encoding is accepted. Native bank
 parser parity and actual browser file-picker acceptance remain open. No real
 bank records, production access, publication retry or deployment.
+
+### Native bank CSV parity and web replacement invalidation (2026-11-12)
+
+Compiled production Csv.kt and Csv.cs against shared bank-specific vectors:
+malformed post-quote/bare quote/unclosed input and invalid UTF-8 reject; BOM,
+quoted commas/doubled quotes/CRLF, leading-zero reference, CR/LF/CRLF endings,
+and signed receipt/payment amounts preserve expected values. Both passed. The
+native parsers already enforced strict syntax; no parser rewrite was needed.
+Native bank screens now disclose UTF-8 comma-separated format. Web additionally
+supports tab/semicolon detection. These are compiled parser tests, not full
+WinUI/Compose file-picker acceptance.
+
+Independent review's web replacement finding reproduced: a reviewed valid file
+followed by malformed replacement retained the old enabled import. The file effect
+now invalidates table/report/payload before reading. A synchronous context identity
+also gates commit and delayed validation/commit publication after file/bank/company
+changes. Twelve rendered import tests pass, including failed replacement and late
+old validation response. Lint/build/bundle checks pass. Normal pointer reachability
+through the modal is unverified; this is a confirmed component replacement defect.
+Unknown in-flight writes still require original-command recovery; this change does
+not introduce durable bank import receipts. No production or publication retry.
