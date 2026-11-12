@@ -18,7 +18,15 @@ if ! docker compose exec -T db pg_restore --list < "$backup" >/dev/null; then
   echo 'Backup is not a valid PostgreSQL archive' >&2
   exit 1
 fi
-trap 'docker compose start api web' EXIT
-docker compose stop api web
-docker compose exec -T db pg_restore --clean --if-exists --no-owner --single-transaction -U apex -d apex < "$backup"
+# Never resume writers automatically: successful data restore alone does not
+# establish application/schema compatibility or account for external writers.
+if ! docker compose stop api web; then
+  echo 'Could not confirm api/web stopped. Restore was not attempted. No automatic restart; verify and pause every writer before recovery.' >&2
+  exit 1
+fi
+if ! docker compose exec -T db pg_restore --clean --if-exists --no-owner --single-transaction -U apex -d apex < "$backup"; then
+  echo 'Database restore failed. api/web remain stopped; keep all writers paused and review the recovery plan. No automatic restart was attempted.' >&2
+  exit 1
+fi
 echo "Restore completed from: $backup"
+echo 'api/web remain stopped. Verify restored books, schema/application compatibility and readiness before an operator-controlled restart. Keep external writers paused until validation completes.'

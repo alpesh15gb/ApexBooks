@@ -1336,3 +1336,25 @@ and synthetic data deleted after success. Limits: small fixture, no commerce row
 no concurrent writers or actual operator pause, and snapshot recovery intentionally
 discards post-upgrade changes. This is not an in-place reverse migration or proof
 of production recoverability. No production, publication retry or deployment.
+
+### Restore writer-pause failure handling (2026-11-12)
+
+A fake-Docker regression reproduced restore.sh restarting api/web after a failed
+stop command through its unconditional EXIT trap. The same trap also applied to
+restore failures. Removed automatic restart entirely: stop failure prevents the
+database command; restore failure leaves stopped writers paused; successful
+restore also requires operator validation before resuming writers. This avoids
+treating successful data restore alone as application/schema readiness. External
+writers still require separate operator identification and pause. Target guard
+and transactional pg_restore behavior are retained.
+
+Passed simulated plain backup/restore checks including stop and restore failures,
+real-age encrypted checks with fake database/remote including restore failure,
+nine target-guard tests and shell syntax checks. Red reproduction and green logs
+are docs/evidence/restore-writer-pause-*.log. SECURE_BACKUP.md now explains that
+api/web are never restarted automatically. This changes operator behavior after
+success too: resume only through the reviewed recovery procedure.
+
+No actual services were stopped or started, no production commands executed, and
+no publication retry or deployment occurred. These command-level tests do not
+verify a real writer inventory, operator freeze or production recoverability.

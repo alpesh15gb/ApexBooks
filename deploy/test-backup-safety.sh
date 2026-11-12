@@ -17,8 +17,8 @@ case "$*" in
   'compose exec -T api python -c '*) exit 0 ;;
   *'pg_dump'*) if [[ "${TEST_FAIL_DUMP:-0}" == 1 ]]; then printf 'partial'; exit 1; fi; printf 'synthetic-archive' ;;
   *'pg_restore --list'*) [[ "${TEST_INVALID_ARCHIVE:-0}" != 1 ]] && [[ "$(cat)" == 'synthetic-archive' ]] ;;
-  *'pg_restore --clean'*) [[ "$*" == *'--single-transaction'* ]] && cat > "$TEST_WORK/restored" ;;
-  *'stop api web'*) touch "$TEST_WORK/stopped" ;;
+  *'pg_restore --clean'*) [[ "${TEST_FAIL_RESTORE:-0}" != 1 ]] || exit 21; [[ "$*" == *'--single-transaction'* ]] && cat > "$TEST_WORK/restored" ;;
+  *'stop api web'*) [[ "${TEST_FAIL_STOP:-0}" != 1 ]] || exit 13; touch "$TEST_WORK/stopped" ;;
   *'start api web'*) touch "$TEST_WORK/started" ;;
   *) exit 1 ;;
 esac
@@ -46,6 +46,14 @@ if TEST_INVALID_ARCHIVE=1 RESTORE_CONFIRM=REPLACE_APEX_DATABASE bash deploy/rest
   echo 'Expected invalid archive failure' >&2; exit 1
 fi
 [[ ! -e "$work/stopped" ]]
+for failure in TEST_FAIL_STOP TEST_FAIL_RESTORE; do
+  rm -f -- "$work/stopped" "$work/started" "$work/restored"
+  if env "$failure=1" RESTORE_CONFIRM=REPLACE_APEX_DATABASE bash deploy/restore.sh "${backup[0]}" > "$work/output" 2> "$work/error"; then
+    echo "Expected restore failure: $failure" >&2; exit 1
+  fi
+  if [[ -e "$work/started" ]]; then echo "Unsafe writer restart after $failure" >&2; exit 1; fi
+  [[ ! -e "$work/restored" ]]
+done
 RESTORE_CONFIRM=REPLACE_APEX_DATABASE bash deploy/restore.sh "${backup[0]}" > "$work/output"
-[[ "$(cat "$work/restored")" == 'synthetic-archive' && -e "$work/stopped" && -e "$work/started" ]]
+[[ "$(cat "$work/restored")" == 'synthetic-archive' && -e "$work/stopped" && ! -e "$work/started" ]]
 echo 'Backup and transactional restore safety checks passed with a simulated database.'

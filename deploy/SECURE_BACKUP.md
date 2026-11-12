@@ -48,7 +48,7 @@ APEX_RESTORE_IDENTITY_FILE=/secure/recovery-identity.txt \
 bash deploy/restore-secure.sh /path/to/apex-backup.dump.age
 ```
 
-The script decrypts to a private temporary directory, verifies the PostgreSQL archive can be listed, then calls `restore.sh`. That script stops the application and restores inside one PostgreSQL transaction. The temporary plaintext is removed on normal exit; a forced kill or machine crash can leave it behind. Set `APEX_RESTORE_TEMP_DIR` to a suitably protected filesystem with enough free space, and check it after an interrupted restore.
+The script decrypts to a private temporary directory, verifies the PostgreSQL archive can be listed, then calls `restore.sh`. That script stops the application and restores inside one PostgreSQL transaction. It never automatically restarts `api` or `web`, on success or failure. If stopping fails, no restore is attempted. After a successful restore, keep every writer paused while checking restored balances, attachment access, schema/application compatibility and readiness; resume only through the reviewed operator procedure. A failed restore also leaves these services stopped for investigation. External writers are not stopped by this helper. The temporary plaintext is removed on normal exit; a forced kill or machine crash can leave it behind. Set `APEX_RESTORE_TEMP_DIR` to a suitably protected filesystem with enough free space, and check it after an interrupted restore.
 
 Review the recovered companies, balances and a sample document. Record the recovery time and repeat the drill periodically. Backups created by the older `backup.sh` are unencrypted and need separate handling.
 

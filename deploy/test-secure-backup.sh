@@ -19,7 +19,7 @@ case "$*" in
   'compose exec -T api python -c '*) exit 0 ;;
   *'pg_dump'*) if [[ "${TEST_FAIL_DUMP:-0}" == 1 ]]; then printf 'partial'; exit 1; fi; printf 'synthetic-postgres-archive' ;;
   *'pg_restore --list'*) [[ "$(cat)" == 'synthetic-postgres-archive' ]] ;;
-  *'pg_restore --clean'*) cat > "$TEST_WORK/restored" ;;
+  *'pg_restore --clean'*) [[ "${TEST_FAIL_RESTORE:-0}" != 1 ]] || exit 21; cat > "$TEST_WORK/restored" ;;
   *'stop api web'*) touch "$TEST_WORK/stopped" ;;
   *'start api web'*) touch "$TEST_WORK/started" ;;
   *) exit 1 ;;
@@ -65,6 +65,10 @@ if RESTORE_CONFIRM=REPLACE_APEX_DATABASE APEX_RESTORE_IDENTITY_FILE="$work/other
   echo 'Expected wrong identity to fail' >&2; exit 1
 fi
 [[ ! -e "$work/stopped" ]]
+if TEST_FAIL_RESTORE=1 RESTORE_CONFIRM=REPLACE_APEX_DATABASE APEX_RESTORE_IDENTITY_FILE="$work/key" bash deploy/restore-secure.sh "${backup[0]}" > "$work/output" 2> "$work/error"; then
+  echo 'Expected database restore failure' >&2; exit 1
+fi
+[[ -e "$work/stopped" && ! -e "$work/started" && ! -e "$work/restored" ]]
 RESTORE_CONFIRM=REPLACE_APEX_DATABASE APEX_RESTORE_IDENTITY_FILE="$work/key" bash deploy/restore-secure.sh "${backup[0]}" > "$work/output"
-[[ "$(cat "$work/restored")" == 'synthetic-postgres-archive' && -e "$work/stopped" && -e "$work/started" ]]
+[[ "$(cat "$work/restored")" == 'synthetic-postgres-archive' && -e "$work/stopped" && ! -e "$work/started" ]]
 echo 'Secure backup and restore flow passed with simulated database and remote storage.'
