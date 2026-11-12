@@ -1,3 +1,4 @@
+import JournalSource from './JournalSource.jsx';
 import SessionBoundary from './SessionBoundary.jsx';
 import {acceptLocalSession, requireCurrentSession} from './sessionScope.js';
 import {sessionFetch as fetch} from './sessionScope.js';
@@ -1208,7 +1209,7 @@ function App() {
           ) : page === "reorder" ? (
             <ReorderWorkspace key={companyId} companyId={companyId} role={company.role} api={api} createdOrder={reorderCreated} onOpenOrder={beginDetail} onReview={startReorder} onBack={() => navigateWorkspace("item")} />
           ) : page === "ledger" ? (
-            <Ledger key={companyId} companyId={companyId} role={company?.role} />
+            <Ledger key={companyId} companyId={companyId} role={company?.role} onOpen={beginDetail} />
           ) : page === "bank_account" ? (
             <BankWorkspace
               key={companyId}
@@ -2090,7 +2091,7 @@ function Members({ companyId, role }) {
   );
 }
 
-function Ledger({ companyId, role }) {
+function Ledger({ companyId, role, onOpen }) {
   const canWrite = ["owner", "editor"].includes(role);
   const submitting = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -2388,7 +2389,7 @@ function Ledger({ companyId, role }) {
         {journals.length ? (
           journals.map((j) => (
             <div className="journal-entry" key={j.id}>
-              <strong>{j.reference}</strong>
+              <JournalSource journal={j} onOpen={onOpen} />
               <span>
                 {j.date} {j.memo && ` · ${j.memo}`}
                 {j.reversed_by

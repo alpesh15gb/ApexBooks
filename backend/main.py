@@ -2029,7 +2029,20 @@ def list_journals(company_id: str, user: User = Depends(current_user), session: 
     originals = {link.original_id: link.reversal_id for link in links}
     reversals = {link.reversal_id: link.original_id for link in links}
     source = {p.journal_id: p.record_id for p in session.scalars(select(RecordPosting).where(RecordPosting.company_id == company_id))}
-    return [{'id': j.id, 'date': j.date.isoformat(), 'reference': j.reference, 'memo': j.memo, 'source_record_id': source.get(j.id), 'reversed_by': originals.get(j.id), 'reversal_of': reversals.get(j.id), 'lines': [{'account_id': l.account_id, 'debit': str(l.debit), 'credit': str(l.credit)} for l in session.scalars(select(JournalLine).where(JournalLine.company_id == company_id, JournalLine.journal_id == j.id))]} for j in entries]
+    source_records = {r.id: {'id': r.id, 'number': r.number, 'name': r.name, 'kind': r.kind, 'cancelled': bool(r.data.get('cancelled'))} for r in session.scalars(select(Record).join(RecordPosting, RecordPosting.record_id == Record.id).where(Record.company_id == company_id, RecordPosting.company_id == company_id))}
+    # Cancelled postings are removed; recover only an exact same-company reversal lineage.
+    journals_by_id = {j.id: j for j in entries}
+    for record in session.scalars(select(Record).where(Record.company_id == company_id, Record.data['cancelled'].as_string().is_not(None))):
+        cancelled = record.data.get('cancelled')
+        if not isinstance(cancelled, dict): continue
+        reversal_id = cancelled.get('journal_id')
+        original_id = reversals.get(reversal_id)
+        original, reversal = journals_by_id.get(original_id), journals_by_id.get(reversal_id)
+        if not original or not reversal or original.reference != 'AUTO:' + record.id or reversal.reference != 'CANCEL:' + record.id: continue
+        if original.date != record.date or reversal.date != record.date or original_id in source or reversal_id in source: continue
+        source[original_id] = source[reversal_id] = record.id
+        source_records[record.id] = {'id': record.id, 'number': record.number, 'name': record.name, 'kind': record.kind, 'cancelled': True}
+    return [{'id': j.id, 'date': j.date.isoformat(), 'reference': j.reference, 'memo': j.memo, 'source_record_id': source.get(j.id), 'source_document': source_records.get(source.get(j.id)), 'reversed_by': originals.get(j.id), 'reversal_of': reversals.get(j.id), 'lines': [{'account_id': l.account_id, 'debit': str(l.debit), 'credit': str(l.credit)} for l in session.scalars(select(JournalLine).where(JournalLine.company_id == company_id, JournalLine.journal_id == j.id))]} for j in entries]
 
 @app.post('/api/companies/{company_id}/journals/{journal_id}/reverse', status_code=201)
 def reverse_journal(company_id: str, journal_id: str, body: ReversalInput, user: User = Depends(current_user), session: Session = Depends(db)):

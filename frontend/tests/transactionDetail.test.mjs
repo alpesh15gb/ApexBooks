@@ -46,3 +46,19 @@ test('cancelled split allocations show historical amounts rather than active all
  const markup=renderToStaticMarkup(React.createElement(Detail,{record:{id:'payment',kind:'payment_in',number:'RC-1',amount:'100',cancelled:true,data:{cancelled:{reason:'Duplicate'}},document_trail:[{id:'invoice',kind:'sales_invoice',number:'INV-1',name:'Buyer',date:'2026-04-01',amount:'100',allocated_amount:null,historical_allocated_amount:'50',relations:['Cancelled allocation (history only)'],cancelled:false}]},records:[],company:{role:'viewer'},labels:{}}));
  assert.match(markup,/history only/);assert.match(markup,/₹50\.00/);assert.match(markup,/Cancelled allocation/);assert.doesNotMatch(markup,/>Allocated amount</);
 });
+
+test('totals bridge uses stored components including negative round off and does not recompute rates',()=>{
+ const markup=renderToStaticMarkup(React.createElement(Detail,{record:{kind:'sales_invoice',amount:'118',data:{taxable:'100.20',cgst:'9.02',sgst:'9.02',igst:'0',round_off:'-0.24',lines:[{description:'Stored',quantity:'1',rate:'999',taxable:'100.20',tax:'18.04'}]}},records:[],company:{role:'viewer'},labels:{}}));
+ assert.match(markup,/Subtotal after discounts/);assert.match(markup,/₹100\.20/);assert.match(markup,/CGST/);assert.match(markup,/SGST \/ UTGST/);assert.match(markup,/-₹0\.24/);assert.match(markup,/do not establish GST eligibility or filing status/);
+});
+test('legacy missing breakdown does not invent a tax subtotal',()=>{
+ const markup=renderToStaticMarkup(React.createElement(Detail,{record:{kind:'estimate',amount:'200',data:{lines:[{description:'Legacy',quantity:'1',rate:'200'}]}},records:[],company:{role:'viewer'},labels:{}}));
+ assert.match(markup,/breakdown are unavailable/);assert.doesNotMatch(markup,/Subtotal after discounts/);
+});
+test('stock opening and loss show saved quantity and reason without a payment trail or guessed unit cost',()=>{
+ for(const [kind,data,expected] of [['stock_opening',{quantity:'10',unit:'pcs',unit_cost:'80'},/10 pcs/],['stock_adjustment',{quantity:'5',unit:'pcs',direction:'loss',reason:'Damaged',unit_cost:null},/−5 pcs/]]) {
+ const markup=renderToStaticMarkup(React.createElement(Detail,{record:{kind,name:'Synthetic item',amount:'800',posted:true,data},records:[],company:{role:'viewer'},labels:{}}));
+ assert.match(markup,expected);assert.doesNotMatch(markup,/Payment &amp; document trail/);assert.match(markup,/not a payment/);
+ if(kind==='stock_opening')assert.match(markup,/₹80\.00/);else{assert.match(markup,/Not separately recorded/);assert.match(markup,/Reason: Damaged/);}
+ }
+});
