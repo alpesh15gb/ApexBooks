@@ -61,3 +61,18 @@ Catalogue/history/reconciliation commands use fixed payloads and existing in-mem
 command IDs for unchanged retries; this is not durable recovery. Connection setup,
 verification/state and mapping endpoints are separate mutations, and this batch
 does not add uncertain-outcome recovery or assert their end-to-end idempotency.
+
+## Connection creation with a lost response
+
+Connection creation returns its credential once. A synthetic API test confirms
+reposting the same store/channel returns 409, leaves one connection, and company
+list responses contain neither secret nor setup_secret. Other companies do not
+list that connection. Consequently, replay cannot recover a lost credential.
+
+The UI now locks creation after unknown/network, 408, 409 or 5xx outcomes and offers
+Check existing connections, which only reads the authorized company's list. A match
+is explicitly not credential recovery or proof of this particular request's outcome.
+No match is not proof the original request failed. Definitive 422 permits correction.
+This local lock is lost on reload/sign-out/workspace exit, and says so visibly.
+Secure credential recovery/rotation remains a separate administrator-reviewed design;
+this change does not decrypt, expose, rotate, delete or recreate a connection.

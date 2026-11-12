@@ -37,6 +37,19 @@ class CommerceTest(unittest.TestCase):
         with patch('commerce.remote', return_value={'protocol': 1, 'channel': self.tag, 'currency': 'INR'}):
             self.client.post(self.path + '/verify', headers=self.headers).raise_for_status()
         self.client.put(self.path + '/state', headers=self.headers, json={'status': 'active'}).raise_for_status()
+    def test_lost_connection_setup_response_cannot_be_recovered_by_reposting(self):
+        body={'name':'Synthetic lost setup','base_url':'http://127.0.0.1:18082','channel':self.tag+'-lost'}
+        first=self.client.post(self.base+'/commerce/connections',headers=self.headers,json=body)
+        self.assertEqual(first.status_code,201,first.text)
+        retry=self.client.post(self.base+'/commerce/connections',headers=self.headers,json=body)
+        self.assertEqual(retry.status_code,409,retry.text)
+        rows=self.client.get(self.base+'/commerce/connections',headers=self.headers).json()
+        matches=[r for r in rows if r['channel']==body['channel']]
+        self.assertEqual(len(matches),1)
+        self.assertNotIn('setup_secret',matches[0]);self.assertNotIn('secret',matches[0])
+        foreign=self.client.get('/api/companies/'+self.b+'/commerce/connections',headers=self.headers).json()
+        self.assertNotIn(first.json()['id'],{r['id'] for r in foreign})
+
     def test_workspace_window_is_not_authoritative_unknown_command_lookup(self):
         command={'command_id':'synthetic-lost-response','operation':'payment.capture','payload':{'source_id':'synthetic-reference','confirmed':True,'data':{'amount':'100'}}}
         first=self.client.post(self.path+'/commands',headers=self.headers,json=command)

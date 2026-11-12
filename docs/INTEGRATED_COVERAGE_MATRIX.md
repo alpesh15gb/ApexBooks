@@ -340,3 +340,14 @@ Thirty-six rendered tests passed, including invoice/cancellation success, unknow
 422 and post-success read-failure cases. Lint/build/bundle budgets passed.
 Recovery remains memory-only; non-command setup mutations and actual integration
 delivery remain separate gaps. No real store commands, publication or deployment.
+
+### Connection creation uncertain response
+
+Synthetic tests demonstrated the UI allowed another creation submit after unknown
+response. It now locks the original setup and provides a read-only connection check;
+existence does not recover the one-time credential, absence does not authorize replay.
+Thirty-nine rendered tests passed, including found/not-found recovery and corrective
+422 behavior. One isolated backend test passed for duplicate constraint, single-row
+result, secret-free lists and company isolation; no external store was contacted.
+Lint/build/bundle budgets passed. Secure credential recovery remains unimplemented,
+and the local warning/lock is memory-only. No publication retry or deployment.

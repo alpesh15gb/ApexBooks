@@ -72,6 +72,10 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
   if (!orderRecoveries.current.has(path)) orderRecoveries.current.set(path,createCommerceRecovery());
   const orderRecovery = orderRecoveries.current.get(path);
   const orderRecoveryState = useSyncExternalStore(orderRecovery.subscribe, orderRecovery.snapshot, orderRecovery.snapshot);
+  const setupRecoveries = useRef(new Map());
+  if (!setupRecoveries.current.has(root)) setupRecoveries.current.set(root,createCommerceRecovery());
+  const setupRecovery = setupRecoveries.current.get(root);
+  const setupRecoveryState = useSyncExternalStore(setupRecovery.subscribe, setupRecovery.snapshot, setupRecovery.snapshot);
   const send = async (operation, payload={}) => {
     const intent = JSON.stringify([path,operation,payload]);
     const id = pendingCommands.current.get(intent) || commandId();
@@ -115,8 +119,16 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
   }
   async function createConnection(event) {
     event.preventDefault();
+    if (!owner || setupRecovery.snapshot().request) return;
     await act(async (current) => {
-      const result = await api(root, {method:'POST', body:JSON.stringify(form)});
+      const original={...form};
+      let result;
+      try { result = await api(root, {method:'POST', body:JSON.stringify(original)}); }
+      catch(failure) {
+        if (failure.status==null||failure.status===0||failure.status===408||failure.status===409||failure.status>=500)
+          setupRecovery.update({request:original,uncertain:true,error:'The connection creation response is uncertain. Do not submit it again or change its store identity to bypass a duplicate warning.'});
+        throw failure;
+      }
       if (!current()) return;
       const {setup_secret: oneTimeSecret, ...safe} = result;
       setConnections(old => [...old, safe]); setSelected(result.id); setAdding(false);
@@ -124,6 +136,18 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
       // first; this dedicated state is set after React's connection refresh.
       pendingSetup.current = result;
     }, 'Connection created. Install the server bridge, then verify it.');
+  }
+  async function checkSetup() {
+    if (!owner || !setupRecovery.snapshot().request) return;
+    await act(async current => {
+      const rows = await api(root);
+      if (!current()) return;
+      setConnections(rows);
+      const original=setupRecovery.snapshot().request;
+      const match=rows.find(row=>row.base_url===original.base_url.replace(/\/+$/,'')&&row.channel===original.channel);
+      setupRecovery.update({error:match ? 'A connection with this store identity exists, but its one-time credential was not recovered. Ask the administrator to review secure setup recovery; do not create a replacement connection.' : 'No matching connection is visible yet. Absence from this list does not prove the original request failed. Keep the workspace open and check again; do not submit another creation request.'});
+      if (match && !selected) setSelected(match.id);
+    }, 'Existing connections checked. No creation request was sent.', false);
   }
   const pendingSetup = useRef(null);
   useEffect(() => {if(pendingSetup.current?.id === selected) {setSetup(pendingSetup.current); pendingSetup.current = null;}}, [selected]);
@@ -142,12 +166,13 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
     {notice && <div role="status" className="commerce-alert"><CheckCircle2 size={18}/>{notice}</div>}
     {tab !== 'payments' && (moneyRecoveryState.busy || moneyRecoveryState.uncertain) && <section className="commerce-alert" role="status"><div><strong>{moneyRecoveryState.busy ? 'Waiting for the original money command response.' : 'The original money command response is uncertain.'}</strong><p>Reference: {moneyRecoveryState.request?.payload.source_id || 'not supplied'}. Do not record it again.</p><p>Reloading, signing out or leaving Ecommerce clears local recovery. Keep this workspace open until the result is recovered.</p><button onClick={()=>setTab('payments')}>Review original money command</button></div></section>}
     {orderRecoveryState.request && <section className="commerce-alert" role="status"><div><strong>{orderRecoveryState.busy?'Waiting for the original order command response.':'The original order command response is uncertain.'}</strong><p>{orderRecoveryState.request.number} · {human(orderRecoveryState.request.operation)}. Do not record it again.</p><p>Reloading, signing out or leaving Ecommerce clears local recovery. Keep this workspace open until the result is recovered.</p>{orderRecoveryState.uncertain&&<button disabled={busy||orderRecoveryState.busy||!active||!canWrite} onClick={()=>queueOrder()}>Retry original order command</button>}</div></section>}
-    {adding && <form onSubmit={createConnection} className="commerce-card"><h3>Connect a Bagisto channel</h3><p>Each connection belongs to {company.name}. Use a separate channel and inventory source for another company.</p><div className="commerce-fields">
+    {setupRecoveryState.request && <section className="commerce-alert" role="status"><div><strong>Connection setup needs review</strong><p>{setupRecoveryState.error}</p><p>Reloading, signing out or leaving Ecommerce clears this local warning, not any connection already created. No credential is recovered by this check.</p><button disabled={busy||!owner} onClick={checkSetup}>Check existing connections</button></div></section>}
+    {adding && <form onSubmit={createConnection} className="commerce-card"><h3>Connect a Bagisto channel</h3><p>Each connection belongs to {company.name}. Use a separate channel and inventory source for another company.</p><fieldset disabled={busy||Boolean(setupRecoveryState.request)}><div className="commerce-fields">
       <Field label="Store name"><input required maxLength={100} value={form.name} onChange={e => setForm({...form,name:e.target.value})}/></Field>
       <Field label="Store HTTPS origin"><input required type="url" placeholder="https://shop.example.com" value={form.base_url} onChange={e => setForm({...form,base_url:e.target.value})}/></Field>
       <Field label="Bagisto channel code"><input required value={form.channel} onChange={e => setForm({...form,channel:e.target.value})}/></Field>
       <Field label="Gateway clearing account"><select value={form.gateway_bank_id} onChange={e => setForm({...form,gateway_bank_id:e.target.value})}><option value="default">Default bank clearing</option>{banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
-    </div><button className="primary" disabled={busy}>Create connection</button><button type="button" onClick={() => setAdding(false)}>Cancel</button></form>}
+    </div><button className="primary" disabled={busy||Boolean(setupRecoveryState.request)}>Create connection</button></fieldset><button type="button" onClick={() => setAdding(false)}>Cancel</button></form>}
     {setup && <section className="commerce-card commerce-setup"><h3><ShieldCheck size={19}/> Server bridge setup</h3><p>This credential is shown once. Save it in the Bagisto server configuration.</p><Field label="Connection ID"><input readOnly value={setup.id}/></Field><Field label="One-time connection secret"><input readOnly type="password" autoComplete="off" value={setup.setup_secret}/></Field><button onClick={() => navigator.clipboard.writeText(JSON.stringify({connection_id:setup.id,secret:setup.setup_secret,channel:setup.channel})).then(() => setNotice('Setup copied. Store it on your Bagisto server.')).catch(() => setError('Clipboard unavailable; select and copy the setup values.'))}>Copy server setup</button><button onClick={() => setSetup(null)}>I have saved this</button></section>}
     {!connections.length && !adding ? <div className="commerce-card"><Empty>Connect a Bagisto store to bring its orders, payments and stock into this company.</Empty></div> : <>
       <div className="commerce-store-bar"><Field label="Store channel"><select disabled={busy} value={selected} onChange={e => setSelected(e.target.value)}>{connections.map(c => <option key={c.id} value={c.id}>{c.name} · {c.channel}</option>)}</select></Field>
