@@ -4,7 +4,7 @@ import argparse,sys,tempfile
 root=Path(__file__).resolve().parents[3];sys.path.insert(0,str(root/'native/tests'))
 from kotlin_toolchain import add_arguments,run_proof
 p=argparse.ArgumentParser();add_arguments(p);args=p.parse_args()
-s=(root/'native/android/app/src/main/java/com/apexbooks/accounting/AppModel.kt').read_text();method=s[s.index('    suspend fun finishConfirmedImport('):s.index('    fun navigate(key:String)')]
+s=(root/'native/android/app/src/main/java/com/apexbooks/accounting/AppModel.kt').read_text();method=s[s.index('    suspend fun finishConfirmedImport('):s.index('    suspend fun finishConfirmedEntry(')]
 fixture='''import kotlinx.coroutines.*
 class ApiFailure(val status:Int,message:String):Exception(message)
 class Api{var signedIn=true;var epoch=0;fun captureSession():()->Unit{val stamp=epoch;return{check(epoch==stamp&&signedIn)}}}

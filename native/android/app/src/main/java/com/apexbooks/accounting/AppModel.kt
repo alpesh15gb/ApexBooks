@@ -121,6 +121,15 @@ class AppModel(application:Application):AndroidViewModel(application) {
             if(current())throw ApiFailure((e as? ApiFailure)?.status?:0,"$message The list could not refresh. Do not repeat the import; refresh the current company after access or connectivity is restored. ${e.message.orEmpty()}")
         }
     }
+    suspend fun finishConfirmedEntry(message:String) {
+        val id=companyId;val stamp=workspaceStamp();val session=api.captureSession();val requestedPage=page;val retainedEditor=editor
+        fun current()=inWorkspace(id,stamp)&&page==requestedPage&&editor===retainedEditor&&(runCatching{session();true}.getOrDefault(false)||!api.signedIn)
+        try{refresh();if(current())notice=message}
+        catch(e:Exception){
+            if(e is kotlinx.coroutines.CancellationException)throw e
+            if(current())throw ApiFailure((e as? ApiFailure)?.status?:0,"$message The company list could not refresh. Do not submit this saved entry again; use Refresh after access or connectivity is restored, then find it in its list. ${e.message.orEmpty()}")
+        }
+    }
     fun navigate(key:String){page=key;error="";notice=""}
     fun endLocalSession(){sessionGeneration++;apiVersion="unknown";apiBuildRevision="unknown";capabilityLimits=emptyMap();capabilityChecking=false;capabilityRetryable=false;supportedFeatures=emptySet();capabilitiesLoaded=false;capabilitiesRequest?.cancel();capabilitiesRequest=null;api.forget();signedIn=false;company=JSONObject();companies=emptyList();records=emptyList();banks=emptyList();recordsReady=false;editor=null;detail=null;statement=null;pdf=null;tool="";toolData=null;posDrafts.clear();recurringCommands.clear();toolDrafts.clear();attachmentDrafts.clear();backupDrafts.values.forEach{runCatching{it.localCleanup()}};backupDrafts.clear();companyForm=false;page="dashboard";error="";notice="";generation++;companyLoads++;refreshSequence++}
     suspend fun logout(){check(backupDrafts.values.none{it.pending.isNotBlank()} && attachmentDrafts.values.none{it.unresolved} && !toolDrafts.hasUnresolved && posDrafts.values.none{it.submission.unresolved} && recurringCommands.values.none{it.unresolved} && editor?.retryPending != true){"A save may already have posted. Return to the pending entry, recurring schedule, or held Point of Sale cart and retry the original save before signing out."};try{api.logout()}finally{endLocalSession()}}
