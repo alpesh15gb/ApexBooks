@@ -785,3 +785,16 @@ skipping but no durable operation receipt. Unknown commit outcomes and retries a
 concurrent master renames need separate recovery design; duplicate skipping alone
 must not be described as exact idempotent replay. This batch does not resolve that
 boundary. No publication retry or deployment.
+
+### Master import unknown-outcome investigation (2026-11-12)
+
+Correction to earlier concern: API master renaming rejects with 422, so a supported
+concurrent rename causing duplicate import was not reproduced. Active and archived
+master unchanged retries create zero additional records; one unittest/two synthetic
+lifecycle subcases pass. Name skipping still does not replay the original response
+or bind an operation key to a payload. No duplicate-posting exploit is claimed.
+
+See MASTER_IMPORT_RECOVERY_DESIGN.md for an explicit transactionally durable receipt
+contract, migration/client capability boundaries and required SQLite/PostgreSQL
+validation. This is a documented design, not completed receipt implementation.
+No production access, publication retry or deployment.
