@@ -15,18 +15,21 @@ export function shiftDay(day, by) {
 export default function DayBook({ companyId, records, api, labels, onOpen }) {
   const [day, setDay] = useState(businessDate);
   const [result, setResult] = useState(null);
-  const [error, setError] = useState("");
+  const [failure, setError] = useState(null);
+  const [attempt, setAttempt] = useState(0);
   const key = `${companyId}|${day}`;
-  const data = result?.key === key ? result.value : null;
+  const data = result?.key === key && result.records === records ? result.value : null;
+  const error = failure?.key === key ? failure.message : "";
   useEffect(() => {
     if (!companyId || !day) return;
     let active = true;
-    setError("");
+    setError(null);
+    setResult(null);
     api(`/companies/${companyId}/day-book?day=${encodeURIComponent(day)}`)
-      .then((value) => active && setResult({ key, value }))
-      .catch((err) => active && setError(err.message));
+      .then((value) => active && setResult({ key, value, records }))
+      .catch((err) => active && setError({key, message: err.message || "Could not load the day book."}));
     return () => { active = false; };
-  }, [companyId, day, records]);
+  }, [companyId, day, records, attempt]);
   const totals = data?.totals;
   const availableRecords = new Set(records.map(record => record.id));
   const open = (row) => {
@@ -47,9 +50,9 @@ export default function DayBook({ companyId, records, api, labels, onOpen }) {
         <div className="summary-card"><div className="summary-top">MONEY IN</div><strong className="positive">{totals ? rupees(totals.money_in) : "—"}</strong></div>
         <div className="summary-card"><div className="summary-top">MONEY OUT</div><strong className="negative">{totals ? rupees(totals.money_out) : "—"}</strong><small>{totals ? `Net ${rupees(totals.net)}` : ""}</small></div>
       </div>
-      {error && <div className="error banner">{error}</div>}
+      {error && <div><div className="error banner" role="alert">{error}</div><button type="button" className="button secondary" onClick={() => setAttempt(value => value + 1)}>Retry day book</button></div>}
       <section className="panel register day-book">
-        <div className="panel-header"><div><h2>Day book · {day}</h2><p>{data ? `${data.count} ${data.count === 1 ? "entry" : "entries"}` : "Loading…"} · cash and bank movement from posted entries</p></div></div>
+        <div className="panel-header"><div><h2>Day book · {day}</h2><p role="status">{data ? `${data.count} ${data.count === 1 ? "entry" : "entries"}` : error ? "Day book unavailable" : "Loading…"} · cash and bank movement from posted entries</p></div></div>
         {data && (
           <div className="table-wrap" tabIndex={0}>
             <table>

@@ -134,3 +134,26 @@ test('price requests reject stale errors and old choices across company, item an
   await act(async()=>root.unmount());
  }
 });
+test('day book announces failed reads and retries the selected day without stale totals',async()=>{
+ const DayBook=await component('DayBook');const root=createRoot(document.getElementById('root'));const pending=[];
+ const records=[];const props={companyId:'c1',records,labels:{},api:path=>new Promise((resolve,reject)=>pending.push({path,resolve,reject}))};
+ await act(async()=>root.render(React.createElement(DayBook,props)));
+ const day=document.querySelector('input[type=date]').value;
+ await act(async()=>pending[0].reject(Error('Synthetic day book failure')));
+ assert.ok(document.querySelector('[role=alert]'));assert.ok(!document.querySelector('.panel-header').textContent.includes('Loading'));
+ await act(async()=>button('Retry day book').click());assert.equal(pending[1].path,pending[0].path);assert.equal(document.querySelector('input[type=date]').value,day);
+ await act(async()=>pending[1].resolve({rows:[],count:0,totals:{sales:'100',purchases:'0',expenses:'0',money_in:'0',money_out:'0',net:'0'}}));assert.match(document.querySelector('.summary-card strong').textContent,/100/);
+ await act(async()=>root.render(React.createElement(DayBook,{...props,records:[{id:'changed'}]})));
+ assert.equal(document.querySelector('.summary-card strong').textContent,'—');await act(async()=>pending[2].reject(Error('Refresh failed')));assert.equal(document.querySelector('.summary-card strong').textContent,'—');
+ await act(async()=>root.unmount());
+});
+test('day book ignores obsolete failures after company changes',async()=>{
+ const DayBook=await component('DayBook');const root=createRoot(document.getElementById('root'));const pending=[];
+ const props={records:[],labels:{},api:path=>new Promise((resolve,reject)=>pending.push({path,resolve,reject}))};
+ await act(async()=>root.render(React.createElement(DayBook,{...props,companyId:'first'})));
+ await act(async()=>root.render(React.createElement(DayBook,{...props,companyId:'second'})));
+ await act(async()=>pending[1].resolve({rows:[],count:0,totals:{sales:'200',purchases:'0',expenses:'0',money_in:'0',money_out:'0',net:'0'}}));
+ await act(async()=>pending[0].reject(Error('Obsolete company failure')));
+ assert.equal(document.querySelector('[role=alert]'),null);assert.match(document.querySelector('.summary-card strong').textContent,/200/);assert.equal(button('Retry day book'),undefined);
+ await act(async()=>root.unmount());
+});

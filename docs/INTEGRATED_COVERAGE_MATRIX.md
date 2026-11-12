@@ -215,3 +215,14 @@ Day book's focusable button also preserves display_number when a future non-jour
 response provides it. Current backend only supplies display_number for journals;
 this is defensive compatibility, not a demonstrated current backend regression.
 No financial records were changed. Publication remains denied and was not retried.
+
+### Day book error and retry follow-up
+
+A rendered failure reproduced an unannounced error while the header continued to
+say Loading. Day book now announces errors, displays an unavailable state and offers
+Retry day book without changing the selected date. A record refresh invalidates old
+totals while awaiting its new result; failure cannot leave obsolete figures looking
+current. Obsolete company failures remain suppressed. Fourteen rendered everyday
+feature tests passed, including failure/retry, stale totals and company switching;
+frontend lint/build/bundle budgets passed. Browser/screen-reader acceptance remains
+open. No financial/API write, publication retry or deployment was performed.
