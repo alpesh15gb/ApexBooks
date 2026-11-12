@@ -207,11 +207,16 @@ export default function BackupRestore({ companyId, role, onRestored }) {
     }
   }
   async function restore() {
-    if (processing.current || !preview || !encoded) return;
+    if (role !== "owner" || processing.current || !preview || !encoded) return;
+    const current = exportScope.current.capture(), token = localStorage.token;
+    let verifyOwnership = () => {};
     processing.current = true;
     setBusy(true);
     setError("");
     try {
+      const verifySession = captureSession();
+      const access = captureCompanyAccess(`/api/companies/${companyId}`);
+      verifyOwnership = () => { verifySession(); access?.verify(); };
       if (!posting.pending) previewOwnership.current?.();
       const confirmed = await posting.run(async () => (
         await request("/backups/restore/commit", {
@@ -221,12 +226,14 @@ export default function BackupRestore({ companyId, role, onRestored }) {
         })
       ).json());
       if (!confirmed) return;
+      if (!current()) return;
+      verifyOwnership();
       const result = confirmed.value;
       setSuccess("Backup restored into a separate company.");
       setPreview(null);
       await onRestored?.(result.company_id);
     } catch (e) {
-      setError(e.message);
+      if (current() && localStorage.token === token) { try { verifyOwnership(); setError(e.message); } catch { /* Ignore obsolete restore errors. */ } }
     } finally {
       processing.current = false;
       setBusy(false);

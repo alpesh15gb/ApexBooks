@@ -707,3 +707,17 @@ components and fake file/crypto/network boundaries only; no real encryption or
 browser-picker acceptance claim. Full native builds/device checks and memory-only
 uncertain-operation durability remain open. Same-token session-generation concern
 has not been demonstrated as a real flow. No production, upload retry or deployment.
+
+### Legacy restore completion ownership (2026-11-12)
+
+Synthetic delayed commit responses reproduced five stale callback/error failures:
+a successful old restore could call onRestored after company changes, owner-role
+away/back, or unmount; errors could appear in replacement contexts. Completion now
+checks original context, session and access ownership before callbacks and feedback.
+Current owner operations retain normal completion; no automatic second POST occurs.
+
+Eight new rendered commit cases plus existing preview/export cases: 44 tests pass;
+ESLint, production build and bundle budgets pass. This covers dispatch-to-completion
+ownership, not context changes *inside* the parent's awaited onRestored callback.
+That callback's loadCompanies/navigation ordering remains a follow-up inspection.
+No real backup restore, production access, publication retry or deployment occurred.
