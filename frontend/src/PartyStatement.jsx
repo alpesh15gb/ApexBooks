@@ -1,3 +1,4 @@
+import {sessionFetch as fetch} from './sessionScope.js';
 import { businessDate } from './businessDate.js';
 import { supportsFeature } from "./capabilities.js";
 import CreditStatus from './CreditStatus.jsx';

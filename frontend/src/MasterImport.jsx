@@ -1,3 +1,4 @@
+import {sessionFetch as fetch} from './sessionScope.js';
 import React, {useEffect, useRef, useState} from 'react';
 import {downloadBlob} from './downloadBlob.js';
 import {registerPostingRequest} from './postingRegistry.js';

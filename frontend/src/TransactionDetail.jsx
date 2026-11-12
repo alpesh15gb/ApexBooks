@@ -1,3 +1,4 @@
+import {sessionFetch as fetch} from './sessionScope.js';
 import React, { useRef, useState } from 'react';
 import DocumentAttachments from './DocumentAttachments.jsx';
 import { hasPendingPostings } from './postingRegistry.js';

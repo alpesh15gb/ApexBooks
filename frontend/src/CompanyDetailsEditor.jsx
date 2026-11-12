@@ -1,3 +1,4 @@
+import {sessionFetch as fetch} from './sessionScope.js';
 import { supportsFeature, companyUpdatePayload } from "./capabilities.js";
 import React, { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
