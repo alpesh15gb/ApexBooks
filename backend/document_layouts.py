@@ -84,6 +84,7 @@ def render_document(record, supplier, branding, template, title, paid=Decimal('0
         contact = [p(party_label,bold),p(record.name,bold),p(data.get('party_phone','')),p(('GSTIN '+data['party_gstin']) if data.get('party_gstin') else '')]
         billing = [p('Billing address',bold),p(data.get('party_address',''))]
         elements.append(table([[contact,billing,shipping]],[width/3]*3))
+    if getattr(record, 'source_reference', ''): elements.append(p(record.source_reference))
     if tax_mode == 'composition': elements.append(p('Composition taxable person, not eligible to collect tax on supplies', bold))
     if not grid and template != 'elegant' and tax_mode == 'regular': elements.append(p('Place of supply: ' + str(data.get('place_of_supply') or '—'), bold))
     elements.append(Spacer(1, 9))
@@ -223,6 +224,7 @@ def render_thermal(record, supplier, branding, template, title, paid=Decimal('0'
     els += [Spacer(1, 3), p(title.upper(), center_bold), pair('No. ' + (record.number or record.id[:8]), record.date.strftime('%d-%m-%Y'))]
     if record.name and record.name.strip().lower() not in {'walk-in', 'walk in', 'cash', 'cash sale'}:
         els.append(p(record.name + (('\n' + data['party_phone']) if data.get('party_phone') else ''), bold))
+    if getattr(record, 'source_reference', ''): els.append(p(record.source_reference))
     els.append(rule())
     for index, line in enumerate(lines, 1):
         qty, rate, taxable, tax = [Decimal(str(line.get(key, 0))) for key in ('quantity', 'rate', 'taxable', 'tax')]

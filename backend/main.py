@@ -3006,6 +3006,23 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
         raise HTTPException(409, 'Cancelled documents cannot be exported as active originals; review the retained document and cancellation audit history')
     from types import SimpleNamespace
     current_brand=branding_for(company_id,session);document_data=dict(record.data)
+    # Resolve PDF traceability from this tenant's stored source, never submitted display metadata.
+    source_reference = ''
+    if record.kind in {'credit_note', 'debit_note'}:
+        source_id = document_data.get('applied_to')
+        allowed = {'sales_invoice', 'pos'} if record.kind == 'credit_note' else {'purchase_bill'}
+        source = session.scalar(select(Record).where(Record.company_id == company_id,
+            Record.id == source_id, Record.kind.in_(allowed))) if isinstance(source_id, str) and source_id else None
+        if source:
+            label = {'sales_invoice': 'Original sales invoice', 'pos': 'Original POS receipt',
+                     'purchase_bill': 'Linked purchase bill (book reference)'}[source.kind]
+            source_reference = label + ': ' + (source.number or 'Number not recorded') + '\nSource date: ' + source.date.strftime('%d %b %Y')
+            if source.data.get('cancelled'):
+                source_reference += '\nSource is marked cancelled; review its retained history.'
+        else:
+            source_reference = 'Original document reference unavailable; review the source records.' if source_id else 'Original document not linked; review the source records.'
+        if record.kind == 'debit_note':
+            source_reference += '\nPurchase return in these books; not a supplier-issued GST debit note.'
     if record.kind in {'sales_invoice', 'purchase_bill'}:
         # Settlement also includes credit/debit notes. Show actual payments separately.
         payments = Decimal('0')
@@ -3018,7 +3035,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     if 'logo' in current_brand:document_data['document_branding']={**(document_data.get('document_branding') or {}),'logo':current_brand['logo']}
     if record.kind in {'sales_invoice','pos','estimate','proforma','sales_order','credit_note'}:
         document_data['document_branding']=with_payment_details(company_id,document_data.get('document_branding') or {},current_brand,session)
-    record=SimpleNamespace(id=record.id,kind=record.kind,name=record.name,number=record.number,date=record.date,amount=record.amount,data=document_data)
+    record=SimpleNamespace(id=record.id,kind=record.kind,name=record.name,number=record.number,date=record.date,amount=record.amount,data=document_data,source_reference=source_reference)
     voucher=record.kind in {'payment_in','payment_out','customer_refund','supplier_refund','advance_refund'}
     if voucher:
         from types import SimpleNamespace
@@ -3097,6 +3114,8 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     ], colWidths=[280, 235])
     header.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, -1), tint), ('VALIGN', (0, 0), (-1, -1), 'TOP'), ('LEFTPADDING', (0, 0), (-1, -1), padding), ('TOPPADDING', (0, 0), (-1, -1), padding), ('BOTTOMPADDING', (0, 0), (-1, -1), padding)]))
     elements += [header, Spacer(1, 18)]
+    if getattr(record, 'source_reference', ''):
+        elements += [Paragraph(safe(record.source_reference).replace('\n', '<br/>'), styles['ApexBody']), Spacer(1, 10)]
     has_gst = (tax_mode == 'regular' and not (bill_of_supply and record.kind in {'sales_invoice', 'pos'})) or any(Decimal(str(line.get('tax', 0))) > 0 for line in data.get('lines', []))
     headings = ['Description', 'HSN / SAC', 'Qty', 'Rate', 'Disc.', 'GST', 'Amount'] if has_gst else ['Description', 'HSN / SAC', 'Qty', 'Rate', 'Disc.', 'Amount']
     widths = [155, 55, 35, 60, 42, 65, 103] if has_gst else [190, 65, 45, 70, 50, 95]
