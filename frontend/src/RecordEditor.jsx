@@ -1,3 +1,4 @@
+import StateCodeSelect from './StateCodeSelect.jsx';
 import { remainingReturnDraftLines } from './returnDefaults.js';
 import { changeLineDiscount, serializeLineDiscount, lineDiscountMode } from "./lineDiscount.js";
 import { supportsFeature } from "./capabilities.js";
@@ -788,9 +789,8 @@ export default function RecordEditor({
                         </label>
                         <label>
                           Advance place of supply (state code)
-                          <input
+                          <StateCodeSelect
                             required
-                            pattern="[0-9]{2}"
                             value={form.place_of_supply}
                             onChange={(e) =>
                               setForm({

@@ -1,3 +1,5 @@
+import StateCodeSelect from './StateCodeSelect.jsx';
+import {ledgerDate} from './ledgerFormat.js';
 import { remainingReturnDraftLines } from './returnDefaults.js';
 import { lineDiscountMode } from "./lineDiscount.js";
 import React, { useEffect, useRef, useState } from "react";
@@ -206,6 +208,7 @@ export function DocumentIdentity({
               onInput={change}
               onChange={change}
             />
+            <small>{ledgerDate(form.date)}</small>
           </label>
           {["sales_invoice", "purchase_bill"].includes(kind) && (
             <label>
@@ -223,16 +226,7 @@ export function DocumentIdentity({
           {showTax && (
             <label>
               Place of supply · state code
-              <input
-                name="place_of_supply"
-                required={company.tax_mode === "regular"}
-                pattern="[0-9]{2}"
-                inputMode="numeric"
-                maxLength={2}
-                title="Enter the two-digit GST state code, for example 24 for Gujarat."
-                value={form.place_of_supply}
-                onChange={change}
-              />
+              <StateCodeSelect name="place_of_supply" required={company.tax_mode === "regular"} value={form.place_of_supply} onChange={change} />
             </label>
           )}
           {purchase && (

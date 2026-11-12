@@ -1,9 +1,11 @@
 import { businessPeriodDates as periodDates } from "./businessDate.js";
-import React from "react";
+import React, {useId} from "react";
+import {ledgerDate} from "./ledgerFormat.js";
 import { CalendarDays } from "lucide-react";
 
 export { businessDate as localDate, businessPeriodDates as periodDates } from "./businessDate.js";
 export default function DateRangeFilter({ value, onChange, allowAll = true }) {
+  const hintId=useId();
   return (
     <div
       className={`period-controls ${value.period === "custom" ? "custom-period" : ""}`}
@@ -34,6 +36,7 @@ export default function DateRangeFilter({ value, onChange, allowAll = true }) {
         From
         <input
           aria-label="From date"
+          aria-describedby={hintId}
           type="date"
           value={value.from}
           max={value.to || undefined}
@@ -49,6 +52,7 @@ export default function DateRangeFilter({ value, onChange, allowAll = true }) {
         To
         <input
           aria-label="To date"
+          aria-describedby={hintId}
           type="date"
           value={value.to}
           min={value.from || undefined}
@@ -60,6 +64,7 @@ export default function DateRangeFilter({ value, onChange, allowAll = true }) {
           }
         />
       </label>
+      <small className="period-date-hint" id={hintId}>{value.from?ledgerDate(value.from):'All earlier dates'} to {value.to?ledgerDate(value.to):'all later dates'}. Date input order follows your device.</small>
     </div>
   );
 }
