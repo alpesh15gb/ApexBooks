@@ -4,4 +4,5 @@
     <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
   </PropertyGroup>
+  <ItemGroup><None Include="../../shared/fixtures/quotation-nine-lines.json" Link="quotation-nine-lines.json" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
 </Project>

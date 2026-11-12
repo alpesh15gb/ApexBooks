@@ -1,0 +1,102 @@
+{
+  "name": "Synthetic Workshop Buyer",
+  "date": "2026-11-12",
+  "data": {
+    "place_of_supply": "27",
+    "party_address": "Synthetic acceptance site, Mumbai, Maharashtra",
+    "round_total": true,
+    "notes": "Warranty: 12 months from documented handover for supplied goods; workmanship support for 90 days. Synthetic test terms only.",
+    "terms": "Quotation valid for 30 days. Confirm quantities before ordering. Delivery follows written acceptance. Installation requires site access and an isolated work area. Payment: 50% on acceptance and balance after testing. Exclusions: civil work and third-party approvals. No real supply or contractual offer is created by this synthetic test.",
+    "lines": [
+      {
+        "description": "Q01 Distribution board: supply, inspection and documented acceptance for the synthetic workshop upgrade; include labelled connections, safe fixing and a complete handover record END01",
+        "quantity": "2",
+        "rate": "1250.35",
+        "unit": "NOS",
+        "hsn": "8537",
+        "gst_rate": "18",
+        "tax_treatment": "taxable"
+      },
+      {
+        "description": "Q02 Armoured cable: supply, inspection and documented acceptance for the synthetic workshop upgrade; include labelled connections, safe fixing and a complete handover record END02",
+        "quantity": "37.5",
+        "rate": "88.65",
+        "unit": "MTR",
+        "hsn": "8544",
+        "gst_rate": "18",
+        "tax_treatment": "taxable"
+      },
+      {
+        "description": "Q03 Protection assembly: supply, inspection and documented acceptance for the synthetic workshop upgrade; include labelled connections, safe fixing and a complete handover record END03",
+        "quantity": "3",
+        "rate": "345.75",
+        "unit": "SET",
+        "hsn": "8536",
+        "gst_rate": "18",
+        "tax_treatment": "taxable"
+      },
+      {
+        "description": "Q04 Cable gland package: supply, inspection and documented acceptance for the synthetic workshop upgrade; include labelled connections, safe fixing and a complete handover record END04",
+        "quantity": "4",
+        "rate": "123.45",
+        "unit": "PAIR",
+        "hsn": "8538",
+        "gst_rate": "18",
+        "tax_treatment": "taxable"
+      },
+      {
+        "description": "Q05 Insulation tape: supply, inspection and documented acceptance for the synthetic workshop upgrade; include labelled connections, safe fixing and a complete handover record END05",
+        "quantity": "2",
+        "rate": "84.95",
+        "unit": "ROLL",
+        "hsn": "3919",
+        "gst_rate": "18",
+        "tax_treatment": "taxable"
+      },
+      {
+        "description": "Q06 Mounting materials: supply, inspection and documented acceptance for the synthetic workshop upgrade; include labelled connections, safe fixing and a complete handover record END06",
+        "quantity": "1",
+        "rate": "775.25",
+        "unit": "LOT",
+        "hsn": "7326",
+        "gst_rate": "18",
+        "tax_treatment": "taxable"
+      },
+      {
+        "description": "Q07 Cable tray finish: supply, inspection and documented acceptance for the synthetic workshop upgrade; include labelled connections, safe fixing and a complete handover record END07",
+        "quantity": "12.25",
+        "rate": "96.40",
+        "unit": "SQM",
+        "hsn": "7308",
+        "gst_rate": "18",
+        "tax_treatment": "taxable"
+      },
+      {
+        "description": "Q08 Testing engineer: supply, inspection and documented acceptance for the synthetic workshop upgrade; include labelled connections, safe fixing and a complete handover record END08",
+        "quantity": "2",
+        "rate": "1450.00",
+        "unit": "DAY",
+        "hsn": "9987",
+        "gst_rate": "18",
+        "tax_treatment": "taxable"
+      },
+      {
+        "description": "Q09 Installation and handover: supply, inspection and documented acceptance for the synthetic workshop upgrade; include labelled connections, safe fixing and a complete handover record END09",
+        "quantity": "1",
+        "rate": "2350.55",
+        "unit": "JOB",
+        "hsn": "9987",
+        "gst_rate": "18",
+        "tax_treatment": "taxable"
+      }
+    ]
+  },
+  "expected": {
+    "taxable": "14732.73",
+    "cgst": "1325.95",
+    "sgst": "1325.95",
+    "igst": "0",
+    "round_off": "0.37",
+    "amount": "17385.00"
+  }
+}

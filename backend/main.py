@@ -2929,6 +2929,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     rows = [[Paragraph(safe(h), styles['ApexHead']) for h in headings]]
     for line in data.get('lines', []):
         description = safe(line.get('description'))
+        if line.get('unit'): description += '<br/>Unit: ' + safe(line['unit'])
         if line.get('tax_treatment') in {'nil_rated', 'exempt', 'non_gst'}:
             description += '<br/><font size="7" color="#52605b">' + {'nil_rated': 'Nil-rated supply', 'exempt': 'Exempt supply', 'non_gst': 'Non-GST supply'}[line['tax_treatment']] + '</font>'
         if tax_mode == 'regular' and record.kind in {'purchase_bill', 'purchase_order', 'debit_note'} and Decimal(str(line.get('tax', 0))) > 0:
@@ -2957,7 +2958,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     totals.append(('Total (INR)', record.amount))
     total_table = Table([[Paragraph(safe(label), styles['ApexSmall']), Paragraph(safe(value), styles['ApexRight'])] for label, value in totals], colWidths=[385, 130], hAlign='RIGHT')
     total_table.setStyle(TableStyle([('LINEABOVE', (0, -1), (-1, -1), 1, accent), ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5)]))
-    elements += [total_table, Spacer(1, 16)]
+    elements += [KeepTogether([total_table]), Spacer(1, 16)]
     # Bank, UPI, notes and signature: the same payment details the reference layouts print.
     brand = {**legacy_branding, **{k: data[k] for k in ('notes', 'terms') if data.get(k)}}
     if voucher: brand = {**brand, 'upi_id': ''}
