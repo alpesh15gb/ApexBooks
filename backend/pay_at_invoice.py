@@ -41,24 +41,31 @@ def install(app, m):
         request_hash = digest({'operation': 'with-payment', 'document': document.model_dump(mode='json'), 'payment': pay.model_dump(mode='json')})
         m.lock_company(company_id, user, session)
         previous = session.scalar(select(m.IdempotencyKey).where(m.IdempotencyKey.company_id == company_id, m.IdempotencyKey.key == key))
-        if previous and previous.request_hash != request_hash:
-            # Older releases keyed only the document. Accept an exact replay only
-            # when both persisted legs prove the complete original operation.
+        if previous:
+            # Older releases keyed only the document. Verify both persisted legs,
+            # including their original canonical (or legacy raw) party name.
             legacy_hash = digest(document.model_dump(mode='json'))
-            receipt = m.RecordInput(kind=payment_kind, name=document.name, date=pay.date or document.date, amount=pay.amount,
-                data={'applied_to': previous.record_id, 'payment_account': pay.payment_account,
-                      'bank_account_id': pay.bank_account_id, 'notes': pay.reference})
+            invoice_record = session.get(m.Record, previous.record_id)
             child = session.scalar(select(m.IdempotencyKey).where(m.IdempotencyKey.company_id == company_id, m.IdempotencyKey.key == key + ':p'))
-            if previous.request_hash != legacy_hash or not child or child.request_hash != digest(receipt.model_dump(mode='json')):
+            receipt = None
+            if invoice_record and child and previous.request_hash in {request_hash, legacy_hash}:
+                for name in (invoice_record.name, document.name):
+                    candidate = m.RecordInput(kind=payment_kind, name=name, date=pay.date or document.date, amount=pay.amount,
+                        data={'applied_to': previous.record_id, 'payment_account': pay.payment_account,
+                              'bank_account_id': pay.bank_account_id, 'notes': pay.reference})
+                    if child.request_hash == digest(candidate.model_dump(mode='json')):
+                        receipt = candidate
+                        break
+            if receipt is None:
                 raise HTTPException(409, 'Retry key was used for a different request')
-            invoice = m.save_record(company_id, document, SimpleNamespace(headers={'Idempotency-Key': key}), user, session, commit=False)
+            invoice = m.save_record(company_id, document, SimpleNamespace(headers={'Idempotency-Key': key}), user, session, commit=False, idempotency_request_hash=previous.request_hash)
             payment = m.save_record(company_id, receipt, SimpleNamespace(headers={'Idempotency-Key': key + ':p'}), user, session, commit=False)
             return {'document': invoice, 'payment': payment}
         try:
             invoice = m.save_record(company_id, document, SimpleNamespace(headers={'Idempotency-Key': key}), user, session, commit=False, idempotency_request_hash=request_hash)
             if pay.amount > Decimal(str(invoice['amount'])):
                 raise HTTPException(422, 'Amount received cannot exceed the document total')
-            receipt = m.RecordInput(kind=payment_kind, name=document.name, date=pay.date or document.date, amount=pay.amount,
+            receipt = m.RecordInput(kind=payment_kind, name=invoice['name'], date=pay.date or document.date, amount=pay.amount,
                 data={'applied_to': invoice['id'], 'payment_account': pay.payment_account, 'bank_account_id': pay.bank_account_id,
                       'notes': pay.reference})
             payment = m.save_record(company_id, receipt, SimpleNamespace(headers={'Idempotency-Key': key + ':p'}), user, session, commit=False)

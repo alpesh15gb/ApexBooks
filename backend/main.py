@@ -459,8 +459,13 @@ def validate_item_image(master):
             raw=base64.b64decode(match.group(2),validate=True)
             if len(raw)>67500:raise ValueError()
             with PillowImage.open(io.BytesIO(raw)) as image:
-                if image.width*image.height>1_000_000:raise ValueError()
+                expected = {'png':'PNG','jpeg':'JPEG'}[match.group(1)]
+                if image.format != expected or image.width*image.height>1_000_000:raise ValueError()
                 image.verify()
+            # verify() checks structure but JPEG scan truncation can survive it.
+            # Decode only after the byte, format and pixel bounds have passed.
+            with PillowImage.open(io.BytesIO(raw)) as image:
+                image.load()
         except Exception:raise HTTPException(422,'Use a valid item image below 67 KB and one megapixel')
 
 class MasterImport(BaseModel):
@@ -1454,7 +1459,9 @@ def import_masters(company_id: str, body: MasterImport, user: User = Depends(cur
             errors.append({'row': index, 'message': 'Name is required'}); continue
         if key in existing or key in seen:
             duplicates += 1; continue
-        try:validate_master_defaults(row, body.kind)
+        try:
+            validate_master_defaults(row, body.kind)
+            if body.kind == 'item':validate_item_image(row)
         except HTTPException as exc:
             errors.append({'row': index, 'message': exc.detail});continue
         data = row.model_dump(mode='json', exclude={'name'})

@@ -67,6 +67,26 @@ class PayAtInvoiceTest(unittest.TestCase):
         self.assertEqual(replay.json()['payment']['id'],response.json()['payment']['id'])
         rejected=c.post(b+'/records/with-payment',headers=headers,json={**body,'payment':{'amount':'100'}});self.assertEqual(rejected.status_code,409,rejected.text)
 
+    def test_normalized_party_name_retries_current_and_legacy_pairs(self):
+        import hashlib,json
+        from sqlalchemy.orm import Session
+        from sqlalchemy import select
+        import main as m
+        for kind in ('sales_invoice','purchase_bill'):
+            c,h,b=self.context()
+            c.post(b+'/records',headers=h,json={'kind':'party','name':'Pay Now Party','data':{'party_type':'both'}}).raise_for_status()
+            doc=self.doc(kind);doc['name']=' pay now party '
+            body={'document':doc,'payment':{'amount':'150'}};headers={**h,'Idempotency-Key':'normalized'}
+            saved=c.post(b+'/records/with-payment',headers=headers,json=body);self.assertEqual(saved.status_code,200,saved.text)
+            for legacy in (False,True):
+                if legacy:
+                    with Session(m.engine) as session:
+                        key=session.scalar(select(m.IdempotencyKey).where(m.IdempotencyKey.company_id==b.split('/')[-1],m.IdempotencyKey.key=='normalized'))
+                        key.request_hash=hashlib.sha256(json.dumps(m.RecordInput(**doc).model_dump(mode='json'),sort_keys=True,separators=(',',':')).encode()).hexdigest();session.commit()
+                replay=c.post(b+'/records/with-payment',headers=headers,json=body);self.assertEqual(replay.status_code,200,replay.text)
+                self.assertEqual(replay.json()['payment']['id'],saved.json()['payment']['id'])
+            rows=c.get(b+'/records',headers=h).json();self.assertEqual(sum(r['kind'] in ('payment_in','payment_out') for r in rows),1)
+
 
 if __name__ == '__main__':
     unittest.main()
