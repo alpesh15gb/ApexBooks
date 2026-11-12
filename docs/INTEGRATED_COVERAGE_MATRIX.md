@@ -302,3 +302,15 @@ submission. Twenty rendered tests passed, including notice removal on success or
 definitive rejection and retention on unknown outcome; lint/build budgets passed.
 No persistent payload storage or automatic replay was introduced. Real-browser
 acceptance remains open; no publication retry or deployment.
+
+### Commerce obsolete read responses
+
+Synthetic delayed transport tests reproduced three failures: an old company's
+connection list replaced the current company's list when transport ignored abort;
+its late error also surfaced in the new company; and a prior store workspace error
+surfaced after switching stores. Connection success/error handlers now check their
+abort ownership, and workspace failures use the same request-generation guard as
+successful reads. Twenty-four rendered tests passed (three newly red cases now
+green, plus stale workspace success control). Lint/build/bundle budgets passed.
+This covers read completion ownership, not every commerce mutation callback or
+real-browser acceptance. No production access, publication retry or deployment.

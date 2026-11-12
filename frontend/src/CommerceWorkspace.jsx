@@ -26,14 +26,16 @@ export default function CommerceWorkspace({company, records, api, onPdf}) {
   useEffect(() => {
     const controller = new AbortController();
     Promise.all([api(root, {signal:controller.signal}), api(`/companies/${company.id}/bank-accounts`, {signal:controller.signal})])
-      .then(([rows, accounts]) => {setConnections(rows); setBanks(accounts); setSelected(rows[0]?.id || '');})
-      .catch(e => {if(e.name !== 'AbortError') setError(e.message);});
+      .then(([rows, accounts]) => {if(controller.signal.aborted)return;setConnections(rows); setBanks(accounts); setSelected(rows[0]?.id || '');})
+      .catch(e => {if(!controller.signal.aborted && e.name !== 'AbortError') setError(e.message);});
     return () => controller.abort();
   }, [api, root, company.id]);
   const refresh = useCallback(async () => {
     if (!selected) return;
     const version = ++requestVersion.current;
-    const data = await api(`${root}/${selected}/workspace`);
+    let data;
+    try { data = await api(`${root}/${selected}/workspace`); }
+    catch (failure) { if (alive.current && version === requestVersion.current) throw failure; return; }
     if (alive.current && version === requestVersion.current) {
       setWorkspace(data);
       const result = data.outbox.find(row => row.operation === 'catalogue.scan' && row.status === 'done');

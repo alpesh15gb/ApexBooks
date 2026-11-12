@@ -122,3 +122,18 @@ for(const outcome of ['success','unknown','definitive'])test(`commerce shared re
  else if(outcome==='unknown'){assert.equal(document.querySelector('fieldset').disabled,true);assert.match(document.body.textContent,/REMOUNT-ORIGINAL/);await act(async()=>submit(document.querySelector('form')));assert.equal(commands.length,2);assert.deepEqual(commands[1],commands[0]);assert.equal(document.querySelector('fieldset').disabled,false);}
  else {assert.equal(document.querySelector('fieldset').disabled,false);assert.match(document.querySelector('[role=alert]').textContent,/Synthetic outcome/);assert.doesNotMatch(document.body.textContent,/Retry original source command/);}
 });
+for(const outcome of ['success','failure'])test(`commerce ignores obsolete company connection ${outcome} even when transport ignores abort`,async(t)=>{
+ const root=createRoot(document.getElementById('root'));t.after(async()=>act(async()=>root.unmount()));let finish,fail;
+ const api=async(path)=>{if(path.endsWith('/bank-accounts'))return [];if(path==='/companies/a/commerce/connections')return new Promise((resolve,reject)=>{finish=resolve;fail=reject;});if(path.endsWith('/connections'))return [{id:'b-store',name:'CURRENT STORE',channel:'test'}];return {connection:{id:'b-store',status:'active',config:{}},orders:[],stock:[],links:[],outbox:[],reconciliations:[],summary:{}};};
+ const render=id=>root.render(React.createElement(components.CommerceWorkspace,{company:{id,name:id,role:'editor'},records:[],api}));await act(async()=>render('a'));await act(async()=>render('b'));
+ await act(async()=>outcome==='success'?finish([{id:'old-store',name:'OBSOLETE PRIVATE STORE',channel:'test'}]):fail(Error('OBSOLETE PRIVATE ERROR')));
+ assert.match(document.body.textContent,/CURRENT STORE/);assert.doesNotMatch(document.body.textContent,/OBSOLETE PRIVATE/);
+});
+for(const outcome of ['success','failure'])test(`commerce ignores obsolete store workspace ${outcome}`,async(t)=>{
+ const root=createRoot(document.getElementById('root'));t.after(async()=>act(async()=>root.unmount()));let finish,fail;
+ const view=id=>({connection:{id,status:'active',config:{}},orders:[],stock:[],links:[],outbox:[],reconciliations:[],summary:{}});
+ const api=async(path)=>{if(path.endsWith('/bank-accounts'))return [];if(path.endsWith('/connections'))return ['a','b'].map(id=>({id,name:id,channel:'test'}));if(path.includes('/a/workspace'))return new Promise((resolve,reject)=>{finish=resolve;fail=reject;});return view('b');};
+ await act(async()=>root.render(React.createElement(components.CommerceWorkspace,{company:{id:'c',name:'Synthetic',role:'editor'},records:[],api})));
+ await change(label('Store channel').querySelector('select'),'b');await act(async()=>outcome==='success'?finish(view('a')):fail(Error('OBSOLETE STORE ERROR')));
+ assert.equal(label('Store channel').querySelector('select').value,'b');assert.doesNotMatch(document.body.textContent,/OBSOLETE STORE ERROR/);assert.ok(document.querySelector('.commerce-tabs'));
+});
