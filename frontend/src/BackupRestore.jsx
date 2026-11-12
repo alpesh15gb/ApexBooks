@@ -38,6 +38,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
     [encoded, setEncoded] = useState(""),
     [success, setSuccess] = useState("");
   const processing = useRef(false);
+  const previewOwnership = useRef(null);
   const exportScope = useRef(createRequestScope(`${companyId}:${role}`));
   exportScope.current.setContext(`${companyId}:${role}`);
   useEffect(() => () => exportScope.current.setContext(Symbol("unmounted")), []);
@@ -68,6 +69,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
   async function download() {
     if (role !== "owner" || processing.current || posting.pending) return;
     const current = exportScope.current.capture(), token = localStorage.token;
+    let verifyOwnership = () => {};
     processing.current = true;
     setBusy(true);
     setError("");
@@ -75,6 +77,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
     try {
       const verifySession = captureSession();
       const access = captureCompanyAccess(`/api/companies/${companyId}`);
+      verifyOwnership = () => { verifySession(); access?.verify(); };
       if (password && password.length < 12) throw Error("Use a backup password of at least 12 characters");
       let content = new Uint8Array(
           await (await request(`/companies/${companyId}/backup`)).arrayBuffer(),
@@ -119,7 +122,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
         "Backup downloaded. Keep your file and any backup password securely.",
       );
     } catch (e) {
-      if (current() && localStorage.token === token) setError(e.message);
+      if (current() && localStorage.token === token) { try { verifyOwnership(); setError(e.message); } catch { /* An obsolete operation cannot report into recovered access. */ } }
     } finally {
       processing.current = false;
       setBusy(false);
@@ -127,7 +130,9 @@ export default function BackupRestore({ companyId, role, onRestored }) {
   }
   async function inspect(e) {
     e.preventDefault();
-    if (processing.current || posting.pending) return;
+    if (role !== "owner" || processing.current || posting.pending) return;
+    const current = exportScope.current.capture(), token = localStorage.token;
+    let verifyOwnership = () => {};
     processing.current = true;
     setBusy(true);
     setError("");
@@ -135,6 +140,9 @@ export default function BackupRestore({ companyId, role, onRestored }) {
     setPreview(null);
     setEncoded("");
     try {
+      const verifySession = captureSession();
+      const access = captureCompanyAccess(`/api/companies/${companyId}`);
+      verifyOwnership = () => { verifySession(); access?.verify(); };
       if (!file) throw Error("Choose an Apex Books backup");
       if (!name.trim()) throw Error("Enter the company name to use after restore");
       if (file.size > 50_000_000)
@@ -177,6 +185,8 @@ export default function BackupRestore({ companyId, role, onRestored }) {
           );
         }
       }
+      if (!current()) return;
+      verifyOwnership();
       const value = b64(content),
         report = await (
           await request("/backups/restore/preview", {
@@ -184,10 +194,13 @@ export default function BackupRestore({ companyId, role, onRestored }) {
             backup_base64: value,
           })
         ).json();
+      if (!current()) return;
+      verifyOwnership();
+      previewOwnership.current = () => { if (!current()) throw Error("Company context changed. Preview the backup again."); verifyOwnership(); };
       setEncoded(value);
       setPreview(report);
     } catch (e) {
-      setError(e.message);
+      if (current() && localStorage.token === token) { try { verifyOwnership(); setError(e.message); } catch { /* Ignore obsolete preview failures. */ } }
     } finally {
       processing.current = false;
       setBusy(false);
@@ -199,6 +212,7 @@ export default function BackupRestore({ companyId, role, onRestored }) {
     setBusy(true);
     setError("");
     try {
+      if (!posting.pending) previewOwnership.current?.();
       const confirmed = await posting.run(async () => (
         await request("/backups/restore/commit", {
           company_name: name.trim(),

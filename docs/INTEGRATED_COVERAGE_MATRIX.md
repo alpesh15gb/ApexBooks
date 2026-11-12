@@ -685,3 +685,25 @@ Next verified source-level gap to reproduce: web MasterImport still tolerates
 post-quote characters and populated blank CSV headers; native strict parsing does not
 by itself protect this separate web path. Legacy restore preview/file ownership also
 requires a separate review; this batch only covers backup downloads.
+
+### Web CSV and legacy backup preview follow-up (2026-11-12)
+
+Strict UTF-8 decoding now rejects invalid bytes/NUL input. Master CSV parsing rejects
+malformed quotes, duplicate normalized headers, populated unsupported/blank columns,
+and inconsistent row widths before any preview request. Valid BOM, CR/LF/CRLF,
+quoted commas/newlines and doubled quotes retain supported field contents; existing
+field trimming/default semantics remain. Formula-like strings remain literal data;
+this parser is not spreadsheet export sanitization.
+
+Legacy restore preview captures company/role, session and access ownership before
+file reads/decryption, verifies before dispatch and before accepting results, and
+suppresses stale failures. Restore checks accepted preview ownership before a new
+commit; unresolved original posting recovery remains unchanged. Late encryption
+errors cannot appear after access revocation/recovery.
+
+Validation: 60 focused frontend tests, 3 existing backend export-literal tests,
+ESLint and production frontend build/bundle budgets passed. Synthetic rendered
+components and fake file/crypto/network boundaries only; no real encryption or
+browser-picker acceptance claim. Full native builds/device checks and memory-only
+uncertain-operation durability remain open. Same-token session-generation concern
+has not been demonstrated as a real flow. No production, upload retry or deployment.

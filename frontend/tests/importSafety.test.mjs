@@ -28,13 +28,13 @@ async function choose(file) {
 test('master import freezes record type from file read through preview and commit',async()=>{
  const root=createRoot(document.getElementById('root'));const previous=globalThis.fetch;
  let read,finish,imported=0;const requests=[];
- const file={name:'parties.csv',size:25,text:()=>new Promise(resolve=>{read=resolve;})};
+ const file={name:'parties.csv',size:25,arrayBuffer:()=>new Promise(resolve=>{read=resolve;})};
  globalThis.fetch=async(path,options)=>{const body=JSON.parse(options.body);requests.push(body);if(body.dry_run)return{ok:true,json:async()=>({dry_run:true,ready:1,duplicates:0,errors:[]})};await new Promise(resolve=>{finish=resolve;});return{ok:true,json:async()=>({ready:1,duplicates:0,errors:[]})};};
  try {
    await act(async()=>root.render(React.createElement(MasterImport,{companyId:'company',role:'owner',onImported:()=>imported++})));
    await choose(file);const kind=document.querySelector('select');assert.equal(kind.disabled,true);
    await act(async()=>{kind.value='item';kind.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
-   await act(async()=>read('name,party_type\nCustomer,customer\n'));
+   await act(async()=>read(new TextEncoder().encode('name,party_type\nCustomer,customer\n').buffer));
    assert.equal(requests[0].kind,'party');assert.equal(kind.value,'party');
    await act(async()=>{button('Import 1 records').click();button('Import 1 records').click();});
    assert.equal(requests.length,2);assert.equal(requests[1].kind,'party');assert.equal(kind.disabled,true);

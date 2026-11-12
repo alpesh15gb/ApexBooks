@@ -1,38 +1,9 @@
+import {decodeMasterCsv, parseMasterCsv} from './masterCsv.js';
 import {sessionFetch as fetch} from './sessionScope.js';
 import React, {useEffect, useRef, useState} from 'react';
 import {downloadBlob} from './downloadBlob.js';
 import {registerPostingRequest} from './postingRegistry.js';
 import {createRequestScope} from './requestScope.js';
-
-function parseCsv(source) {
-  const rows = []; let row = [], field = '', quoted = false;
-  for (let i = 0; i < source.length; i++) {
-    const char = source[i];
-    if (char === '"') {
-      if (quoted && source[i + 1] === '"') {field += '"'; i++;} else quoted = !quoted;
-    } else if (char === ',' && !quoted) {row.push(field); field = '';}
-    else if ((char === '\n' || char === '\r') && !quoted) {
-      if (char === '\r' && source[i + 1] === '\n') i++;
-      row.push(field); if (row.some(value => value.trim())) rows.push(row);
-      row = []; field = '';
-    } else field += char;
-  }
-  if (quoted) throw Error('CSV has an unclosed quote');
-  row.push(field); if (row.some(value => value.trim())) rows.push(row);
-  const headers = (rows.shift() || []).map((value, i) => (i === 0 ? value.replace(/^\uFEFF/, '') : value).trim().toLowerCase()).map(value=>({'type':'party_type','hsn / sac':'hsn','sale rate':'sale_rate','purchase rate':'purchase_rate','gst rate':'gst_rate','stock tracked':'track_stock','item type':'item_type','tax treatment':'tax_treatment'}[value]||value));
-  if (!headers.includes('name')) throw Error('CSV needs a name column');
-  const duplicate = headers.find((header, index) => header && headers.indexOf(header) !== index);
-  if (duplicate) throw Error(`CSV repeats the ${duplicate} column. Keep one column for each field.`);
-  return rows.map((values, i) => {
-    if (values.length > headers.length && values.slice(headers.length).some(value => value.trim())) throw Error(`CSV row ${i + 2} has data without a column heading`);
-    const result = {name: values[headers.indexOf('name')]?.trim() || ''};
-    for (const key of ['gstin', 'address', 'phone', 'email', 'party_type', 'hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment']) {
-      if (headers.includes(key)) result[key] = values[headers.indexOf(key)]?.trim() || (key === 'party_type' ? 'both' : key==='item_type'?'goods':key==='tax_treatment'?'taxable': key === 'track_stock' ? 'false' : key.endsWith('rate') ? '0' : '');
-    }
-    if (!result.name) throw Error(`Name is missing on CSV row ${i + 2}`);
-    return result;
-  });
-}
 
 export default function MasterImport({companyId, onImported, role}) {
   const [kind, setKind] = useState('party');
@@ -64,7 +35,7 @@ export default function MasterImport({companyId, onImported, role}) {
     setError(''); setPreview(null);
     try {
       if (file.size > 5_000_000) throw Error('CSV exceeds 5 MB. Import up to 500 rows per file.');
-      const values = parseCsv(await file.text());
+      const values = parseMasterCsv(decodeMasterCsv(await file.arrayBuffer()), kind);
       if (!values.length || values.length > 500) throw Error('CSV must contain 1 to 500 data rows');
       if (!current()) return;
       const result = await request(true, values);
