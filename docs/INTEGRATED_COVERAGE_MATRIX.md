@@ -373,3 +373,13 @@ All 19 commerce backend tests passed, including four concurrent SQLite activatio
 (one projection) and four concurrent no-op repeats (no further mutations), with
 response metadata checked against committed storage. PostgreSQL remains unverified.
 No external store calls or production actions were performed.
+
+### Commerce order dialog keyboard integration
+
+The actual DialogFocus manager did not recognize the custom commerce dialog: a
+rendered test reproduced focus staying on its background opener. The dialog now
+registers as a focus surface and labels its Close control for shared Escape handling.
+All 42 targeted frontend tests passed, including initial focus, background inert,
+Tab wrap, Escape and opener restoration plus commerce workflow regressions.
+Lint/build/bundle budgets passed. This is JSDOM coverage, not real-browser or
+screen-reader acceptance. No publication retry or deployment was performed.

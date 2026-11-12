@@ -2,6 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';import {mkd
 const dom=new JSDOM('<button id="trigger">Open</button><div id="root"></div>',{url:'http://localhost'});const frames=[];
 Object.assign(globalThis,{window:dom.window,document:dom.window.document,MutationObserver:dom.window.MutationObserver,requestAnimationFrame:callback=>{frames.push(callback);},IS_REACT_ACT_ENVIRONMENT:true});
 const {createRoot}=await import('react-dom/client');const tmp=await mkdtemp(resolve('node_modules/.dialog-focus-'));const outfile=resolve(tmp,'component.mjs');await build({entryPoints:['src/WorkspaceBoundary.jsx'],outfile,bundle:true,platform:'node',format:'esm',external:['react','react-dom']});const {DialogFocus}=await import(pathToFileURL(outfile));
+const commerceFile=resolve(tmp,'commerce.mjs');await build({entryPoints:['src/CommerceWorkspace.jsx'],outfile:commerceFile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','lucide-react']});const CommerceWorkspace=(await import(pathToFileURL(commerceFile))).default;
 test('deferred dialog autofocus preserves newer user or child focus',async()=>{
  const root=createRoot(document.getElementById('root'));document.getElementById('trigger').focus();
  await act(async()=>root.render(React.createElement(React.Fragment,null,React.createElement(DialogFocus),React.createElement('div',{className:'overlay'},React.createElement('div',{className:'modal'},React.createElement('button',null,'Close'),React.createElement('select',{'aria-label':'Document 2'},React.createElement('option',null,'Choose')))))));
@@ -21,5 +22,15 @@ test('nested dialog traps keyboard focus, closes only foreground and restores pa
  await act(async()=>document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})));await flush();assert.equal(closed,1);assert.equal(document.activeElement,parent);assert.equal(parent.closest('[inert]'),null);
  await act(async()=>document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})));await flush();assert.equal(document.activeElement,trigger);assert.equal(trigger.hasAttribute('inert'),false);
  await act(async()=>root.unmount());
+});
+test('commerce order dialog uses shared focus trap, Escape and opener restoration',async(t)=>{
+ const root=createRoot(document.getElementById('root'));t.after(async()=>act(async()=>root.unmount()));
+ const api=async path=>path.endsWith('/bank-accounts')?[]:path.endsWith('/connections')?[{id:'store',name:'Synthetic',channel:'test'}]:{connection:{id:'store',status:'active',config:{}},orders:[{id:'order',external_id:'order',number:'ORDER-1',amount:'100',snapshot:{items:[]}}],stock:[],links:[],outbox:[],reconciliations:[],summary:{}};
+ await act(async()=>root.render(React.createElement(React.Fragment,null,React.createElement(DialogFocus),React.createElement(CommerceWorkspace,{company:{id:'c',name:'Synthetic',role:'editor'},records:[],api}))));
+ await act(async()=>[...document.querySelectorAll('.commerce-tabs button')].find(b=>b.textContent==='orders').click());const opener=[...document.querySelectorAll('button')].find(b=>b.textContent==='Open order');opener.focus();await act(async()=>opener.click());
+ for(const node of document.querySelectorAll('button'))node.getClientRects=()=>[{width:100,height:30}];await act(async()=>{for(const callback of frames.splice(0))callback();});
+ const dialog=document.querySelector('[role=dialog]'),close=dialog.querySelector('button');assert.equal(document.activeElement?.textContent,'Close');assert.ok(opener.closest('[inert]'));
+ [...dialog.querySelectorAll('button')].at(-1).focus();await act(async()=>document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Tab',bubbles:true,cancelable:true})));assert.equal(document.activeElement,close);
+ await act(async()=>document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})));assert.equal(document.querySelector('[role=dialog]'),null);assert.equal(document.activeElement,opener);assert.equal(opener.closest('[inert]'),null);
 });
 test.after(async()=>{dom.window.close();await rm(tmp,{recursive:true,force:true});});
