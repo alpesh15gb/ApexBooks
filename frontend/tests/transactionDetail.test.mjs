@@ -56,7 +56,7 @@ test('legacy missing breakdown does not invent a tax subtotal',()=>{
  assert.match(markup,/breakdown are unavailable/);assert.doesNotMatch(markup,/Subtotal after discounts/);
 });
 test('stock opening and loss show saved quantity and reason without a payment trail or guessed unit cost',()=>{
- for(const [kind,data,expected] of [['stock_opening',{quantity:'10',unit:'pcs',unit_cost:'80'},/10 pcs/],['stock_adjustment',{quantity:'5',unit:'pcs',direction:'loss',reason:'Damaged',unit_cost:null},/−5 pcs/]]) {
+ for(const [kind,data,expected] of [['stock_opening',{quantity:'10',unit:'pcs',unit_cost:'80'},/10 pcs/],['stock_adjustment',{quantity:'5',unit:'pcs',direction:'decrease',reason:'Damaged',unit_cost:null},/−5 pcs/]]) {
  const markup=renderToStaticMarkup(React.createElement(Detail,{record:{kind,name:'Synthetic item',amount:'800',posted:true,data},records:[],company:{role:'viewer'},labels:{}}));
  assert.match(markup,expected);assert.doesNotMatch(markup,/Payment &amp; document trail/);assert.match(markup,/not a payment/);
  if(kind==='stock_opening')assert.match(markup,/₹80\.00/);else{assert.match(markup,/Not separately recorded/);assert.match(markup,/Reason: Damaged/);}
