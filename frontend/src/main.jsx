@@ -641,6 +641,11 @@ function App() {
       if (contextCurrent()) setRecordsLoading(false);
     }
   }
+  async function refreshPostedRecords() {
+    const rows = await loadRecords();
+    if (!rows) throw new Error('Refreshed balances are unavailable. The confirmed posting has not been undone.');
+    return rows;
+  }
   useEffect(() => {
     if (signed) loadCompanies();
   }, [signed]);
@@ -1433,11 +1438,12 @@ function App() {
                   <>
                     <div className="settings-block" id="setting-openings">
                       <OpeningBalances
+                        key={companyId}
                         companyId={companyId}
                         records={records}
                         onParty={setActiveParty}
                         api={api}
-                        refresh={loadRecords}
+                        refresh={refreshPostedRecords}
                         role={company?.role}
                       />
                     </div>
@@ -1626,7 +1632,7 @@ function App() {
                         records={records}
                         onParty={setActiveParty}
                         api={api}
-                        refresh={loadRecords}
+                        refresh={refreshPostedRecords}
                         canWrite={["owner", "editor"].includes(company?.role)}
                       />
                       <Advances

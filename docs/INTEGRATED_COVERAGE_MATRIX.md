@@ -588,3 +588,29 @@ The environment disallowed Unix sockets; loopback TCP worked when server and tes
 ran in the same execution namespace. This is bounded synthetic consistency evidence,
 not load testing or production recovery validation. Browser/native acceptance and
 memory loss across reload/sign-out remain open. No upload retry or deployment.
+
+### Opening balances and credit settlement refresh recovery (after 70ae985)
+
+Synthetic rendered tests reproduced two immediate opening-balance requests and
+confirmed writes left looking unsaved when the subsequent balance refresh failed.
+Opening balances now use the existing original-operation/idempotency-key retry holder,
+with synchronous flow guard, locked pending fields and navigation registration. Owner
+and credit-write role checks also run in handlers. The opening component is keyed by
+company. Credit retries remain reachable if a refreshed record list removes the
+exhausted note: the frozen original request is used, not a reconstructed missing-note
+request.
+
+Both forms clear submitted fields/rotate the key only after confirmed POST success,
+retain a visible success message, and report refresh failures separately. Refresh
+balances performs only the read callback, with single-flight guarding. App wiring
+turns loadRecords' missing result into an explicit refresh error; it does not falsely
+report successful refresh after a swallowed read failure.
+
+Validation: nine frontend tests passed, including both rendered failure/retry flows,
+missing-note recovery, frozen payload/key and read-only refresh recovery, plus posting
+registry/navigation tests. Four backend SQLite tests passed: original-key opening and
+credit-refund replays return the same record; changed payloads reject without changing
+records/trial balance; existing opening restore and credit settlement lifecycles pass.
+Lint/build/budgets passed. No backend posting rules changed. Actual browser/native
+acceptance and durable reload recovery remain open. No production, publication retry
+or deployment.

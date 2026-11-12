@@ -1,11 +1,28 @@
 import { businessDate } from "./businessDate.js";
 import { usePostingRequest, pendingPostingMessage } from "./usePostingRequest.js";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 const today = () => businessDate();
 const money = (n) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(
     Number(n || 0),
   );
+function useBalanceRefresh(refresh) {
+  const inFlight = useRef(false);
+  const live = useRef(true);
+  const [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
+  async function run() {
+    if (inFlight.current) return;
+    inFlight.current = true; setBusy(true); setError('');
+    try { await refresh(); }
+    catch (reason) { if (live.current) setError(reason.message); }
+    finally { inFlight.current = false; if (live.current) setBusy(false); }
+  }
+  return { run, busy, error };
+}
+function BalanceRefreshNotice({state}) {
+  return state.error && <div className="info-box" role="alert">The posting was confirmed, but balances could not refresh: {state.error}.<button type="button" disabled={state.busy} onClick={state.run}>Refresh balances</button></div>;
+}
 export function CreditSettlements({
   companyId,
   kind,
@@ -32,6 +49,9 @@ export function CreditSettlements({
     [error, setError] = useState(""),
     [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   const posting = usePostingRequest();
+  const flow = useRef(false);
+  const balanceRefresh = useBalanceRefresh(refresh);
+  const [success, setSuccess] = useState("");
   const { busy, pending } = posting;
   useEffect(() => {
     let live = true;
@@ -57,10 +77,11 @@ export function CreditSettlements({
     );
   async function submit(e) {
     e.preventDefault();
-    if (busy) return;
+    if (!canWrite || flow.current || balanceRefresh.busy || (!pending && !note)) return;
+    flow.current = true; setSuccess("");
     setError("");
     try {
-      const path = `/companies/${companyId}/credits/${note.id}/settle`;
+      const path = `/companies/${companyId}/credits/${note?.id}/settle`;
       const options = {
         method: "POST",
         headers: { "Idempotency-Key": requestKey },
@@ -77,14 +98,15 @@ export function CreditSettlements({
         }),
       };
       if (!await posting.run(() => api(path, options))) return;
-      await refresh();
+      setSuccess("Credit settlement saved.");
       setForm({ ...form, note: "", amount: "", target: "" });
       setRequestKey(crypto.randomUUID());
+      await balanceRefresh.run();
     } catch (e) {
       setError(e.message);
-    }
+    } finally { flow.current = false; }
   }
-  if (!notes.length) return null;
+  if (!notes.length && !success && !pending) return null;
   return (
     <section className="panel settings-panel">
       <h2>
@@ -97,7 +119,7 @@ export function CreditSettlements({
       </p>
       {canWrite && (
         <form className="form-grid" onSubmit={submit}>
-          <fieldset className="form-grid full submission-fields" disabled={busy || pending}>
+          <fieldset className="form-grid full submission-fields" disabled={busy || pending || balanceRefresh.busy || !canWrite}>
           <label>
             Credit balance
             <select
@@ -206,7 +228,7 @@ export function CreditSettlements({
           </label>
           </fieldset>
           {pending && !busy && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
-          <button className="button primary full" disabled={busy || !note}>
+          <button className="button primary full" disabled={busy || balanceRefresh.busy || (!note && !pending)}>
             {busy
               ? "Saving…"
               : form.action === "apply"
@@ -215,6 +237,8 @@ export function CreditSettlements({
           </button>
         </form>
       )}
+      {success && <p role="status">{success}</p>}
+      <BalanceRefreshNotice state={balanceRefresh} />
       {error && (
         <div className="error banner" role="alert">
           {error}
@@ -235,8 +259,11 @@ export function OpeningBalances({ companyId, records, api, refresh, role }) {
     [banks, setBanks] = useState([]),
     [error, setError] = useState(""),
     [success, setSuccess] = useState(""),
-    [busy, setBusy] = useState(false),
     [key, setKey] = useState(() => crypto.randomUUID());
+  const posting = usePostingRequest();
+  const { busy, pending } = posting;
+  const flow = useRef(false);
+  const balanceRefresh = useBalanceRefresh(refresh);
   useEffect(() => {
     let live = true;
     api(`/companies/${companyId}/bank-accounts`)
@@ -253,11 +280,13 @@ export function OpeningBalances({ companyId, records, api, refresh, role }) {
   if (role !== "owner") return null;
   async function submit(e) {
     e.preventDefault();
-    setBusy(true);
+    if (role !== "owner" || flow.current || balanceRefresh.busy) return;
+    flow.current = true;
     setError("");
     setSuccess("");
     try {
-      await api(`/companies/${companyId}/opening-balances`, {
+      const path = `/companies/${companyId}/opening-balances`;
+      const options = {
         method: "POST",
         headers: { "Idempotency-Key": key },
         body: JSON.stringify({
@@ -271,15 +300,16 @@ export function OpeningBalances({ companyId, records, api, refresh, role }) {
             overdraft: form.overdraft,
           },
         }),
-      });
-      await refresh();
+      };
+      if (!await posting.run(() => api(path, options))) return;
       setSuccess("Opening balance posted to the ledger.");
       setKey(crypto.randomUUID());
       setForm({ ...form, amount: "" });
+      await balanceRefresh.run();
     } catch (e) {
       setError(e.message);
     } finally {
-      setBusy(false);
+      flow.current = false;
     }
   }
   return (
@@ -290,6 +320,7 @@ export function OpeningBalances({ companyId, records, api, refresh, role }) {
         account. Opening stock is available in Items.
       </p>
       <form className="form-grid" onSubmit={submit}>
+        <fieldset className="form-grid full submission-fields" disabled={busy || pending || balanceRefresh.busy}>
         <label>
           Balance type
           <select
@@ -373,7 +404,9 @@ export function OpeningBalances({ companyId, records, api, refresh, role }) {
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
         </label>
-        <button className="button primary full" disabled={busy}>
+        </fieldset>
+        {pending && !busy && <p className="info-box full" role="status">{pendingPostingMessage}</p>}
+        <button className="button primary full" disabled={busy || balanceRefresh.busy}>
           {busy ? "Posting…" : "Post opening balance"}
         </button>
       </form>
@@ -383,6 +416,7 @@ export function OpeningBalances({ companyId, records, api, refresh, role }) {
         </div>
       )}
       {success && <p role="status">{success}</p>}
+      <BalanceRefreshNotice state={balanceRefresh} />
     </section>
   );
 }
