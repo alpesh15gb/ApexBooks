@@ -157,3 +157,12 @@ test('day book ignores obsolete failures after company changes',async()=>{
  assert.equal(document.querySelector('[role=alert]'),null);assert.match(document.querySelector('.summary-card strong').textContent,/200/);assert.equal(button('Retry day book'),undefined);
  await act(async()=>root.unmount());
 });
+test('reorder explains selected invalid quantities and clears the linked error after correction',async()=>{
+ const root=createRoot(document.getElementById('root'));let reviewed;
+ await act(async()=>root.render(React.createElement(Reorder,{companyId:'c1',role:'editor',api:async()=>({total_low_stock:1,rows:[{item_id:'i1',name:'Synthetic',on_hand:'0',low_stock_threshold:'0',suggested_quantity:'0'}]}),onBack:()=>{},onReview:r=>{reviewed=r;}})));
+ await act(async()=>document.querySelector('input[type=checkbox]').click());const input=document.querySelector('input[type=number]');
+ assert.equal(input.getAttribute('aria-invalid'),'true');assert.match(document.getElementById(input.getAttribute('aria-describedby')).textContent,/greater than zero/);assert.equal(button('Review purchase order').disabled,true);assert.equal(reviewed,undefined);
+ await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(input,'1.234');input.dispatchEvent(new window.Event('input',{bubbles:true}));input.dispatchEvent(new window.Event('change',{bubbles:true}));});
+ assert.equal(input.hasAttribute('aria-invalid'),false);assert.equal(input.hasAttribute('aria-describedby'),false);assert.equal(button('Review purchase order').disabled,false);
+ await act(async()=>button('Review purchase order').click());assert.equal(reviewed[0].quantity,'1.234');await act(async()=>root.unmount());
+});

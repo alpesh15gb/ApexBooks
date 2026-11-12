@@ -226,3 +226,14 @@ current. Obsolete company failures remain suppressed. Fourteen rendered everyday
 feature tests passed, including failure/retry, stale totals and company switching;
 frontend lint/build/bundle budgets passed. Browser/screen-reader acceptance remains
 open. No financial/API write, publication retry or deployment was performed.
+
+### Reorder quantity feedback
+
+Selected invalid/empty order quantities previously disabled Review without linked
+field feedback. Reorder now marks the field aria-invalid and links a plain-language
+quantity requirement. Correcting the value removes both invalid state and error
+association; the existing positive/three-decimal validation rule and reviewed payload
+are unchanged. Fifteen rendered everyday-feature tests passed, including a selected
+zero recommendation corrected to 1.234, plus lint/build/bundle budgets. No real
+browser/screen-reader, native UI or posting coverage is claimed for this small fix.
+Publication remains paused; no denied upload was retried.
