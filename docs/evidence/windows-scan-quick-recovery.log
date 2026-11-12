@@ -1,0 +1,14 @@
+
+Welcome to .NET 10.0!
+---------------------
+SDK Version: 10.0.100
+
+----------------
+Write your first app: https://aka.ms/dotnet-hello-world
+Find out what's new: https://aka.ms/dotnet-whats-new
+Explore documentation: https://aka.ms/dotnet-docs
+Report issues and find source on GitHub: https://github.com/dotnet/core
+Use 'dotnet --help' to see available commands or visit: https://aka.ms/dotnet-cli
+--------------------------------------------------------------------------------------
+/tmp/apex-windows-scan-idla4bfw/Program.cs(12,65): warning CS0649: Field 'Screen.stamp' is never assigned to, and will always have its default value 0 [/tmp/apex-windows-scan-idla4bfw/Proof.csproj]
+PASS actual Windows scan: 42 delayed picker/image/OCR outcomes, cancellation, duplicate and unresolved guards

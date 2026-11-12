@@ -57,7 +57,7 @@ public sealed partial class MainPage
         var canPayNow = previous is null && conversion is null && (kind is "sales_invoice" or "purchase_bill") && Supports("payment_at_entry"); decimal lastTotal = 0; string? totalForBody=null; Button? payFull=null;
         var payNow = new CheckBox { Content = kind == "sales_invoice" ? "Received now · record the receipt together with this invoice" : "Paid now · record the payment together with this bill" };
         var payAmount = Input("Amount (₹)", ""); var payMethod = Select("Account", [("cash", "Cash"), ("bank", "Bank / UPI / card")], "cash"); var payBank = BankChoice();
-        var retryKey = Guid.NewGuid().ToString();var submission=new RetrySubmission(); CancellationTokenSource? previewRequest = null;var sourceLoading=false;var editorOpen=true;string baseline="";string? pendingSourceId=null;var sourceRequest=new SourceSelectionRequest();
+        var retryKey = Guid.NewGuid().ToString();var submission=new RetrySubmission();var quickSubmission=new RetrySubmission();var quickRetryKey="";Func<Task>? retryQuickMaster=null; CancellationTokenSource? previewRequest = null;var sourceLoading=false;var editorOpen=true;string baseline="";string? pendingSourceId=null;var sourceRequest=new SourceSelectionRequest();
 
         JsonObject DocumentData()
         {
@@ -106,20 +106,26 @@ public sealed partial class MainPage
             catch (OperationCanceledException) { }
             catch (Exception e) { if (!request.IsCancellationRequested) preview.Text = e.Message; }
         }
-        async Task QuickMaster(Func<Task<JsonObject>> create,Func<bool> unchanged,Action<JsonObject> apply)
+        var quickRecovery=AsyncButton("Recover original master creation",async()=>{if(retryQuickMaster is not null)await retryQuickMaster();},LocalError);
+        quickRecovery.Visibility=Visibility.Collapsed;panel.Children.Add(quickRecovery);
+        async Task QuickMaster(JsonObject candidate,Func<bool> unchanged,Action<JsonObject> apply,bool retry=false)
         {
-            if(sourceLoading||!editorOpen||submission.Unresolved||!ScopedFileExport.Current(writeAccess))return;
+            if(sourceLoading||!editorOpen||submission.Unresolved||quickSubmission.Unresolved&&!retry||!ScopedFileExport.Current(writeAccess))return;
             var access=CaptureFileSaveAccess();
             bool Current()=>editorOpen&&stamp==generation&&ScopedFileExport.Current(writeAccess)&&ScopedFileExport.Current(access);
+            if(!quickSubmission.Unresolved){quickRetryKey=Guid.NewGuid().ToString();retryQuickMaster=()=>QuickMaster(candidate,unchanged,apply,true);}
             sourceLoading=true;
             try{
-                var created=await create();if(!Current())return;
+                JsonObject created;
+                try{created=(await Api.SaveRecord(cid,quickSubmission.Body(candidate),quickRetryKey)).Object();quickSubmission.Succeeded();retryQuickMaster=null;}
+                catch(Exception e){quickSubmission.Failed(e);if(!quickSubmission.Unresolved)retryQuickMaster=null;throw;}
+                if(!Current())return;
                 Records.Add(created.DeepClone());
                 if(unchanged())apply(created);
                 else LocalError(new Exception("The master was saved, but your document changed while it was saving. Choose the saved master explicitly if needed."));
             }
-            catch(Exception e){if(Current())LocalError(e);}
-            finally{sourceLoading=false;}
+            catch(Exception e){if(Current())LocalError(quickSubmission.Unresolved?new Exception("Master creation may already have succeeded. Use Recover original master creation; do not create another master or save this document until the original result is recovered. Keep this editor open; restarting the app loses this recovery request. "+e.Message,e):e);}
+            finally{sourceLoading=false;quickRecovery.Visibility=quickSubmission.Unresolved?Visibility.Visible:Visibility.Collapsed;}
         }
         void AddLine(JsonObject? initial = null, bool preserveImportedValues = false)
         {
@@ -146,7 +152,7 @@ public sealed partial class MainPage
                     var inv=System.Globalization.CultureInfo.InvariantCulture;var style=System.Globalization.NumberStyles.Number;
                     decimal.TryParse(values.Text("rate"),style,inv,out var rate);decimal.TryParse(values.Text("gst_rate"),style,inv,out var gstRate);
                     var signature=values.ToJsonString();
-                    await QuickMaster(async()=> (await Api.Send(Api.CompanyPath(cid,"/records"),HttpMethod.Post,new JsonObject{["kind"]="item",["name"]=values.Text("description"),["date"]=J.Today,["amount"]=0,["data"]=new JsonObject{["item_type"]="goods",["hsn"]=values.Text("hsn"),["unit"]=values.Text("unit"),[purchase?"purchase_rate":"sale_rate"]=Math.Round(rate,2).ToString("0.00",inv),["gst_rate"]=Math.Round(gstRate,2).ToString("0.00",inv),["tax_treatment"]=values.Text("tax_treatment")}})).Object(),()=>lines.Contains(line)&&!line.Linked&&line.Data().ToJsonString()==signature,created=>line.LinkCreatedItem(created));
+                    await QuickMaster(new JsonObject{["kind"]="item",["name"]=values.Text("description"),["date"]=J.Today,["amount"]=0,["data"]=new JsonObject{["item_type"]="goods",["hsn"]=values.Text("hsn"),["unit"]=values.Text("unit"),[purchase?"purchase_rate":"sale_rate"]=Math.Round(rate,2).ToString("0.00",inv),["gst_rate"]=Math.Round(gstRate,2).ToString("0.00",inv),["tax_treatment"]=values.Text("tax_treatment")}},()=>lines.Contains(line)&&!line.Linked&&line.Data().ToJsonString()==signature,created=>line.LinkCreatedItem(created));
                 },LocalError);
                 void ShowSaveItem()=>saveItem.Visibility=!line.Linked&&line.Description.Text.Trim().Length>0?Visibility.Visible:Visibility.Collapsed;
                 line.Changed+=ShowSaveItem;ShowSaveItem();holder.Children.Add(saveItem);
@@ -165,7 +171,7 @@ public sealed partial class MainPage
         addParty=AsyncButton(purchase?"+ Add as a new supplier":"+ Add as a new customer",async()=>{
             var name=party.Text.Trim();if(name.Length==0||partyId.Length>0)return;
             var signature=BodyValue().ToJsonString();
-            await QuickMaster(async()=> (await Api.Send(Api.CompanyPath(cid,"/records"),HttpMethod.Post,new JsonObject{["kind"]="party",["name"]=name,["date"]=J.Today,["amount"]=0,["data"]=new JsonObject{["party_type"]=purchase?"supplier":"customer",["phone"]=phone.Text.Trim(),["gstin"]=gstin.Text.Trim().ToUpperInvariant(),["address"]=address.Text,["shipping_address"]=shipping.Text}})).Object(),()=>partyId.Length==0&&BodyValue().ToJsonString()==signature,created=>{partyId=created.Text("id");party.Text=created.Text("name");ShowAddParty();_=Calculate();});
+            await QuickMaster(new JsonObject{["kind"]="party",["name"]=name,["date"]=J.Today,["amount"]=0,["data"]=new JsonObject{["party_type"]=purchase?"supplier":"customer",["phone"]=phone.Text.Trim(),["gstin"]=gstin.Text.Trim().ToUpperInvariant(),["address"]=address.Text,["shipping_address"]=shipping.Text}},()=>partyId.Length==0&&BodyValue().ToJsonString()==signature,created=>{partyId=created.Text("id");party.Text=created.Text("name");ShowAddParty();_=Calculate();});
         },LocalError);
         identity.Children.Add(addParty);identity.Children.Add(partyLinked);identity.Children.Add(regular||purchase?Columns(phone,gstin):phone);
         var metadata=Stack(10);metadata.Children.Add(Columns(number,date.View));
@@ -235,7 +241,7 @@ public sealed partial class MainPage
         {
             async Task ScanPurchase()
             {
-                if(sourceLoading||!editorOpen||submission.Unresolved||!ScopedFileExport.Current(writeAccess))return;
+                if(sourceLoading||!editorOpen||submission.Unresolved||quickSubmission.Unresolved||!ScopedFileExport.Current(writeAccess))return;
                 var scanAccess=CaptureFileSaveAccess();var original=BodyValue().ToJsonString();
                 bool CurrentScan()=>editorOpen&&stamp==generation&&ScopedFileExport.Current(writeAccess)&&ScopedFileExport.Current(scanAccess)&&!submission.Unresolved;
                 bool Unchanged()=>BodyValue().ToJsonString()==original;
@@ -297,6 +303,7 @@ public sealed partial class MainPage
         async Task Save()
         {
             writeAccess();
+            if(quickSubmission.Unresolved)throw new Exception("Recover the original master creation before saving this document.");
             if(sourceLoading||pendingSourceId is not null)throw new Exception("Finish or cancel the source change before saving.");
             if(!submission.Unresolved&&NeedsFixedReview()&&!fixedReview.IsAcknowledged(FixedSignature()))throw new Exception("Review each fixed ₹ discount against the quantities being returned, then acknowledge the review before saving.");
             if (party.Text.Trim().Length == 0) throw new Exception("Enter the customer, supplier or description.");
@@ -312,7 +319,7 @@ public sealed partial class MainPage
         }
         var saved = await Dialog((previous is not null ? "Edit " : "New ") + FeatureCatalog.Singular(kind), panel, Save,
             previous is null ? "Save " + (kind=="purchase_bill"?"bill":kind=="sales_invoice"?"invoice":"document") : "Save changes",
-            canSave:()=>ScopedFileExport.Current(writeAccess)&&!sourceLoading&&pendingSourceId is null,unresolved:()=>submission.Unresolved,hasChanges:()=>BodyValue().ToJsonString()!=baseline||payNow.IsChecked==true,
+            canSave:()=>ScopedFileExport.Current(writeAccess)&&!quickSubmission.Unresolved&&!sourceLoading&&pendingSourceId is null,unresolved:()=>submission.Unresolved||quickSubmission.Unresolved,hasChanges:()=>BodyValue().ToJsonString()!=baseline||payNow.IsChecked==true,
             saveAndNew:previous is null&&conversion is null?async()=>{await Save();keepNew=true;}:null,stickyFooter:Card(totals));
         editorOpen=false;sourceRequest.Invalidate();previewRequest?.Cancel();
         if(!saved||!Api.SignedIn||cid!=CompanyId||editorWorkspace!=workspaceGeneration||editorSession!=Api.SessionGeneration)return;
