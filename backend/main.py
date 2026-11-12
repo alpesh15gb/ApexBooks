@@ -774,6 +774,7 @@ def calculate(data, company, tax_mode, kind, session, *, exclude_return_id=None)
     if kind == 'debit_note':
         from purchase_returns import reconcile_tax
         data = reconcile_tax(sys.modules[__name__], data, company.id, session, exclude_return_id)
+        taxable = Decimal(data['taxable'])
         tax = sum((Decimal(data[key]) for key in ('cgst', 'sgst', 'igst', 'supplier_tax')), Decimal(0))
     total=money(taxable+tax)
     if data.get('round_total') not in (None,False,True):raise HTTPException(422,'Invalid rounding option')
