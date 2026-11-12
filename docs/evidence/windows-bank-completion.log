@@ -1,0 +1,15 @@
+
+Welcome to .NET 10.0!
+---------------------
+SDK Version: 10.0.100
+
+----------------
+Write your first app: https://aka.ms/dotnet-hello-world
+Find out what's new: https://aka.ms/dotnet-whats-new
+Explore documentation: https://aka.ms/dotnet-docs
+Report issues and find source on GitHub: https://github.com/dotnet/core
+Use 'dotnet --help' to see available commands or visit: https://aka.ms/dotnet-cli
+--------------------------------------------------------------------------------------
+/tmp/apex-windows-import-tu3uti31/Program.cs(32,11): warning CS8321: The local function 'Value' is declared but never used [/tmp/apex-windows-import-tu3uti31/Proof.csproj]
+PASS actual bank dialog completion: one POST on confirmed refresh failure, none on cancel, current success
+PASS Windows bank receipt persistence/races and actual save callback: frozen retries, role guard, legacy and corruption

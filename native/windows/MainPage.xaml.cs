@@ -71,6 +71,18 @@ public sealed partial class MainPage : Page
     internal string PathFor(string suffix = "") => Api.CompanyPath(CompanyId, suffix);
     internal void Error(Exception e) {if(NativeUi.DialogError(e))return; notice.Severity = InfoBarSeverity.Error; notice.Message = e.Message; notice.IsOpen = true; }
     internal void Success(string message) { notice.Severity = InfoBarSeverity.Success; notice.Message = message; notice.IsOpen = true; }
+    private async Task FinishConfirmedImport(string message)
+    {
+        var cid=CompanyId;var workspace=workspaceGeneration;var session=Api.SessionGeneration;
+        bool Current()=>Api.SignedIn&&Api.SessionGeneration==session&&CompanyId==cid&&workspaceGeneration==workspace;
+        try{await Refresh();if(Current())Success(message);}
+        catch(OperationCanceledException){throw;}
+        catch(Exception error){
+            if(Current())throw new ApiFailure((error as ApiFailure)?.Status??0,
+                message+" The list could not refresh. Do not repeat the import; refresh the current company after access or connectivity is restored. "+error.Message);
+        }
+    }
+
     internal async Task Run(Func<Task> action)
     {
         progress.Visibility = Visibility.Visible;

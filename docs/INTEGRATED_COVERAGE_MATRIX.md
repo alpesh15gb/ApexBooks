@@ -1429,3 +1429,12 @@ Evidence: docs/evidence/android-confirmed-import-*.log. This is portable compile
 method/callback testing; full Compose/device acceptance remains open. No dedicated
 new retry POST is offered for a known success. Windows analogous completion
 behavior remains outside this batch. No production/publication/deployment.
+
+### Windows confirmed import versus refresh failure (after 8e509b8)
+
+- Master CSV and bank CSV confirmed POSTs and GET-recovered receipts use a shared `FinishConfirmedImport` path. A current refresh error retains the confirmed-import fact, original HTTP status and explicit instruction to refresh rather than repeat the import. Company/workspace generation and sign-in generation suppress stale success/error notices; cancellation propagates.
+- Bank import now refreshes once through the shared completion path after confirmation, instead of an unconditional caller-side list load (including after cancel). The originating access guard is rechecked after dialog completion. Receipt persistence, frozen retry and role checks are unchanged.
+- Compiled actual master workflow + actual completion method: current success; transport/401/403/404/422/503 after confirmed POST and receipt GET; eight delayed company/session/logout success/error cases; cancellation; restart GET-only recovery; missing receipt and stale picker.
+- Compiled actual bank dialog/save/lookup callbacks: confirmed POST followed by refresh failure makes one POST, clears confirmed receipt and closes dialog; cancelled dialog makes no POST/refresh; current success completes once. Shared completion implementation is compiled in the master workflow suite. Existing Windows master receipt persistence/race tests and both-platform bank/owner role callback suites also pass.
+- Evidence: `docs/evidence/windows-{import-completion,bank-completion,master-receipts,bank-role-completion,owner-role-completion}.log`. Tests: `WindowsImportReceipt/{check,workflow}.py`, `WindowsBankImportReceipt/check.py`, `BankImportRole/check.py`, `OwnerImportRole/check.py` under `native/tests`. Restored official .NET 10.0.100 archive matched SHA512 already recorded in `windows-import-recovery-sdk-provenance.json`; no system install.
+- Limits: synthetic UI/transport, no full WinUI or physical-device acceptance, no real import/network/share, no production or publication. This preserves known outcomes during refresh; it does not introduce new durable completion notices across app restart or change the existing receipt protocol.

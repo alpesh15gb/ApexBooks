@@ -24,7 +24,7 @@ fun main()=runBlocking{
  println("PASS Android actual bank import callback: viewer blocked, editor resumes, stale owner blocked")
 }'''.replace('BODY',body)
 w=(root/'native/windows/Views/StatementImport.cs').read_text();verify=w.split('void Verify(){',1)[1].split('\n',1)[0];verify=verify[:verify.rfind('}')]
-commit=w.split('try{await Dialog("Import bank statement",panel,async()=>{',1)[1].split('},"Import reviewed rows"',1)[0]
+commit=w.split('try{if(await Dialog("Import bank statement",panel,async()=>{',1)[1].split('},"Import reviewed rows"',1)[0]
 assert 'Verify();if(!double.IsFinite' in w
 cs='''using System.Text.Json.Nodes;using System.Net.Http;using ApexBooks_Windows.Services;
 class ApiFailure(int status):Exception{public int Status=>status;}

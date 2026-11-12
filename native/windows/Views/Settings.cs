@@ -154,7 +154,7 @@ public sealed partial class MainPage
                 var result=await Api.Send(Api.CompanyPath(cid,"/masters/import-receipts/"+Uri.EscapeDataString(saved.Key)));Guard();receipt.Confirmed(result.Text("operation_key"));confirmed=true;message.Text="Original import confirmed. Close or continue to refresh the records; no import will be repeated.";
             },CurrentError,true));
             var proceed=await Dialog("Recover original master import",recoveryPanel,()=>Task.CompletedTask,"Continue");Guard();
-            if(confirmed){await Refresh();Success("Original import confirmed; no import was repeated.");return;}
+            if(confirmed){await FinishConfirmedImport("Original import confirmed; no import was repeated.");return;}
             if(!proceed)return;
             if(!Supported())throw new Exception("The original import remains unresolved. A legacy request cannot replace it.");
         }
@@ -177,7 +177,7 @@ public sealed partial class MainPage
             try{var result=await Api.Send(Api.CompanyPath(cid,"/masters/import"),HttpMethod.Post,JsonNode.Parse(attempt.Body),attempt.Key);if(attempt.Key is not null)receipt.Confirmed(result.Text("operation_key"));Guard();}
             catch(Exception error){receipt.Failed(attempt,(error as ApiFailure)?.Status??0);throw;}
             finally{receipt.End();kind.IsEnabled=!receipt.Pending;}
-        },"Import reviewed masters",()=>CanWrite&&ScopedFileExport.Current(verify),unresolved:()=>receipt.Pending)) {Guard();await Refresh();Success("Master import confirmed.");}
+        },"Import reviewed masters",()=>CanWrite&&ScopedFileExport.Current(verify),unresolved:()=>receipt.Pending)) {Guard();await FinishConfirmedImport("Master import confirmed.");}
     }
     private async Task DataExport()
     {

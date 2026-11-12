@@ -27,7 +27,7 @@ public sealed partial class MainPage
                 finally{checking=false;}
             },CurrentError,true));
             var proceed=await Dialog("Recover original bank import",recoveryPanel,()=>Task.CompletedTask,"Continue",()=>!checking);RecoveryGuard();
-            if(recovered){await Refresh();Success("Original bank import confirmed; no import was repeated.");return;}
+            if(recovered){await FinishConfirmedImport("Original bank import confirmed; no import was repeated.");return;}
             if(!proceed)return;if(!Supported())throw new Exception("The original bank import remains unresolved; a legacy request cannot replace it.");
         }
         RecoveryGuard();var file=await ApexFiles.Pick(".csv");if(file is null||!ScopedFileExport.Current(access))return;var bytes=await ApexFiles.Read(file,5_000_000);if(!ScopedFileExport.Current(access))return;var table=Csv.Parse(Csv.Decode(bytes));if(table.Count<2)throw new Exception("The statement needs a header and transaction rows.");
@@ -53,10 +53,10 @@ public sealed partial class MainPage
             return new JsonObject{["bank_account_id"]=bank,["lines"]=output};
         }
         panel.Children.Add(Columns(header,format));panel.Children.Add(new Expander{Header="Column mapping",Content=mapping,HorizontalContentAlignment=HorizontalAlignment.Stretch,IsExpanded=true,HorizontalAlignment=HorizontalAlignment.Stretch});panel.Children.Add(AsyncButton("Validate and preview",async()=>{if(validating)return;validating=true;var stamp=revision;try{await ScopedFileExport.Run(Verify,async()=>{var body=Build();var dry=body.DeepClone().AsObject();dry["dry_run"]=true;var report=await Api.Send(Api.CompanyPath(cid,"/bank-statement/import"),HttpMethod.Post,dry);Verify();if(stamp!=revision)return false;reviewed=body.ToJsonString();preview.Children.Clear();RenderReport(preview,report,"Import validation");Table(preview,new JsonArray(body["lines"].Array().Take(10).Select(r=>r.Copy()).ToArray()),"First 10 rows");return true;});}catch(Exception)when(stamp!=revision){}finally{validating=false;}},Error,true));panel.Children.Add(preview);
-        try{await Dialog("Import bank statement",panel,async()=>{if(validating||receipt.Busy)throw new Exception("Wait for validation or import to finish.");var body=Build();if(body.ToJsonString()!=reviewed)throw new Exception("Validate this mapping and review the preview before importing.");
+        try{if(await Dialog("Import bank statement",panel,async()=>{if(validating||receipt.Busy)throw new Exception("Wait for validation or import to finish.");var body=Build();if(body.ToJsonString()!=reviewed)throw new Exception("Validate this mapping and review the preview before importing.");
             var attempt=receipt.Begin(body.ToJsonString(),"bank",Supported());RecoveryState();
             try{var result=await Api.Send(Api.CompanyPath(cid,"/bank-statement/import"),HttpMethod.Post,JsonNode.Parse(attempt.Body),attempt.Key);if(attempt.Key is not null)receipt.Confirmed(result.Text("operation_key"));Verify();}
             catch(Exception error){receipt.Failed(attempt,(error as ApiFailure)?.Status??0);throw;}
-            finally{receipt.End();RecoveryState();}},"Import reviewed rows",()=>CanWrite&&ScopedFileExport.Current(access)&&(!receipt.Pending||Supported()),unresolved:()=>receipt.Pending);}finally{closed=true;}
+            finally{receipt.End();RecoveryState();}},"Import reviewed rows",()=>CanWrite&&ScopedFileExport.Current(access)&&(!receipt.Pending||Supported()),unresolved:()=>receipt.Pending)){RecoveryGuard();await FinishConfirmedImport("Bank import confirmed.");}}finally{closed=true;}
     }
 }

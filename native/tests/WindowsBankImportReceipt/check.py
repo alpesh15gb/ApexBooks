@@ -3,8 +3,11 @@ import argparse,tempfile,subprocess,os
 root=Path(__file__).resolve().parents[3]
 p=argparse.ArgumentParser();p.add_argument('--dotnet',default='dotnet');args=p.parse_args()
 s=(root/'native/windows/Views/StatementImport.cs').read_text()
-body=s.split('try{await Dialog("Import bank statement",panel,async()=>{',1)[1].split('},"Import reviewed rows"',1)[0]
+body=s.split('try{if(await Dialog("Import bank statement",panel,async()=>{',1)[1].split('},"Import reviewed rows"',1)[0]
 lookup=s.split('"Check original import",async()=>{',1)[1].split('},CurrentError,true)',1)[0]
+start=s.index('try{if(await Dialog("Import bank statement"')
+finish=s[start:s.index('\n    }\n}',start)]
+assert '()=>ImportStatement(Value(bank))' in (root/'native/windows/Views/Accounting.cs').read_text()
 fixture='''
 using System.Text.Json.Nodes;
 using System.Net.Http;
@@ -50,13 +53,23 @@ class Program{
    async Task Lookup(){LOOKUP}
    var count=Api.Keys.Count;await Lookup();Check(recovered&&!receipt.Pending&&Api.Gets==1&&Api.Keys.Count==count);
    allowed=false;try{await Lookup();throw new Exception("Expected access failure");}catch(InvalidOperationException){}Check(Api.Gets==1);
+   allowed=true;var panel=new object();var closed=false;var cancel=false;var completions=0;Exception? refreshFailure=null;Action access=Guard;bool CanWrite=true;
+   async Task<bool> Dialog(string title,object panel,Func<Task> action,string label,Func<bool> enabled,Func<bool> unresolved){if(cancel||!enabled())return false;await action();return true;}
+   Task FinishConfirmedImport(string text){Check(text=="Bank import confirmed.");completions++;if(refreshFailure is not null)throw refreshFailure;return Task.CompletedTask;}
+   async Task Import(){FINISH}
+   count=Api.Keys.Count;refreshFailure=new ApiFailure(503,"confirmed but refresh failed");
+   try{await Import();throw new Exception("Expected refresh failure");}catch(ApiFailure){}
+   Check(completions==1&&closed&&!receipt.Pending&&Api.Keys.Count==count+1);
+   closed=false;cancel=true;await Import();Check(completions==1&&closed&&Api.Keys.Count==count+1);
+   cancel=false;closed=false;refreshFailure=null;await Import();Check(completions==2&&closed&&Api.Keys.Count==count+2&&!receipt.Pending);
+   Console.WriteLine("PASS actual bank dialog completion: one POST on confirmed refresh failure, none on cancel, current success");
    Console.WriteLine("PASS Windows bank receipt persistence/races and actual save callback: frozen retries, role guard, legacy and corruption");
   }finally{Directory.Delete(folder,true);}
  }
 }
-'''.replace('CALLBACK',body.replace('Api.CompanyPath','ApiMock.CompanyPath')).replace('LOOKUP',lookup.replace('Api.CompanyPath','ApiMock.CompanyPath'))
+'''.replace('CALLBACK',body.replace('Api.CompanyPath','ApiMock.CompanyPath')).replace('LOOKUP',lookup.replace('Api.CompanyPath','ApiMock.CompanyPath')).replace('FINISH',finish.replace('Api.CompanyPath','ApiMock.CompanyPath'))
 with tempfile.TemporaryDirectory(prefix='apex-windows-import-') as directory:
  d=Path(directory);(d/'Program.cs').write_text(fixture)
- (d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup><Compile Include="'+str(root/'native/windows/Services/ImportReceiptRecovery.cs')+'" /><Compile Include="'+str(root/'native/windows/Services/ClientCapabilities.cs')+'" /><Compile Include="'+str(root/'native/windows/Services/BuildIdentity.cs')+'" /></ItemGroup></Project>')
+ (d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup><Compile Include="'+str(root/'native/windows/Services/ImportReceiptRecovery.cs')+'" /><Compile Include="'+str(root/'native/windows/Services/ClientCapabilities.cs')+'" /><Compile Include="'+str(root/'native/windows/Services/BuildIdentity.cs')+'" /><Compile Include="'+str(root/'native/windows/Services/ScopedFileExport.cs')+'" /></ItemGroup></Project>')
  env={**os.environ,'DOTNET_CLI_TELEMETRY_OPTOUT':'1','DOTNET_SKIP_FIRST_TIME_EXPERIENCE':'1','DOTNET_GENERATE_ASPNET_CERTIFICATE':'false','DOTNET_CLI_HOME':str(d/'home')}
  subprocess.run([args.dotnet,'run','--project',str(d/'Proof.csproj')],check=True,env=env)
