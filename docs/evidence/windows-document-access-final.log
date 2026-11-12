@@ -1,0 +1,14 @@
+
+Welcome to .NET 10.0!
+---------------------
+SDK Version: 10.0.100
+
+----------------
+Write your first app: https://aka.ms/dotnet-hello-world
+Find out what's new: https://aka.ms/dotnet-whats-new
+Explore documentation: https://aka.ms/dotnet-docs
+Report issues and find source on GitHub: https://github.com/dotnet/core
+Use 'dotnet --help' to see available commands or visit: https://aka.ms/dotnet-cli
+--------------------------------------------------------------------------------------
+/tmp/apex-document-access-5q3xbj2s/Program.cs(12,306): warning CS0649: Field 'Screen.pendingSourceId' is never assigned to, and will always have its default value null [/tmp/apex-document-access-5q3xbj2s/Proof.csproj]
+PASS actual Windows document Save/guard: viewer blocked, read denial/recovery preserves original body/key and payment, four stale scopes blocked

@@ -14,8 +14,9 @@ public sealed partial class MainPage
     private async Task EditDocument(string kind, JsonObject? previous = null, JsonObject? conversion = null,JsonObject? returnSource=null,JsonObject? draftSeed=null)
     {
         var cid = CompanyId; var stamp = generation;
+        var writeAccess=CaptureDocumentWriteAccess();var readAccess=CaptureFileSaveAccess();
         if (conversion is not null) conversion = (await Api.Record(cid, conversion.Text("id"))).Object();
-        if (stamp != generation) return;
+        if (stamp != generation||!ScopedFileExport.Current(readAccess)) return;
         if(returnSource is not null) returnSource=(await Api.Record(cid,returnSource.Text("id"))).Object();
         JsonArray? returnOptions=null;
         if(kind=="debit_note"){
@@ -23,7 +24,7 @@ public sealed partial class MainPage
             if(sourceId.Length>0)returnOptions=(await Api.Record(cid,sourceId))["data"]?["lines"].Array()??new();
             else returnOptions=new();
         }
-        if(stamp!=generation)return;
+        if(stamp!=generation||!ScopedFileExport.Current(readAccess))return;
         var source = previous ?? conversion ?? returnSource ?? draftSeed; var data = source?["data"].Object() ?? new();
         var regular = Company.Text("tax_mode") == "regular"; var purchase = kind is "purchase_bill" or "purchase_order" or "debit_note" or "expense";
         var panel = Stack(10); panel.Width = Math.Clamp(((App.Window.Content as FrameworkElement)?.ActualWidth ?? 1240) - 112, 420, 1320);
@@ -272,6 +273,7 @@ public sealed partial class MainPage
         baseline=BodyValue().ToJsonString();var keepNew=false;JsonObject? lastPayment=null;JsonNode? savedResult=null;
         async Task Save()
         {
+            writeAccess();
             if(sourceLoading||pendingSourceId is not null)throw new Exception("Finish or cancel the source change before saving.");
             if(!submission.Unresolved&&NeedsFixedReview()&&!fixedReview.IsAcknowledged(FixedSignature()))throw new Exception("Review each fixed ₹ discount against the quantities being returned, then acknowledge the review before saving.");
             if (party.Text.Trim().Length == 0) throw new Exception("Enter the customer, supplier or description.");
@@ -287,7 +289,7 @@ public sealed partial class MainPage
         }
         var saved = await Dialog((previous is not null ? "Edit " : "New ") + FeatureCatalog.Singular(kind), panel, Save,
             previous is null ? "Save " + (kind=="purchase_bill"?"bill":kind=="sales_invoice"?"invoice":"document") : "Save changes",
-            canSave:()=>!sourceLoading&&pendingSourceId is null,unresolved:()=>submission.Unresolved,hasChanges:()=>BodyValue().ToJsonString()!=baseline||payNow.IsChecked==true,
+            canSave:()=>ScopedFileExport.Current(writeAccess)&&!sourceLoading&&pendingSourceId is null,unresolved:()=>submission.Unresolved,hasChanges:()=>BodyValue().ToJsonString()!=baseline||payNow.IsChecked==true,
             saveAndNew:previous is null&&conversion is null?async()=>{await Save();keepNew=true;}:null,stickyFooter:Card(totals));
         editorOpen=false;sourceRequest.Invalidate();previewRequest?.Cancel(); if (saved && cid == CompanyId) await Refresh();
         if(saved&&keepNew&&cid==CompanyId)await EditDocument(kind);
@@ -296,4 +298,14 @@ public sealed partial class MainPage
             &&(savedResult?["document"]?.Text("id") is {Length:>0} docId?docId:savedResult.Text("id")) is {Length:>0} savedId)
             await TransactionDetails(new JsonObject{["id"]=savedId});
     }
+    private Action CaptureDocumentWriteAccess()
+    {
+        var cid=CompanyId;var workspace=workspaceGeneration;var session=Api.SessionGeneration;
+        void Verify(){
+            if(!Api.SignedIn||Api.SessionGeneration!=session||CompanyId!=cid||workspaceGeneration!=workspace||!CanWrite)
+                throw new InvalidOperationException("Current editor or owner access is required to save this document. Your inputs and any original unresolved request are preserved. Refresh company access before retrying.");
+        }
+        Verify();return Verify;
+    }
+
 }

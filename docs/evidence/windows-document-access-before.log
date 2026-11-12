@@ -1,0 +1,23 @@
+
+Welcome to .NET 10.0!
+---------------------
+SDK Version: 10.0.100
+
+----------------
+Write your first app: https://aka.ms/dotnet-hello-world
+Find out what's new: https://aka.ms/dotnet-whats-new
+Explore documentation: https://aka.ms/dotnet-docs
+Report issues and find source on GitHub: https://github.com/dotnet/core
+Use 'dotnet --help' to see available commands or visit: https://aka.ms/dotnet-cli
+--------------------------------------------------------------------------------------
+/tmp/apex-document-access-9rqt5049/Program.cs(12,306): warning CS0649: Field 'Screen.pendingSourceId' is never assigned to, and will always have its default value null [/tmp/apex-document-access-9rqt5049/Proof.csproj]
+Unhandled exception. System.Exception: Expected local write rejection
+   at Program.Reject(Func`1 action) in /tmp/apex-document-access-9rqt5049/Program.cs:line 34
+   at Program.Main() in /tmp/apex-document-access-9rqt5049/Program.cs:line 36
+   at Program.<Main>()
+Traceback (most recent call last):
+  File "/workspace/scratch/bafc9a4c203a/apexbooks/native/tests/WindowsDocumentAccess/check.py", line 48, in <module>
+    subprocess.run([args.dotnet,'run','--project',str(d/'Proof.csproj')],check=True,env={**os.environ,'DOTNET_CLI_TELEMETRY_OPTOUT':'1','DOTNET_GENERATE_ASPNET_CERTIFICATE':'false','DOTNET_CLI_HOME':str(d/'home')})
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/tmp/apex-dotnet-receipts/sdk/dotnet', 'run', '--project', '/tmp/apex-document-access-9rqt5049/Proof.csproj']' returned non-zero exit status 134.
