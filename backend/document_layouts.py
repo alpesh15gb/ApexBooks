@@ -232,6 +232,11 @@ def render_thermal(record, supplier, branding, template, title, paid=Decimal('0'
         detail = f"{qty.normalize():f} {line.get('unit') or ''} x {format_inr(rate)}".replace('  ', ' ')
         if Decimal(str(line.get('gst_rate', 0))) and tax: detail += f" · GST {Decimal(str(line['gst_rate'])).normalize():f}%"
         els.append(pair(detail, format_inr(taxable + tax)))
+        if line.get('price_includes_tax'): els.append(p('Rate includes GST'))
+        if 'discount_amount' in line or Decimal(str(line.get('discount_percent', 0))):
+            els.append(p('Line discount: ' + line_discount_label(line)))
+        if Decimal(str(line.get('document_discount', 0))):
+            els.append(p('Document discount: INR ' + format_inr(line['document_discount'])))
     els.append(rule())
     if lines: els.append(pair('Items / Qty', f"{len(lines)} / {sum((Decimal(str(l.get('quantity', 0))) for l in lines), Decimal('0')).normalize():f}"))
     has_tax = any(Decimal(str(data.get(k, 0))) for k in ('cgst', 'sgst', 'igst'))
