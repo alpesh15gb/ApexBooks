@@ -241,3 +241,29 @@ compile the full Compose/WinUI application or test real pickers, shares or devic
 Recovery generation may have succeeded server-side before context changes; suppressed
 results must never be treated as proof that the server operation was cancelled.
 No production, real recovery codes, publication or external launch was used.
+
+
+## Receipt selection and bank-import preview follow-up
+
+Independent review identified a remaining Android receipt picker read that could
+replace a retained draft after context change. Selection now checks ownership and
+unresolved-operation state before reading and again before resetting/replacing the
+draft. Current read failures remain visible, stale failures are suppressed, and
+coroutine cancellation propagates. AndroidRetainedRead now passes 32 cases,
+including six selection success/stale/unresolved/error/cancellation scenarios.
+
+Windows bank statement mapping edits now invalidate the displayed review and its
+pending response. Duplicate validation clicks issue one request; current failures
+remain visible, obsolete failures do not overwrite the edited view. Original access
+is checked after picker/read and before preview publication or commit. Header-row
+input rejects blank/nonfinite, fractional and out-of-range values with a readable
+error. Seven compiled actual-preview callback cases passed; these do not simulate
+real WinUI NumberBox events or OS picker behavior.
+
+Unresolved release gates: exact integrated-revision Windows/Android full builds;
+Android AGP 8.13.1 unavailable in the offline cache and no installed Android SDK;
+no Windows SDK/WinUI runtime in this Linux environment; device picker, printing,
+sharing and accessibility acceptance; final integrated browser coverage; and
+verified production backup/restore, migration, writer-pause and rollback rehearsal.
+The existing build log stops at dependency resolution, before app compilation.
+No new CI dispatch, publication or production operation was performed.

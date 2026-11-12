@@ -25,6 +25,11 @@ private suspend fun downloadRetainedReceipt(vm:AppModel,cid:String,row:JSONObjec
     try{val bytes=vm.api.rawBytes(vm.api.company(cid,"/attachments/${encode(row.s("id"))}/download"),maximumResponse=2*1024*1024);if(!current())return false;verifyReceipt(bytes,row);if(!current())return false;vm.files.save(bytes,row.s("filename"));return true}
     catch(e:Exception){if(e is CancellationException)throw e;if(current())throw e;return false}
 }
+private suspend fun applyReceiptSelection(current:()->Boolean,read:suspend()->Triple<ByteArray,String,String>,apply:(Triple<ByteArray,String,String>)->Unit):Boolean {
+    if(!current())return false
+    try{val selection=read();if(!current())return false;apply(selection);return true}
+    catch(e:Exception){if(e is CancellationException)throw e;if(current())throw e;return false}
+}
 @Composable fun AttachmentsTool(vm:AppModel){
     val record=vm.toolData?:return;val cid=vm.companyId;val current=remember(cid,record){vm.captureReadOwner("attachments",record)};val rid=record.s("id");val draft=remember(cid,rid){vm.attachmentDraft(rid)}
     var rows by remember{mutableStateOf(emptyList<JSONObject>())};var storage by remember{mutableStateOf<JSONObject?>(null)};var busy by remember{mutableStateOf(false)};var failure by remember{mutableStateOf("")};var reload by remember{mutableIntStateOf(0)};var showArchived by remember{mutableStateOf(false)}
@@ -49,10 +54,11 @@ private suspend fun downloadRetainedReceipt(vm:AppModel,cid:String,row:JSONObjec
         if(current())storage?.let{limits->
             Text("${limits.optLong("used_bytes")/1024} KiB used / ${limits.optLong("quota_bytes")/1024} KiB · archived files still count",style=MaterialTheme.typography.bodySmall)
             if(vm.canWrite){
-                OutlinedButton(enabled=!busy&&!draft.unresolved&&rows.size<limits.optInt("max_files_per_record")&&limits.optLong("remaining_bytes")>0,onClick={vm.files.pick(arrayOf("application/pdf","image/png","image/jpeg")){uri->act{
+                OutlinedButton(enabled=!busy&&!draft.unresolved&&rows.size<limits.optInt("max_files_per_record")&&limits.optLong("remaining_bytes")>0,onClick={vm.files.pick(arrayOf("application/pdf","image/png","image/jpeg")){uri->if(current()&&!draft.unresolved)act{applyReceiptSelection({current()&&!draft.unresolved},{
                     val maximum=minOf(limits.optLong("max_file_bytes"),limits.optLong("remaining_bytes"),2L*1024*1024).toInt();require(maximum>0){"No receipt storage remains."}
                     val bytes=vm.files.read(uri,maximum);val mime=vm.files.mediaType(uri);require(mime in setOf("application/pdf","image/png","image/jpeg")){"Choose a PDF, PNG or JPEG receipt."}
-                    draft.reset();draft.bytes=bytes;draft.filename=vm.files.displayName(uri);draft.mediaType=mime
+                    Triple(bytes,vm.files.displayName(uri),mime)
+                },{selection->draft.reset();draft.bytes=selection.first;draft.filename=selection.second;draft.mediaType=selection.third})
                 }}}){Text("Choose receipt · PDF / JPEG / PNG")}
                 if(draft.bytes!=null){Field("Receipt filename",draft.filename,{if(!draft.unresolved)draft.filename=it},readOnly=draft.unresolved,maximum=120);Text("${draft.bytes!!.size} bytes · ${draft.mediaType}",style=MaterialTheme.typography.bodySmall)}
                 if(draft.unresolved)Text("The previous response was uncertain. Retry the exact original receipt operation before leaving.",color=MaterialTheme.colorScheme.error)

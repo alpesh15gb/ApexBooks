@@ -35,7 +35,14 @@ fun main()=runBlocking{
   val task=async(start=CoroutineStart.UNDISPATCHED){generateScopedRecoveryCodes(vm,"synthetic-password",current)};change(vm,scope);vm.api.response.complete(JSONObject());val published=task.await();check(published==(scope=="current"));if(scope=="current")check(vm.tool=="recovery_saved"&&vm.toolData!==original)else check(vm.tool!="recovery_saved")
   val view=AppModel();view.tool="recovery_saved";val owner=view.captureReadOwner(view.tool,view.toolData);change(view,scope);saveScopedRecoveryCodes(view,"SYNTHETIC-CODE",owner);check(view.files.saves==if(scope=="current")1 else 0)
  }
- println("PASS 26 actual attachment/codes read-owner, delayed response, checksum and retained-save scenarios")
+ for(mode in listOf("current","stale","unresolved","error","stale-error","cancel")){
+  var owned=true;var applied=0;val read=CompletableDeferred<Triple<ByteArray,String,String>>()
+  val task=async(start=CoroutineStart.UNDISPATCHED){runCatching{applyReceiptSelection({owned},{read.await()},{applied++})}}
+  if(mode in listOf("stale","unresolved","stale-error"))owned=false
+  if(mode=="cancel")read.cancel()else if(mode.endsWith("error"))read.completeExceptionally(IllegalArgumentException("Synthetic"))else read.complete(Triple(byteArrayOf(1),"synthetic.pdf","application/pdf"))
+  val result=task.await();check(applied==if(mode=="current")1 else 0);if(mode in listOf("error","cancel"))check(result.isFailure)else check(result.getOrNull()==(mode=="current"))
+ }
+ println("PASS 32 actual attachment/codes read-owner, delayed response, checksum and retained-save scenarios")
 }
 '''.replace('OWNER',owner).replace('HANDLERS',handlers)
 with tempfile.TemporaryDirectory(prefix='apex-retained-read-') as temp:

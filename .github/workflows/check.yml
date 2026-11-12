@@ -147,6 +147,7 @@ jobs:
       - run: python native/tests/WindowsPdfOwnership/check.py
       - run: python native/tests/WindowsPdfOwnership/external.py
       - run: python native/tests/WindowsRetainedRead/check.py
+      - run: python native/tests/WindowsStatementPreview/check.py
       - name: Verify streaming encrypted backups with a 64 MiB managed heap
         shell: pwsh
         run: |
