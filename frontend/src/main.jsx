@@ -817,6 +817,7 @@ function App() {
     } else await saveRecord(body);
   }
   async function saveOpening(body, key) {
+    if (accessLost || !["owner", "editor"].includes(company?.role)) throw new Error("Posting stock requires owner or editor access. Your draft is preserved.");
     const isCurrent = workspaceScope.current.capture();
     await api(`/companies/${companyId}/stock/opening`, {
       method: "POST",
@@ -829,6 +830,7 @@ function App() {
     setModal("");
   }
   async function saveStockAdjustment(body, key) {
+    if (accessLost || !["owner", "editor"].includes(company?.role)) throw new Error("Posting stock requires owner or editor access. Your draft is preserved.");
     const isCurrent = workspaceScope.current.capture();
     await api(`/companies/${companyId}/stock/adjustments`, {
       method: "POST",
@@ -1893,6 +1895,7 @@ function App() {
         ))}
       {modal === "stock_opening" && (
         <OpeningStock
+          readOnly={Boolean(accessLost) || !["owner", "editor"].includes(company?.role)}
           items={records.filter(
             (r) => r.kind === "item" && r.data?.track_stock,
           )}
@@ -1902,6 +1905,7 @@ function App() {
       )}
       {modal === "stock_adjustment" && (
         <StockAdjustment
+          readOnly={Boolean(accessLost) || !["owner", "editor"].includes(company?.role)}
           items={records.filter(
             (r) => r.kind === "item" && r.data?.track_stock,
           )}

@@ -27,3 +27,37 @@ EntryEditor source selection captures read ownership and rejects both stale succ
 - No backend accounting behavior changed in this batch. Existing live/local browser evidence from 9159cbf is not final-revision acceptance.
 
 Remaining UX queue includes viewer migration shortcuts, named member-removal confirmation and friendly audit-event labels. Other native file workflows still require the same access-ownership audit; this batch does not certify every download path or all lost reconstruction work.
+
+## Stock draft role recovery follow-up (2026-11-12)
+
+Independent review found that retained Opening stock and Stock adjustment forms
+remained postable after access recovery as a viewer. Both forms now accept a
+read-only role state, disable posting and editable fields, and refuse direct
+submit events. The App save handlers independently reject missing writer roles
+or an access-loss state. Draft values remain mounted; Cancel remains available
+when no posting outcome is pending. Server authorization is unchanged.
+
+Four rendered-App regressions exercise both forms through current access denial
+and recovery as viewer/editor: the same draft input survives, viewers make no
+POST even through a synthetic submit event, and editors post once. These use a
+synthetic fetch transport; final browser acceptance remains separate.
+
+## Native harness toolchain verification (2026-11-12)
+
+Downloaded Gradle 8.14.3 from the official downloads.gradle.org distribution
+endpoint to a temporary directory and verified its official SHA-256:
+`bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531`.
+Using Java 21 and that distribution's bundled Kotlin compiler, all six compiled
+checks completed successfully: AndroidPdfLoading, AndroidCoreRefresh,
+AndroidCashBook, AndroidEditorAccess, AndroidSourceSelection and AndroidLifecycle.
+The lifecycle check intentionally demonstrates the former failure before testing
+the corrected production methods; its REPRODUCED line is expected.
+
+Command for each: `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python
+native/tests/<name>/check.py --gradle-home
+/tmp/apex-gradle-readiness/gradle-8.14.3`. Logs are in
+`/tmp/apex-gradle-readiness/<name>.log`. These compile extracted production methods
+with harness types, not the full Android application. No Android SDK licenses or
+security-setting changes were made. Full final-commit Windows/Android CI builds,
+Compose/WinUI device interactions, rendering and printing remain open. Nothing
+was uploaded, merged or deployed in this follow-up.
