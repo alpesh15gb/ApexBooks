@@ -7,7 +7,9 @@ sys.path.insert(0,str(root/'native/tests'))
 from kotlin_toolchain import add_arguments,run_proof
 p=argparse.ArgumentParser();add_arguments(p);args=p.parse_args()
 source=(root/'native/android/app/src/main/java/com/apexbooks/accounting/AppModel.kt').read_text()
-method=source[source.index('    suspend fun refresh()'):source.index('    fun navigate(',source.index('    suspend fun refresh()'))]
+# Completion callbacks have dedicated AndroidImportCompletion/AndroidEntryCompletion suites.
+# Extract only refresh: including adjacent methods makes this fixture drift silently.
+method=source[source.index('    suspend fun refresh()'):source.index('    suspend fun finishConfirmedImport(',source.index('    suspend fun refresh()'))]
 fixture='''import kotlinx.coroutines.*
 import com.apexbooks.accounting.scopedCoreRefresh
 class ApiFailure(val status:Int):Exception("Synthetic failure")
