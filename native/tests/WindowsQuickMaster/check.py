@@ -1,8 +1,8 @@
 from pathlib import Path
 import argparse,os,subprocess,tempfile
 root=Path(__file__).resolve().parents[3];p=argparse.ArgumentParser();p.add_argument('--dotnet',default='dotnet');p.add_argument('--before',action='store_true');args=p.parse_args()
-s=(root/'native/windows/Views/Documents.cs').read_text();helper=s[s.index('        async Task QuickMaster('):s.index('        void AddLine(')]
-if args.before:s=subprocess.check_output(['git','show','HEAD:native/windows/Views/Documents.cs'],cwd=root,text=True)
+s=(root/'native/windows/Views/Documents.cs').read_text(encoding="utf-8");helper=s[s.index('        async Task QuickMaster('):s.index('        void AddLine(')]
+if args.before:s=subprocess.check_output(['git','show','HEAD:native/windows/Views/Documents.cs'],cwd=root,text=True, encoding="utf-8")
 def callback(marker):
  a=s.index(marker);a=s.index('async()=>{',a)+len('async()=>');b=s.index('},LocalError);',a)+1;return s[a:b]
 item=callback('var saveItem=AsyncButton');party=callback('addParty=AsyncButton')
@@ -50,5 +50,5 @@ class Program{
 }
 '''.replace('HELPER',helper).replace('ITEM',item).replace('PARTY',party).replace('BEFORE',str(args.before).lower())
 with tempfile.TemporaryDirectory(prefix='apex-quick-master-') as folder:
- d=Path(folder);(d/'Program.cs').write_text(fixture);(d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup><Compile Include="'+str(root/'native/windows/Services/RetrySubmission.cs')+'" /></ItemGroup></Project>')
+ d=Path(folder);(d/'Program.cs').write_text(fixture, encoding="utf-8");(d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup><Compile Include="'+str(root/'native/windows/Services/RetrySubmission.cs')+'" /></ItemGroup></Project>', encoding="utf-8")
  subprocess.run([args.dotnet,'run','--project',str(d/'Proof.csproj')],check=True,env={**os.environ,'DOTNET_CLI_TELEMETRY_OPTOUT':'1','DOTNET_GENERATE_ASPNET_CERTIFICATE':'false','DOTNET_CLI_HOME':str(d/'home')})

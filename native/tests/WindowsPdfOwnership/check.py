@@ -2,7 +2,7 @@
 from pathlib import Path
 import argparse,tempfile,subprocess,os
 root=Path(__file__).resolve().parents[3];p=argparse.ArgumentParser();p.add_argument('--dotnet',default='dotnet');p.add_argument('--baseline');args=p.parse_args()
-s=subprocess.check_output(['git','show',args.baseline+':native/windows/Views/Reporting.cs'],cwd=root,text=True) if args.baseline else (root/'native/windows/Views/Reporting.cs').read_text();method=s[s.index('    private async Task ShowPdf('):s.rfind('\n}')]
+s=subprocess.check_output(['git','show',args.baseline+':native/windows/Views/Reporting.cs'],cwd=root,text=True, encoding="utf-8") if args.baseline else (root/'native/windows/Views/Reporting.cs').read_text(encoding="utf-8");method=s[s.index('    private async Task ShowPdf('):s.rfind('\n}')]
 fixture=r'''
 using System;using System.IO;using System.Linq;using System.Collections.Generic;using System.Threading;using System.Threading.Tasks;using System.Text.Json.Nodes;using ApexBooks_Windows.Services;
 class Control{public bool IsEnabled=true;}
@@ -39,5 +39,5 @@ static class Program{static Button Find(Model m,string name)=>m.OpenPanel!.Child
 }
 '''.replace('METHOD',method)
 with tempfile.TemporaryDirectory(prefix='apex-pdf-ownership-') as temp:
- temp=Path(temp);(temp/'Proof.cs').write_text(fixture);(temp/'ScopedFileExport.cs').write_text((root/'native/windows/Services/ScopedFileExport.cs').read_text());(temp/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>')
+ temp=Path(temp);(temp/'Proof.cs').write_text(fixture, encoding="utf-8");(temp/'ScopedFileExport.cs').write_text((root/'native/windows/Services/ScopedFileExport.cs').read_text(encoding="utf-8"), encoding="utf-8");(temp/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>', encoding="utf-8")
  subprocess.run([args.dotnet,'run','--project',str(temp/'Proof.csproj')],check=True,env=os.environ)

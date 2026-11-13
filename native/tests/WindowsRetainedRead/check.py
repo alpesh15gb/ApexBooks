@@ -2,8 +2,8 @@
 from pathlib import Path
 import argparse,tempfile,subprocess,os
 root=Path(__file__).resolve().parents[3];p=argparse.ArgumentParser();p.add_argument('--dotnet',default='dotnet');args=p.parse_args()
-s=(root/'native/windows/Views/Settings.cs').read_text();recovery=s[s.index('    private async Task RecoveryCodes()'):s.index('    private async Task AuditHistory()')]
-a=(root/'native/windows/Views/RetainedReceipts.cs').read_text();download=a.split('AsyncButton("Download verified copy",async()=>{',1)[1].split('},Error)',1)[0]
+s=(root/'native/windows/Views/Settings.cs').read_text(encoding="utf-8");recovery=s[s.index('    private async Task RecoveryCodes()'):s.index('    private async Task AuditHistory()')]
+a=(root/'native/windows/Views/RetainedReceipts.cs').read_text(encoding="utf-8");download=a.split('AsyncButton("Download verified copy",async()=>{',1)[1].split('},Error)',1)[0]
 assert 'ReadAccessInvalidated+=InvalidateRead;' in a and 'rows.Children.Clear();status.Text="Company access removed' in a
 fixture=r'''
 using System;using System.IO;using System.Linq;using System.Net.Http;using System.Text;using System.Text.Json.Nodes;using System.Collections.Generic;using System.Threading.Tasks;using System.Security.Cryptography;using ApexBooks_Windows.Services;
@@ -29,5 +29,5 @@ static class Program{static JsonObject Codes()=>new(){["codes"]=new JsonArray("S
 }}
 '''.replace('RECOVERY',recovery).replace('DOWNLOAD',download)
 with tempfile.TemporaryDirectory(prefix='apex-retained-read-') as temp:
- temp=Path(temp);(temp/'Proof.cs').write_text(fixture);(temp/'ScopedFileExport.cs').write_text((root/'native/windows/Services/ScopedFileExport.cs').read_text());(temp/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>')
+ temp=Path(temp);(temp/'Proof.cs').write_text(fixture, encoding="utf-8");(temp/'ScopedFileExport.cs').write_text((root/'native/windows/Services/ScopedFileExport.cs').read_text(encoding="utf-8"), encoding="utf-8");(temp/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>', encoding="utf-8")
  subprocess.run([args.dotnet,'run','--project',str(temp/'Proof.csproj')],check=True,env=os.environ)

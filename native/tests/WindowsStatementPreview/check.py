@@ -3,7 +3,7 @@ from pathlib import Path
 import argparse, tempfile, subprocess, os
 root=Path(__file__).resolve().parents[3]
 p=argparse.ArgumentParser();p.add_argument('--dotnet',default='dotnet');args=p.parse_args()
-s=(root/'native/windows/Views/StatementImport.cs').read_text()
+s=(root/'native/windows/Views/StatementImport.cs').read_text(encoding="utf-8")
 callback=s.split('AsyncButton("Validate and preview",async()=>{',1)[1].split('},Error,true)',1)[0]
 fixture=r'''
 using System.Text.Json.Nodes;using System.Net.Http;using ApexBooks_Windows.Services;
@@ -14,5 +14,5 @@ class Flow{public bool validating,closed,denied;public int revision,renders;publ
 class Program{static async Task Main(){foreach(var mode in new[]{"current","mapping","denied","closed","error","stale-error","duplicate"}){var f=new Flow();var task=f.Preview();if(mode=="duplicate")await f.Preview();if(mode is "mapping" or "stale-error")f.revision++;if(mode=="denied")f.denied=true;if(mode=="closed")f.closed=true;if(mode.EndsWith("error"))f.Api.response.SetException(new IOException("Synthetic"));else f.Api.response.SetResult(new JsonObject());if(mode=="error"){try{await task;throw new Exception("Current failure hidden");}catch(IOException){}}else await task;bool current=mode is "current" or "duplicate";if(f.Api.calls!=1||f.validating||f.renders!=(current?1:0)||(f.reviewed!="")!=current)throw new Exception("Bad preview outcome: "+mode);}Console.WriteLine("PASS seven actual preview callback cases: current, changed mapping, denied, closed, errors and duplicate clicks");}}
 '''.replace('CALLBACK',callback)
 with tempfile.TemporaryDirectory(prefix='apex-statement-preview-') as d:
- d=Path(d);(d/'Proof.cs').write_text(fixture);(d/'ScopedFileExport.cs').write_text((root/'native/windows/Services/ScopedFileExport.cs').read_text());(d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>')
+ d=Path(d);(d/'Proof.cs').write_text(fixture, encoding="utf-8");(d/'ScopedFileExport.cs').write_text((root/'native/windows/Services/ScopedFileExport.cs').read_text(encoding="utf-8"), encoding="utf-8");(d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>', encoding="utf-8")
  subprocess.run([args.dotnet,'run','--project',str(d/'Proof.csproj')],check=True,env=os.environ)

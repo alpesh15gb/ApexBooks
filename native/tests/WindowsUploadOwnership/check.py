@@ -32,7 +32,7 @@ class Program{static async Task Main(){foreach(var mode in new[]{"current","hash
 }}}
 '''
 with tempfile.TemporaryDirectory(prefix='apex-upload-owner-') as folder:
- d=Path(folder);(d/'Program.cs').write_text(fixture)
+ d=Path(folder);(d/'Program.cs').write_text(fixture, encoding="utf-8")
  includes=''.join('<Compile Include="'+str(root/'native/windows/Services'/name)+'" />' for name in ['CompleteBackupTransfer.cs','RetrySubmission.cs'])
- (d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup>'+includes+'</ItemGroup></Project>')
+ (d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup>'+includes+'</ItemGroup></Project>', encoding="utf-8")
  subprocess.run([args.dotnet,'run','--project',str(d/'Proof.csproj')],check=True,env={**os.environ,'DOTNET_CLI_TELEMETRY_OPTOUT':'1','DOTNET_GENERATE_ASPNET_CERTIFICATE':'false','DOTNET_CLI_HOME':str(d/'home')})

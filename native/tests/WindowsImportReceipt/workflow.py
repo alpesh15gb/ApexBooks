@@ -1,8 +1,8 @@
 from pathlib import Path
 import argparse,tempfile,subprocess,os
 root=Path(__file__).resolve().parents[3];p=argparse.ArgumentParser();p.add_argument('--dotnet',default='dotnet');args=p.parse_args()
-s=(root/'native/windows/Views/Settings.cs').read_text();method=s[s.index('    private async Task MasterCsvImport()'):s.index('    private async Task DataExport()')]
-main=(root/'native/windows/MainPage.xaml.cs').read_text();completion=main[main.index('    private async Task FinishConfirmedImport('):main.index('    internal async Task Run(')]
+s=(root/'native/windows/Views/Settings.cs').read_text(encoding="utf-8");method=s[s.index('    private async Task MasterCsvImport()'):s.index('    private async Task DataExport()')]
+main=(root/'native/windows/MainPage.xaml.cs').read_text(encoding="utf-8");completion=main[main.index('    private async Task FinishConfirmedImport('):main.index('    internal async Task Run(')]
 fixture='''
 using System.Text;using System.Text.Json.Nodes;using System.Net.Http;using ApexBooks_Windows.Services;
 class ApiFailure(int status,string message):Exception(message){public int Status=>status;}
@@ -73,9 +73,9 @@ class Program{
 }
 '''.replace('METHOD',method).replace('COMPLETION',completion)
 with tempfile.TemporaryDirectory(prefix='apex-windows-import-workflow-') as directory:
- d=Path(directory);(d/'Program.cs').write_text(fixture)
+ d=Path(directory);(d/'Program.cs').write_text(fixture, encoding="utf-8")
  sources=['ImportReceiptRecovery.cs','Csv.cs','ScopedFileExport.cs']
  includes=''.join('<Compile Include="'+str(root/'native/windows/Services'/name)+'" />' for name in sources)
- (d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup>'+includes+'</ItemGroup></Project>')
+ (d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup>'+includes+'</ItemGroup></Project>', encoding="utf-8")
  env={**os.environ,'DOTNET_CLI_TELEMETRY_OPTOUT':'1','DOTNET_GENERATE_ASPNET_CERTIFICATE':'false','DOTNET_CLI_HOME':str(d/'home')}
  subprocess.run([args.dotnet,'run','--project',str(d/'Proof.csproj')],check=True,env=env)

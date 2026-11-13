@@ -2,8 +2,8 @@
 from pathlib import Path
 import argparse,tempfile,subprocess,os
 root=Path(__file__).resolve().parents[3];p=argparse.ArgumentParser();p.add_argument('--dotnet',default='dotnet');args=p.parse_args()
-share=(root/'native/windows/Services/ApexShare.cs').read_text();share=share[share.index('    public static async Task Show('):share.rfind('\n}')]
-printer=(root/'native/windows/Services/ApexPrinter.cs').read_text();printer=printer[printer.index('    public static async Task Print('):printer.rfind('\n}')]
+share=(root/'native/windows/Services/ApexShare.cs').read_text(encoding="utf-8");share=share[share.index('    public static async Task Show('):share.rfind('\n}')]
+printer=(root/'native/windows/Services/ApexPrinter.cs').read_text(encoding="utf-8");printer=printer[printer.index('    public static async Task Print('):printer.rfind('\n}')]
 fixture=r'''
 using System;using System.IO;using System.Linq;using System.Collections.Generic;using System.Threading.Tasks;using System.Diagnostics;
 using File=MemoryFile;using Directory=MemoryDirectory;using Process=FakeProcess;
@@ -27,5 +27,5 @@ static class Program{static async Task Main(){foreach(var kind in new[]{"share",
  }Console.WriteLine("PASS actual share/print post-preparation checks with fake launchers (4 cases)");}}
 '''.replace('SHARE',share).replace('PRINT',printer)
 with tempfile.TemporaryDirectory(prefix='apex-pdf-external-') as temp:
- temp=Path(temp);(temp/'Proof.cs').write_text(fixture);(temp/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>')
+ temp=Path(temp);(temp/'Proof.cs').write_text(fixture, encoding="utf-8");(temp/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>', encoding="utf-8")
  subprocess.run([args.dotnet,'run','--project',str(temp/'Proof.csproj')],check=True,env=os.environ)

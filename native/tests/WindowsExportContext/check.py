@@ -2,14 +2,14 @@
 from pathlib import Path
 import argparse,tempfile,subprocess,os
 root=Path(__file__).resolve().parents[3];p=argparse.ArgumentParser();p.add_argument('--dotnet',default='dotnet');args=p.parse_args()
-settings=(root/'native/windows/Views/Settings.cs').read_text();cash=(root/'native/windows/Views/Accounting.cs').read_text();complete=(root/'native/windows/Views/CompleteBackups.cs').read_text()
+settings=(root/'native/windows/Views/Settings.cs').read_text(encoding="utf-8");cash=(root/'native/windows/Views/Accounting.cs').read_text(encoding="utf-8");complete=(root/'native/windows/Views/CompleteBackups.cs').read_text(encoding="utf-8")
 def between(s,start,end):return s.split(start,1)[1].split(end,1)[0]
 bodies={
  'Legacy':between(settings,'await Dialog("Download company backup",panel,async()=>{','},"Download backup")'),
  'Data':between(settings,'await Dialog("Export company data",panel,async()=>{','},"Export")'),
  'Cash':between(cash,'AsyncButton("Export "+fmt,async()=>{','},Error)'),
  'Complete':between(complete,'await Dialog("Complete portable backup",panel,async()=>{','},"Verify and save backup"')}
-reporting=(root/'native/windows/Views/Reporting.cs').read_text()
+reporting=(root/'native/windows/Views/Reporting.cs').read_text(encoding="utf-8")
 bodies['Report']=reporting.split('            async Task Export(string format){',1)[1].split('\n',1)[0].rsplit('}',1)[0]
 bodies['Party']=between(reporting,'AsyncButton("Export "+format.ToUpperInvariant(),async()=>{','},Error)')
 bodies['Document']=between(reporting,'private async Task ShowDocumentPdf(JsonObject row,string template)\n    {','\n    }')
@@ -57,5 +57,5 @@ static class Program{static async Task Main(){
 
 '''.replace('METHODS',methods)
 with tempfile.TemporaryDirectory(prefix='apex-export-context-') as temp:
- temp=Path(temp);(temp/'Proof.cs').write_text(fixture);(temp/'ScopedFileExport.cs').write_text((root/'native/windows/Services/ScopedFileExport.cs').read_text());(temp/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>')
+ temp=Path(temp);(temp/'Proof.cs').write_text(fixture, encoding="utf-8");(temp/'ScopedFileExport.cs').write_text((root/'native/windows/Services/ScopedFileExport.cs').read_text(encoding="utf-8"), encoding="utf-8");(temp/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>', encoding="utf-8")
  subprocess.run([args.dotnet,'run','--project',str(temp/'Proof.csproj')],check=True,env=os.environ)

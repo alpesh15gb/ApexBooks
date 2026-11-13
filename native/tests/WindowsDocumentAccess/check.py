@@ -1,7 +1,7 @@
 from pathlib import Path
 import argparse,os,subprocess,tempfile
 root=Path(__file__).resolve().parents[3];p=argparse.ArgumentParser();p.add_argument('--dotnet',default='dotnet');args=p.parse_args()
-s=(root/'native/windows/Views/Documents.cs').read_text()
+s=(root/'native/windows/Views/Documents.cs').read_text(encoding="utf-8")
 def function(marker):
  start=s.index(marker);brace=s.index('{',start);depth=1;end=brace+1
  while depth:
@@ -48,5 +48,5 @@ class Program{
 }
 '''.replace('HELPER',helper).replace('SAVE',save)
 with tempfile.TemporaryDirectory(prefix='apex-document-access-') as folder:
- d=Path(folder);(d/'Program.cs').write_text(fixture);(d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup><Compile Include="'+str(root/'native/windows/Services/RetrySubmission.cs')+'" /></ItemGroup></Project>')
+ d=Path(folder);(d/'Program.cs').write_text(fixture, encoding="utf-8");(d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup><Compile Include="'+str(root/'native/windows/Services/RetrySubmission.cs')+'" /></ItemGroup></Project>', encoding="utf-8")
  subprocess.run([args.dotnet,'run','--project',str(d/'Proof.csproj')],check=True,env={**os.environ,'DOTNET_CLI_TELEMETRY_OPTOUT':'1','DOTNET_GENERATE_ASPNET_CERTIFICATE':'false','DOTNET_CLI_HOME':str(d/'home')})

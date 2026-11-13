@@ -2,10 +2,10 @@ from pathlib import Path
 import argparse,os,subprocess,tempfile
 root=Path(__file__).resolve().parents[3]
 p=argparse.ArgumentParser();p.add_argument('--dotnet',default='dotnet');args=p.parse_args()
-s=(root/'native/windows/Views/RecurringDrafts.cs').read_text()
+s=(root/'native/windows/Views/RecurringDrafts.cs').read_text(encoding="utf-8")
 names=['Create recurring draft schedule','Manage recurring schedule','Generate next due draft']
 callbacks=[s.split('var saved=await Dialog("'+name+'",panel,async()=>{',1)[1].split('\n        },',1)[0] for name in names]
-main=(root/'native/windows/MainPage.xaml.cs').read_text()
+main=(root/'native/windows/MainPage.xaml.cs').read_text(encoding="utf-8")
 helper=main[main.index('    private Action CaptureRecurringWriteAccess()'):main.index('    internal string PathFor')]
 assert s.count('var writeAccess=CaptureRecurringWriteAccess();')==3
 assert s.count('canSave:()=>CanWrite&&ScopedFileExport.Current(writeAccess)')==3
@@ -45,6 +45,6 @@ class Program{
 }
 '''.replace('HELPER',helper).replace('CREATE',callbacks[0]).replace('EDIT',callbacks[1]).replace('GENERATE',callbacks[2])
 with tempfile.TemporaryDirectory(prefix='apex-recurring-access-') as folder:
- d=Path(folder);(d/'Program.cs').write_text(fixture)
- (d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup><Compile Include="'+str(root/'native/windows/Services/RetrySubmission.cs')+'" /></ItemGroup></Project>')
+ d=Path(folder);(d/'Program.cs').write_text(fixture, encoding="utf-8")
+ (d/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup><Compile Include="'+str(root/'native/windows/Services/RetrySubmission.cs')+'" /></ItemGroup></Project>', encoding="utf-8")
  subprocess.run([args.dotnet,'run','--project',str(d/'Proof.csproj')],check=True,env={**os.environ,'DOTNET_CLI_TELEMETRY_OPTOUT':'1','DOTNET_GENERATE_ASPNET_CERTIFICATE':'false','DOTNET_CLI_HOME':str(d/'home')})

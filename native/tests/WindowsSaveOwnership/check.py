@@ -3,8 +3,8 @@ from pathlib import Path
 import argparse,subprocess,tempfile,os
 root=Path(__file__).resolve().parents[3]
 p=argparse.ArgumentParser();p.add_argument('--dotnet',default='dotnet');args=p.parse_args()
-s=(root/'native/windows/Services/ApexFiles.cs').read_text();methods=s[s.index('    public static async Task<bool> Save('):s.index('    public static async Task<byte[]> Read(')]
-app=(root/'native/windows/MainPage.xaml.cs').read_text();wiring=app[app.index('    private Action CaptureFileSaveAccess()'):app.index('    private Action CaptureOwnerImportAccess()')]
+s=(root/'native/windows/Services/ApexFiles.cs').read_text(encoding="utf-8");methods=s[s.index('    public static async Task<bool> Save('):s.index('    public static async Task<byte[]> Read(')]
+app=(root/'native/windows/MainPage.xaml.cs').read_text(encoding="utf-8");wiring=app[app.index('    private Action CaptureFileSaveAccess()'):app.index('    private Action CaptureOwnerImportAccess()')]
 assert 'ApexFiles.CaptureSaveAccess=CaptureFileSaveAccess;' in app
 assert 'saveAccessEpoch++;Records=new();Banks=new();recordsReady=false;' in app
 fixture=r'''
@@ -55,5 +55,5 @@ namespace Windows.Storage.Pickers {
 namespace WinRT.Interop {static class InitializeWithWindow{public static void Initialize(object picker,IntPtr handle){}}}
 '''.replace('METHODS',methods).replace('WIRING',wiring)
 with tempfile.TemporaryDirectory(prefix='apex-windows-save-') as temp:
- temp=Path(temp);(temp/'Proof.cs').write_text(fixture);(temp/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>')
+ temp=Path(temp);(temp/'Proof.cs').write_text(fixture, encoding="utf-8");(temp/'Proof.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>', encoding="utf-8")
  subprocess.run([args.dotnet,'run','--project',str(temp/'Proof.csproj')],check=True,env=os.environ)
