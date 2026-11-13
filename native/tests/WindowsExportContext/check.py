@@ -14,6 +14,9 @@ bodies['Report']=reporting.split('            async Task Export(string format){'
 bodies['Party']=between(reporting,'AsyncButton("Export "+format.ToUpperInvariant(),async()=>{','},Error)')
 bodies['Document']=between(reporting,'private async Task ShowDocumentPdf(JsonObject row,string template)\n    {','\n    }')
 for text in (settings,cash,complete):assert 'var exportAccess=CaptureFileSaveAccess();' in text
+ui=(root/'native/tests/WindowsUi/Program.cs').read_text(encoding='utf-8')
+assert ui.index('successful encrypted backup save and dialog close') < ui.index('var savedBackupBytes=await File.ReadAllBytesAsync(backupPath)')
+assert 'Find("Complete backup saved to the selected file.") is not null' in ui
 methods='\n'.join('public async Task '+name+'(){'+body+'}' for name,body in bodies.items())
 fixture=r'''
 using ApexBooks_Windows.Services;
@@ -30,9 +33,11 @@ static class StreamingEncryptedBackup{public static void Encrypt(Stream input,St
 static class ApexFiles{
  public static int Saves;public static byte[] EncryptBackup(byte[] bytes,string password){Crypto.Transform();return bytes;}
  public static Task<bool> Save(byte[] bytes,string name,Action verify){verify();Saves++;return Task.FromResult(true);}
- public static Task<bool> SaveStream(Stream bytes,string name,Action verify){verify();Saves++;return Task.FromResult(true);}
+ public static bool HoldSave;public static string Destination="";public static TaskCompletionSource SaveEntered=new(),SaveRelease=new();
+ public static async Task<bool> SaveStream(Stream bytes,string name,Action verify){verify();if(HoldSave){File.WriteAllBytes(Destination,Array.Empty<byte>());SaveEntered.SetResult();await SaveRelease.Task;verify();bytes.Position=0;using(var output=File.Create(Destination)){await bytes.CopyToAsync(output);await output.FlushAsync();}}Saves++;return true;}
 }
 class Model{
+ public int Notices;void Success(string message){if(message!="Complete backup saved to the selected file.")throw new Exception("Unexpected notice");Notices++;}
  public bool Current=true;public ApiStub Api=new();public string cid="company-a",CompanyId="company-a";public int epoch=0,generation=0;public Action exportAccess;public Field password=new(),encrypt=new(),progress=new();public string kind="party",format="xlsx",fmt="xlsx";public Transfer transfer;
  public bool gst=false;public string mode="custom",ready="/report?query=1",filename="synthetic",template="";public int stamp;public Field period=new();public JsonNode? loaded;public Panel Body=new();public object results=new();public JsonObject row=new(){["id"]="record",["kind"]="sales_invoice",["number"]="INV-1"};
  Action CaptureFileSaveAccess()=>exportAccess;void Dates(){}string Path()=>ready;string Query()=>"?query=1";string Friendly(string value)=>value;Task ShowPdf(byte[] bytes,string name,JsonObject? record=null,Action? originalAccess=null){originalAccess!();ApexFiles.Saves++;return Task.CompletedTask;}
@@ -50,9 +55,25 @@ static class Program{static async Task Main(){
   if(outcome.StartsWith("stale"))m.Current=false;
   if(stage=="encrypt")Crypto.Release.SetResult();else if(outcome.EndsWith("error"))m.Api.Pending.SetException(new IOException("synthetic failure"));else m.Api.Pending.SetResult(new byte[]{1,2});
   if(outcome=="current-error"){try{await task;throw new Exception("Current failure hidden");}catch(IOException){}}else await task;
+  if(m.Notices!=(flow=="Complete"&&outcome=="current"?1:0))throw new Exception("Premature or missing completion notice");
   if(ApexFiles.Saves!=(outcome=="current"?1:0))throw new Exception("Incorrect file side effect "+flow+" "+stage+" "+outcome);cases++;
  }
- Console.WriteLine($"PASS {cases} actual export callback fetch/encryption cases; synthetic controls/crypto");
+ foreach(var outcome in new[]{"success","failure","stale"}){
+  Crypto.Hold=false;Crypto.Fail=false;ApexFiles.HoldSave=true;ApexFiles.SaveEntered=new();ApexFiles.SaveRelease=new();ApexFiles.Saves=0;
+  ApexFiles.Destination=System.IO.Path.GetTempFileName();
+  try{
+   var m=new Model();var task=m.Complete();m.Api.Pending.SetResult(System.Text.Encoding.UTF8.GetBytes("{\"format\":\"synthetic-encrypted-fixture\"}"));
+   await ApexFiles.SaveEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+   if(!File.Exists(ApexFiles.Destination)||new FileInfo(ApexFiles.Destination).Length!=0||m.Notices!=0||task.IsCompleted)throw new Exception("Empty picker-created file was treated as completed save");
+   if(outcome=="stale")m.Current=false;
+   if(outcome=="failure")ApexFiles.SaveRelease.SetException(new IOException("synthetic disk failure"));else ApexFiles.SaveRelease.SetResult();
+   if(outcome=="failure"){try{await task;throw new Exception("Save error hidden");}catch(IOException){}}else await task;
+   if(m.Notices!=(outcome=="success"?1:0))throw new Exception("Wrong delayed-save completion notice");
+   if(outcome=="success"&&JsonNode.Parse(await File.ReadAllTextAsync(ApexFiles.Destination))?["format"]?.ToString()!="synthetic-encrypted-fixture")throw new Exception("Persisted fixture missing after success");
+   cases++;
+  }finally{File.Delete(ApexFiles.Destination);ApexFiles.HoldSave=false;}
+ }
+ Console.WriteLine($"PASS {cases} actual export callback fetch/encryption and delayed file-save cases; synthetic controls/crypto");
 }}
 
 '''.replace('METHODS',methods)

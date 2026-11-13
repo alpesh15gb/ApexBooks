@@ -313,8 +313,14 @@ try{
     Set(Wait(()=>EditField("Backup password · at least 12 characters"),"export password"),backupPassword);
     Invoke(Wait(()=>ReadyButton("Verify and save backup"),"verified encrypted export"));
     ChooseNativeFile("Save As","Save",backupPath);
-    Wait(()=>Find("Verify and save backup",ControlType.Button) is null&&File.Exists(backupPath)?window:null,"encrypted backup saved and dialog closed",120);
-    var envelope=JsonNode.Parse(await File.ReadAllTextAsync(backupPath))!.AsObject();
+    // FileSavePicker can create an empty destination before SaveStream writes/flushes.
+    // A temporarily absent UIA button is not proof of completion. Require the
+    // application's post-save success notice; failed writes must time out/fail,
+    // not be hidden by retrying JSON parsing until it happens to work.
+    Wait(()=>Find("Complete backup saved to the selected file.") is not null&&Find("Verify and save backup",ControlType.Button) is null&&File.Exists(backupPath)?window:null,"successful encrypted backup save and dialog close",120);
+    var savedBackupBytes=await File.ReadAllBytesAsync(backupPath);
+    Check("completed encrypted export has persisted bytes",savedBackupBytes.Length>0);
+    var envelope=JsonNode.Parse(savedBackupBytes)!.AsObject();
     Check("actual Save picker produced encrypted v1 envelope",envelope["format"]?.ToString()=="apex-encrypted-backup"&&Number(envelope,"version")==1&&envelope["ciphertext"] is JsonValue);
     Snapshot("10-encrypted-export-saved");
     Set(Wait(()=>EditField("Find a setting, for example logo, Vyapar or prefixes"),"Settings search after export"),"Restore company backup");
