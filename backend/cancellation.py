@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-CANCELLABLE = {'sales_invoice', 'pos', 'purchase_bill', 'payment_in', 'payment_out', 'expense', 'credit_note', 'debit_note', 'bank_transfer'}
+CANCELLABLE = {'sales_invoice', 'pos', 'purchase_bill', 'payment_in', 'payment_out', 'expense', 'credit_note', 'debit_note', 'bank_transfer', 'customer_refund'}
 SETTLEMENT_KINDS = ['advance_application', 'advance_refund', 'credit_application', 'customer_refund', 'supplier_refund']
 
 
@@ -16,6 +16,35 @@ class CancelInput(BaseModel):
     @classmethod
     def trim_reason(cls, value):
         return value.strip() if isinstance(value, str) else value
+
+
+def pos_refund_has_source(m, refund, session):
+    if refund.kind != 'customer_refund':
+        return False
+    note_id = refund.data.get('credit_note_id')
+    note = session.get(m.Record, note_id) if isinstance(note_id, str) else None
+    if (not note or note.company_id != refund.company_id or note.kind != 'credit_note' or note.data.get('cancelled')
+            or note.data.get('pos_return') is not True):
+        return False
+    sale_id = note.data.get('applied_to')
+    sale = session.get(m.Record, sale_id) if isinstance(sale_id, str) else None
+    if not sale or sale.company_id != refund.company_id or sale.kind != 'pos' or sale.data.get('cancelled'):
+        return False
+    return session.scalar(select(func.count()).select_from(m.RecordPosting).where(
+        m.RecordPosting.company_id == refund.company_id, m.RecordPosting.record_id.in_((note.id, sale.id)),
+    )) == 2
+
+
+def pos_refund_cancellable(m, refund, session):
+    from pos_register import SESSION, SESSION_ID
+    if not pos_refund_has_source(m, refund, session):
+        return False
+    register_id = refund.data.get(SESSION_ID)
+    if not register_id:
+        return True
+    register = session.get(m.Record, register_id)
+    return bool(register and register.kind == SESSION and register.company_id == refund.company_id
+                and not register.data.get('closed_at'))
 
 
 def dependents(m, cid, record, session):
@@ -56,6 +85,10 @@ def install(app, m):
             raise HTTPException(404, 'Cancellable document not found')
         if record.data.get('cancelled'):
             return {**m.obj(record), 'posted': False, 'cancelled': True}
+        if record.kind == 'customer_refund' and not pos_refund_has_source(m, record, session):
+            raise HTTPException(409, 'Refund cancellation requires its posted POS return and receipt')
+        from pos_register import require_unclosed
+        require_unclosed(m, record, session)
         posting = session.scalar(select(m.RecordPosting).where(m.RecordPosting.company_id == company_id, m.RecordPosting.record_id == record.id))
         if not posting:
             raise HTTPException(409, 'Only posted documents can be cancelled')

@@ -7,7 +7,7 @@ export function capabilityFeatures(response) {
 }
 export function supportedMasterData(data, features) {
   const result = { ...data };
-  for (const [field, feature] of Object.entries({is_active:'master_lifecycle',shipping_address:'party_shipping_address',credit_limit:'party_credit_limits',payment_terms_days:'party_payment_terms',low_stock_threshold:'low_stock_reorder'})) {
+  for (const [field, feature] of Object.entries({is_active:'master_lifecycle',shipping_address:'party_shipping_address',credit_limit:'party_credit_limits',payment_terms_days:'party_payment_terms',low_stock_threshold:'low_stock_reorder',location_ids:'inventory_setup',vehicle_fitment:'inventory_setup',oem_number:'inventory_setup',part_brand:'inventory_setup',part_grade:'inventory_setup'})) {
     if (!supportsFeature(features, feature)) delete result[field];
   }
   return result;

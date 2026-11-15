@@ -53,7 +53,7 @@ import com.apexbooks.accounting.data.*
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White))
                     key(vm.companyId, companyDisplayName(vm.company)) { Row(Modifier.fillMaxWidth().semantics{contentDescription="Switch company"}
                         .clickable(role=Role.Button,onClickLabel="Switch company"){companyQuery="";companies=true}
-                        .heightIn(min=48.dp).background(Color.White).padding(horizontal=20.dp,vertical=10.dp),
+                        .heightIn(min=48.dp).background(Color.White).padding(horizontal=16.dp,vertical=10.dp),
                         verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
                         Icon(Icons.Outlined.Business,null,Modifier.size(18.dp),tint=ApexGreen)
                         Text(companyDisplayName(vm.company).ifBlank{"Choose company"},Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis,color=MaterialTheme.colorScheme.onSurfaceVariant)

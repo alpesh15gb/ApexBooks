@@ -56,6 +56,23 @@ class RetrySubmissionTest {
         assertEquals("100",retry.getString("amount"))
         assertEquals("1",retry.getJSONObject("data").getString("quantity"))
     }
+    @Test fun pointOfSaleConflictsAreDefinitiveSoTheSaleCanBeCorrected() {
+        val submission=RetrySubmission()
+        submission.body(JSONObject().put("amount","100"))
+        submission.failed(ApiFailure(409,"Date is in a locked accounting period"),definitiveConflict=true)
+        assertFalse(submission.unresolved)
+        assertEquals("80",submission.body(JSONObject().put("amount","80")).getString("amount"))
+    }
+
+    @Test fun pointOfSaleTimeoutStaysUnresolvedEvenWithConflictRule() {
+        val submission=RetrySubmission()
+        submission.body(JSONObject().put("amount","100"))
+        submission.failed(ApiFailure(408,"timeout"),definitiveConflict=true)
+        assertTrue(submission.unresolved)
+        submission.failed(ApiFailure(0,"lost"),definitiveConflict=true)
+        assertTrue(submission.unresolved)
+    }
+
     @Test fun definitiveValidationAllowsCorrectionButServerFailureDoesNot() {
         val submission=RetrySubmission()
         submission.body(JSONObject().put("amount","bad"))

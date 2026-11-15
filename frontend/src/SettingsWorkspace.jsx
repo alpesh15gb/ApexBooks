@@ -9,6 +9,7 @@ import {
   UsersRound,
   Search,
   ShoppingBag,
+  Boxes,
 } from "lucide-react";
 
 const tabs = [
@@ -43,10 +44,11 @@ const tabs = [
     LockKeyhole,
     "Protect your account and review changes",
   ],
+  ["inventory", "Stock & modules", Boxes, "Item locations and optional industry modules such as Automobile"],
   ["commerce", "Ecommerce", ShoppingBag, "Connect your online store and review orders"],
 ];
 export default function SettingsWorkspace({ company, sections, onAddCompany, apiBuild, initialTab = "company" }) {
-  const startTab = tabs.some(([key]) => key === initialTab) ? initialTab : "company";
+  const startTab = tabs.some(([key]) => key === initialTab && (key !== "inventory" || sections.inventory)) ? initialTab : "company";
   const [active, setActive] = useState(startTab),
     [visited, setVisited] = useState(() => new Set([startTab]));
   const [search, setSearch] = useState("");
@@ -58,9 +60,11 @@ export default function SettingsWorkspace({ company, sections, onAddCompany, api
     data: "vyapar import export csv xlsx backup restore migration",
     access: "team users roles permissions members",
     security: "password recovery sessions revoke audit history",
+    inventory: "stock locations rack shelf bin warehouse automobile vehicle make model spare parts garage workshop",
     commerce: "online store ecommerce bagisto channels orders sync reconciliation",
   };
-  const visibleTabs = tabs.filter(([key, title, , description]) =>
+  const availableTabs = tabs.filter(([key]) => key !== "inventory" || sections.inventory);
+  const visibleTabs = availableTabs.filter(([key, title, , description]) =>
     `${title} ${description} ${keywords[key]}`
       .toLowerCase()
       .includes(search.trim().toLowerCase()),
@@ -182,7 +186,7 @@ export default function SettingsWorkspace({ company, sections, onAddCompany, api
           <details className="settings-build-info"><summary>About ApexBooks</summary><p>Web {WEB_VERSION} · API {apiBuild?.version || 'unknown'}</p><small>For support, source revisions:</small><p>Web <code style={{ overflowWrap: 'anywhere' }}>{WEB_BUILD_REVISION}</code></p><p>API <code style={{ overflowWrap: 'anywhere' }}>{normalizedBuildRevision(apiBuild?.revision)}</code></p></details>
         </aside>
         <div className="settings-content">
-          {tabs.map(
+          {availableTabs.map(
             ([key, title, , description]) =>
               (
                 <section
@@ -209,6 +213,11 @@ export default function SettingsWorkspace({ company, sections, onAddCompany, api
                           ["masters", "CSV import"],
                           ["export", "Export data"],
                           ["backup", "Backup & restore"],
+                        ],
+                        inventory: [
+                          ["locations", "Item locations"],
+                          ["automobile", "Automobile module"],
+                          ["vehicles", "Vehicle makes & models"],
                         ],
                         accounting: [
                           ["openings", "Opening balances"],

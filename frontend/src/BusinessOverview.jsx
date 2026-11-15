@@ -1,6 +1,8 @@
 import { businessDate, businessDashboardRange } from "./businessDate.js";
 import { dashboardWork, recentTransactions } from "./dashboardModel.js";
 import SetupChecklist from "./SetupChecklist.jsx";
+import RevealAmountsDialog from "./RevealAmountsDialog.jsx";
+import { amountText, readAmountsHidden, writeAmountsHidden } from "./amountPrivacy.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownLeft,
@@ -10,6 +12,8 @@ import {
   CalendarDays,
   ChevronRight,
   Clock3,
+  Eye,
+  EyeOff,
   FileText,
   Landmark,
   Plus,
@@ -40,15 +44,15 @@ const iso = (date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 function rangeFor(period) { return businessDashboardRange(period); }
 
-function Metric({ label, value, note, icon: Icon, tone = "green" }) {
-  const display = value == null ? "—" : money(value);
+function Metric({ label, value, note, icon: Icon, tone = "green", hidden = false }) {
+  const display = value == null ? "—" : amountText(hidden, money(value));
   return (
     <article className={`overview-metric metric-${tone}`} data-wide-amount={display.length > 14} style={{ '--amount-scale': `${Math.min(14, 150 / display.length)}cqi` }}>
       <div>
         <span>{label}</span>
         <Icon size={18} />
       </div>
-      <strong>{display}</strong>
+      <strong aria-label={hidden && value != null ? "Amount hidden" : undefined}>{display}</strong>
       <small>{note}</small>
     </article>
   );
@@ -226,6 +230,8 @@ function SalesChart({ records, start, end }) {
 
 export default function BusinessOverview({ company, records, api, onNavigate, onCreate, onOpenRecord, refreshKey = 0, recordsReady = true }) {
   const [period, setPeriod] = useState("year"), [result, setResult] = useState(null), [error, setError] = useState(""), [retry, setRetry] = useState(0);
+  const [hidden, setHidden] = useState(readAmountsHidden), [revealing, setRevealing] = useState(false), privacyButton = useRef(null);
+  const show = value => amountText(hidden, money(value));
   const { start, end } = rangeFor(period), key = `${company?.id}|${start}|${end}`;
   useEffect(() => {
     if (!company?.id) return;
@@ -253,21 +259,24 @@ export default function BusinessOverview({ company, records, api, onNavigate, on
       <div><div className="workspace-kicker">OVERVIEW</div><h1>Business overview</h1><p>{company?.name || "Your business"}<span className="overview-subtitle-divider"> / </span>Your financial picture at a glance.</p></div>
       <div className="overview-heading-actions">
         <label className="period-picker"><CalendarDays size={16} /><select aria-label="Dashboard period" value={period} onChange={e => setPeriod(e.target.value)}><option value="year">This financial year</option><option value="month">This month</option><option value="30days">Last 30 days</option></select></label>
+        <button ref={privacyButton} type="button" className="button secondary privacy-toggle" aria-pressed={hidden}
+          onClick={() => { if (hidden) setRevealing(true); else { writeAmountsHidden(true); setHidden(true); } }}>
+          {hidden ? <Eye size={17} /> : <EyeOff size={17} />}<span className="privacy-label">{hidden ? "Show amounts" : "Hide amounts"}</span></button>
         <button className="button primary" disabled={!canWrite || !recordsReady} onClick={() => onCreate("sales_invoice")}><Plus size={17} />New invoice</button>
       </div>
     </div>
     {error && <div className="error banner" role="alert"><span>We couldn't load your overview. {error}</span><button className="text-button" onClick={() => setRetry(x => x + 1)}><RefreshCw size={14} />Retry</button></div>}
     <div className="overview-period-note">{dateText(start)} – {dateText(end)}<span>All amounts in INR</span></div>
     <div className="overview-metrics" aria-busy={!data && !error}>
-      <Metric label="Net sales" value={data?.summary.sales} note={company?.tax_mode === "regular" ? "Including GST, after credit notes" : "Sales after credit notes"} icon={TrendingUp} />
-      <Metric label="Net profit" value={data?.financial.net_profit} note="Income less costs and expenses" icon={BarChart3} tone="blue" />
-      <Metric label="To collect" value={data?.summary.receivables} note={`Outstanding as of ${dateText(end)}`} icon={ArrowDownLeft} tone="purple" />
-      <Metric label="To pay" value={data?.summary.payables} note={`Outstanding as of ${dateText(end)}`} icon={Wallet} tone="amber" />
+      <Metric label="Net sales" value={data?.summary.sales} note={company?.tax_mode === "regular" ? "Including GST, after credit notes" : "Sales after credit notes"} icon={TrendingUp} hidden={hidden} />
+      <Metric label="Net profit" value={data?.financial.net_profit} note="Income less costs and expenses" icon={BarChart3} tone="blue" hidden={hidden} />
+      <Metric label="To collect" value={data?.summary.receivables} note={`Outstanding as of ${dateText(end)}`} icon={ArrowDownLeft} tone="purple" hidden={hidden} />
+      <Metric label="To pay" value={data?.summary.payables} note={`Outstanding as of ${dateText(end)}`} icon={Wallet} tone="amber" hidden={hidden} />
     </div>
     <div className="overview-analytics">
-      <section className="insight-card sales-insight"><div className="insight-heading"><div><h2>Sales & purchases</h2><p>Your trading activity for the selected period.</p></div><span className="subtle-tag">Net of returns</span></div>{recordsReady ? <SalesChart records={records} start={start} end={end} /> : <p className="chart-empty" role="status">Loading transactions…</p>}</section>
-      <section className="insight-card bank-insight"><div className="insight-heading"><div><h2>Cash & bank</h2><p>Book balance · {dateText(end)}</p></div><Landmark size={20} /></div><strong className="insight-total">{data ? money(cashTotal) : "—"}</strong><div className="money-movement"><div><span><ArrowDownLeft size={14} /> Money in</span><strong>{data ? money(data.summary.receipts) : "—"}</strong></div><div><span><ArrowUpRight size={14} /> Money out</span><strong>{data ? money(data.summary.payments) : "—"}</strong></div><small>For the selected period · excludes account transfers</small></div><div className="bank-mini-list">
-        {cashAccounts.length ? cashAccounts.slice(0, 3).map(a => <div key={a.code}><span className="bank-mini-icon">{a.code === "SYS-CASH" ? <Banknote size={17} /> : <Landmark size={17} />}</span><span>{a.name}</span><strong>{money(a.closing_balance)}</strong></div>) : <p>{data ? "Add an account to start tracking your money." : error ? "Balances are unavailable. Please retry." : "Loading balances…"}</p>}
+      <section className="insight-card sales-insight"><div className="insight-heading"><div><h2>Sales & purchases</h2><p>Your trading activity for the selected period.</p></div><span className="subtle-tag">Net of returns</span></div>{!recordsReady ? <p className="chart-empty" role="status">Loading transactions…</p> : hidden ? <div className="chart-empty" role="status"><EyeOff size={28} /><strong>Chart hidden</strong><p>Show amounts to see sales and purchases.</p></div> : <SalesChart records={records} start={start} end={end} />}</section>
+      <section className="insight-card bank-insight"><div className="insight-heading"><div><h2>Cash & bank</h2><p>Book balance · {dateText(end)}</p></div><Landmark size={20} /></div><strong className="insight-total">{data ? show(cashTotal) : "—"}</strong><div className="money-movement"><div><span><ArrowDownLeft size={14} /> Money in</span><strong>{data ? show(data.summary.receipts) : "—"}</strong></div><div><span><ArrowUpRight size={14} /> Money out</span><strong>{data ? show(data.summary.payments) : "—"}</strong></div><small>For the selected period · excludes account transfers</small></div><div className="bank-mini-list">
+        {cashAccounts.length ? cashAccounts.slice(0, 3).map(a => <div key={a.code}><span className="bank-mini-icon">{a.code === "SYS-CASH" ? <Banknote size={17} /> : <Landmark size={17} />}</span><span>{a.name}</span><strong>{show(a.closing_balance)}</strong></div>) : <p>{data ? "Add an account to start tracking your money." : error ? "Balances are unavailable. Please retry." : "Loading balances…"}</p>}
       </div><button className="insight-link" onClick={() => onNavigate("bank_account")}>View accounts & reconcile <ArrowUpRight size={15} /></button></section>
     </div>
     <div className="overview-work-grid">
@@ -280,9 +289,11 @@ export default function BusinessOverview({ company, records, api, onNavigate, on
     </div>
     <section className="insight-card activity-insight"><div className="insight-heading"><div><h2>Recent transactions</h2><p>Your latest business activity, in one place.</p></div><button className="insight-link" onClick={() => onNavigate("day_book")}>View day book <ArrowUpRight size={15} /></button></div>
       <div className="table-wrap" tabIndex={0}><table className="recent-table"><thead><tr><th>Transaction</th><th>Reference</th><th>Date</th><th>Status</th><th className="right">Amount</th><th aria-label="Open" /></tr></thead><tbody>
-        {activity.map(r => <tr key={r.id} onClick={() => openRecord(r)}><td><div className="recent-name"><span className={`recent-icon ${["purchase_bill", "payment_out", "expense"].includes(r.kind) ? "is-purchase" : ""}`}><FileText size={17} /></span><span><strong>{r.name || "Untitled"}</strong><small>{txName[r.kind] || r.kind.replaceAll("_", " ")}</small></span></div></td><td>{r.number || "—"}</td><td>{dateText(r.date)}</td><td><span className={`status-badge ${r.cancelled ? "cancelled" : r.converted_to ? "converted" : r.posted ? "posted" : "draft"}`}>{r.cancelled ? "Cancelled" : r.converted_to ? "Converted" : r.posted ? "Posted" : ["estimate", "sales_order", "proforma", "purchase_order"].includes(r.kind) ? "Draft" : "Unposted"}</span></td><td className="right">{money(r.amount)}</td><td><button className="round-action" aria-label={`Open ${r.number || r.name}`} onClick={e => { e.stopPropagation(); openRecord(r); }}><ChevronRight size={16} /></button></td></tr>)}
+        {activity.map(r => <tr key={r.id} onClick={() => openRecord(r)}><td><div className="recent-name"><span className={`recent-icon ${["purchase_bill", "payment_out", "expense"].includes(r.kind) ? "is-purchase" : ""}`}><FileText size={17} /></span><span><strong>{r.name || "Untitled"}</strong><small>{txName[r.kind] || r.kind.replaceAll("_", " ")}</small></span></div></td><td>{r.number || "—"}</td><td>{dateText(r.date)}</td><td><span className={`status-badge ${r.cancelled ? "cancelled" : r.converted_to ? "converted" : r.posted ? "posted" : "draft"}`}>{r.cancelled ? "Cancelled" : r.converted_to ? "Converted" : r.posted ? "Posted" : ["estimate", "sales_order", "proforma", "purchase_order"].includes(r.kind) ? "Draft" : "Unposted"}</span></td><td className="right">{show(r.amount)}</td><td><button className="round-action" aria-label={`Open ${r.number || r.name}`} onClick={e => { e.stopPropagation(); openRecord(r); }}><ChevronRight size={16} /></button></td></tr>)}
       </tbody></table>{!activity.length && <div className="chart-empty"><FileText size={28} /><strong>{recordsReady ? "Your books start here" : "Loading transactions…"}</strong><p>{recordsReady ? "Create your first invoice or add a purchase bill." : "Your latest activity will appear here."}</p></div>}</div>
     </section>
     {recordsReady && <SetupChecklist company={company} records={records} onCreate={onCreate} onNavigate={onNavigate} api={api} />}
+    {revealing && <RevealAmountsDialog api={api} onClose={() => setRevealing(false)}
+      onRevealed={() => { writeAmountsHidden(false); setHidden(false); setRevealing(false); requestAnimationFrame(() => privacyButton.current?.focus()); }} />}
   </div>;
 }

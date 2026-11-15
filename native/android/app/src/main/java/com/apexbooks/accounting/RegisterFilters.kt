@@ -29,8 +29,8 @@ fun registerStatus(row:JSONObject):String {
     return if(row.s("kind") in setOf("estimate","proforma","sales_order","purchase_order"))"Draft"else""
 }
 
-fun filterRegister(records:List<JSONObject>,kind:String,query:String,start:String,end:String,party:String,status:String,sort:String):List<JSONObject>{
+fun filterRegister(records:List<JSONObject>,kind:String,query:String,start:String,end:String,party:String,status:String,sort:String,extraText:(JSONObject)->String={""}):List<JSONObject>{
     val master=kind in setOf("party","item")
-    val matches=records.filter{r->val data=r.o("data");r.s("kind")==kind&&(!master||status=="all"||registerStatus(r)==status)&&(r.s("name")+" "+r.s("number")+" "+data.s("phone")+" "+data.s("barcode")+" "+data.s("hsn")).contains(query.trim(),true)&&(master||((start.isBlank()||r.s("date")>=start)&&(end.isBlank()||r.s("date")<=end)&&(party=="all"||r.s("name")==party)&&(status=="all"||registerStatus(r)==status)))}
+    val matches=records.filter{r->val data=r.o("data");r.s("kind")==kind&&(!master||status=="all"||registerStatus(r)==status)&&(r.s("name")+" "+r.s("number")+" "+data.s("phone")+" "+data.s("barcode")+" "+data.s("hsn")+" "+extraText(r)).contains(query.trim(),true)&&(master||((start.isBlank()||r.s("date")>=start)&&(end.isBlank()||r.s("date")<=end)&&(party=="all"||r.s("name")==party)&&(status=="all"||registerStatus(r)==status)))}
     return when(sort){"old"->matches.sortedWith(compareBy<JSONObject>{it.s("date")}.thenBy{it.o("data").s("created_at")}.thenBy{it.s("number")});"name"->matches.sortedBy{it.s("name").lowercase()};"amount"->matches.sortedByDescending{it.s("amount").toBigDecimalOrNull()?:java.math.BigDecimal.ZERO};else->matches.sortedWith(compareByDescending<JSONObject>{it.s("date")}.thenByDescending{it.o("data").s("created_at")}.thenByDescending{it.s("id")})}
 }

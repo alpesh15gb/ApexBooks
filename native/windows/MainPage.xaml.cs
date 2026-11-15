@@ -141,7 +141,7 @@ public sealed partial class MainPage : Page
         Companies=loaded;
         if (!shellReady) BuildShell(); else host.Content=navigation;
         changingCompanies = true; companyPicker.Items.Clear();
-        foreach (var company in Companies) companyPicker.Items.Add(new ComboBoxItem { Content = ClientCapabilities.CompanyLabel(company)+" · "+Friendly(company.Text("role")), Tag = company.Text("id") });
+        foreach (var company in Companies) { var label = ClientCapabilities.CompanyLabel(company)+" · "+Friendly(company.Text("role")); var item = new ComboBoxItem { Content = new TextBlock { Text = label, TextTrimming = TextTrimming.CharacterEllipsis }, Tag = company.Text("id") }; ToolTipService.SetToolTip(item, label); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(item, label); companyPicker.Items.Add(item); }
         SelectValue(companyPicker, CompanyId); if (companyPicker.SelectedIndex < 0 && companyPicker.Items.Count > 0) companyPicker.SelectedIndex = 0;
         changingCompanies = false;
         if (companyPicker.SelectedIndex >= 0) await ChooseCompany();
@@ -188,18 +188,20 @@ public sealed partial class MainPage : Page
         });
         Body.Margin = new Thickness(30,24,30,36);Body.RequestedTheme=ElementTheme.Light;
         var content=new Grid{RequestedTheme=ElementTheme.Light,Background=Brush(0xF4, 0xF5, 0xF7)};content.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});content.RowDefinitions.Add(new RowDefinition());content.Children.Add(BuildWorkspaceHeader());
-        var scroll=new ScrollViewer {Content=Body,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};Grid.SetRow(scroll,1);content.Children.Add(scroll);navigation.AlwaysShowHeader=false;navigation.Content=content;host.Content=navigation;shellReady=true;InstallShortcuts(navigation);
+        var scroll=new ScrollViewer {Content=Body,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};Grid.SetRow(scroll,1);
+        // Narrow windows keep their space for content instead of 60 px of fixed side margin.
+        scroll.SizeChanged+=(_,args)=>{var side=args.NewSize.Width<700?14:args.NewSize.Width<1000?22:30;if(Body.Margin.Left!=side)Body.Margin=new Thickness(side,24,side,36);};content.Children.Add(scroll);navigation.AlwaysShowHeader=false;navigation.Content=content;host.Content=navigation;shellReady=true;InstallShortcuts(navigation);
     }
 
     private async Task ChooseCompany()
     {
         var id = Value(companyPicker); if (id.Length == 0) return;
         var leave=leavePage;leavePage=null;leave?.Invoke();hasUnsavedPage=null;hasPendingPage=null;
-        CompanyId = id; Company = Companies.OfType<JsonObject>().First(r => r.Text("id") == id);Records=new();Banks=new();recordsReady=false;++generation;var current=++workspaceGeneration;var request=++refreshSequence;NativeUi.CloseDialog();
+        CompanyId = id; Company = Companies.OfType<JsonObject>().First(r => r.Text("id") == id);InventorySetup=null;Records=new();Banks=new();recordsReady=false;++generation;var current=++workspaceGeneration;var request=++refreshSequence;NativeUi.CloseDialog();
         Body.Children.Clear(); Body.Children.Add(Text("Loading " + Company.Text("name") + "…", 22, true));
         var loaded=await Api.LoadCompanyCore(id);
         if (current != workspaceGeneration||request!=refreshSequence) return;
-        Records = loaded.Records; Banks = loaded.Banks;recordsReady=true; await Navigate(CurrentPage);
+        Records = loaded.Records; Banks = loaded.Banks;recordsReady=true;await LoadInventorySetup(id);if (current != workspaceGeneration||request!=refreshSequence) return;await Navigate(CurrentPage);
     }
 
     internal async Task Refresh()
@@ -245,7 +247,20 @@ public sealed partial class MainPage : Page
         var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         var search = Input("Search name or reference"); search.Width = 340;
         var add = AsyncButton("Add " + FeatureCatalog.Singular(kind), () => NewEntry(kind), Error, true); add.IsEnabled = CanWrite; toolbar.Children.Add(add); toolbar.Children.Add(AsyncButton("Refresh", Refresh, Error)); toolbar.Children.Add(search); Body.Children.Add(toolbar);
-        if (kind == "item") { var stock = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 }; var opening = AsyncButton("Opening stock", StockOpening, Error); var adjust = AsyncButton("Adjust stock", StockAdjust, Error); opening.IsEnabled = adjust.IsEnabled = CanWrite; stock.Children.Add(opening); stock.Children.Add(adjust); Body.Children.Add(stock); }
+        if (kind == "item")
+        {
+            var opening = AsyncButton("Opening stock", StockOpening, Error);
+            var adjust = AsyncButton("Adjust stock", StockAdjust, Error);
+            opening.IsEnabled = adjust.IsEnabled = CanWrite;
+            var stockActions = new List<UIElement> { opening, adjust };
+            if (Supports("stock_counts"))
+            {
+                var count = AsyncButton("Count stock", StockCount, Error);
+                count.IsEnabled = CanWrite;
+                stockActions.Add(count);
+            }
+            Body.Children.Add(ResponsiveGrid(142, stockActions.ToArray()));
+        }
         if(kind=="party"&&WhatsAppShare.OverdueByParty(Records,J.Today) is {Count:>0} overdue)toolbar.Children.Add(AsyncButton($"Remind overdue ({overdue.Count})",()=>RemindOverdue(overdue),Error));
         if(CanWrite && kind is "payment_in" or "payment_out" or "credit_note" or "debit_note")Body.Children.Add(AsyncButton(kind is "payment_in" or "payment_out"?"Apply / refund advance":"Apply / refund note credit",()=>SettleBalance(kind is "credit_note" or "debit_note"),Error));
         var master=kind is "party" or "item";var masterStatus=Select("Master status",[("all","All masters"),("active","Active"),("archived","Archived")]);var page=0;const int size=50;
@@ -256,7 +271,7 @@ public sealed partial class MainPage : Page
         if(!master){var filters=Stack();filters.Children.Add(Columns(period,party,status,sort));filters.Children.Add(Columns(from.View,to.View));Body.Children.Add(new Expander{Header="Filter documents",Content=filters,IsExpanded=false,HorizontalContentAlignment=HorizontalAlignment.Stretch,HorizontalAlignment=HorizontalAlignment.Stretch});}else Body.Children.Add(Columns(sort,masterStatus));
         var metrics=Stack();var holder=Stack();var caption=Text("",12);var pager=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};Button previous=null!,next=null!;Body.Children.Add(metrics);Body.Children.Add(holder);Body.Children.Add(pager);
         void Draw(bool reset=true){if(reset)page=0;holder.Children.Clear();metrics.Children.Clear();var range=Value(period);from.View.Visibility=to.View.Visibility=!master&&range=="custom"?Visibility.Visible:Visibility.Collapsed;var start=range=="fy"?J.FinancialStart:range=="month"?BusinessCalendar.Today.ToString("yyyy-MM-01"):range=="custom"?from.Value:"";var end=range is "month" or "fy"?J.Today:range=="custom"?to.Value:"";
-            var source=Records.OfType<JsonObject>().Where(r=>r.Text("kind")==kind&&(!master||Value(masterStatus)=="all"||WorkflowMasterValues.IsActive(r)==(Value(masterStatus)=="active"))&&(r.Text("name")+" "+r.Text("number")+" "+r["data"].Text("phone")+" "+r["data"].Text("barcode")+" "+r["data"].Text("hsn")).Contains(search.Text,StringComparison.OrdinalIgnoreCase)&&(master||((start.Length==0||string.CompareOrdinal(r.Text("date"),start)>=0)&&(end.Length==0||string.CompareOrdinal(r.Text("date"),end)<=0)&&(Value(party)=="all"||r.Text("name")==Value(party))&&(Value(status)=="All statuses"||new RecordRow(r).Status==Value(status)))));
+            var source=Records.OfType<JsonObject>().Where(r=>r.Text("kind")==kind&&(!master||Value(masterStatus)=="all"||WorkflowMasterValues.IsActive(r)==(Value(masterStatus)=="active"))&&(r.Text("name")+" "+r.Text("number")+" "+r["data"].Text("phone")+" "+r["data"].Text("barcode")+" "+r["data"].Text("hsn")+" "+(kind=="item"?InventoryText.SearchText(r,InventorySetup):"")).Contains(search.Text,StringComparison.OrdinalIgnoreCase)&&(master||((start.Length==0||string.CompareOrdinal(r.Text("date"),start)>=0)&&(end.Length==0||string.CompareOrdinal(r.Text("date"),end)<=0)&&(Value(party)=="all"||r.Text("name")==Value(party))&&(Value(status)=="All statuses"||new RecordRow(r).Status==Value(status)))));
             source=Value(sort) switch{"old"=>source.OrderBy(r=>r.Text("date")).ThenBy(r=>r["data"].Text("created_at")).ThenBy(r=>r.Text("number")),"name"=>source.OrderBy(r=>r.Text("name"),StringComparer.OrdinalIgnoreCase),"amount"=>source.OrderByDescending(r=>r.Number("amount")),_=>source.OrderByDescending(r=>r.Text("date")).ThenByDescending(r=>r["data"].Text("created_at")).ThenByDescending(r=>r.Text("number"))};var all=source.ToArray();page=Math.Clamp(page,0,Math.Max(0,(all.Length-1)/size));
             if(kind=="party"&&partyTotals is {} owed)AddMetrics(metrics,("You'll get",owed.Receive),("You'll pay",owed.Pay));
             if(master)metrics.Children.Add(Text($"{all.Length} {FeatureCatalog.Title(kind).ToLowerInvariant()}"+(kind=="party"?" · click a party for transactions and balances":""),14,true));else if(kind is "sales_invoice" or "purchase_bill")AddMetrics(metrics,("Posted value",all.Where(r=>WorkflowMasterValues.IsPostedRecord(r)).Sum(r=>r.Number("amount"))),("Outstanding",all.Where(r=>WorkflowMasterValues.IsPostedRecord(r)).Sum(r=>r.Number("outstanding"))),("Unpaid documents",all.Count(r=>WorkflowMasterValues.IsPostedRecord(r)&&r.Number("outstanding")>0)),("Settled documents",all.Count(r=>WorkflowMasterValues.IsPostedRecord(r)&&r.Number("outstanding")<=0)));else AddMetrics(metrics,("Documents",all.Length),("Total value",all.Sum(r=>r.Number("amount"))));
@@ -267,27 +282,28 @@ public sealed partial class MainPage : Page
         previous=Button("Previous",()=>{page--;Draw(false);});next=Button("Next",()=>{page++;Draw(false);});pager.Children.Add(previous);pager.Children.Add(caption);pager.Children.Add(next);search.TextChanged+=(_,_)=>Draw();foreach(var choice in new[]{period,party,status,sort,masterStatus})choice.SelectionChanged+=(_,_)=>Draw();from.Picker.DateChanged+=(_,_)=>Draw();to.Picker.DateChanged+=(_,_)=>Draw();Draw();
     }
 
-    private void AddRecordList(IEnumerable<JsonObject> records, Panel? target = null)
+    private void AddRecordList(IEnumerable<JsonObject> records, Panel? target = null, bool maskAmounts = false)
     {
-        target ??= Body; var rows = records.Select(r => new RecordRow(r)).ToList();
+        target ??= Body; var rows = records.Select(r => new RecordRow(r) { MaskAmounts = maskAmounts }).ToList();
         if (rows.Count == 0) { target.Children.Add(Card(Text("No records here yet. Add an entry to get started."))); return; }
         foreach(var row in rows){
             if(row.Kind=="party"&&partyNet is not null){var net=partyNet.GetValueOrDefault(row.Id);row.PartyBalance=net>0?"Get "+J.Money(net):net<0?"Pay "+J.Money(-net):"Settled";}
+            if(row.Kind=="item")row.Placement=string.Join("  ·  ",InventoryText.Summary(row.Source,InventorySetup));
             row.EditCommand=new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(()=>Run(()=>EditRow(row.Source)),()=>Editable(row));
             row.PdfCommand=new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(()=>Run(()=>PreviewDocument(row.Source)),()=>Printable(row));row.PdfVisibility=Printable(row)?Visibility.Visible:Visibility.Collapsed;
             row.OpenCommand=new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(()=>Run(async()=>{if(row.Kind=="party")await PartyStatement(row.Source);else if(row.Kind=="item"&&Editable(row))await EditRow(row.Source);else await TransactionDetails(row.Source);}),()=>true);
         }
-        var list = new ListView { ItemsSource = rows, SelectionMode = ListViewSelectionMode.Single, MaxHeight = 650, IsItemClickEnabled = true, CornerRadius=new CornerRadius(14), BorderBrush=Brush(0xF0, 0xE5, 0xDB),BorderThickness=new Thickness(1), Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White) };
+        var list = new ListView { ItemsSource = rows, SelectionMode = ListViewSelectionMode.Single, MaxHeight = 650, IsItemClickEnabled = true, CornerRadius=new CornerRadius(14), BorderBrush=Brush(0xE1, 0xE6, 0xED),BorderThickness=new Thickness(1), Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White) };
         list.ItemContainerStyle=new Style(typeof(ListViewItem)){Setters={new Setter(Control.HorizontalContentAlignmentProperty,HorizontalAlignment.Stretch),new Setter(Control.PaddingProperty,new Thickness(0)),new Setter(FrameworkElement.MarginProperty,new Thickness(0))}};
         var wideTemplate = (DataTemplate)XamlReader.Load("""
-          <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Grid Padding="18,14" ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="82"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="72"/><ColumnDefinition Width="100"/><ColumnDefinition Width="110"/><ColumnDefinition Width="132"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Date}" FontSize="12" VerticalAlignment="Center"/><StackPanel Grid.Column="1"><Button Command="{Binding OpenCommand}" Padding="0" BorderThickness="0" Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" FontSize="12" FontWeight="SemiBold" ToolTipService.ToolTip="{Binding PrimaryText}"><TextBlock Text="{Binding PrimaryText}" TextTrimming="CharacterEllipsis"/></Button><TextBlock Text="{Binding SecondaryText}" FontSize="12" Foreground="#796c63" TextTrimming="CharacterEllipsis"/></StackPanel><TextBlock Grid.Column="2" Text="{Binding Status}" FontSize="12" VerticalAlignment="Center" Foreground="{Binding StatusBrush}"/><TextBlock Grid.Column="3" Text="{Binding Amount}" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center"/><TextBlock Grid.Column="4" Text="{Binding BalanceValue}" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center"/><StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"><Button Content="Edit" Command="{Binding EditCommand}" FontSize="12" MinHeight="44" Padding="10,6" CornerRadius="8"/><Button Content="PDF" Command="{Binding PdfCommand}" Visibility="{Binding PdfVisibility}" FontSize="12" MinHeight="44" Padding="10,6" CornerRadius="8"/></StackPanel></Grid></DataTemplate>
+          <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Grid Padding="18,14" ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="82"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="72"/><ColumnDefinition Width="100"/><ColumnDefinition Width="110"/><ColumnDefinition Width="132"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Date}" FontSize="12" VerticalAlignment="Center"/><StackPanel Grid.Column="1"><Button Command="{Binding OpenCommand}" Padding="0" BorderThickness="0" Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" FontSize="12" FontWeight="SemiBold" ToolTipService.ToolTip="{Binding PrimaryText}"><TextBlock Text="{Binding PrimaryText}" TextTrimming="CharacterEllipsis"/></Button><TextBlock Text="{Binding SecondaryText}" FontSize="12" Foreground="#58677A" TextTrimming="CharacterEllipsis"/></StackPanel><TextBlock Grid.Column="2" Text="{Binding Status}" FontSize="12" VerticalAlignment="Center" Foreground="{Binding StatusBrush}"/><TextBlock Grid.Column="3" Text="{Binding Amount}" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center"/><TextBlock Grid.Column="4" Text="{Binding BalanceValue}" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center"/><StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"><Button Content="Edit" Command="{Binding EditCommand}" FontSize="12" MinHeight="44" Padding="10,6" CornerRadius="8"/><Button Content="PDF" Command="{Binding PdfCommand}" Visibility="{Binding PdfVisibility}" FontSize="12" MinHeight="44" Padding="10,6" CornerRadius="8"/></StackPanel></Grid></DataTemplate>
           """);
         var compactTemplate=(DataTemplate)XamlReader.Load("""
           <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
             <StackPanel Padding="18,16" Spacing="12">
               <Button Command="{Binding OpenCommand}" Padding="0" MinHeight="44" BorderThickness="0" Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" FontSize="14" FontWeight="SemiBold"><TextBlock Text="{Binding PrimaryText}" TextWrapping="Wrap"/></Button>
-              <TextBlock Text="{Binding SecondaryText}" FontSize="13" Foreground="#796c63" TextWrapping="Wrap"/>
-              <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Date}" FontSize="12" Foreground="#796c63"/><TextBlock Grid.Column="1" Text="{Binding Status}" FontSize="12" Foreground="{Binding StatusBrush}" HorizontalAlignment="Right" TextWrapping="Wrap"/></Grid>
+              <TextBlock Text="{Binding SecondaryText}" FontSize="13" Foreground="#58677A" TextWrapping="Wrap"/>
+              <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Date}" FontSize="12" Foreground="#58677A"/><TextBlock Grid.Column="1" Text="{Binding Status}" FontSize="12" Foreground="{Binding StatusBrush}" HorizontalAlignment="Right" TextWrapping="Wrap"/></Grid>
               <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Amount}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock Grid.Column="1" Text="{Binding Balance}" FontSize="13" TextWrapping="Wrap" HorizontalAlignment="Right"/></Grid>
               <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Edit" Command="{Binding EditCommand}" MinHeight="44" Padding="14,10"/><Button Content="PDF" Command="{Binding PdfCommand}" Visibility="{Binding PdfVisibility}" MinHeight="44" Padding="14,10"/></StackPanel>
             </StackPanel>
@@ -298,13 +314,14 @@ public sealed partial class MainPage : Page
         var edit = AsyncButton("Edit selected", async () => { if (list.SelectedItem is RecordRow row) await EditRow(row.Source); }, Error); edit.IsEnabled = false;
         var pdf = AsyncButton("Document PDF", async () => { if (list.SelectedItem is RecordRow row) await PreviewDocument(row.Source); }, Error); pdf.IsEnabled = false;
         var convert = AsyncButton("Convert to invoice / bill", async () => { if (list.SelectedItem is RecordRow row) await EditDocument(row.Kind == "purchase_order" ? "purchase_bill" : "sales_invoice", null, row.Source); }, Error); convert.IsEnabled = false;
-        bool Editable(RecordRow row)=>CanWrite&&(row.Kind is "party" or "item" or "payment_in" or "payment_out" or "bank_transfer"||FeatureCatalog.Documents.Contains(row.Kind))&&row.Source.Text("converted_to").Length==0&&!row.Source.Flag("cancelled");
+        bool Editable(RecordRow row)=>CanWrite&&(row.Kind is "party" or "item" or "payment_in" or "payment_out" or "bank_transfer"||FeatureCatalog.Documents.Contains(row.Kind))&&row.Source.Text("converted_to").Length==0&&!row.Source.Flag("cancelled")&&!PurchaseReceivingStarted(row.Source);
         bool Printable(RecordRow row)=>FeatureCatalog.Documents.Contains(row.Kind)||row.Kind is "payment_in" or "payment_out" or "customer_refund" or "supplier_refund" or "advance_refund";
-        list.SelectionChanged += (_, _) => { var row = list.SelectedItem as RecordRow; edit.IsEnabled = row is not null && Editable(row); pdf.IsEnabled = row is not null && Printable(row); convert.IsEnabled = row is not null && CanWrite && FeatureCatalog.Drafts.Contains(row.Kind) && row.Source.Text("converted_to").Length == 0; };
+        bool Convertible(RecordRow row)=>CanWrite&&FeatureCatalog.Drafts.Contains(row.Kind)&&row.Source.Text("converted_to").Length==0&&!PurchaseReceivingStarted(row.Source)&&(row.Kind!="purchase_order"||!Supports("purchase_order_receiving"));
+        list.SelectionChanged += (_, _) => { var row = list.SelectedItem as RecordRow; edit.IsEnabled = row is not null && Editable(row); pdf.IsEnabled = row is not null && Printable(row); convert.IsEnabled = row is not null && Convertible(row); };
         list.ItemClick += async (_, args) => await Run(async () => { if (args.ClickedItem is RecordRow row) { if (row.Kind == "party") await PartyStatement(row.Source); else if (row.Kind=="item"&&Editable(row)) await EditRow(row.Source); } });
         list.DoubleTapped+=async(_,args)=>{for(var source=args.OriginalSource as DependencyObject;source is not null;source=Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(source))if(source is Microsoft.UI.Xaml.Controls.Primitives.ButtonBase)return;await Run(async()=>{if(list.SelectedItem is RecordRow row&&row.Kind is not("party" or "item")){await TransactionDetails(row.Source);}});};
         actions.Children.Add(edit); if(rows.Any(Printable))actions.Children.Add(pdf);if(rows.Any(r=>FeatureCatalog.Drafts.Contains(r.Kind)))actions.Children.Add(convert);var selectedActions=actions.Children.Cast<UIElement>().ToArray();actions.Children.Clear();target.Children.Add(ResponsiveGrid(180,selectedActions));
-        var headings=new Grid{ColumnSpacing=10,Padding=new Thickness(12,10,12,10),Background=Brush(0xFF, 0xF4, 0xE9)};foreach(var width in new[]{new GridLength(82),new GridLength(2,GridUnitType.Star),new GridLength(72),new GridLength(100),new GridLength(110),new GridLength(132)})headings.ColumnDefinitions.Add(new ColumnDefinition{Width=width});var master=rows.Select(r=>r.Kind).Distinct().Count()==1?rows[0].Kind:"";var labels=new[]{"DATE",master=="party"?"PARTY / GSTIN":master=="item"?"ITEM / HSN":"DOCUMENT / PARTY","STATUS",master=="party"?"PHONE":master=="item"?"SALE PRICE":"AMOUNT","BALANCE","ACTIONS"};for(var i=0;i<labels.Length;i++){var label=Text(labels[i],9,true);label.Foreground=Muted;if(i is 3 or 4)label.HorizontalAlignment=HorizontalAlignment.Right;Grid.SetColumn(label,i);headings.Children.Add(label);}headings.Visibility=Visibility.Collapsed;target.Children.Add(headings);target.Children.Add(list);
+        var headings=new Grid{ColumnSpacing=10,Padding=new Thickness(12,10,12,10),Background=Brush(0xF4, 0xF5, 0xF7)};foreach(var width in new[]{new GridLength(82),new GridLength(2,GridUnitType.Star),new GridLength(72),new GridLength(100),new GridLength(110),new GridLength(132)})headings.ColumnDefinitions.Add(new ColumnDefinition{Width=width});var master=rows.Select(r=>r.Kind).Distinct().Count()==1?rows[0].Kind:"";var labels=new[]{"DATE",master=="party"?"PARTY / GSTIN":master=="item"?"ITEM / HSN":"DOCUMENT / PARTY","STATUS",master=="party"?"PHONE":master=="item"?"SALE PRICE":"AMOUNT","BALANCE","ACTIONS"};for(var i=0;i<labels.Length;i++){var label=Text(labels[i],9,true);label.Foreground=Muted;if(i is 3 or 4)label.HorizontalAlignment=HorizontalAlignment.Right;Grid.SetColumn(label,i);headings.Children.Add(label);}headings.Visibility=Visibility.Collapsed;target.Children.Add(headings);target.Children.Add(list);
         void ArrangeRecords(){var wide=list.ActualWidth>=760;var template=wide?wideTemplate:compactTemplate;if(!ReferenceEquals(list.ItemTemplate,template))list.ItemTemplate=template;headings.Visibility=wide?Visibility.Visible:Visibility.Collapsed;}
         list.SizeChanged+=(_,_)=>ArrangeRecords();
     }
@@ -313,6 +330,7 @@ public sealed partial class MainPage : Page
     internal async Task EditRow(JsonObject row)
     {
         var cid=CompanyId;var stamp=generation;var full = (await Api.Record(cid, row.Text("id"))).Object();if(stamp!=generation)return; var kind = full.Text("kind");
+        if(PurchaseReceivingStarted(full))throw new InvalidOperationException("This order has receiving history. Open its details to review the linked bills.");
         if (kind is "party" or "item") await MasterForm(kind, full); else if (kind is "payment_in" or "payment_out") await EditPayment(kind, full);else if(kind=="bank_transfer")await Transfer(previous:full);else await EditDocument(kind, full);
     }
 }

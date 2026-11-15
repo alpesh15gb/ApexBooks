@@ -51,6 +51,8 @@ export default function RecordEditor({
     ].includes(kind),
     showTax = company.tax_mode === "regular" || purchase;
   const initial = source || relatedSource || draftSeed;
+  const splitSupported = kind === "pos" &&
+    (supported("pos_split_tender") || initial?.data?.payment_account === "split");
   const linkedReturn = !edit && relatedSource && ["credit_note", "debit_note"].includes(kind);
   const initialLines = linkedReturn ? remainingReturnDraftLines(initial?.return_capacity_lines || initial?.data?.lines || []) : initial?.data?.lines;
   const [priceLine, setPriceLine] = useState(null), [termsSuggestion, setTermsSuggestion] = useState(null), [termsError, setTermsError] = useState("");
@@ -161,6 +163,7 @@ export default function RecordEditor({
       advance_gst_rate: "18",
       amount: edit ? String(initial?.amount || "") : isPayment && relatedSource ? String(relatedSource.outstanding || "") : "",
       tender_amount: initial?.data?.tender_amount || "",
+      bank_amount: initial?.data?.bank_amount || "",
       place_of_supply: initial?.data?.place_of_supply || company.state_code,
       applied_to: edit ? initial?.data?.applied_to || "" : !isPayment && relatedSource ? relatedSource.id : "",
       payment_account: edit ? initial?.data?.payment_account || "cash" : "cash",
@@ -541,7 +544,7 @@ export default function RecordEditor({
                 shipping_address: form.shipping_address,
                 payment_account: form.payment_account,
                 bank_account_id:
-                  form.payment_account === "bank"
+                  ["bank", "split"].includes(form.payment_account)
                     ? form.bank_account_id
                     : undefined,
                 source_document_id: edit ? undefined : source?.id,
@@ -550,7 +553,8 @@ export default function RecordEditor({
                 terms: form.terms,
                 category: form.category,
                 document_discount_percent: form.document_discount_percent,
-                tender_amount: form.tender_amount || undefined,
+                tender_amount: form.payment_account !== "bank" ? form.tender_amount || undefined : undefined,
+                bank_amount: form.payment_account === "split" ? form.bank_amount : undefined,
                 round_total: form.round_total,
                 return_stock: form.return_stock,
               }
@@ -959,16 +963,17 @@ export default function RecordEditor({
                 className="form-select"
                 value={form.payment_account}
                 onChange={(e) =>
-                  setForm({ ...form, payment_account: e.target.value })
+                  setForm({ ...form, payment_account: e.target.value, tender_amount: "" })
                 }
               >
                 <option value="cash">Cash</option>
                 <option value="bank">Bank</option>
+                {splitSupported && <option value="split">Cash + bank</option>}
               </select>
             </label>
           )}
           {["payment_in", "payment_out", "expense", "pos"].includes(kind) &&
-            form.payment_account === "bank" && (
+            ["bank", "split"].includes(form.payment_account) && (
               <label className="full">
                 Bank account
                 <select
@@ -1112,7 +1117,21 @@ export default function RecordEditor({
               )}
             </section>
           )}
-          {kind === "pos" && form.payment_account === "cash" && (
+          {kind === "pos" && form.payment_account === "split" && (
+            <label className="full">
+              Amount paid by bank / UPI / card
+              <input
+                name="bank_amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+                value={form.bank_amount}
+                onChange={change}
+              />
+            </label>
+          )}
+          {kind === "pos" && ["cash", "split"].includes(form.payment_account) && (
             <label className="full">
               Cash tendered
               <input

@@ -22,6 +22,9 @@ import kotlinx.coroutines.ensureActive
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** Reports are told apart by subject so a list of sixteen rows is not sixteen identical bar charts. */
+private fun reportIcon(key:String)=when{key.contains("gst")||key.startsWith("gstr")->Icons.Outlined.ReceiptLong;key.contains("stock")||key.contains("item")->Icons.Outlined.Inventory2;key in setOf("ageing","credits","advances")||key.contains("part")||key.contains("customer")||key.contains("supplier")->Icons.Outlined.People;key.contains("cash")||key.contains("bank")->Icons.Outlined.AccountBalance;key.contains("ledger")||key.contains("trial")||key.contains("balance")->Icons.Outlined.Book;else->Icons.Outlined.BarChart}
+
 @Composable fun ReportsScreen(vm:AppModel){
     var selected by remember(vm.companyId){mutableStateOf<Feature?>(null)}
     var search by remember(vm.companyId){mutableStateOf("")};var group by remember(vm.companyId){mutableStateOf("all")}
@@ -37,7 +40,7 @@ import org.json.JSONObject
                     Text(category.uppercase(),style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant,fontWeight=FontWeight.Bold)
                     Surface(shape=RoundedCornerShape(20.dp),color=Color.White){Column{features.forEachIndexed{index,report->
                         val available=!report.key.startsWith("gstr")||vm.regular
-                        NativeActionRow(report.title,if(available)report.description else "Requires regular GST registration",if(report.key.startsWith("gstr"))Icons.Outlined.ReceiptLong else Icons.Outlined.BarChart){if(available)selected=report}
+                        NativeActionRow(report.title,if(available)report.description else "Requires regular GST registration",reportIcon(report.key)){if(available)selected=report}
                         if(index<features.lastIndex)HorizontalDivider(Modifier.padding(start=74.dp))
                     }}}
                 }}

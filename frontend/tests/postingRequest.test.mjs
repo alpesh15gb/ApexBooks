@@ -44,3 +44,19 @@ test('route-scoped definite retry conflicts unlock only the explicitly configure
  const ordinary=createPostingRequest();await assert.rejects(ordinary.run(original));assert.equal(ordinary.pending,false);
  const conservative=createPostingRequest();attempt=0;await assert.rejects(conservative.run(original));await assert.rejects(conservative.run(original));assert.equal(conservative.pending,true);
 });
+
+test('POS recovery unlocks on an explicit re-quote response but keeps an ordinary conflict locked', async () => {
+  const posting = createPostingRequest({ definitiveRetryCodes: ['POS_REQUOTE_REQUIRED'] });
+  let calls = 0;
+  const sale = async () => {
+    calls++;
+    if (calls === 1) throw new TypeError('Connection lost');
+    if (calls === 2) throw Object.assign(new Error('Review this conflict'), { status: 409 });
+    throw Object.assign(new Error('Checkout total changed'), { status: 409, code: 'POS_REQUOTE_REQUIRED' });
+  };
+  await assert.rejects(posting.run(sale));
+  await assert.rejects(posting.run(sale));
+  assert.equal(posting.pending, true);
+  await assert.rejects(posting.run(sale));
+  assert.equal(posting.pending, false);
+});

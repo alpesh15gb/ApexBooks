@@ -27,6 +27,16 @@ public sealed partial class MainPage
         var row=(await Api.Record(cid,initial.Text("id"))).Object();
         if(stamp!=generation||cid!=CompanyId)return;
         var data=row["data"].Object();var kind=row.Text("kind");var panel=Stack(16);panel.MinWidth=620;
+        var supportsReceiving=kind=="purchase_order"&&Supports("purchase_order_receiving");
+        JsonObject? receiving=null;
+        string receivingError="";
+        if(supportsReceiving)
+        {
+            try { receiving=(await Api.Send(Api.CompanyPath(cid,$"/purchase-orders/{Uri.EscapeDataString(row.Text("id"))}/receiving"))).Object(); }
+            catch(Exception error){receivingError=error.Message;}
+            if(stamp!=generation||cid!=CompanyId)return;
+        }
+        var lockedOrder=PurchaseReceivingStarted(row)||receiving?["receipts"].Array().Count>0;
         var summary=Stack(4);summary.Children.Add(Text(new RecordRow(row).Status,12,true));
         summary.Children.Add(Text(row.Text("number") is {Length:>0} number?number:Friendly(kind),20,true));
         summary.Children.Add(Text(row.Text("name"),14,true));summary.Children.Add(Text(J.Money(kind=="item"?data.Number("sale_rate"):row.Number("amount")),22,true));
@@ -49,24 +59,29 @@ public sealed partial class MainPage
         if(!cancelled&&WhatsAppShare.Shareable(kind))Action("Share on WhatsApp","whatsapp");
         if(WhatsAppShare.CanRemind(row))Action("Send reminder","remind");
         if(cancelled)panel.Children.Add(Card(Text("Cancelled"+(data["cancelled"].Text("reason") is {Length:>0} why?" · "+why:"")+". The number stays in your records; its ledger, stock and balance effects were reversed.",13)));
-        if(CanWrite&&!cancelled&&row.Text("converted_to").Length==0&&(FeatureCatalog.Documents.Contains(kind)||kind is "payment_in" or "payment_out" or "bank_transfer"))Action("Edit","edit");
+        if(CanWrite&&!cancelled&&!lockedOrder&&row.Text("converted_to").Length==0&&(FeatureCatalog.Documents.Contains(kind)||kind is "payment_in" or "payment_out" or "bank_transfer"))Action("Edit","edit");
         var secondaryActions=actions.Children.Cast<UIElement>().ToArray();actions.Children.Clear();
         var next=Stack(8);
         void Next(string label,string key)=>next.Children.Add(Button(label,()=>{action=key;CloseDialog();},next.Children.Count==0));
         if(CanWrite&&WorkflowMasterValues.IsPostedRecord(row)&&row.Number("outstanding")>0&&kind is "sales_invoice" or "purchase_bill")Next(kind=="sales_invoice"?"Record payment received":"Record supplier payment","payment");
         if(CanWrite&&kind is "estimate" or "proforma"&&row.Text("converted_to").Length==0)Next("Convert to sales order","sales_order");
-        if(CanWrite&&Supports("recurring_drafts")&&FeatureCatalog.Drafts.Contains(kind)&&row.Text("converted_to").Length==0)Next("Create recurring draft schedule","recurring");
-        if(CanWrite&&FeatureCatalog.Drafts.Contains(kind)&&row.Text("converted_to").Length==0)Next(kind=="purchase_order"?"Convert to purchase bill":"Convert to invoice","convert");
+        if(CanWrite&&!cancelled&&receiving.Text("status") is "open" or "partial")Next("Receive stock","receive_po");
+        if(supportsReceiving&&receivingError.Length>0)Next("Reload receiving details","reload_detail");
+        if(CanWrite&&!lockedOrder&&Supports("recurring_drafts")&&FeatureCatalog.Drafts.Contains(kind)&&row.Text("converted_to").Length==0)Next("Create recurring draft schedule","recurring");
+        var useLegacyConversion=!supportsReceiving||receiving.Text("status")=="unavailable";
+        if(CanWrite&&!lockedOrder&&FeatureCatalog.Drafts.Contains(kind)&&row.Text("converted_to").Length==0&&useLegacyConversion)Next(kind=="purchase_order"?"Convert to purchase bill":"Convert to invoice","convert");
         if(CanWrite&&row.Flag("posted")&&kind is "sales_invoice" or "pos" or "purchase_bill")Next(kind=="purchase_bill"?"Create purchase return / debit note":"Create sales return / credit note","return");
         if(CanWrite&&(row.Number("advance_remaining")>0||row.Number("credit_remaining")>0))Next("Apply / refund available balance","settle");
         if(Supports("document_cancellation")&&CanWrite&&!cancelled&&row.Flag("posted")&&kind is "sales_invoice" or "pos" or "purchase_bill" or "payment_in" or "payment_out" or "expense" or "credit_note" or "debit_note" or "bank_transfer")next.Children.Add(Button("Cancel this document",()=>{action="cancel";CloseDialog();}));
         if(next.Children.Count>0){panel.Children.Add(Text("Next steps",15,true));panel.Children.Add(next);}
         if(secondaryActions.Length>0)panel.Children.Add(ResponsiveGrid(170,secondaryActions));
         if(!CanWrite)panel.Children.Add(Text("Read-only access · ask an owner for editor access to record payments, returns or changes.",12));
-        foreach(var (label,id) in new[]{("Posted document",row.Text("converted_to")),("Source document",data.Text("source_document_id")),("Original invoice / bill",data.Text("applied_to"))}.Where(x=>x.Item2.Length>0&&x.Item2!="source-converted")){
+        foreach(var (label,id) in new[]{("Posted document",row.Text("converted_to")),("Source document",data.Text("source_document_id")),("Purchase order",data.Text("purchase_order_id")),("Original invoice / bill",data.Text("applied_to"))}.Where(x=>x.Item2.Length>0&&x.Item2!="source-converted")){
             var linked=Records.FirstOrDefault(r=>r.Text("id")==id);var reference=linked.Text("number");
             panel.Children.Add(Button(label+"  ·  "+(reference.Length>0?reference:id[..Math.Min(8,id.Length)])+"  →",()=>{linkedId=id;action="linked";CloseDialog();}));
         }
+        if(receiving is not null)panel.Children.Add(PurchaseReceivingSummary(receiving,id=>{linkedId=id;action="linked";CloseDialog();}));
+        if(receivingError.Length>0)panel.Children.Add(Card(Text("Receiving details unavailable. "+receivingError)));
         var allocations=row["allocations"].Array();if(allocations.Count==0)allocations=data["allocations"].Array();
         if(allocations.Count>0){panel.Children.Add(Text("Payment allocation",15,true));foreach(var allocation in allocations){var id=allocation.Text("document_id");var target=Records.FirstOrDefault(r=>r.Text("id")==id);panel.Children.Add(Button(target.Text("number")+"  ·  "+J.Money(allocation.Number("amount"))+"  →",()=>{linkedId=id;action="linked";CloseDialog();}));}panel.Children.Add(Text("Allocation settles the document. Bank matching is a separate reconciliation step.",12));}
         if(data["lines"].Array().Count>0){panel.Children.Add(Text("Items",15,true));foreach(var line in data["lines"].Array()){var item=Stack(4);item.Children.Add(Text(line.Text("description"),14,true));item.Children.Add(Text(line.Text("quantity")+" "+line.Text("unit")+" × "+J.Money(line.Number("rate"))+"  ·  "+J.Money(line.Number("taxable")+line.Number("tax")),12));if(line is JsonObject lineValues&&lineValues.ContainsKey("discount_amount"))item.Children.Add(Text("Fixed line discount · "+J.Money(line.Number("discount_amount")),12));else if(line.Number("discount_percent")>0)item.Children.Add(Text("Line discount · "+line.Text("discount_percent")+"%",12));if(line.Number("document_discount")>0)item.Children.Add(Text("Document discount allocated to this line · "+J.Money(line.Number("document_discount")),12));panel.Children.Add(Card(item));}}
@@ -81,6 +96,8 @@ public sealed partial class MainPage
             case "whatsapp":case "remind":await OpenWhatsApp(row,action=="remind");break;
             case "edit":await EditRow(row);break;
             case "payment":await EditPayment(kind=="sales_invoice"?"payment_in":"payment_out",document:row);break;
+            case "receive_po":if(receiving is not null)await ReceivePurchaseOrder(row,receiving);break;
+            case "reload_detail":await TransactionDetails(row);break;
             case "sales_order":await EditDocument("sales_order",conversion:row);break;
             case "convert":await EditDocument(kind=="purchase_order"?"purchase_bill":"sales_invoice",conversion:row);break;
             case "return":await EditDocument(kind=="purchase_bill"?"debit_note":"credit_note",returnSource:row);break;

@@ -24,8 +24,8 @@ public sealed partial class MainPage
         void AddAllocation(JsonNode? initial=null)
         {
             var target=Select("Invoice / bill",new[]{("","Choose document")}.Concat(targets.Select(r=>(r.Text("id"),$"{r.Text("number")} · {r.Text("name")} · {J.Money(r.Number("outstanding")+original.Where(a=>a.Text("document_id")==r.Text("id")).Sum(a=>a.Number("amount")))} available"))),initial.Text("document_id"));
-            var allocated=Input("Allocated (₹)",initial.Text("amount"));var row=Columns(target,allocated);rows.Add((target,allocated));allocations.Children.Add(row);
-            var remove=Button("Remove",()=>{rows.Remove((target,allocated));allocations.Children.Remove(row);});row.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});Grid.SetColumn(remove,2);row.Children.Add(remove);
+            var allocated=Input("Allocated (₹)",initial.Text("amount"));var fields=Columns(target,allocated);rows.Add((target,allocated));var row=new Grid{ColumnSpacing=12};row.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});row.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});row.Children.Add(fields);allocations.Children.Add(row);
+            var remove=Button("Remove",()=>{rows.Remove((target,allocated));allocations.Children.Remove(row);});remove.VerticalAlignment=VerticalAlignment.Bottom;Grid.SetColumn(remove,1);row.Children.Add(remove);
             target.SelectionChanged+=(_,_)=>{
                 var chosen=targets.FirstOrDefault(r=>r.Text("id")==Value(target));
                 if(chosen is null){allocated.Text="";return;}

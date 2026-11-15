@@ -29,13 +29,15 @@ def run():
     parser.add_argument('--presentation', action='store_true', help='Also verify visual layouts, accessibility and keyboard interaction with synthetic populated books.')
     parser.add_argument('--accessibility', action='store_true', help='Also check focus, keyboard, zoom and accessible announcements.')
     parser.add_argument('--business', action='store_true', help='Also exercise realistic tax, stock and settlement journeys in the browser.')
+    parser.add_argument('--storefront', action='store_true', help='Exercise the POS and stock-count journey on disposable books.')
     parser.add_argument('--browser-only', action='store_true', help='Run only the browser gate, still on newly created isolated servers/books.')
     parser.add_argument('--browser-channel', choices=('chrome', 'msedge'))
     parser.add_argument('--browser-engine', choices=('chromium', 'firefox', 'webkit'), default='chromium')
     parser.add_argument('--browser-executable', type=Path, help='Optional path to the matching Playwright browser runtime.')
     parser.add_argument('--artifacts', type=Path)
     args = parser.parse_args()
-    args.browser = args.browser or args.browser_only or args.presentation or args.accessibility or args.business
+    general_browser = args.browser or args.presentation or args.accessibility or args.business or (args.browser_only and not args.storefront)
+    args.browser = args.browser or args.browser_only or args.presentation or args.accessibility or args.business or args.storefront
     if args.browser_channel and args.browser_engine != 'chromium':
         parser.error('Chrome/Edge channels require --browser-engine chromium.')
     if args.browser_executable and (args.browser_channel or not args.browser_executable.is_file()):
@@ -117,8 +119,10 @@ def run():
                 if not args.browser_only:
                     for name in ('test_http_workflow.py', 'test_complete_backup_http.py'):
                         check([sys.executable, str(ROOT/'tests/e2e'/name)], cwd=ROOT, env=env)
-                if args.browser:
+                if general_browser:
                     check([sys.executable, str(ROOT/'tests/e2e/browser_workflow.py')], cwd=ROOT, env=env)
+                if args.storefront:
+                    check([sys.executable, str(ROOT/'tests/e2e/browser_storefront.py')], cwd=ROOT, env=env)
                 if args.presentation:
                     check([sys.executable, str(ROOT/'tests/e2e/browser_presentation.py')], cwd=ROOT, env=env)
                 if args.accessibility:

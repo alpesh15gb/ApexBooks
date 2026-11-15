@@ -164,6 +164,7 @@ fun ActionDialog(
     working: () -> Boolean = { false },
     onSave: suspend () -> Unit,
     onDismiss: () -> Unit,
+    confirmationSummary: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     var saving by remember { mutableStateOf(false) }
@@ -197,6 +198,7 @@ fun ActionDialog(
                     Surface(shadowElevation = 4.dp) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Message(vm.error, true) { vm.error = "" }
+                            confirmationSummary?.invoke()
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
                                 TextButton(enabled = !saving&&!working(), onClick = { close() }) { Text("Cancel") }
                                 Button(

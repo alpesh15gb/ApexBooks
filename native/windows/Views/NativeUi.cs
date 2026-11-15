@@ -93,7 +93,7 @@ public static class NativeUi
         public string Value => Picker.Date?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "";
         public DateInput(string label, string value = "")
         {
-            View.Children.Add(Text(label+" · YYYY-MM-DD", 13)); View.Children.Add(Picker);ToolTipService.SetToolTip(Picker,"Gregorian business date · year-month-day (YYYY-MM-DD). Choose from the calendar; dates are not interpreted as month/day text.");Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(Picker,label+" · YYYY-MM-DD");
+            View.Children.Add(Text(label+" · YYYY-MM-DD", 14)); View.Children.Add(Picker);ToolTipService.SetToolTip(Picker,"Gregorian business date · year-month-day (YYYY-MM-DD). Choose from the calendar; dates are not interpreted as month/day text.");Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(Picker,label+" · YYYY-MM-DD");
             if (DateTime.TryParseExact(value, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date)) Picker.Date = new DateTimeOffset(date);
         }
     }
@@ -137,11 +137,11 @@ public static class NativeUi
         var workbench=stickyFooter is not null;
         var dialogWidth=Math.Max(320,Math.Min(workbench?1440:1050,rootWidth-64));
         var bodyWidth=Math.Max(260,dialogWidth-48);
-        if(content is FrameworkElement surface){surface.MinWidth=Math.Min(surface.MinWidth,bodyWidth);surface.MaxWidth=bodyWidth;}
+        if(content is FrameworkElement surface){surface.MinWidth=Math.Min(Math.Max(surface.MinWidth,420),bodyWidth);surface.MaxWidth=bodyWidth;}
         var layout = new Grid { RowSpacing = 14, MaxWidth=bodyWidth };
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        var bodyScroll=new ScrollViewer { Content = content, MaxWidth=bodyWidth, MaxHeight = Math.Max(180, Math.Min(1100, rootHeight - (workbench ? 150 : 230))), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode=ScrollMode.Disabled };
+        var bodyScroll=new ScrollViewer { Content = content, MaxWidth=bodyWidth, MaxHeight = Math.Max(180, Math.Min(1100, rootHeight - (workbench ? 150 : 230))), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode=ScrollMode.Disabled, Padding = new Thickness(0, 0, 14, 0) };
         layout.Children.Add(bodyScroll);
         var dialog = new ContentDialog { Title = heading, Content = new ContentControl { Content = layout, HorizontalContentAlignment = HorizontalAlignment.Stretch }, PrimaryButtonText = workbench?"":action, SecondaryButtonText = workbench||saveAndNew is null ? "" : "Save & new", CloseButtonText = workbench||action=="Done"?"":"Cancel", DefaultButton = workbench?ContentDialogButton.None:ContentDialogButton.Primary, XamlRoot = App.Window.Content.XamlRoot };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(dialog,title);
@@ -223,9 +223,12 @@ public static class NativeUi
         if(node is JsonValue boolean && boolean.TryGetValue<bool>(out var truth))return truth?"Yes":"No";
         if (node is JsonObject || node is JsonArray) return "";
         if(key.Contains("gst_rate")||key.Contains("tax_rate")||key.Contains("percent"))return node+"%";
-        var money = !new[]{"quantity","count","records","items"}.Any(key.Contains)&&(new[] { "amount", "total", "taxable", "cgst", "sgst", "igst", "value", "balance", "receivable", "payable", "profit", "income", "expense", "debit", "credit", "cost", "available", "paid", "outstanding", "difference" }.Any(key.Contains)||new[]{"sales","purchases","receipts","payments","movement"}.Contains(key)||key.EndsWith("_movement"));
-        return money && decimal.TryParse(node.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var value) ? J.Money(value) : node.ToString();
+        return MoneyKey(key) && decimal.TryParse(node.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var value) ? J.Money(value) : node.ToString();
     }
+    private static bool QuantityKey(string key) => new[] { "quantity", "count", "records", "items" }.Any(key.Contains);
+    private static bool MoneyKey(string key) => !QuantityKey(key) && (new[] { "amount", "total", "taxable", "cgst", "sgst", "igst", "value", "balance", "receivable", "payable", "profit", "income", "expense", "debit", "credit", "cost", "available", "paid", "outstanding", "difference" }.Any(key.Contains) || new[] { "sales", "purchases", "receipts", "payments", "movement" }.Contains(key) || key.EndsWith("_movement"));
+    /// <summary>Money and quantity columns right-align so digits line up for comparison.</summary>
+    private static bool NumericColumn(string key) => MoneyKey(key) || QuantityKey(key) || key.Contains("rate") && !key.Contains("rated") || key.Contains("percent");
     public static void Table(Panel target, JsonArray rows, string title = "", IEnumerable<string>? columns = null)
     {
         if (title.Length > 0) target.Children.Add(Text(title, 20, true));
@@ -234,9 +237,13 @@ public static class NativeUi
         if (keys.Length == 0) return;
         var table = Stack(0); var header = new Grid { ColumnSpacing = 14, Padding = new Thickness(12), Background = Brush(0xF4, 0xF5, 0xF7) };
         foreach (var key in keys) header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(key is "name" or "party" or "description" or "section" ? 230 : 145) });
-        for (var i = 0; i < keys.Length; i++) { var text = Text(Friendly(keys[i]), 12, true); Grid.SetColumn(text, i); header.Children.Add(text); }
-        var page=0;const int pageSize=50;var objects=rows.OfType<JsonObject>().ToArray();
-        var scroller=new ScrollViewer { Content = table, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 550 };
+        var numeric = keys.Select(NumericColumn).ToArray();
+        for (var i = 0; i < keys.Length; i++) { var text = Text(Friendly(keys[i]), 12, true); if (numeric[i]) text.TextAlignment = TextAlignment.Right; Grid.SetColumn(text, i); header.Children.Add(text); }
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(header, "Column headings: " + string.Join(", ", keys.Select(Friendly)));
+        var page=0;const int pageSize=25;var objects=rows.OfType<JsonObject>().ToArray();
+        // Vertical scrolling belongs to the page; a nested vertical scroller traps the mouse wheel.
+        var scroller=new ScrollViewer { Content = table, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollMode = ScrollMode.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollMode = ScrollMode.Disabled };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(scroller, (title.Length > 0 ? title : "Table") + ", " + objects.Length + " rows");
         var status=Text("",12);
         Button previous=null!,next=null!;
         previous=Button("Previous",()=>{page--;Render();});
@@ -248,7 +255,9 @@ public static class NativeUi
             {
             var grid = new Grid { ColumnSpacing = 14, Padding = new Thickness(12), BorderBrush = Brush(0xEC, 0xED, 0xF0), BorderThickness = new Thickness(0, 0, 0, 1) };
             foreach (var definition in header.ColumnDefinitions) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = definition.Width });
-            for (var i = 0; i < keys.Length; i++) { var text = Text(Display(keys[i], row[keys[i]]), 13); Grid.SetColumn(text, i); grid.Children.Add(text); }
+            var spoken = new List<string>();
+            for (var i = 0; i < keys.Length; i++) { var shown = Display(keys[i], row[keys[i]]); var text = Text(shown, 13); if (numeric[i]) text.TextAlignment = TextAlignment.Right; Grid.SetColumn(text, i); grid.Children.Add(text); spoken.Add(Friendly(keys[i]) + " " + shown); }
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(grid, string.Join(", ", spoken));
             table.Children.Add(grid);
             }
             status.Text=$"{page*pageSize+1}–{Math.Min((page+1)*pageSize,objects.Length)} of {objects.Length}";

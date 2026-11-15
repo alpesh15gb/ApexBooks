@@ -29,19 +29,25 @@ public sealed class RecordRow(JsonObject source)
     public string Name => Source.Text("name");
     public string Reference => Source.Text("number") is { Length: > 0 } number ? number : Source["data"].Text("gstin");
     public string PrimaryText => Kind is "party" or "item" ? Name : Reference;
-    public string SecondaryText => Kind == "party" ? Source["data"].Text("gstin") : Kind == "item" ? (Source["data"].Text("hsn") is {Length:>0} hsn ? "HSN / SAC " + hsn : Source["data"].Text("barcode")) : Name;
+    /// <summary>Where an item is kept and what vehicles it fits, when the owner uses locations.</summary>
+    public string Placement { get; set; } = "";
+    public string SecondaryText => Kind == "party" ? Source["data"].Text("gstin") : Kind == "item" ? string.Join("  ·  ", new[] { Source["data"].Text("hsn") is {Length:>0} hsn ? "HSN / SAC " + hsn : Source["data"].Text("barcode"), Placement }.Where(x => x.Length > 0)) : Name;
     public string Date => Source.Text("date");
     public string Category => FeatureCatalog.Title(Kind);
-    public string Amount => Kind == "party" ? Source["data"].Text("phone") : Kind == "item" ? J.Money(Source["data"].Number("sale_rate")) : J.Money(Source.Number("amount"));
-    public string Balance => Source["outstanding"] is not null ? "Due " + J.Money(Source.Number("outstanding")) : Source["credit_remaining"] is not null ? "Credit " + J.Money(Source.Number("credit_remaining")) : Source["advance_remaining"] is not null ? "Advance " + J.Money(Source.Number("advance_remaining")) : "";
+    /// <summary>Dashboard lists mask money when the user has hidden amounts on this PC.</summary>
+    public bool MaskAmounts { get; set; }
+    private string Masked(string text) => MaskAmounts && text.Length > 0 ? ApexBooks_Windows.Services.AmountPrivacy.Mask : text;
+    public string Amount => Kind == "party" ? Source["data"].Text("phone") : Masked(Kind == "item" ? J.Money(Source["data"].Number("sale_rate")) : J.Money(Source.Number("amount")));
+    public string Balance => Masked(Source["outstanding"] is not null ? "Due " + J.Money(Source.Number("outstanding")) : Source["credit_remaining"] is not null ? "Credit " + J.Money(Source.Number("credit_remaining")) : Source["advance_remaining"] is not null ? "Advance " + J.Money(Source.Number("advance_remaining")) : "");
     /// <summary>Closing party balance from /parties/balances, shown as "You'll get" / "You'll pay".</summary>
     public string? PartyBalance { get; set; }
-    public string BalanceValue=>PartyBalance??(Source["outstanding"] is not null?J.Money(Source.Number("outstanding")):Balance);
+    public string BalanceValue=>Masked(PartyBalance??(Source["outstanding"] is not null?J.Money(Source.Number("outstanding")):Balance));
     public string Status {
         get {
             if(Kind is "party" or "item")return WorkflowMasterValues.IsActive(Source)?"Active":"Archived";
             if(Source.Flag("cancelled"))return "Cancelled";
             if(Source.Text("converted_to").Length>0)return "Converted";
+            if(Kind=="purchase_order"&&Source["data"].Flag("purchase_order_receiving_started"))return "Receiving";
             if(!Source.Flag("posted"))return FeatureCatalog.Drafts.Contains(Kind)?"Draft":"";
             if(Source["data"].Flag("is_advance"))return Source.Number("advance_remaining")>0?"Advance available":"Advance settled";
             if(Kind is "credit_note" or "debit_note")return Source.Number("credit_remaining")>0?"Credit available":"Credit settled";

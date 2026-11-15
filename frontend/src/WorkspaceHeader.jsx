@@ -176,7 +176,7 @@ export default function WorkspaceHeader({
               ? `workspace-search-option-${active}`
               : undefined
           }
-          placeholder="Search transactions, parties, items…"
+          placeholder="Search books"
           value={query}
           onFocus={() => setOpen(true)}
           onChange={(e) => {

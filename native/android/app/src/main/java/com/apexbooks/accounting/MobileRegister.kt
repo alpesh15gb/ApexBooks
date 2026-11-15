@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.apexbooks.accounting
 
 import androidx.compose.foundation.*
@@ -35,7 +35,7 @@ import java.math.BigDecimal
     val from = when (period) { "month" -> today().take(7) + "-01"; "fy" -> financialStart(); "custom" -> start; else -> "" }
     val to = if (period == "all") "" else if (period == "custom") end else today()
     val filtered=search.isNotBlank()||period!="all"||party!="all"||status!="all"
-    val rows = filterRegister(vm.records, vm.page, search, from, to, party, status, sort)
+    val rows = filterRegister(vm.records, vm.page, search, from, to, party, status, sort) { row -> if (row.s("kind") == "item") InventoryText.searchText(row, vm.inventorySetup) else "" }
     LaunchedEffect(search, period, start, end, party, status, sort) { count = 50 }
     var balances by remember(vm.companyId, vm.page) { mutableStateOf<JSONObject?>(null) }
     LaunchedEffect(vm.companyId, vm.page, vm.records) {
@@ -52,7 +52,14 @@ import java.math.BigDecimal
             }
         }
         item { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.weight(1f)) { SearchBarField(if (master) "Search name, phone or barcode" else "Search party or reference", search) { search = it } }
+            Box(Modifier.weight(1f)) {
+                val searchHint = when (vm.page) {
+                    "item" -> "Search item or barcode"
+                    "party" -> "Search name or phone"
+                    else -> "Search party or reference"
+                }
+                SearchBarField(searchHint, search) { search = it }
+            }
             FilledTonalIconButton(onClick = { filters = true }, modifier = Modifier.size(48.dp), shape = RoundedCornerShape(12.dp)) { Icon(Icons.Outlined.Tune, "Filter and sort") }
         } }
         if(filtered)item { Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
@@ -65,8 +72,8 @@ import java.math.BigDecimal
             val drafts = vm.page in setOf("estimate", "proforma", "sales_order", "purchase_order")
             val total = (if (drafts) rows.filterNot { it.optBoolean("cancelled") } else financialRows).fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("amount") }
             Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(14.dp)) { Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column { Text("${rows.size} ${if (rows.size == 1) "transaction" else "transactions"}", style = MaterialTheme.typography.labelMedium); Text(money(total), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = ApexGreen); Text(if(drafts) "Document value" else "Posted value", style=MaterialTheme.typography.bodySmall) }
-                if (vm.page in setOf("sales_invoice", "purchase_bill")) Column(horizontalAlignment = Alignment.End) { Text("Outstanding", style = MaterialTheme.typography.labelMedium); Text(money(financialRows.fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("outstanding") }), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+                Column { Text(if(drafts) "Document value" else "Posted value", style = MaterialTheme.typography.labelMedium); Text(money(total), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = ApexGreen); Text("${rows.size} ${if (rows.size == 1) "transaction" else "transactions"}", style=MaterialTheme.typography.bodySmall) }
+                if (vm.page in setOf("sales_invoice", "purchase_bill")) Column(horizontalAlignment = Alignment.End) { Text("Outstanding", style = MaterialTheme.typography.labelMedium); Text(money(financialRows.fold(BigDecimal.ZERO) { sum, row -> sum + row.decimal("outstanding") }), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
             } }
         } else item {
             val totals = balances?.optJSONObject("totals")
@@ -80,9 +87,21 @@ import java.math.BigDecimal
                 if (overdue.isNotEmpty()) FilledTonalButton(onClick = { showOverdue = true }, modifier = Modifier.padding(top = 8.dp)) { Icon(Icons.Outlined.NotificationsActive, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Remind overdue (${overdue.size})") }
                 if (showOverdue) OverdueReminders(vm, overdue) { showOverdue = false }
             }
-            Text("${rows.size} ${if (vm.page == "party") "parties · tap for statement" else "items"}", Modifier.padding(top = if (totals != null) 6.dp else 0.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val countLabel = if (vm.page == "party") {
+                if (rows.size == 1) "party · tap for statement" else "parties · tap for statement"
+            } else if (rows.size == 1) "item" else "items"
+            Text("${rows.size} $countLabel", Modifier.padding(top = if (totals != null) 6.dp else 0.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (vm.page == "item" && vm.canWrite) item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { AssistChip(onClick = { vm.tool = "stock_opening" }, label = { Text("Opening stock") }); AssistChip(onClick = { vm.tool = "stock_adjust" }, label = { Text("Adjust stock") }) } }
+        if (vm.page == "item" && vm.canWrite) item {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AssistChip(onClick = { vm.tool = "stock_opening" }, label = { Text("Opening stock") })
+                AssistChip(onClick = { vm.tool = "stock_adjust" }, label = { Text("Adjust stock") })
+                if (vm.supports("stock_counts")) AssistChip(onClick = {
+                    vm.toolData = null
+                    vm.tool = "stock_count"
+                }, label = { Text("Count stock") })
+            }
+        }
         if (vm.canWrite && vm.page in setOf("payment_in", "payment_out", "credit_note", "debit_note")) item { AssistChip(onClick = { vm.tool = if (vm.page in setOf("credit_note", "debit_note")) "settle_credit" else "settle_advance" }, label = { Text("Apply / refund balance") }) }
         if (rows.isEmpty()) item { Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(featureIcon(vm.page), null, Modifier.size(52.dp), tint = ApexGreen)
@@ -109,11 +128,12 @@ import java.math.BigDecimal
 }
 
 @Composable fun StatusPill(status: String) {
-    val color = when (status) { "Unpaid" -> Color(0xFFAC650D); "Part settled" -> Color(0xFF866149); "Draft" -> Color(0xFF796C63); "Cancelled" -> Color(0xFFB3261E); else -> Color(0xFF24745A) }
+    val color = when (status) { "Unpaid" -> Color(0xFFA66418); "Part settled" -> Color(0xFF1F5FBF); "Draft" -> Color(0xFF5B6B85); "Cancelled" -> Color(0xFFB3261E); else -> Color(0xFF1E7A4F) }
     Surface(color = color.copy(alpha = .09f), shape = RoundedCornerShape(6.dp)) { Text(status, Modifier.padding(horizontal = 7.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.SemiBold) }
 }
 
-@Composable fun RecordCard(vm: AppModel, row: JSONObject, partyBalance: BigDecimal? = null) {
+@Composable fun RecordCard(vm: AppModel, row: JSONObject, partyBalance: BigDecimal? = null, maskAmounts: Boolean = false) {
+    fun shown(text: String) = com.apexbooks.accounting.data.AmountPrivacy.text(maskAmounts, text)
     val kind = row.s("kind"); val master = kind in setOf("party", "item")
     Card(onClick = { when { kind == "party" -> vm.statement = row; kind == "item" && vm.canWrite -> vm.edit(row); else -> vm.detail = row } }, shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -122,16 +142,17 @@ import java.math.BigDecimal
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(row.s("name"), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
                     Text(if (master) row.o("data").s(if (kind == "party") "phone" else "hsn").ifBlank { if (kind == "party") "View transactions & balances" else "View item details" } else row.s("number") + " · " + row.s("date"), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (kind == "item") InventoryText.summary(row, vm.inventorySetup).forEach { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                if (!master || kind == "item") Text(money(if (kind == "item") row.o("data").s("sale_rate") else row.s("amount")), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                if (!master || kind == "item") Text(shown(money(if (kind == "item") row.o("data").s("sale_rate") else row.s("amount"))), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 else if (partyBalance != null) {
-                    Text(money(partyBalance.abs()), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (partyBalance.signum() > 0) Color(0xFF24745A) else if (partyBalance.signum() < 0) Color(0xFFB3261E) else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(shown(money(partyBalance.abs())), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (partyBalance.signum() > 0) Color(0xFF24745A) else if (partyBalance.signum() < 0) Color(0xFFB3261E) else MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if (partyBalance.signum() > 0) "You'll get" else if (partyBalance.signum() < 0) "You'll pay" else "Settled", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 else Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (partyBalance == null) StatusPill(registerStatus(row))
-                if (!master && row.has("outstanding") && !row.isNull("outstanding") && row.decimal("outstanding").signum() > 0) Text("Due ${money(row.s("outstanding"))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!master && row.has("outstanding") && !row.isNull("outstanding") && row.decimal("outstanding").signum() > 0) Text("Due ${shown(money(row.s("outstanding")))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

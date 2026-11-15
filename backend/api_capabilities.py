@@ -1,10 +1,11 @@
 """Public implementation metadata only; never exposes company or financial data."""
-BASE_FEATURES=('master_create_idempotency', 'bank_import_receipts', 'master_import_receipts', 'low_stock_reorder','party_price_history','party_payment_terms','master_lifecycle','party_shipping_address','party_credit_limits','recurring_drafts','document_cancellation','payment_at_entry','financial_statements','party_balances','day_book','thermal_receipts')
+BASE_FEATURES=('master_create_idempotency', 'bank_import_receipts', 'master_import_receipts', 'low_stock_reorder','party_price_history','party_payment_terms','master_lifecycle','party_shipping_address','party_credit_limits','recurring_drafts','document_cancellation','payment_at_entry','financial_statements','party_balances','day_book','thermal_receipts','pos_split_tender','pos_require_available_stock','pos_atomic_returns')
 
 def install(app,m):
     @app.get('/api/capabilities')
     def capabilities():
         features=list(BASE_FEATURES)
+        features.extend(('stock_counts', 'stock_movement_history', 'pos_register_sessions', 'purchase_order_receiving', 'pos_stock_summary', 'password_reveal', 'inventory_setup'))
         if hasattr(m.Company,'book_label'):features.append('company_book_labels')
         limits={}
         if getattr(app.state,'document_attachments_ready',False) and getattr(app.state,'chunked_backups_ready',False):

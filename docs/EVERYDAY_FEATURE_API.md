@@ -24,6 +24,65 @@ order. At exact threshold it is zero: the user must enter a positive quantity.
 dated stock movements, not cached master quantities. Review a purchase order
 before saving; metadata edits and the report do not change journals/valuation.
 
+## Physical stock counts and movement history
+
+`GET /stock/counts/{item_id}` reads the on-hand quantity for a tracked goods
+item. It returns `{item_id,date,on_hand,stock_snapshot}` using the business date.
+`POST /stock/counts` requires write access and an `Idempotency-Key`. Send
+`item_id`, `date`, and `stock_snapshot` from that read with a nonnegative
+`counted_quantity` and a reason. Enter a reviewed `unit_cost` for stock found.
+Stock losses use moving-average cost. A matching count completes the review in
+the web form without posting a discrepancy.
+
+The company posting lock protects the snapshot check and the adjustment.
+Moving stock while the count is open rejects the stale count and requires a
+fresh check. A posted count produces the existing stock-adjustment record,
+journal and movement, with before and counted quantities retained together on
+the record and in backups.
+
+A count that reduces fully valued stock with zero book value records only the
+quantity movement. Its response carries `stock_posted: true`, `posted: false`,
+and `data.quantity_only: true`. Restore checks the quantity and zero value
+against the earlier stock movements.
+
+`GET /reports/stock/{item_id}/movements?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`
+returns recent-first stock movements, including the signed quantity and cost
+change and its source record ID, kind and number. Each page contains up to
+50 rows by default. If the response has `next`, send its `date` and `id` as
+`before_date` and `before_id` for the next page.
+
+`GET /pos/stock` returns the current business `date` and a `rows` array of
+`{item_id,closing_quantity}` for tracked items, including zero balances.
+The endpoint aggregates quantity through that date and excludes future
+movements. Use the stock report for valuation and historical periods.
+
+## Receive purchase orders
+
+`GET /purchase-orders/{order_id}/receiving` returns the saved order version,
+ordered, received and remaining quantities by line index, and linked supplier
+bills. Each bill records the quantity on that delivery. The order remains
+available while quantities remain.
+
+Send `{source_version,date,number?,due_date?,notes?,lines}` to
+`POST /purchase-orders/{order_id}/receipts/preview` to calculate the bill.
+Each selected line takes its original `line_index`, positive `quantity`,
+and optional reviewed `rate`, `gst_rate`, `tax_treatment`, `itc_treatment`,
+`price_includes_tax`, or `discount_amount`. Amounts default to the order.
+Fixed order discounts are apportioned by quantity unless the supplier bill
+supplies an explicit line discount.
+
+Send the reviewed amount as `expected_total` on
+`POST /purchase-orders/{order_id}/receipts` with an `Idempotency-Key`.
+Posting creates the purchase bill, supplier payable and associated stock
+movements together. A stale version, quantity, total, or bill reference
+returns a conflict with the `PO_RECEIPT_REVIEW_REQUIRED` error header.
+
+Receiving locks the original order lines. Cancelling a bill through the normal
+posted-document workflow frees its received quantity once its journal and stock
+effects are reversed. Supplier returns are separate documents that change
+current stock and supplier credit. Original receiving quantities and cancelled
+bills remain part of the order history.
+
 ## Party terms
 
 Party `data.payment_terms_days`: integer or null, 0–3650. Null means no default;

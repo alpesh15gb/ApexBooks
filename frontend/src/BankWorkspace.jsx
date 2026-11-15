@@ -355,13 +355,14 @@ export default function BankWorkspace({ companyId, records, role, onSaved, recei
             "supplier_refund", "advance_refund",
           ].includes(record.kind) &&
           (record.kind === "bank_transfer" ||
-            record.data?.payment_account === "bank") &&
+            record.data?.payment_account === "bank" ||
+            (record.kind === "pos" && record.data?.payment_account === "split")) &&
           ((record.data?.bank_account_id || "default") === bankId || record.kind==="bank_transfer" && record.data?.direction==="bank_to_bank" && (record.data?.to_bank_account_id||"default")===bankId) &&
           !allLines.some((line) => line.matched_record_id === record.id),
       )
       .map((record) => ({
         ...record,
-        available: Number(record.amount) - (used.get(record.id) || 0),
+        available: Number(record.data?.payment_account === "split" ? record.data?.bank_amount : record.amount) - (used.get(record.id) || 0),
       }))
       .filter((record) => record.available > 0);
   }, [records, allLines, bankId, asOf]);

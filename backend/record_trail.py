@@ -27,7 +27,8 @@ def document_trail(m, session, company_id, source):
     fields = {'source_document_id': ('Created from', 'Converted document'),
               'applied_to': ('Original / applied document', 'Linked document'),
               'credit_note_id': ('Credit source', 'Credit settlement'),
-              'advance_id': ('Advance source', 'Advance settlement')}
+              'advance_id': ('Advance source', 'Advance settlement'),
+              'purchase_order_id': ('Purchase order', 'Receiving bill')}
     forward = {key: source.data.get(key) for key in fields
                if isinstance(source.data.get(key), str) and source.data.get(key)}
     allocated = {}

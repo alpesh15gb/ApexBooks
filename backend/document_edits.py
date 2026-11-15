@@ -18,6 +18,8 @@ def install(app,m):
         record=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==record_id))
         allowed=m.POSTED_KINDS
         if not record or record.kind not in allowed:raise HTTPException(404,'Editable posted document not found')
+        from pos_register import require_unclosed
+        require_unclosed(m, record, session)
         if body.kind!=record.kind:raise HTTPException(422,'Document type cannot change')
         posting=session.scalar(select(m.RecordPosting).where(m.RecordPosting.company_id==company_id,m.RecordPosting.record_id==record.id))
         if not posting:raise HTTPException(409,'This document was cancelled and cannot be edited' if record.data.get('cancelled') else 'This legacy entry needs posting before financial amendment')
@@ -30,6 +32,8 @@ def install(app,m):
         metadata={'party_id','party_gstin','party_address','party_phone','shipping_address','due_date','notes','terms','category'}
         if record.kind=='pos':metadata.add('tender_amount')
         inputs=metadata|{'lines','place_of_supply','supplier_state','document_discount_percent','round_total','return_stock','payment_account','bank_account_id','direction','to_bank_account_id','applied_to','allocations','is_advance','advance_supply','advance_gst_rate','tender_amount'}
+        if record.kind == 'pos':
+            inputs.add('bank_amount')
         submitted={k:v for k,v in body.data.items() if k in inputs}
         data={**record.data,**submitted}
         m.validate_active_references(company_id,record.kind,body.name,data,session,record)
@@ -38,7 +42,7 @@ def install(app,m):
         purchase=record.kind in {'purchase_bill','debit_note','expense'}
         fields=('item_id','quantity','rate','gst_rate','discount_percent','discount_amount','tax_treatment','price_includes_tax')+ (('itc_treatment',) if purchase and (profile.mode if profile else 'regular')=='regular' else ())
         if record.kind == 'debit_note': fields += ('source_line_id', 'source_document_id')
-        numeric={'quantity','rate','gst_rate','discount_percent','discount_amount','document_discount_percent','advance_gst_rate'}
+        numeric={'quantity','rate','gst_rate','discount_percent','discount_amount','document_discount_percent','advance_gst_rate','bank_amount'}
         def normalize(key,value):
             if key in {'bank_account_id','to_bank_account_id'}:return str(value or 'default')
             if key=='payment_account':return str(value or 'cash')
@@ -58,6 +62,8 @@ def install(app,m):
             if record.kind in {'payment_in','payment_out','pos','expense'}:
                 roots+=['payment_account']
                 if data.get('payment_account','cash')=='bank':roots+=['bank_account_id']
+                if record.kind == 'pos' and data.get('payment_account') == 'split':
+                    roots += ['bank_account_id', 'bank_amount']
             if record.kind=='bank_transfer':
                 roots+=['direction','bank_account_id']
                 if data.get('direction')=='bank_to_bank':roots+=['to_bank_account_id']
@@ -95,6 +101,13 @@ def install(app,m):
         amount_entered = record.kind not in m.DOCUMENTS or (record.kind == 'expense' and not data.get('lines'))
         intent=intent or (amount_entered and m.money(body.amount)!=record.amount)
         from return_dependencies import settled_note, dependent_return
+        if intent and record.kind == 'credit_note' and record.data.get('pos_return'):
+            raise HTTPException(409, 'A register return retains the original sale amounts. Use the return correction workflow.')
+        if record.kind == 'purchase_bill' and record.data.get('purchase_order_id'):
+            descriptions_changed = any(line.get('description', old['description']) != old['description']
+                for old, line in zip(record.data.get('lines', []), data.get('lines', [])))
+            if intent or descriptions_changed or data.get('party_id') != record.data.get('party_id'):
+                raise HTTPException(409, 'This bill records a purchase order receipt. Cancel and receive again to correct the delivery')
         if (intent or data.get('party_id') != record.data.get('party_id')) and settled_note(m, company_id, record, session):
             raise HTTPException(409, 'This return note has credit applications or refunds. Its date, party and financial details cannot change; notes and other nonfinancial details remain editable.')
         if (intent or data.get('party_id') != record.data.get('party_id')) and dependent_return(m, company_id, record, session) is not None:
@@ -177,6 +190,11 @@ def install(app,m):
             for model in (m.PaymentAllocation,m.PaymentSplitAllocation):session.execute(delete(model).where(model.company_id==company_id,model.payment_id==record.id))
             session.delete(posting);kind=record.kind;record.kind='_revision_old';session.flush()
             payload={**record.data,**submitted};payload.pop('source_document_id',None);payload.pop('version',None)
+            if kind == 'pos' and 'payment_account' in submitted:
+                if payload['payment_account'] == 'cash' and 'bank_account_id' not in submitted:
+                    payload.pop('bank_account_id', None)
+                if payload['payment_account'] != record.data.get('payment_account', 'cash') and 'tender_amount' not in submitted:
+                    payload.pop('tender_amount', None)
             # create_record performs the same validation and posting used by new forms.
             # Its commit is held until the entire revision and audit are ready.
             original_commit=session.commit

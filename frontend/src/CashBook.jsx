@@ -36,7 +36,7 @@ export default function CashBook({companyId, records, bankAccount}) {
     } catch (err) {setError(err.message);}
   }
   return <>
-    <div className="summary-grid bank-summary"><div className="summary-card"><div className="summary-top">CASH BALANCE</div><FinancialFigure>{data ? rupees(data.closing.cash) : '—'}</FinancialFigure><small>Through {ledgerDate(to)}</small></div><div className="summary-card"><div className="summary-top">{bankAccount?.name || 'Bank clearing'} BALANCE</div><FinancialFigure>{data ? rupees(data.closing.bank) : '—'}</FinancialFigure><small>Through {ledgerDate(to)}</small></div></div>
+    <div className="summary-grid bank-summary"><div className="summary-card"><div className="summary-top">CASH BALANCE</div><FinancialFigure>{data ? rupees(data.closing.cash) : '—'}</FinancialFigure><small>Through {ledgerDate(to)}</small></div><div className="summary-card"><div className="summary-top">{(bankAccount?.name || 'Bank clearing').toUpperCase()} BALANCE</div><FinancialFigure>{data ? rupees(data.closing.bank) : '—'}</FinancialFigure><small>Through {ledgerDate(to)}</small></div></div>
     <NegativeCashNotice data={data} through={to} />
     {error && <div className="error banner">{error}</div>}
     <section className="panel register cash-book"><div className="panel-header"><div><h2>Cash and bank book</h2><p>Posted ledger movements for cash and the selected bank.</p></div><div className="heading-actions"><button className="button secondary" disabled={!data} onClick={() => download('xlsx')}>XLSX</button><button className="button secondary" disabled={!data} onClick={() => download('pdf')}>PDF</button></div></div>

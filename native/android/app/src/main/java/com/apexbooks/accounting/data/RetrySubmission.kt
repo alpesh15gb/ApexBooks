@@ -20,8 +20,14 @@ class RetrySubmission {
         return body(JSONObject().put("record", record()).put("payment", paid ?: JSONObject.NULL))
     }
     fun succeeded() { pending = null }
-    fun failed(error: Exception) {
-        // A timeout, server error, or in-progress conflict may follow a committed write.
-        if (error is ApiFailure && error.status in 400..499 && error.status !in setOf(408, 409)) pending = null
+    /**
+     * [definitiveConflict] is true only for routes whose server replays committed idempotency keys
+     * before validating, so a 409 means nothing was written and the same command cannot succeed unchanged.
+     * Generic financial routes keep 409 unresolved.
+     */
+    fun failed(error: Exception, definitiveConflict: Boolean = false) {
+        // A timeout or server error may follow a committed write.
+        if (error is ApiFailure && error.status in 400..499 && error.status != 408 &&
+            (error.status != 409 || definitiveConflict)) pending = null
     }
 }

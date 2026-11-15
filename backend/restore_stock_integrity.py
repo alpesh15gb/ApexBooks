@@ -1,6 +1,66 @@
 """Restore-only checks of source-linked inventory evidence; never repairs books."""
 from collections import defaultdict
+from datetime import datetime, timezone
 from decimal import Decimal
+
+from cash_book_order import timestamp
+
+
+def validate_quantity_only_counts(groups, indexes, posted, number):
+    records = indexes['records']
+    counts = {}
+    for row in groups['records']:
+        data = row['data']
+        if 'quantity_only' not in data:
+            continue
+        captured = data.get('stock_count')
+        item_id = data.get('item_id')
+        if (data['quantity_only'] is not True or row['kind'] != 'stock_adjustment'
+                or row['id'] in posted or data.get('cancelled') or data.get('source_zero_valuation')
+                or data.get('direction') != 'decrease' or data.get('unit_cost') is not None
+                or number(row['amount']) != 0 or number(data.get('cost_value')) != 0
+                or not isinstance(data.get('reason'), str) or not 0 < len(data['reason'].strip()) <= 500
+                or not isinstance(item_id, str) or not timestamp(data.get('created_at'))
+                or not isinstance(captured, dict) or set(captured) != {'on_hand_before', 'counted_quantity'}):
+            raise ValueError('Invalid quantity-only stock count')
+        before, counted = number(captured['on_hand_before'], 3), number(captured['counted_quantity'], 3)
+        if before <= counted or before - counted != number(data.get('quantity'), 3):
+            raise ValueError('Invalid quantity-only count difference')
+        counts[row['id']] = (item_id, before, counted)
+    if not counts:
+        return
+
+    history = defaultdict(list)
+    item_ids = {value[0] for value in counts.values()}
+    for movement in groups['stock_movements']:
+        if movement['item_id'] in item_ids:
+            history[movement['item_id']].append(movement)
+    minimum = datetime.min.replace(tzinfo=timezone.utc)
+    confirmed = set()
+    for item_id, rows in history.items():
+        # Older adjustments without timestamps predate this workflow. New
+        # movements that could share a count's business date retain posting time.
+        rows.sort(key=lambda row: (row['date'], timestamp(records[row['source_record_id']]['data'].get('created_at')) or minimum,
+                                    row['source_record_id'], row['line_index']))
+        on_hand = value = Decimal('0')
+        fully_valued = True
+        for movement in rows:
+            source_id = movement['source_record_id']
+            qty = number(movement['quantity'], 3, signed=True)
+            cost = number(movement['cost_value'], signed=True) if movement.get('cost_value') is not None else None
+            if source_id in counts:
+                expected_item, before, counted = counts[source_id]
+                if (source_id in confirmed or expected_item != item_id or movement['line_index'] != 0
+                        or not fully_valued or on_hand != before or value != 0 or cost != 0 or qty != counted - before):
+                    raise ValueError('Quantity-only count differs from its zero-value stock history')
+                confirmed.add(source_id)
+            on_hand += qty
+            if cost is None:
+                fully_valued = False
+            else:
+                value += cost
+    if set(counts) != confirmed:
+        raise ValueError('Quantity-only count must retain its stock movement')
 
 
 def validate_stock(groups, indexes, posted, number):
@@ -26,6 +86,14 @@ def validate_stock(groups, indexes, posted, number):
                 if kind=='stock_adjustment':
                     if data.get('direction') not in {'increase','decrease'}:raise ValueError('Invalid stock adjustment direction')
                     sign=-1 if data['direction']=='decrease' else 1
+                    if 'stock_count' in data:
+                        count=data['stock_count']
+                        if not isinstance(count,dict) or set(count)!={'on_hand_before','counted_quantity'}:
+                            raise ValueError('Invalid physical stock count')
+                        before=number(count['on_hand_before'],3)
+                        counted=number(count['counted_quantity'],3)
+                        if counted-before!=sign*quantity:
+                            raise ValueError('Physical stock count differs from its adjustment quantity')
             else:
                 sign=-1 if quantity<0 else 1
             lines=[{'item_id':data.get('item_id'),'quantity':str(abs(quantity)),'inventory_cost':source['amount']}]

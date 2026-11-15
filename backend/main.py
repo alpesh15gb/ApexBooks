@@ -32,6 +32,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from pwdlib import PasswordHash
+from inventory_setup import EXTRA_KEYS, FitmentIn, clean_item_extras
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -462,6 +463,12 @@ class MasterRow(BaseModel):
     credit_limit: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2, allow_inf_nan=False)
     is_active: bool = Field(default=True, strict=True)
     shipping_address: str = Field(default='', max_length=500)
+    # Optional item details. Older clients omit them and their existing values are kept.
+    location_ids: list[str] = Field(default_factory=list, max_length=5)
+    vehicle_fitment: list[FitmentIn] = Field(default_factory=list, max_length=60)
+    oem_number: str = Field(default='', max_length=40)
+    part_brand: str = Field(default='', max_length=40)
+    part_grade: str = Field(default='', max_length=12)
 
 def validate_master_defaults(master, kind, *, previous=None):
     if kind == 'item' and master.track_stock and master.item_type == 'services' and not (previous and previous.get('track_stock') and previous.get('item_type') == 'services'):
@@ -510,6 +517,14 @@ class StockAdjustmentInput(BaseModel):
     date: DateType
     direction: str
     quantity: Decimal = Field(gt=0, max_digits=15, decimal_places=3, allow_inf_nan=False)
+    unit_cost: Decimal | None = Field(default=None, gt=0, max_digits=15, decimal_places=2, allow_inf_nan=False)
+    reason: str = Field(min_length=1, max_length=500)
+
+class StockCountInput(BaseModel):
+    item_id: str
+    date: DateType
+    counted_quantity: Decimal = Field(ge=0, max_digits=15, decimal_places=3, allow_inf_nan=False)
+    stock_snapshot: str = Field(pattern=r'^[0-9a-f]{64}$')
     unit_cost: Decimal | None = Field(default=None, gt=0, max_digits=15, decimal_places=2, allow_inf_nan=False)
     reason: str = Field(min_length=1, max_length=500)
 
@@ -584,6 +599,17 @@ def payment_key(data):
     if data.get('payment_account', 'cash') == 'cash': return 'cash'
     bank_id = str(data.get('bank_account_id') or 'default')
     return 'bank' if bank_id == 'default' else 'bank:' + bank_id
+
+
+def validate_pos_payment(company_id, data, amount, session):
+    from pos_validation import validate_tender
+    data = validate_tender(data, amount)
+    bank_id = data.get('bank_account_id', 'default')
+    if data.get('payment_account', 'cash') in ('bank', 'split'):
+        bank_account_for(company_id, bank_id, session)
+    elif bank_id not in (None, '', 'default'):
+        raise HTTPException(422, 'Bank account can only be selected for bank payments')
+    return data
 def next_document_number(company_id, kind, issued, session):
     start = financial_year_start(issued)
     series = session.scalar(select(NumberSeries).where(NumberSeries.company_id == company_id, NumberSeries.kind == kind, NumberSeries.financial_year == start))
@@ -591,8 +617,9 @@ def next_document_number(company_id, kind, issued, session):
         series = NumberSeries(company_id=company_id, kind=kind, financial_year=start, prefix=DEFAULT_PREFIXES[kind], next_number=1)
         session.add(series); session.flush()
     year_label = f'{str(start)[-2:]}-{str(start + 1)[-2:]}'
+    sequence_limit = 10 ** (9 - len(series.prefix)) - 1 if kind in ('pos', 'credit_note') else 9999
     while True:
-        if series.next_number > 9999: raise HTTPException(409, 'Document series is full for this year')
+        if series.next_number > sequence_limit: raise HTTPException(409, 'Document series is full for this year')
         number = f'{series.prefix}/{year_label}/{series.next_number:04d}'
         series.next_number += 1
         if len(number) > 16: raise HTTPException(422, 'Generated document number exceeds 16 characters')
@@ -630,7 +657,14 @@ def posting_lines(kind, amount, data, tax_mode):
     if kind in {'sales_invoice', 'pos', 'credit_note'}:
         reverse = kind == 'credit_note'
         credit_balance = Decimal(str(data.get('unallocated_credit', 0))) if reverse else Decimal('0')
-        add(payment_key(data) if kind == 'pos' else 'receivable', credit=amount-credit_balance if reverse else Decimal('0'), debit=Decimal('0') if reverse else amount)
+        if kind == 'pos':
+            if data.get('payment_account') == 'split':
+                add('cash', debit=Decimal(data['cash_amount']))
+                add(payment_key(data), debit=Decimal(data['bank_amount']))
+            else:
+                add(payment_key(data), debit=amount)
+        else:
+            add('receivable', credit=amount-credit_balance if reverse else Decimal('0'), debit=Decimal('0') if reverse else amount)
         add('customer_credits', credit=credit_balance)
         add('sales', debit=taxable if reverse else Decimal('0'), credit=Decimal('0') if reverse else taxable)
         for tax_key in tax:
@@ -923,7 +957,11 @@ def value_stock_lines(company_id, kind, data, tax_mode, issued, target, session)
             cost = receipt_cost(qty, cost, held_qty, held_value)
             held_qty += qty; held_value += cost
         else:
-            if kind == 'debit_note' and qty > held_qty: raise HTTPException(422, f'Insufficient stock for {item.name}')
+            if (kind == 'debit_note' or kind == 'pos' and data.get('require_available_stock')) and qty > held_qty:
+                if kind == 'pos':
+                    from pos_validation import requote_required
+                    raise requote_required(f'Insufficient stock for {item.name}', status=422)
+                raise HTTPException(422, f'Insufficient stock for {item.name}')
             if hasattr(sys.modules[__name__], 'commerce_assert_available'):
                 commerce_assert_available(company_id, item_id, qty, held_qty, session)
             unit_cost = held_value / held_qty if held_qty != 0 else last_unit_costs[item_id]
@@ -1235,7 +1273,11 @@ def set_number_series(company_id: str, body: SeriesInput, user: User = Depends(c
     company = lock_company(company_id, user, session)
     if company.owner_id != user.id: raise HTTPException(403, 'Only the owner can change numbering')
     if body.kind not in NUMBERED_KINDS: raise HTTPException(422, 'Unsupported document type')
+    if len(body.prefix) > 5:
+        raise HTTPException(422, 'Use a prefix of up to 5 characters to fit the document number')
     row = session.scalar(select(NumberSeries).where(NumberSeries.company_id == company_id, NumberSeries.kind == body.kind, NumberSeries.financial_year == body.financial_year))
+    if row and body.kind in ('pos', 'credit_note') and row.next_number >= 10 ** (9 - len(body.prefix)):
+        raise HTTPException(422, 'Use a shorter prefix to fit the remaining sequence')
     if row: row.prefix = body.prefix
     else:
         row = NumberSeries(company_id=company_id, kind=body.kind, financial_year=body.financial_year, prefix=body.prefix, next_number=1)
@@ -1265,7 +1307,7 @@ def records(company_id: str, kind: str = '', compact:bool=False, offset:int=Quer
     projected = compact and session.bind.dialect.name in {'postgresql', 'sqlite'}
     q = select(Record.id, Record.kind, Record.name, Record.number, Record.date, Record.amount,
         compact_record_data(session.bind.dialect.name).label('data')) if projected else select(Record)
-    q = q.where(Record.company_id == company_id, Record.kind.not_in(['vyapar_backup_archive','document_branding','restore_marker','recurring_template']))
+    q = q.where(Record.company_id == company_id, Record.kind.not_in(['vyapar_backup_archive','document_branding','restore_marker','recurring_template','pos_register_session','pos_register_movement','inventory_setup']))
     if kind:q=q.where(Record.kind==kind)
     created_at = func.coalesce(Record.data['created_at'].as_string(), '')
     q=q.order_by(Record.date.desc(),created_at.desc(),Record.id.desc()).offset(offset)
@@ -1313,7 +1355,8 @@ def records(company_id: str, kind: str = '', compact:bool=False, offset:int=Quer
 
 def record_status(row, posted, *, applied=Decimal('0'), consumed=Decimal('0'), credit_used=Decimal('0'), converted_to=None):
     """Identical fresh lifecycle fields for compact lists and full detail clients."""
-    return {'posted': posted, 'cancelled': bool(row.data.get('cancelled')),
+    stock_status = {'stock_posted': True} if row.kind == 'stock_adjustment' and row.data.get('quantity_only') is True else {}
+    return {'posted': posted, 'cancelled': bool(row.data.get('cancelled')), **stock_status,
         'advance_remaining': str(row.amount-consumed) if row.data.get('is_advance') and posted else None,
         'credit_remaining': str(Decimal(str(row.data.get('unallocated_credit',0)))-credit_used) if row.kind in {'credit_note','debit_note'} and posted else None,
         'converted_to': converted_to or ('source-converted' if row.data.get('vyapar_converted') else None),
@@ -1322,7 +1365,7 @@ def record_status(row, posted, *, applied=Decimal('0'), consumed=Decimal('0'), c
 @app.get('/api/companies/{company_id}/records/{record_id}')
 def get_record(company_id:str,record_id:str,user:User=Depends(current_user),session:Session=Depends(db)):
     company_for(company_id,user,session)
-    row=session.scalar(select(Record).where(Record.company_id==company_id,Record.id==record_id,Record.kind.not_in(['vyapar_backup_archive','restore_marker','document_branding','recurring_template'])))
+    row=session.scalar(select(Record).where(Record.company_id==company_id,Record.id==record_id,Record.kind.not_in(['vyapar_backup_archive','restore_marker','document_branding','recurring_template','pos_register_session','pos_register_movement','inventory_setup'])))
     if not row:raise HTTPException(404,'Record not found')
     allocations=[]
     for model in (PaymentAllocation,PaymentSplitAllocation):allocations += [{'document_id':r.document_id,'amount':str(r.amount)} for r in session.scalars(select(model).where(model.company_id==company_id,model.payment_id==row.id))]
@@ -1339,6 +1382,9 @@ def get_record(company_id:str,record_id:str,user:User=Depends(current_user),sess
         from purchase_returns import remaining_source_lines
         capacity = remaining_source_lines(sys.modules[__name__], row, session)
     serialized = obj(row)
+    if row.kind == 'customer_refund':
+        from cancellation import pos_refund_cancellable
+        serialized['pos_refund_cancellable'] = posted and pos_refund_cancellable(sys.modules[__name__], row, session)
     if capacity is not None:
         serialized['return_capacity_lines'] = capacity
         if row.kind == 'purchase_bill': serialized['data'] = {**serialized['data'], 'lines': capacity}
@@ -1562,6 +1608,8 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
     if not master: raise HTTPException(404, 'Party or item not found')
     before = dict(master.data or {})
     validate_master_defaults(body, master.kind, previous=before)
+    sent_extras = {k: v for k, v in body.model_dump(mode='json').items() if k in EXTRA_KEYS and k in body.model_fields_set}
+    extras = clean_item_extras(sys.modules[__name__], company_id, master.kind, sent_extras, before, session)
     # New metadata omitted by an older client is retained, not implicitly cleared.
     # Validate that retained threshold against the proposed classification too.
     if master.kind == 'item' and 'low_stock_threshold' not in body.model_fields_set and (master.data or {}).get('low_stock_threshold') is not None and (not body.track_stock or body.item_type != 'goods'):
@@ -1582,6 +1630,7 @@ def update_master(company_id: str, master_id: str, body: MasterRow,
             raise HTTPException(422, 'Item classification cannot change after stock history; create a separate item instead')
         values = body.model_dump(mode='json')
         master.data = {**(master.data or {}), **{key: values[key] for key in ('hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold') if key not in {'image_data_url','image_thumbnail','low_stock_threshold'} or key in body.model_fields_set}}
+    if extras: master.data = {**master.data, **extras}
     for field in ('is_active','shipping_address'):
         if field in body.model_fields_set and (field != 'shipping_address' or master.kind == 'party'):
             master.data={**master.data,field:getattr(body,field)}
@@ -1662,9 +1711,11 @@ def client_record_data(data):
                 'recurring_template_id', 'recurring_occurrence_date', 'unallocated_credit',
                 'outstanding', 'advance_remaining', 'credit_remaining', 'posted',
                 'company_snapshot', 'document_branding', 'advance_tax', 'advance_taxable',
-                'advance_tax_event', 'advance_tax_released', 'payment_kind', 'advance_id', 'credit_id'}
+                'advance_tax_event', 'advance_tax_released', 'payment_kind', 'advance_id', 'credit_id',
+                'pos_return', 'pos_register_session_id', 'quantity_only'}
+    from purchase_receiving import OWNED_FIELDS
     return {key: value for key, value in data.items()
-            if key not in reserved and not key.startswith(('vyapar_', 'commerce_'))}
+            if key not in reserved and key not in OWNED_FIELDS and not key.startswith(('vyapar_', 'commerce_'))}
 
 
 def validate_outward_document_number(kind, tax_mode, number):
@@ -1676,7 +1727,8 @@ def validate_outward_document_number(kind, tax_mode, number):
             raise HTTPException(422, 'GST document number must contain 1–16 letters, digits, / or - only')
 
 
-def save_record(company_id, body, request, user, session, *, commit=True, historical_record=None, idempotency_request_hash=None):
+def save_record(company_id, body, request, user, session, *, commit=True, historical_record=None, idempotency_request_hash=None,
+                calculated_pos_return=None):
     """Post inside the caller transaction when processing a durable integration event."""
     company = lock_company(company_id, user, session)
     if body.kind not in KINDS: raise HTTPException(422, 'Unsupported record type')
@@ -1722,6 +1774,8 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
         except ValidationError: raise HTTPException(422, 'Invalid party or item details')
         validate_item_image(master)
         validate_master_defaults(master, body.kind)
+        sent_extras = {k: v for k, v in master.model_dump(mode='json').items() if k in EXTRA_KEYS and k in master.model_fields_set}
+        extras = clean_item_extras(sys.modules[__name__], company_id, body.kind, sent_extras, None, session)
         if not master.name.strip(): raise HTTPException(422, 'Name is required')
         if master_name_matches(company_id, body.kind, master.name, session):
             raise HTTPException(409, 'A party or item with this name already exists')
@@ -1732,12 +1786,17 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             data = {'party_type': master.party_type, 'gstin': master.gstin.strip().upper(), 'address': master.address, 'phone': master.phone.strip(), 'email': master.email.strip(), 'payment_terms_days': master.payment_terms_days, 'credit_limit':str(master.credit_limit) if master.credit_limit is not None else None, 'is_active':master.is_active, 'shipping_address':master.shipping_address}
         else:
             data = {key: value for key, value in master.model_dump(mode='json').items() if key in {'hsn', 'unit', 'sale_rate', 'purchase_rate', 'gst_rate', 'track_stock','barcode','item_type','tax_treatment','image_data_url','image_thumbnail','low_stock_threshold','is_active'}}
+            data = {**data, **extras}
         body.name = master.name.strip()
     profile = session.get(CompanyTaxProfile, company_id)
     tax_mode = profile.mode if profile else 'regular'
     if tax_mode in {'regular','composition'} and body.kind in {'sales_invoice','pos','credit_note'} and not company.gstin:raise HTTPException(422,'Add the company GSTIN in Settings before issuing registered documents')
     if body.kind in DOCUMENTS and (body.kind != 'expense' or data.get('lines')):
-        data, amount = calculate(data, company, tax_mode, body.kind, session)
+        if calculated_pos_return is not None:
+            calculated_fields, amount = calculated_pos_return
+            data.update(calculated_fields)
+        else:
+            data, amount = calculate(data, company, tax_mode, body.kind, session)
         validate_outward_invoice_fields(body.kind, tax_mode, data, body.date)
         data = {**data, 'company_snapshot': company_obj(company, session), 'document_branding': branding_for(company_id, session)}
     if body.kind == 'expense' and not data.get('lines'):
@@ -1747,18 +1806,26 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             'pending_input_cgst', 'pending_input_sgst', 'pending_input_igst',
             'input_tax_ineligible', 'round_off')}, 'lines': [], 'taxable': str(amount)}
     if body.kind == 'pos':
-        from pos_validation import validate_tender
-        data = validate_tender(data, amount)
+        from pos_validation import payment_amount, requote_required, validate_checkout_date
+        if 'expected_total' in data:
+            expected = payment_amount(data.pop('expected_total'), 'Enter a valid checkout total')
+            if expected != amount:
+                raise requote_required('Checkout total changed. Review the updated total before charging.')
+        data = validate_pos_payment(company_id, data, amount, session)
+        validate_checkout_date(data, body.date)
+        from pos_register import tag_posting
+        tag_posting(sys.modules[__name__], company_id, data, session, historical_record)
     if not amount.is_finite() or amount < 0: raise HTTPException(422, 'Amount must be finite and nonnegative')
     if body.kind in POSTED_KINDS:
         require_open_period(company_id, body.date, session)
         if not body.name.strip(): raise HTTPException(422, 'Party or description is required')
         if amount <= 0: raise HTTPException(422, 'Posted transaction amount must be greater than zero')
-        if data.get('payment_account', 'cash') not in {'cash', 'bank'}: raise HTTPException(422, 'Payment account must be cash or bank')
-        if body.kind == 'bank_transfer' or data.get('payment_account') == 'bank':
-            bank_account_for(company_id, data.get('bank_account_id', 'default'), session)
-        elif data.get('bank_account_id') not in (None, '', 'default'):
-            raise HTTPException(422, 'Bank account can only be selected for bank payments')
+        if body.kind != 'pos':
+            if data.get('payment_account', 'cash') not in ('cash', 'bank'): raise HTTPException(422, 'Payment account must be cash or bank')
+            if body.kind == 'bank_transfer' or data.get('payment_account') == 'bank':
+                bank_account_for(company_id, data.get('bank_account_id', 'default'), session)
+            elif data.get('bank_account_id') not in (None, '', 'default'):
+                raise HTTPException(422, 'Bank account can only be selected for bank payments')
     number = body.number.strip()
     if body.kind in NUMBERED_KINDS:
         if not number: number = next_document_number(company_id, body.kind, body.date, session)
@@ -1776,6 +1843,8 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
         if conversion_source.name.strip().casefold() != body.name.strip().casefold(): raise HTTPException(422, 'Conversion party must match the source document')
         if body.date < conversion_source.date: raise HTTPException(422, 'Conversion date cannot precede its source document')
         if conversion_source.data.get('vyapar_converted'): raise HTTPException(409, 'This source document was already converted in Vyapar')
+        if conversion_source.kind == 'purchase_order' and conversion_source.data.get('purchase_order_receiving_started'):
+            raise HTTPException(409, 'This purchase order has receipts. Post deliveries through the receiving workflow')
         if session.scalar(select(DocumentConversion.id).where(DocumentConversion.company_id == company_id, DocumentConversion.source_record_id == source_id)):
             raise HTTPException(409, 'Source document has already been converted')
     target = None
@@ -1798,6 +1867,9 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
         if body.kind == 'debit_note':
             from purchase_returns import validate_capacity
             validate_capacity(sys.modules[__name__], target, data, previous_notes)
+        elif target.kind == 'pos':
+            from purchase_returns import validate_capacity
+            validate_capacity(sys.modules[__name__], target, data, previous_notes, source_label='POS sale')
         if amount + sum((note.amount for note in previous_notes), Decimal('0')) > target.amount:
             raise HTTPException(422, 'Notes exceed the original document amount')
         for tax_key in ('cgst', 'sgst', 'igst', 'supplier_tax', 'pending_input_cgst', 'pending_input_sgst', 'pending_input_igst', 'input_tax_ineligible'):
@@ -1949,24 +2021,96 @@ def post_stock_adjustment(company_id: str, body: StockAdjustmentInput, request: 
         from workflow_extensions import retry
         retry_key, request_digest, previous = retry(sys.modules[__name__], company_id, body, request, session, 'stock-adjustment')
         if previous: return previous
+    else:
+        request_digest = None
     require_open_period(company_id, body.date, session)
     if body.direction not in {'increase', 'decrease'} or not body.reason.strip():
         raise HTTPException(422, 'Choose an adjustment direction and provide a reason')
     if (body.direction == 'increase') != (body.unit_cost is not None):
         raise HTTPException(422, 'Unit cost is required only when adding stock')
+    item, movements = adjustment_stock(company_id, body.item_id, session)
+    return post_adjustment(company_id, body, item, movements, user, session, retry_key, request_digest)
+
+
+def adjustment_stock(company_id, item_id, session):
     item = session.scalar(select(Record).where(Record.company_id == company_id,
-        Record.id == body.item_id, Record.kind == 'item'))
+        Record.id == item_id, Record.kind == 'item'))
     if not item or not item.data.get('track_stock'):
         raise HTTPException(422, 'Choose a stock-tracked item in this company')
     movements = list(session.scalars(select(StockMovement).where(
         StockMovement.company_id == company_id, StockMovement.item_id == item.id
     ).order_by(StockMovement.date, StockMovement.id)))
+    return item, movements
+
+
+def count_snapshot(company_id, item, date, movements):
+    history = [(m.id, m.date.isoformat(), str(m.quantity), str(m.cost_value)) for m in movements]
+    return hashlib.sha256(json.dumps([company_id, item.id, date.isoformat(), history]).encode()).hexdigest()
+
+
+def validate_count_stock(item, date, movements):
+    if item.data.get('item_type', 'goods') != 'goods':
+        raise HTTPException(422, 'Physical stock counts require goods')
+    if movements and movements[-1].date > date:
+        raise HTTPException(409, 'A future-dated movement exists. Review it before counting this item')
+    on_hand = sum((m.quantity for m in movements), Decimal('0'))
+    if on_hand < 0:
+        raise HTTPException(409, 'Reconcile negative stock with a purchase bill or linked return before counting')
+    if on_hand > Decimal('999999999999.999'):
+        raise HTTPException(409, 'On-hand stock exceeds the supported range for a physical count')
+    if any(m.cost_value is None for m in movements):
+        raise HTTPException(409, f'{item.name} has older unvalued stock movements; migrate them before counting')
+    return on_hand
+
+
+@app.get('/api/companies/{company_id}/stock/counts/{item_id}')
+def get_stock_count(company_id: str, item_id: str, user: User = Depends(current_user), session: Session = Depends(db)):
+    company_for(company_id, user, session)
+    date = business_today()
+    item, movements = adjustment_stock(company_id, item_id, session)
+    on_hand = validate_count_stock(item, date, movements)
+    return {'item_id': item.id, 'date': date, 'on_hand': str(on_hand),
+            'stock_snapshot': count_snapshot(company_id, item, date, movements)}
+
+
+@app.post('/api/companies/{company_id}/stock/counts', status_code=201)
+def post_stock_count(company_id: str, body: StockCountInput, request: Request, user: User = Depends(current_user), session: Session = Depends(db)):
+    from workflow_extensions import retry
+
+    lock_company(company_id, user, session)
+    retry_key, request_digest, previous = retry(sys.modules[__name__], company_id, body, request, session, 'stock-count')
+    if previous:
+        if previous['data'].get('quantity_only') is True:
+            previous['stock_posted'] = True
+        return previous
+    if body.date != business_today():
+        raise HTTPException(409, 'The business date changed. Refresh on-hand stock and count again')
+    require_open_period(company_id, body.date, session)
+    item, movements = adjustment_stock(company_id, body.item_id, session)
+    if body.stock_snapshot != count_snapshot(company_id, item, body.date, movements):
+        raise HTTPException(409, 'Stock moved after this count started. Refresh on-hand stock and count again')
+    on_hand = validate_count_stock(item, body.date, movements)
+    difference = body.counted_quantity - on_hand
+    if not difference:
+        raise HTTPException(422, 'Count matches on-hand stock. No adjustment is needed')
+    if not body.reason.strip():
+        raise HTTPException(422, 'Provide a reason for the count difference')
+    if (difference > 0) != (body.unit_cost is not None):
+        raise HTTPException(422, 'Unit cost is required only when adding stock')
+    adjustment = StockAdjustmentInput(item_id=item.id, date=body.date, direction='increase' if difference > 0 else 'decrease',
+        quantity=abs(difference), unit_cost=body.unit_cost, reason=body.reason)
+    return post_adjustment(company_id, adjustment, item, movements, user, session, retry_key, request_digest,
+        count={'on_hand_before': str(on_hand), 'counted_quantity': str(body.counted_quantity)})
+
+
+def post_adjustment(company_id, body, item, movements, user, session, retry_key, request_digest, *, count=None):
     if any(m.cost_value is None for m in movements):
         raise HTTPException(409, f'{item.name} has older unvalued stock movements; migrate them before adjusting')
     if movements and body.date < movements[-1].date:
         raise HTTPException(409, 'Stock adjustments cannot be backdated before the last movement')
     held_qty = sum((m.quantity for m in movements), Decimal('0'))
     held_value = sum((m.cost_value for m in movements), Decimal('0'))
+    quantity_only = count is not None and body.direction == 'decrease' and held_value == 0
     if body.direction == 'decrease':
         if body.quantity > held_qty:
             raise HTTPException(422, f'Insufficient stock for {item.name}')
@@ -1982,30 +2126,41 @@ def post_stock_adjustment(company_id: str, body: StockAdjustmentInput, request: 
         amount = money(body.quantity * body.unit_cost)
         quantity, cost_value = body.quantity, amount
         debit_key, credit_key = 'inventory', 'inventory_gain'
-    if amount <= 0 or amount > Decimal('9999999999999.99'):
+    if (amount <= 0 and not quantity_only) or amount > Decimal('9999999999999.99'):
         raise HTTPException(422, 'Adjustment value is outside the supported range')
+    data = {'item_id': item.id, 'direction': body.direction,
+        'quantity': str(body.quantity), 'cost_value': str(amount),
+        'unit_cost': str(body.unit_cost) if body.unit_cost is not None else None,
+        'reason': body.reason.strip(), 'unit': item.data.get('unit', ''),
+        'created_at': datetime.now(timezone.utc).isoformat()}
+    if count is not None:
+        data['stock_count'] = count
+    if quantity_only:
+        data['quantity_only'] = True
     record = Record(company_id=company_id, kind='stock_adjustment', name=item.name, date=body.date,
-        amount=amount, data={'item_id': item.id, 'direction': body.direction,
-            'quantity': str(body.quantity), 'cost_value': str(amount),
-            'unit_cost': str(body.unit_cost) if body.unit_cost is not None else None,
-            'reason': body.reason.strip(), 'unit': item.data.get('unit', '')})
+        amount=amount, data=data)
     session.add(record)
     try:
         session.flush()
         record.number = 'ADJ-' + record.id[:8].upper()
-        journal = Journal(company_id=company_id, date=body.date, reference='AUTO:' + record.id,
-                          memo=f'Stock {body.direction}: {item.name} — {body.reason.strip()}'[:500], created_by=user.id)
-        session.add(journal); session.flush()
-        session.add(JournalLine(company_id=company_id, journal_id=journal.id,
-            account_id=system_account(company_id, debit_key, session), debit=amount, credit=Decimal('0')))
-        session.add(JournalLine(company_id=company_id, journal_id=journal.id,
-            account_id=system_account(company_id, credit_key, session), debit=Decimal('0'), credit=amount))
-        session.add(RecordPosting(company_id=company_id, record_id=record.id, journal_id=journal.id))
+        if not quantity_only:
+            journal = Journal(company_id=company_id, date=body.date, reference='AUTO:' + record.id,
+                              memo=f'Stock {body.direction}: {item.name} — {body.reason.strip()}'[:500], created_by=user.id)
+            session.add(journal); session.flush()
+            session.add(JournalLine(company_id=company_id, journal_id=journal.id,
+                account_id=system_account(company_id, debit_key, session), debit=amount, credit=Decimal('0')))
+            session.add(JournalLine(company_id=company_id, journal_id=journal.id,
+                account_id=system_account(company_id, credit_key, session), debit=Decimal('0'), credit=amount))
+            session.add(RecordPosting(company_id=company_id, record_id=record.id, journal_id=journal.id))
         session.add(StockMovement(company_id=company_id, item_id=item.id, source_record_id=record.id,
                                   line_index=0, date=body.date, quantity=quantity, cost_value=cost_value))
-        audit(session, company_id, user, 'stock.adjustment_posted', 'item', item.id,
-              {'direction': body.direction, 'quantity': str(body.quantity),
-               'value': str(amount), 'record_id': record.id})
+        audit_data = {'direction': body.direction, 'quantity': str(body.quantity),
+            'value': str(amount), 'record_id': record.id}
+        if count is not None:
+            audit_data['stock_count'] = count
+        if quantity_only:
+            audit_data['quantity_only'] = True
+        audit(session, company_id, user, 'stock.adjustment_posted', 'item', item.id, audit_data)
         if hasattr(sys.modules[__name__], 'commerce_stock_changed'): commerce_stock_changed(company_id, session)
         if retry_key:
             session.add(IdempotencyKey(company_id=company_id, key=retry_key, request_hash=request_digest, record_id=record.id))
@@ -2013,6 +2168,8 @@ def post_stock_adjustment(company_id: str, body: StockAdjustmentInput, request: 
     except IntegrityError:
         session.rollback()
         raise HTTPException(409, 'Stock adjustment conflicts with an existing entry')
+    if quantity_only:
+        return {**obj(record), 'posted': False, 'stock_posted': True}
     return {**obj(record), 'posted': True}
 
 @app.get('/api/companies/{company_id}/accounts')
@@ -2419,6 +2576,10 @@ def export_masters(company_id: str, fmt: str, kind: str,
         headers = ['Name', 'HSN / SAC', 'Unit', 'Sale rate', 'Purchase rate', 'GST rate', 'Stock tracked','Barcode','Item type','Tax treatment']
         rows = [[r.name, r.data.get('hsn', ''), r.data.get('unit', ''), r.data.get('sale_rate', '0'),
                  r.data.get('purchase_rate', '0'), r.data.get('gst_rate', '0'), 'Yes' if r.data.get('track_stock') else 'No',r.data.get('barcode',''),r.data.get('item_type','goods'),r.data.get('tax_treatment','taxable' if Decimal(str(r.data.get('gst_rate',0))) else 'nil_rated')] for r in masters]
+    if kind == 'item':
+        from inventory_setup import export_columns
+        extra_headers, extra_cells = export_columns(sys.modules[__name__], company_id, session)
+        headers = headers + extra_headers; rows = [row + extra_cells(r) for row, r in zip(rows, masters)]
     return export_table(company.name, 'Party list' if kind == 'party' else 'Item list', headers, rows, fmt, kind + '-list')
 
 @app.get('/api/companies/{company_id}/cash-book')
@@ -2635,6 +2796,20 @@ def export_items(company_id: str, fmt: str, from_date: DateType, to_date: DateTy
     rows = [[row[key] for key in keys] for row in data['rows']]
     return export_table(company.name, f"Purchase/sales document movement {from_date} to {to_date}", ['Item', 'HSN/SAC', 'Net before period', 'Purchased net', 'Sold net', 'Net through end date', 'Purchase value', 'Sales value'], rows, fmt, 'item-activity')
 
+@app.get('/api/companies/{company_id}/pos/stock')
+def pos_stock_summary(company_id: str, user: User = Depends(current_user), session: Session = Depends(db)):
+    company_for(company_id, user, session)
+    day = business_today()
+    totals = select(StockMovement.item_id, func.sum(StockMovement.quantity).label('quantity')).where(
+        StockMovement.company_id == company_id, StockMovement.date <= day,
+    ).group_by(StockMovement.item_id).subquery()
+    query = select(Record.id, func.coalesce(totals.c.quantity, 0)).outerjoin(totals, totals.c.item_id == Record.id).where(
+        Record.company_id == company_id, Record.kind == 'item', Record.data['track_stock'].as_boolean().is_(True),
+    ).order_by(Record.id)
+    return {'date': day, 'rows': [{'item_id': item_id, 'closing_quantity': str(quantity)}
+            for item_id, quantity in session.execute(query)]}
+
+
 @app.get('/api/companies/{company_id}/reports/stock')
 def stock_report(company_id: str, from_date: DateType, to_date: DateType, user: User = Depends(current_user), session: Session = Depends(db)):
     company_for(company_id, user, session)
@@ -2663,6 +2838,36 @@ def stock_report(company_id: str, from_date: DateType, to_date: DateType, user: 
         'rows': [{**row, **{key: str(row[key]) for key in ('opening_quantity', 'introduced_quantity', 'adjustment_quantity', 'purchased_quantity', 'sold_quantity', 'closing_quantity')},
                   'closing_value': None if row['unvalued_movements'] else str(row['closing_value'])}
                  for row in sorted(values.values(), key=lambda item: item['name'].casefold())]}
+
+@app.get('/api/companies/{company_id}/reports/stock/{item_id}/movements')
+def item_stock_movements(company_id: str, item_id: str, from_date: DateType, to_date: DateType,
+        user: User = Depends(current_user), session: Session = Depends(db),
+        before_date: DateType | None = None, before_id: str | None = Query(default=None, max_length=80),
+        limit: int = Query(default=50, ge=1, le=100)):
+    company_for(company_id, user, session)
+    if from_date > to_date:
+        raise HTTPException(422, 'Start date must be before end date')
+    if (before_date is None) != (before_id is None):
+        raise HTTPException(422, 'Provide both fields for the next page of stock movements')
+    item = session.scalar(select(Record.id).where(Record.company_id == company_id,
+        Record.id == item_id, Record.kind == 'item'))
+    if item is None:
+        raise HTTPException(404, 'Item not found')
+    query = select(StockMovement, Record.kind, Record.number).join(
+        Record, Record.id == StockMovement.source_record_id).where(
+            StockMovement.company_id == company_id, StockMovement.item_id == item_id,
+            Record.company_id == company_id, StockMovement.date.between(from_date, to_date))
+    if before_date is not None:
+        query = query.where(or_(StockMovement.date < before_date,
+            (StockMovement.date == before_date) & (StockMovement.id < before_id)))
+    results = session.execute(query.order_by(StockMovement.date.desc(), StockMovement.id.desc()).limit(limit + 1)).all()
+    rows = [{'id': movement.id, 'date': movement.date, 'quantity': str(movement.quantity),
+             'cost_value': str(movement.cost_value) if movement.cost_value is not None else None,
+             'record_id': movement.source_record_id, 'kind': kind, 'number': number}
+            for movement, kind, number in results[:limit]]
+    next_page = {'date': rows[-1]['date'], 'id': rows[-1]['id']} if len(results) > limit else None
+    return {'rows': rows, 'next': next_page}
+
 
 @app.get('/api/companies/{company_id}/reports/stock.{fmt}')
 def export_stock(company_id: str, fmt: str, from_date: DateType, to_date: DateType, user: User = Depends(current_user), session: Session = Depends(db)):
@@ -2795,12 +3000,17 @@ def bank_record_amount(record,bank_id):
         if bank_id not in {source,target}:raise HTTPException(422,'Transfer belongs to different bank accounts')
         return record.amount if bank_id==target else -record.amount
     if (record.data.get('bank_account_id') or 'default')!=bank_id:raise HTTPException(422,'Bank transaction belongs to a different bank account')
+    if record.kind == 'pos' and record.data.get('payment_account') == 'split':
+        return Decimal(record.data['bank_amount'])
     positive=record.kind in {'payment_in','pos','supplier_refund'} or record.kind=='advance_refund' and record.data.get('payment_kind')=='payment_out' or record.kind=='bank_transfer' and record.data.get('direction')=='cash_to_bank'
     return record.amount if positive else -record.amount
 
 def bank_record_for_match(company_id,record_id,line,session):
     record=session.scalar(select(Record).where(Record.company_id==company_id,Record.id==record_id,Record.kind.in_(['payment_in','payment_out','expense','bank_transfer','pos','customer_refund','supplier_refund','advance_refund'])))
-    if not record or (record.kind!='bank_transfer' and record.data.get('payment_account')!='bank') or not session.scalar(select(RecordPosting.id).where(RecordPosting.company_id==company_id,RecordPosting.record_id==record_id)):raise HTTPException(422,'Choose a posted bank payment in this company')
+    if not record: raise HTTPException(422, 'Choose a posted bank payment in this company')
+    method = record.data.get('payment_account')
+    bank_payment = record.kind == 'bank_transfer' or method == 'bank' or (record.kind == 'pos' and method == 'split')
+    if not bank_payment or not session.scalar(select(RecordPosting.id).where(RecordPosting.company_id==company_id,RecordPosting.record_id==record_id)):raise HTTPException(422,'Choose a posted bank payment in this company')
     if (bank_record_amount(record,line.bank_account_id)>0)!=(line.amount>0):raise HTTPException(422,'Statement and transaction directions differ')
     return record
 
@@ -2846,7 +3056,7 @@ def add_bank_match_allocation(company_id: str, line_id: str, body: BankMatchAllo
     line_used = session.scalar(select(func.coalesce(func.sum(BankMatchAllocation.amount), 0)).where(
         BankMatchAllocation.company_id == company_id, BankMatchAllocation.statement_line_id == line.id))
     record_used = session.scalar(select(func.coalesce(func.sum(BankMatchAllocation.amount),0)).join(BankStatementLine,BankStatementLine.id==BankMatchAllocation.statement_line_id).where(BankMatchAllocation.company_id==company_id,BankMatchAllocation.record_id==record.id,BankStatementLine.bank_account_id==line.bank_account_id))
-    if body.amount > abs(line.amount) - line_used or body.amount > record.amount - record_used:
+    if body.amount > abs(line.amount) - line_used or body.amount > abs(bank_record_amount(record, line.bank_account_id)) - record_used:
         raise HTTPException(422, 'Allocation exceeds the remaining statement or bank transaction amount')
     allocation = BankMatchAllocation(company_id=company_id, statement_line_id=line.id,
                                      record_id=record.id, amount=body.amount)
@@ -3146,7 +3356,13 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     if has_gst:
         totals += [(key.upper(), data.get(key, '0.00')) for key in ('cgst', 'sgst', 'igst') if Decimal(str(data.get(key, 0))) > 0]
         if Decimal(str(data.get('supplier_tax', 0))) > 0: totals.append(('Supplier tax (unclassified)', data['supplier_tax']))
-    if record.kind == 'pos': totals.append(('Paid through', str(data.get('payment_account', 'cash')).title()))
+    if record.kind == 'pos':
+        method = data.get('payment_account', 'cash')
+        if method == 'split':
+            totals.extend([('Paid in cash', data['cash_amount']), ('Bank / UPI / card', data['bank_amount']),
+                           ('Cash tendered', data['tender_amount']), ('Change', data['change_amount'])])
+        else:
+            totals.append(('Paid through', str(method).title()))
     if Decimal(str(data.get('additional_charges', 0))): totals.append(('Additional charges', data['additional_charges']))
     if Decimal(str(data.get('round_off', 0))): totals.append(('Round off', data['round_off']))
     totals.append(('Total (INR)', record.amount))
@@ -3204,7 +3420,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
 @app.get('/api/companies/{company_id}/export.{fmt}')
 def export(company_id: str, fmt: str, kind: str = '', user: User = Depends(current_user), session: Session = Depends(db)):
     c = company_for(company_id, user, session)
-    q = select(Record).where(Record.company_id == company_id,Record.kind!='recurring_template')
+    q = select(Record).where(Record.company_id == company_id, Record.kind.not_in(('recurring_template', 'pos_register_session', 'pos_register_movement','inventory_setup')))
     if kind: q = q.where(Record.kind == kind)
     rows = list(session.scalars(q.order_by(Record.date.desc())))
     out = io.BytesIO()
@@ -3279,6 +3495,18 @@ def company_data_export_payload(company_id,user,session):
 
 from workflow_extensions import install as install_workflows
 install_workflows(app, sys.modules[__name__])
+
+from pos_register import install as install_pos_register
+install_pos_register(app, sys.modules[__name__])
+
+from pos_returns import install as install_pos_returns
+install_pos_returns(app, sys.modules[__name__])
+
+from purchase_receiving import install as install_purchase_receiving
+install_purchase_receiving(app, sys.modules[__name__])
+
+from inventory_setup import install as install_inventory_setup
+install_inventory_setup(app, sys.modules[__name__])
 
 from company_restore import install as install_company_restore
 install_company_restore(app, sys.modules[__name__])

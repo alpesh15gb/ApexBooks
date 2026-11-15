@@ -89,7 +89,7 @@ def verified_value(line, field):
         raise HTTPException(409, 'Source or earlier return lacks verified line values; review historical allocation') from None
 
 
-def validate_capacity(m, source, data, previous_notes, fields=('quantity', 'taxable', 'tax')):
+def validate_capacity(m, source, data, previous_notes, fields=('quantity', 'taxable', 'tax'), *, source_label='source purchase'):
     groups = defaultdict(list)
     for line in data.get('lines', []): groups[tuple(candidates(line, source))].append(line)
     keys = list(groups)
@@ -108,7 +108,7 @@ def validate_capacity(m, source, data, previous_notes, fields=('quantity', 'taxa
             used = sum((verified_value(line, field) for line in lines + previous), Decimal(0))
             available = sum((verified_value(source.data['lines'][i], field) for i in indexes), Decimal(0))
             if used > available:
-                raise HTTPException(422, f'Returned {field} exceeds the remaining source purchase line')
+                raise HTTPException(422, f'Returned {field} exceeds the remaining {source_label} line')
 
 
 def reconcile_tax(m, data, company_id, session, exclude_return_id=None):

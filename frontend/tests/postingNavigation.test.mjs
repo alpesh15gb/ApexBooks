@@ -44,7 +44,7 @@ test('an uncertain inline POS save survives navigation, company switch, signout 
   await act(async()=>{window.history.pushState({},'','#/item');window.dispatchEvent(new window.PopStateEvent('popstate'));});
   assert.equal(window.location.hash,'#/pos');assert.equal(document.querySelector('.pos-grid form'),originalForm);
   const unload=new window.Event('beforeunload',{cancelable:true});window.dispatchEvent(unload);assert.equal(unload.defaultPrevented,true);
-  await click('Complete sale');assert.equal(submissions.length,2);
+  await click('Retry sale');assert.equal(submissions.length,2);
   assert.equal(submissions[0].body,submissions[1].body);assert.equal(submissions[0].headers['Idempotency-Key'],submissions[1].headers['Idempotency-Key']);
   const recoveredUnload=new window.Event('beforeunload',{cancelable:true});window.dispatchEvent(recoveredUnload);assert.equal(recoveredUnload.defaultPrevented,false);
   await click('Items');assert.equal(window.location.hash,'#/item');assert.equal(document.querySelector('.pos-grid'),null);

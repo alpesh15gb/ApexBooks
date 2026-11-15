@@ -90,17 +90,19 @@ public sealed partial class MainPage
         var end=BusinessCalendar.Today;var start=dashboardPeriod=="month"?new DateTime(end.Year,end.Month,1):dashboardPeriod=="30days"?end.AddDays(-29):DateTime.Parse(J.FinancialStart,System.Globalization.CultureInfo.InvariantCulture);
         var from=start.ToString("yyyy-MM-dd");var to=end.ToString("yyyy-MM-dd");var cid=CompanyId;var stamp=generation;
         var query=$"?from_date={from}&to_date={to}";
+        var amountsHidden=AmountPrivacy.Hidden;
+        string Money(decimal value)=>AmountPrivacy.Text(amountsHidden,J.Money(value));
         var overview=Api.Send(PathFor("/reports/summary"+query));var earnings=Api.Send(PathFor("/reports/financial"+query));var taxes=Api.Send(PathFor("/reports/gst-payable?from_date=2000-01-01&to_date="+to));await Task.WhenAll(overview,earnings,taxes);if(cid!=CompanyId||stamp!=generation)return;
         var summary=await overview;var financial=await earnings;var gst=await taxes;
         var period=Select("Dashboard period",new[]{("year","This financial year"),("month","This month"),("30days","Last 30 days")},dashboardPeriod);period.Width=240;
         period.SelectionChanged+=async(_,_)=>await Run(async()=>{dashboardPeriod=Value(period);await Navigate("dashboard");});
-        var dates=Text($"{start:dd MMM yyyy} – {end:dd MMM yyyy}  ·  Posted activity",13);dates.Foreground=Muted;Body.Children.Add(Columns(dates,period));
-        Border MetricCard(string label,decimal value,string note,bool hero=false){var s=Stack(12);var l=Text(label,12,true);l.Foreground=Muted;s.Children.Add(l);var amount=Text(J.Money(value),28,true);amount.Foreground=hero?Green:Brush(0x1C,0x29,0x3D);s.Children.Add(amount);var n=Text(note,12);n.Foreground=Muted;s.Children.Add(n);var card=Card(s);if(hero){card.Background=Brush(0x00,0x6B,0x35);card.BorderBrush=Brush(0x00,0x6B,0x35);l.Foreground=Brush(0xDD,0xF1,0xE5);n.Foreground=Brush(0xDD,0xF1,0xE5);amount.Foreground=Brush(255,255,255);}return card;}
+        var dates=Text($"{start:dd MMM yyyy} – {end:dd MMM yyyy}  ·  Posted activity",13);dates.Foreground=Muted;var privacy=AmountPrivacyControl(amountsHidden);var periodRow=new StackPanel{Orientation=Orientation.Horizontal,Spacing=12,VerticalAlignment=VerticalAlignment.Bottom};periodRow.Children.Add(period);if(amountsHidden||Supports("password_reveal"))periodRow.Children.Add(privacy);Body.Children.Add(Columns(dates,periodRow));
+        Border MetricCard(string label,decimal value,string note,bool hero=false){var s=Stack(12);var l=Text(label,12,true);l.Foreground=Muted;s.Children.Add(l);var amount=Text(Money(value),28,true);amount.Foreground=hero?Green:Brush(0x1C,0x29,0x3D);s.Children.Add(amount);var n=Text(note,12);n.Foreground=Muted;s.Children.Add(n);var card=Card(s);if(hero){card.Background=Brush(0x00,0x6B,0x35);card.BorderBrush=Brush(0x00,0x6B,0x35);l.Foreground=Brush(0xDD,0xF1,0xE5);n.Foreground=Brush(0xDD,0xF1,0xE5);amount.Foreground=Brush(255,255,255);}return card;}
         Body.Children.Add(ResponsiveMetrics(MetricCard("Net sales",summary.Number("sales"),"Posted sales, after credit notes",true),MetricCard("Net profit",financial.Number("net_profit"),"Income less recorded costs & expenses"),MetricCard("To collect",summary.Number("receivables"),"Outstanding as of today"),MetricCard("To pay",summary.Number("payables"),"Supplier balances as of today")));
         void Kicker(Panel parent,string value){var label=Text(value,12,true);label.Foreground=Muted;parent.Children.Add(label);}
-        var chart=Stack(8);Kicker(chart,"BUSINESS PERFORMANCE");chart.Children.Add(Text("Sales & purchases",15,true));var legend=Text("",11);legend.Foreground=Muted;legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="●",Foreground=Green});legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="  Net sales     "});legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="●",Foreground=Brush(0x9A,0xAA,0xB9)});legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="  Net purchases     ·     Invoice values include GST where applicable"});chart.Children.Add(legend);chart.Children.Add(MonthChart(start,end));
+        var chart=Stack(8);Kicker(chart,"BUSINESS PERFORMANCE");chart.Children.Add(Text("Sales & purchases",15,true));var legend=Text("",11);legend.Foreground=Muted;legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="●",Foreground=Green});legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="  Net sales     "});legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="●",Foreground=Brush(0x9A,0xAA,0xB9)});legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="  Net purchases     ·     Invoice values include GST where applicable"});chart.Children.Add(legend);chart.Children.Add(amountsHidden?HiddenChart():MonthChart(start,end));
         var invoices=Records.OfType<JsonObject>().Where(r=>r.Text("kind")=="sales_invoice"&&WorkflowMasterValues.IsPostedRecord(r,to)).ToArray();var issued=invoices.Sum(r=>r.Number("amount"));var due=invoices.Sum(r=>r.Number("outstanding"));var settled=Math.Max(0,issued-due);
-        var collections=Stack(8);Kicker(collections,"GET PAID");collections.Children.Add(Text("Invoice collections",15,true));var collectionDetails=Stack(10);collectionDetails.Children.Add(Text("Settled",11));collectionDetails.Children.Add(Text(J.Money(settled),17,true));collectionDetails.Children.Add(Text("Outstanding",11));collectionDetails.Children.Add(Text(J.Money(due),17,true));collections.Children.Add(Columns(SettlementRing(issued>0?settled/issued:0),collectionDetails));var foot=Text("Invoices through today · settlements include payments, advances and credits.",11);foot.Foreground=Muted;collections.Children.Add(foot);collections.Children.Add(AsyncButton("Open sales invoices  →",()=>Navigate("sales_invoice"),Error));
+        var collections=Stack(8);Kicker(collections,"GET PAID");collections.Children.Add(Text("Invoice collections",15,true));var collectionDetails=Stack(10);collectionDetails.Children.Add(Text("Settled",11));collectionDetails.Children.Add(Text(Money(settled),17,true));collectionDetails.Children.Add(Text("Outstanding",11));collectionDetails.Children.Add(Text(Money(due),17,true));collections.Children.Add(Columns(SettlementRing(issued>0?settled/issued:0),collectionDetails));var foot=Text("Invoices through today · settlements include payments, advances and credits.",11);foot.Foreground=Muted;collections.Children.Add(foot);collections.Children.Add(AsyncButton("Open sales invoices  →",()=>Navigate("sales_invoice"),Error));
         Body.Children.Add(Columns(Card(chart),Card(collections)));
         if(CanWrite){
             var everyday=Stack(14);everyday.Children.Add(Text("Everyday tasks",17,true));
@@ -127,13 +129,50 @@ public sealed partial class MainPage
         var attention=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};var hint=Text("Needs attention",12);hint.VerticalAlignment=VerticalAlignment.Center;hint.Foreground=Muted;attention.Children.Add(hint);
         var overdue=invoices.Count(r=>r.Number("outstanding")>0&&r["data"].Text("due_date").Length>0&&string.CompareOrdinal(r["data"].Text("due_date"),to)<0);var unpaid=Records.OfType<JsonObject>().Count(r=>r.Text("kind")=="purchase_bill"&&WorkflowMasterValues.IsPostedRecord(r,to)&&r.Number("outstanding")>0);var estimates=Records.OfType<JsonObject>().Count(r=>r.Text("kind")=="estimate"&&r.Text("converted_to").Length==0);
         attention.Children.Add(AsyncButton($"{overdue} overdue invoices",()=>Navigate("sales_invoice"),Error));attention.Children.Add(AsyncButton($"{unpaid} unpaid bills",()=>Navigate("purchase_bill"),Error));attention.Children.Add(AsyncButton($"{estimates} open estimates",()=>Navigate("estimate"),Error));Body.Children.Add(new ScrollViewer{Content=attention,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollMode=ScrollMode.Enabled,VerticalScrollBarVisibility=ScrollBarVisibility.Disabled});
-        if(overdue>0){var dueNow=Stack(8);dueNow.Children.Add(Text("Overdue invoices · take action",15,true));foreach(var invoice in invoices.Where(r=>r.Number("outstanding")>0&&r["data"].Text("due_date").Length>0&&string.CompareOrdinal(r["data"].Text("due_date"),to)<0).OrderBy(r=>r["data"].Text("due_date")).Take(3))dueNow.Children.Add(AsyncButton(invoice.Text("number")+" · "+invoice.Text("name")+" · "+J.Money(invoice.Number("outstanding"))+" due",()=>TransactionDetails(invoice),Error));Body.Children.Add(Card(dueNow));}
-        var profit=Stack(8);profit.Children.Add(Text("Profit & loss",15,true));profit.Children.Add(Text(J.Money(financial.Number("net_profit")),22,true));profit.Children.Add(Text("Net profit for this period",12));profit.Children.Add(Text("Income   "+J.Money(financial.Number("income")),14));profit.Children.Add(Text("Costs & expenses   "+J.Money(financial.Number("expenses")),14));profit.Children.Add(AsyncButton("Explore reports  →",()=>Navigate("reports"),Error));
-        var money=Stack(8);money.Children.Add(Text("Cash & bank",15,true));var bankCodes=Banks.Select(b=>b.Text("ledger_code")).ToHashSet();var accounts=financial["accounts"].Array().Where(a=>a.Text("code") is "SYS-CASH" or "SYS-BANK"||bankCodes.Contains(a.Text("code"))).ToArray();money.Children.Add(Text(J.Money(accounts.Sum(a=>a.Number("closing_balance"))),22,true));foreach(var a in accounts)money.Children.Add(Text(a.Text("name")+"   "+J.Money(a.Number("closing_balance")),13));money.Children.Add(AsyncButton("Manage cash & bank  →",()=>Navigate("bank"),Error));
-        var tax=Stack(8);tax.Children.Add(Text(Company.Text("tax_mode")=="regular"?"GST position":"Your tax settings",15,true));if(Company.Text("tax_mode")=="regular"){tax.Children.Add(Text(J.Money(gst.Number("cash_total")),22,true));tax.Children.Add(Text("Estimated GST payable · to date",12));tax.Children.Add(Text("Output GST   "+J.Money(gst["output"].Object().Sum(p=>p.Value.Number())),13));tax.Children.Add(Text("Input from bills   "+J.Money(gst["book_itc"].Object().Sum(p=>p.Value.Number())),13));var guidance=Text("From entered bills. Verify ITC eligibility and GSTR-2B before filing.",12);guidance.Foreground=Muted;tax.Children.Add(guidance);}else tax.Children.Add(Text(Company.Text("tax_mode")=="composition"?"Composition accounting is active. Review composition reports for your liability.":"Non-GST accounting is active. Sales and purchase documents use your non-GST settings.",14));
+        if(overdue>0){var dueNow=Stack(8);dueNow.Children.Add(Text("Overdue invoices · take action",15,true));foreach(var invoice in invoices.Where(r=>r.Number("outstanding")>0&&r["data"].Text("due_date").Length>0&&string.CompareOrdinal(r["data"].Text("due_date"),to)<0).OrderBy(r=>r["data"].Text("due_date")).Take(3))dueNow.Children.Add(AsyncButton(invoice.Text("number")+" · "+invoice.Text("name")+" · "+Money(invoice.Number("outstanding"))+" due",()=>TransactionDetails(invoice),Error));Body.Children.Add(Card(dueNow));}
+        var profit=Stack(8);profit.Children.Add(Text("Profit & loss",15,true));profit.Children.Add(Text(Money(financial.Number("net_profit")),22,true));profit.Children.Add(Text("Net profit for this period",12));profit.Children.Add(Text("Income   "+Money(financial.Number("income")),14));profit.Children.Add(Text("Costs & expenses   "+Money(financial.Number("expenses")),14));profit.Children.Add(AsyncButton("Explore reports  →",()=>Navigate("reports"),Error));
+        var money=Stack(8);money.Children.Add(Text("Cash & bank",15,true));var bankCodes=Banks.Select(b=>b.Text("ledger_code")).ToHashSet();var accounts=financial["accounts"].Array().Where(a=>a.Text("code") is "SYS-CASH" or "SYS-BANK"||bankCodes.Contains(a.Text("code"))).ToArray();money.Children.Add(Text(Money(accounts.Sum(a=>a.Number("closing_balance"))),22,true));foreach(var a in accounts)money.Children.Add(Text(a.Text("name")+"   "+Money(a.Number("closing_balance")),13));money.Children.Add(AsyncButton("Manage cash & bank  →",()=>Navigate("bank"),Error));
+        var tax=Stack(8);tax.Children.Add(Text(Company.Text("tax_mode")=="regular"?"GST position":"Your tax settings",15,true));if(Company.Text("tax_mode")=="regular"){tax.Children.Add(Text(Money(gst.Number("cash_total")),22,true));tax.Children.Add(Text("Estimated GST payable · to date",12));tax.Children.Add(Text("Output GST   "+Money(gst["output"].Object().Sum(p=>p.Value.Number())),13));tax.Children.Add(Text("Input from bills   "+Money(gst["book_itc"].Object().Sum(p=>p.Value.Number())),13));var guidance=Text("From entered bills. Verify ITC eligibility and GSTR-2B before filing.",12);guidance.Foreground=Muted;tax.Children.Add(guidance);}else tax.Children.Add(Text(Company.Text("tax_mode")=="composition"?"Composition accounting is active. Review composition reports for your liability.":"Non-GST accounting is active. Sales and purchase documents use your non-GST settings.",14));
         Body.Children.Add(Columns(Card(profit),Card(money),Card(tax)));
 
-        Body.Children.Add(Text("Recent activity",16,true));AddRecordList(Records.OfType<JsonObject>().Where(r=>r.Text("kind") is not("party" or "item" or "bank_account")).Take(8));
+        Body.Children.Add(Text("Recent activity",16,true));AddRecordList(Records.OfType<JsonObject>().Where(r=>r.Text("kind") is not("party" or "item" or "bank_account")).Take(8),null,amountsHidden);
+    }
+
+    private static UIElement HiddenChart()
+    {
+        var note=Stack(6);note.Margin=new Thickness(0,40,0,40);note.HorizontalAlignment=HorizontalAlignment.Center;
+        var title=Text("Chart hidden",14,true);title.HorizontalAlignment=HorizontalAlignment.Center;note.Children.Add(title);
+        var detail=Text("Show amounts to see sales and purchases.",12);detail.Foreground=Muted;detail.HorizontalAlignment=HorizontalAlignment.Center;note.Children.Add(detail);
+        return note;
+    }
+
+    /// <summary>Hide needs no password. Show asks for the account password, which the server verifies.</summary>
+    private UIElement AmountPrivacyControl(bool hidden)
+    {
+        var button=Button(hidden?"Show amounts":"Hide amounts",()=>{});
+        button.Click+=async(_,_)=>await Run(async()=>
+        {
+            if(!hidden){AmountPrivacy.Set(true);await Navigate("dashboard");return;}
+            var password=new PasswordBox{Header="Password",MinHeight=44,MaxLength=128,PlaceholderText="Your Apex Books password"};
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(password,"Account password");
+            var content=Stack(10);content.Children.Add(Text("Enter your account password to show the amounts on this dashboard.",13));content.Children.Add(password);
+            var revealed=false;
+            await Dialog("Show amounts",content,async()=>
+            {
+                if(password.Password.Length==0)throw new InvalidOperationException("Enter your password to show amounts.");
+                try{await Api.Send("/api/auth/verify-password",HttpMethod.Post,new JsonObject{["password"]=password.Password});}
+                catch(Exception error)when(!AmountPrivacy.RevealUnsupported(error))
+                {
+                    password.Password="";
+                    throw error is ApiFailure{Status:429}?new InvalidOperationException("Too many attempts. Wait a few minutes and try again."):
+                        error is ApiFailure{Status:403}?new InvalidOperationException("That password is not correct."):error;
+                }
+                revealed=true;
+            },"Show amounts");
+            password.Password="";
+            if(revealed){AmountPrivacy.Set(false);await Navigate("dashboard");}
+        });
+        return button;
     }
 
     private static UIElement SettlementRing(decimal ratio)

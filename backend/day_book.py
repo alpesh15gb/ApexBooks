@@ -6,7 +6,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session
 
 NON_TRANSACTION_KINDS = {'party', 'item', 'bank_account', 'recurring_template',
-                         'vyapar_backup_archive', 'document_branding', 'restore_marker'}
+                         'vyapar_backup_archive', 'document_branding', 'restore_marker', 'inventory_setup'}
 SALES = {'sales_invoice', 'pos'}
 PURCHASES = {'purchase_bill'}
 NON_POSTING = {'estimate', 'proforma', 'sales_order', 'purchase_order'}

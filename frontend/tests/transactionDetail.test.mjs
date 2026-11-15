@@ -20,6 +20,19 @@ test('cancelled documents show reversal and suppress payment and edit actions ev
  assert.match(markup,/Reversed/);assert.doesNotMatch(markup,/Still outstanding|Collect payment|Sales return|Edit details/);
 });
 
+test('refund cancellation action is scoped to eligible posted POS refunds', () => {
+  function render(refund, role = 'owner') {
+    return renderToStaticMarkup(React.createElement(Detail, {
+      record: { id: 'refund', kind: 'customer_refund', number: 'RF-1', amount: '50.00', posted: true, data: {}, ...refund },
+      records: [], company: { role }, labels: {}, features: ['document_cancellation'], onCancelDocument() {},
+    }));
+  }
+  assert.match(render({ pos_refund_cancellable: true }), /Cancel recorded refund/);
+  assert.doesNotMatch(render({ pos_refund_cancellable: false }), /Cancel recorded refund/);
+  assert.doesNotMatch(render({ pos_refund_cancellable: true, cancelled: true }), /Cancel recorded refund/);
+  assert.doesNotMatch(render({ pos_refund_cancellable: true }, 'viewer'), /Cancel recorded refund/);
+});
+
 test('unknown outstanding balances are not presented as zero or settled',()=>{
  const markup=renderToStaticMarkup(React.createElement(Detail,{record:{id:'r',kind:'sales_invoice',amount:'100',posted:true,data:{}},records:[],company:{name:'Synthetic books',role:'viewer'},features:[],labels:{sales_invoice:'Invoice'}}));
  assert.match(markup,/Refresh details to see the current balance/);assert.doesNotMatch(markup,/₹0\.00|>Settled</);
@@ -61,4 +74,17 @@ test('stock opening and loss show saved quantity and reason without a payment tr
  assert.match(markup,expected);assert.doesNotMatch(markup,/Payment &amp; document trail/);assert.match(markup,/not a payment/);
  if(kind==='stock_opening')assert.match(markup,/₹80\.00/);else{assert.match(markup,/Not separately recorded/);assert.match(markup,/Reason: Damaged/);}
  }
+});
+
+test('quantity-only loss shows confirmed stock movement without an accounting posting', () => {
+  const markup = renderToStaticMarkup(React.createElement(Detail, {
+    record: { kind: 'stock_adjustment', name: 'Sample stock', amount: '0', posted: false, stock_posted: true,
+      data: { quantity_only: true, direction: 'decrease', quantity: '2', unit: 'pcs',
+        stock_count: { on_hand_before: '5', counted_quantity: '3' } } },
+    records: [], company: { role: 'viewer' }, labels: {},
+  }));
+  assert.match(markup, /Quantity recorded/);
+  assert.match(markup, /Inventory value unchanged/);
+  assert.match(markup, /−2 pcs/);
+  assert.doesNotMatch(markup, /Unposted|Accounting effect/);
 });

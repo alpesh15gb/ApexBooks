@@ -1,0 +1,155 @@
+.pos-reconciliation {
+  margin-top: 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.pos-reconciliation-heading,
+.pos-reconciliation-export {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pos-reconciliation-date {
+  width: min(100%, 200px);
+}
+
+.pos-daily-disclosure {
+  margin-top: 16px;
+}
+
+.pos-daily-disclosure > summary {
+  cursor: pointer;
+  padding: 16px 22px;
+  font-weight: 700;
+}
+
+.pos-daily-disclosure > summary:focus-visible {
+  outline-offset: -3px;
+}
+
+.pos-daily-disclosure > .pos-reconciliation {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.pos-register-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pos-register-session p {
+  overflow-wrap: anywhere;
+}
+
+.pos-register-fields > .button {
+  justify-self: start;
+  align-self: end;
+}
+
+.pos-reconciliation-tenders table {
+  min-width: 0;
+}
+
+.pos-reconciliation-tenders th,
+.pos-reconciliation-tenders td {
+  padding: 9px clamp(5px, 1.4vw, 18px);
+  overflow-wrap: anywhere;
+}
+
+.pos-reconciliation-count {
+  margin-top: 4px;
+}
+
+.pos-reconciliation-count legend {
+  font-weight: 700;
+}
+
+.pos-reconciliation-count label .error {
+  display: block;
+  margin-top: 5px;
+}
+
+.pos-reconciliation-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+  padding: 12px 14px;
+  border: 1px solid var(--line, #e1e4e9);
+  border-radius: 7px;
+}
+
+.pos-reconciliation-results span,
+.pos-reconciliation-results strong {
+  display: block;
+}
+
+.pos-reconciliation-results span {
+  margin-bottom: 3px;
+  font-size: .8rem;
+}
+
+.pos-register-closed {
+  border-top: 1px solid var(--line, #e1e4e9);
+  padding: 10px 0;
+}
+
+.pos-register-closed > :not(summary) {
+  margin-top: 8px;
+}
+
+.pos-register-activity ul {
+  display: grid;
+  gap: 8px;
+  padding-inline-start: 20px;
+}
+
+.pos-register-activity li span {
+  display: block;
+  font-size: .8rem;
+  overflow-wrap: anywhere;
+}
+.pos-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pos-product img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.pos-history {
+  margin-top: 20px;
+}
+
+.pos-history-list,
+.pos-held ul {
+  list-style: none;
+  padding: 0;
+}
+
+.pos-history-list li,
+.pos-held li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  gap: 8px;
+  border-bottom: 1px solid var(--line, #dcdfe5);
+}
+
+.pos-history-list li > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

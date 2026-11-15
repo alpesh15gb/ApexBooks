@@ -78,7 +78,8 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
     fun renewRetryKey(){retryKey=vm.key();submission.succeeded();saveIntent.succeeded();retryPending=false}
     init {
         val source=previous?:conversion?:JSONObject();val data=source.o("data")
-        for(key in listOf("credit_limit","payment_terms_days","low_stock_threshold","party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","supplier_state","due_date","notes","terms","category","payment_account","bank_account_id","applied_to","advance_supply","advance_gst_rate","document_discount_percent","tender_amount","gstin","address","phone","email","party_type","hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))fields[key]=data.s(key)
+        for(key in listOf("credit_limit","payment_terms_days","low_stock_threshold","party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","supplier_state","due_date","notes","terms","category","payment_account","bank_account_id","applied_to","advance_supply","advance_gst_rate","document_discount_percent","tender_amount","gstin","address","phone","email","party_type","hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail","oem_number","part_brand","part_grade"))fields[key]=data.s(key)
+        fields["location_ids"]=InventoryText.locationIds(data).joinToString(",");fields["vehicle_fitment"]=data.a("vehicle_fitment").toString()
         fields["name"]=source.s("name");fields["number"]=previous?.s("number")?:"";fields["date"]=previous?.s("date")?:today();fields["amount"]=previous?.s("amount")?:""
         if(purchase&&get("supplier_state").isBlank())fields["supplier_state"]=supplierOrigin(data)
         for((key,value)in mapOf("place_of_supply" to vm.company.s("state_code"),"supplier_state" to vm.company.s("state_code"),"payment_account" to "cash","bank_account_id" to "default","advance_supply" to "goods","advance_gst_rate" to "18","document_discount_percent" to "0","category" to "General","party_type" to "both","item_type" to "goods","tax_treatment" to "taxable","sale_rate" to "0","purchase_rate" to "0","gst_rate" to "0"))if(get(key).isBlank())fields[key]=value
@@ -196,9 +197,15 @@ class EntryEditor(val vm:AppModel,val kind:String,val previous:JSONObject?=null,
             }finally{if(request==sourceSequence)sourceLoading=false}
         }
     }
+    /** Locations and vehicle details travel only when this server and company use them, so older data is never erased. */
+    private fun inventoryValues(values:JSONObject){
+        val setup=vm.inventorySetup;if(!vm.supports("inventory_setup")||setup==null)return
+        values.put("location_ids",JSONArray(InventoryText.ids(get("location_ids"))))
+        if(setup.optBoolean("automobile_enabled")){values.put("oem_number",get("oem_number"));values.put("part_brand",get("part_brand"));values.put("part_grade",get("part_grade"));values.put("vehicle_fitment",InventoryText.cleanFitment(get("vehicle_fitment")))}
+    }
     fun body():JSONObject {
         val values=JSONObject()
-        if(master){values.put("is_active",flag("is_active"));if(kind=="party")values.put("credit_limit",get("credit_limit").ifBlank{null}?:JSONObject.NULL);for(key in if(kind=="party")listOf("gstin","address","shipping_address","phone","email","party_type")else listOf("hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))values.put(key,get(key));if(kind=="item"){values.put("track_stock",flag("track_stock"));values.put("low_stock_threshold",get("low_stock_threshold").ifBlank{null}?:JSONObject.NULL)}else values.put("payment_terms_days",if(get("payment_terms_days").isBlank())JSONObject.NULL else get("payment_terms_days").toIntOrNull()?:get("payment_terms_days"))}
+        if(master){values.put("is_active",flag("is_active"));if(kind=="party")values.put("credit_limit",get("credit_limit").ifBlank{null}?:JSONObject.NULL);for(key in if(kind=="party")listOf("gstin","address","shipping_address","phone","email","party_type")else listOf("hsn","unit","sale_rate","purchase_rate","gst_rate","barcode","item_type","tax_treatment","image_data_url","image_thumbnail"))values.put(key,get(key));if(kind=="item"){values.put("track_stock",flag("track_stock"));values.put("low_stock_threshold",get("low_stock_threshold").ifBlank{null}?:JSONObject.NULL);inventoryValues(values)}else values.put("payment_terms_days",if(get("payment_terms_days").isBlank())JSONObject.NULL else get("payment_terms_days").toIntOrNull()?:get("payment_terms_days"))}
         else {
             for(key in listOf("party_id","party_address","party_gstin","party_phone","shipping_address","place_of_supply","due_date","notes","terms","category"))values.put(key,get(key))
             if(payment||kind in setOf("expense","pos")){values.put("payment_account",get("payment_account"));if(get("payment_account")=="bank")values.put("bank_account_id",get("bank_account_id"))}

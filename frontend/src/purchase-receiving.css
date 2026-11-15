@@ -1,0 +1,67 @@
+.purchase-receiving {
+  border: 1px solid #d7e4dc;
+  background: #f8fbf9;
+  padding: 16px;
+  border-radius: 8px;
+}
+.purchase-receiving-balances, .purchase-receiving-form, .purchase-receiving-history {
+  margin-top: 12px;
+}
+.purchase-receiving-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: 9px 0;
+  border-bottom: 1px solid #d7e4dc;
+}
+.purchase-receiving-line small {
+  display: block;
+  margin-top: 2px;
+  color: #576664;
+}
+.purchase-receiving-line > span {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.purchase-receiving-balances > .button {
+  margin-top: 12px;
+}
+.purchase-receiving-delivery {
+  padding: 12px;
+  border: 1px solid #d7e4dc;
+  border-radius: 7px;
+  background: white;
+}
+.purchase-receiving-delivery > .form-grid {
+  margin-top: 7px;
+}
+.purchase-receiving-tax {
+  margin-top: 10px;
+}
+.purchase-receiving-tax > summary {
+  color: #36594b;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.purchase-receiving-tax > .form-grid {
+  margin-top: 8px;
+}
+.purchase-receiving-success, .purchase-receiving-success > strong {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.purchase-receiving-success {
+  justify-content: space-between;
+}
+.purchase-receiving-history > h4 {
+  margin: 0 0 8px;
+}
+.purchase-receiving .button {
+  min-height: 42px;
+}

@@ -22,6 +22,7 @@ public sealed partial class MainPage
         if(IsOwner){
             entries[0]=(entries[0].Title,entries[0].Detail,[ ("Edit company details",()=>CompanyForm(true)),("Create another company",()=>CompanyForm()) ]);
             Add("Documents & branding","Company logo, signature, bank / UPI details and five document formats.",("Logo, signature and formats",Branding),("Transaction prefixes",Prefixes));
+            if(Supports("inventory_setup"))Add("Stock & modules","Item locations such as Rack 1, and the optional Automobile module with vehicle makes and models.",("Locations and Automobile module",InventorySettings));
             Add("Accounting","Opening balances and accounting period controls.",("Opening balances",OpeningBalance),("Accounting period lock",PeriodLock));
             Add("Data & migration","Import, export and protect your books. Vyapar migration includes reconciliation; backup restore creates a separate company.",("Import Vyapar .vyb backup",VyaparMigration),("Import parties / items CSV",MasterCsvImport),("Export company data",DataExport),("Download backup",BackupCompany),("Restore company backup",RestoreCompany));
             if(Supports("chunked_backups"))Add("Complete backup recovery","Resume or cancel your own staged transfers after a lost response or restart.",("Recover backup transfers",RecoverCompleteTransfers));
@@ -193,7 +194,7 @@ public sealed partial class MainPage
         var exportAccess=CaptureFileSaveAccess();var password=new PasswordBox{Header="Current password"};var panel=Stack();panel.Children.Add(Text("Generating codes replaces any previous unused codes. Store them outside this device. Each code works once."));panel.Children.Add(password);JsonNode? result=null;
         if(await Dialog("Generate recovery codes",panel,async()=>{await ScopedFileExport.Run(exportAccess,async()=>{result=await Api.Send("/api/auth/recovery-codes",HttpMethod.Post,new JsonObject{["current_password"]=password.Password});exportAccess();return true;});},"Generate new codes")&&ScopedFileExport.Current(exportAccess)&&result is not null)
         {
-            var codes=string.Join(Environment.NewLine,result?["codes"].Array().Select(r=>r.Text())??Array.Empty<string>());var view=Stack();var output=new TextBox{Text=codes,IsReadOnly=true,AcceptsReturn=true,FontFamily=new Microsoft.UI.Xaml.Media.FontFamily("Consolas")};view.Children.Add(output);bool closed=false;
+            var codes=string.Join(Environment.NewLine,result?["codes"].Array().Select(r=>r.Text())??Array.Empty<string>());var view=Stack();var output=new TextBox{Header="Recovery codes",Text=codes,IsReadOnly=true,AcceptsReturn=true,FontFamily=new Microsoft.UI.Xaml.Media.FontFamily("Consolas")};view.Children.Add(output);bool closed=false;
             void Verify(){exportAccess();if(closed)throw new InvalidOperationException("This recovery-code view is closed.");}
             view.Children.Add(AsyncButton("Save recovery codes",async()=>{await ScopedFileExport.Run(Verify,()=>ApexFiles.Save(Encoding.UTF8.GetBytes("Apex Books recovery codes\n"+codes),"apex-recovery-codes.txt",Verify));},Error));
             void Invalidate(){codes="";output.Text="";view.Children.Clear();view.Children.Add(Text("Access changed. Close this view and reopen account recovery after signing in."));}

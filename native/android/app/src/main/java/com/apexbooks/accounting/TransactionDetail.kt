@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.apexbooks.accounting
 
+import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -35,7 +36,32 @@ import org.json.JSONObject
     }
     val row = record ?: initial
     val data = row.o("data")
-    val editable = vm.canWrite && record != null && !row.optBoolean("cancelled") && row.s("converted_to").isBlank() && row.s("kind") in (vm.documentKinds + setOf("payment_in", "payment_out", "item", "party"))
+    val purchaseOrder = row.s("kind") == "purchase_order"
+    val receivingEnabled = purchaseOrder && vm.supports("purchase_order_receiving")
+    val receivingStarted = purchaseOrder && data.optBoolean("purchase_order_receiving_started")
+    val receivingId = row.s("id")
+    var receiving by remember(cid, receivingId) { mutableStateOf<JSONObject?>(null) }
+    var receivingError by remember(cid, receivingId) { mutableStateOf("") }
+    var receivingReload by remember(cid, receivingId) { mutableIntStateOf(0) }
+    LaunchedEffect(cid, receivingId, receivingEnabled, vm.revision, receivingReload) {
+        receiving = null
+        receivingError = ""
+        if (!receivingEnabled) return@LaunchedEffect
+        try {
+            val path = vm.api.company(cid, "/purchase-orders/${Uri.encode(receivingId)}/receiving")
+            val loaded = vm.api.request(path) as JSONObject
+            require(loaded.s("order_id") == receivingId) { "Could not verify the purchase order." }
+            receiving = loaded
+        } catch (failure: Exception) {
+            currentCoroutineContext().ensureActive()
+            receivingError = failure.message ?: "Could not load receiving details."
+            if (failure is ApiFailure && failure.status == 401) vm.failure(failure)
+        }
+    }
+    val legacyConversion = !purchaseOrder || !receivingStarted &&
+        (!receivingEnabled || receiving?.s("status") == "unavailable")
+    val editable = vm.canWrite && record != null && !row.optBoolean("cancelled") && row.s("converted_to").isBlank() &&
+        !receivingStarted && row.s("kind") in (vm.documentKinds + setOf("payment_in", "payment_out", "item", "party"))
     val cancelled = row.optBoolean("cancelled")
     val cancellable = vm.supports("document_cancellation") && vm.canWrite && record != null && !cancelled && row.optBoolean("posted") && row.s("kind") in setOf("sales_invoice", "pos", "purchase_bill", "payment_in", "payment_out", "expense", "credit_note", "debit_note", "bank_transfer")
     val printable = record != null && row.s("kind") in (vm.documentKinds + setOf("payment_in", "payment_out", "customer_refund", "supplier_refund", "advance_refund"))
@@ -75,7 +101,9 @@ import org.json.JSONObject
                 if (record == null && failure.isBlank()) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 if (failure.isNotBlank()) item { Message(failure, true); OutlinedButton(onClick={reload++}) { Text("Retry loading transaction") } }
                 item { Section {
-                    StatusPill(registerStatus(row))
+                    if (receivingEnabled) {
+                        receiving?.s("status")?.takeIf { it.isNotBlank() }?.let { StatusPill(purchaseReceivingStatus(it)) }
+                    } else StatusPill(registerStatus(row))
                     Text(row.s("number").ifBlank { friendly(row.s("kind")) }, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(row.s("name"), style = MaterialTheme.typography.bodyLarge)
                     Text(money(if(row.s("kind")=="item")data.s("sale_rate")else row.s("amount")), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = ApexGreen)
@@ -87,6 +115,35 @@ import org.json.JSONObject
                     if(data.optBoolean("is_advance")) { DetailValue("Available advance",money(row.s("advance_remaining")));Text("An advance is money received or paid before allocation. It does not settle an invoice until applied.",style=MaterialTheme.typography.bodySmall) }
                     if(row.s("kind") in setOf("credit_note","debit_note")) DetailValue("Available note credit",money(row.s("credit_remaining")))
                     if(data.s("payment_account").isNotBlank()) DetailValue("Payment account",friendly(data.s("payment_account")))
+                } }
+                if (receivingEnabled) item { Section("Receiving") {
+                    val status = receiving?.s("status")
+                    when {
+                        receivingError.isNotBlank() -> {
+                            Message(receivingError, true)
+                            OutlinedButton(onClick = { receivingReload++ }) { Text("Retry receiving details") }
+                        }
+                        status == null -> Text("Loading order quantities…")
+                    }
+                    receiving?.s("reason")?.takeIf { it.isNotBlank() }?.let { Text(it) }
+                    if (vm.canWrite && record != null && status in setOf("open", "partial")) {
+                        Button(onClick = { vm.detail = null; vm.toolData = row; vm.tool = "purchase_receive" },
+                            modifier = Modifier.fillMaxWidth()) { Text("Receive items") }
+                    }
+                    receiving?.a("lines")?.objects()?.forEach { line ->
+                        DetailValue(line.s("description"), "${line.s("remaining_quantity")} ${line.s("unit").ifBlank { "units" }} left")
+                        Text("Ordered ${line.s("ordered_quantity")} · Received ${line.s("received_quantity")}",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    val receipts = receiving?.a("receipts")?.objects().orEmpty()
+                    if (receipts.isNotEmpty()) Text("Linked purchase bills", style = MaterialTheme.typography.titleSmall)
+                    receipts.forEach { bill ->
+                        val id = bill.s("id")
+                        TextButton(onClick = { vm.detail = vm.records.find { it.s("id") == id } ?: bill },
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text("${bill.s("number")} · ${money(bill.s("amount"))}${if (bill.optBoolean("cancelled")) " · Cancelled" else ""}")
+                        }
+                    }
                 } }
                 if (data.s("party_gstin").isNotBlank() || data.s("party_address").isNotBlank()) item { Section("Party details") {
                     if (data.s("party_gstin").isNotBlank()) DetailValue("GSTIN", data.s("party_gstin"))
@@ -120,7 +177,7 @@ import org.json.JSONObject
                 if (cancelled) item { Message("Cancelled" + data.o("cancelled").s("reason").takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty() + ". The number stays in your records; its ledger, stock and balance effects were reversed.", true) }
                 if (cancellable) item { OutlinedButton(onClick = { cancelError = ""; cancelReason = ""; confirmCancel = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Close, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Cancel this document") } }
                 if(record!=null) item {
-                    val links=listOf("Posted document" to row.s("converted_to"),"Source document" to data.s("source_document_id"),"Original invoice / bill" to data.s("applied_to")).filter{it.second.isNotBlank()&&it.second!="source-converted"}
+                    val links=listOf("Posted document" to row.s("converted_to"),"Source document" to data.s("source_document_id"),"Purchase order" to data.s("purchase_order_id"),"Original invoice / bill" to data.s("applied_to")).filter{it.second.isNotBlank()&&it.second!="source-converted"}
                     if(links.isNotEmpty())Section("Related documents") { links.forEach{(label,id)->
                         val linked=vm.records.find{it.s("id")==id}
                         TextButton(onClick={vm.detail=linked?:JSONObject().put("id",id)}) { Text("$label · ${linked?.s("number")?.ifBlank{id.take(8)}?:id.take(8)} →") }
@@ -151,10 +208,10 @@ import org.json.JSONObject
                 if(row.s("kind") in setOf("purchase_bill","expense")&&record!=null)item{OutlinedButton(onClick={vm.detail=null;vm.toolData=row;vm.tool="attachments"},modifier=Modifier.fillMaxWidth()){Text("Retained receipts & attachments")}}
                 if (data.s("notes").isNotBlank()) item { Section("Notes") { Text(data.s("notes")) } }
                 if (data.s("terms").isNotBlank()) item { Section("Terms") { Text(data.s("terms")) } }
-                if (vm.canWrite && row.s("kind") in vm.draftKinds && row.s("converted_to").isBlank() && record != null) item {
+                if (vm.canWrite && row.s("kind") in vm.draftKinds && !receivingStarted && row.s("converted_to").isBlank() && record != null) item {
                     OutlinedButton(onClick={vm.detail=null;vm.toolData=row;vm.tool="recurring_new"},modifier=Modifier.fillMaxWidth()){Text("Create recurring draft schedule")}
                     if(row.s("kind") in setOf("estimate","proforma"))OutlinedButton(onClick={vm.detail=null;vm.convert(row,"sales_order")},modifier=Modifier.fillMaxWidth()){Text("Convert to sales order") }
-                    OutlinedButton(onClick = { vm.detail = null; vm.convert(row) }, modifier = Modifier.fillMaxWidth()) { Text(if (row.s("kind") == "purchase_order") "Convert to purchase bill" else "Convert to invoice") }
+                    if (legacyConversion) OutlinedButton(onClick = { vm.detail = null; vm.convert(row) }, modifier = Modifier.fillMaxWidth()) { Text(if (purchaseOrder) "Convert to purchase bill" else "Convert to invoice") }
                 }
                 item { Text(vm.company.s("name"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             } }

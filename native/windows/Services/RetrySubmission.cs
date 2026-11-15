@@ -13,8 +13,14 @@ public sealed class RetrySubmission
         return JsonNode.Parse(pending)!.AsObject();
     }
     public void Succeeded() => pending = null;
-    public void Failed(Exception error)
+    /// <summary>
+    /// definitiveConflict: true only for routes that replay committed idempotency keys before validating,
+    /// so a 409 means nothing was written. Generic routes keep 409 unresolved.
+    /// </summary>
+    public void Failed(Exception error, bool definitiveConflict = false)
     {
-        if (error is ApiFailure { Status: >= 400 and <= 499 } failure && failure.Status is not (408 or 409)) pending = null;
+        // A timeout or server error may follow a committed write.
+        if (error is ApiFailure { Status: >= 400 and <= 499 } failure && failure.Status is not 408
+            && (failure.Status is not 409 || definitiveConflict)) pending = null;
     }
 }

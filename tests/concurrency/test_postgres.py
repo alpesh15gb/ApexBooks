@@ -256,6 +256,70 @@ class ConcurrentPostingTest(unittest.TestCase):
         self.assertEqual(float(report['rows'][0]['closing_quantity']), -1)
         self.assertEqual(float(report['rows'][0]['closing_value']), -60)
 
+    def test_checkout_and_physical_count_serialize_on_stock(self):
+        item = self.create({'kind': 'item', 'name': 'Stock count race goods', 'data': {'track_stock': True}})
+        snapshot_url = self.base + '/stock/counts/' + item['id']
+        before = self.client.get(snapshot_url, headers=self.headers)
+        before.raise_for_status()
+        date = before.json()['date']
+        self.client.post(self.base + '/stock/opening', headers=self.headers,
+            json={'item_id': item['id'], 'date': date, 'quantity': 3, 'unit_cost': 8}).raise_for_status()
+        snapshot = self.client.get(snapshot_url, headers=self.headers)
+        snapshot.raise_for_status()
+        count = {field: snapshot.json()[field] for field in ('item_id', 'date', 'stock_snapshot')}
+        count.update(counted_quantity='1', reason='Shelf count')
+        sale = {**self.sale('pos', item), 'date': date}
+        sale['data']['lines'][0]['quantity'] = 2
+        sale['data']['require_available_stock'] = True
+        counted, checked_out = self.race([
+            ('/stock/counts', count, uuid4().hex), ('/records', sale, uuid4().hex),
+        ])
+        outcome = (counted.status_code, checked_out.status_code)
+        self.assertIn(outcome, [(201, 422), (409, 200)], [counted.text, checked_out.text])
+        after = self.client.get(snapshot_url, headers=self.headers)
+        after.raise_for_status()
+        self.assertEqual(Decimal(after.json()['on_hand']), 1)
+        register_stock = self.client.get(self.base + '/pos/stock', headers=self.headers)
+        register_stock.raise_for_status()
+        self.assertEqual(register_stock.json()['date'], date)
+        self.assertEqual([(row['item_id'], Decimal(row['closing_quantity'])) for row in register_stock.json()['rows']],
+                         [(item['id'], Decimal(1))])
+        self.assertEqual(len(self.client.get(self.base + '/journals', headers=self.headers).json()), 2)
+
+    def test_strict_pos_cannot_sell_last_unit_twice(self):
+        item = self.create({'kind': 'item', 'name': 'Last register unit', 'data': {'track_stock': True}})
+        self.client.post(self.base + '/stock/opening', headers=self.headers,
+            json={'item_id': item['id'], 'date': '2026-04-01', 'quantity': 1, 'unit_cost': 60}).raise_for_status()
+        body = self.sale(kind='pos', item=item)
+        body['data'].update(require_available_stock=True, payment_account='split', bank_amount='40.00')
+        keys = [uuid4().hex for _ in range(2)]
+        results = self.race([('/records', body, key) for key in keys])
+        self.assertEqual(sorted(r.status_code for r in results), [200, 422], [r.text for r in results])
+        winner = next(i for i, result in enumerate(results) if result.status_code == 200)
+        self.assertEqual(self.create(body, keys[winner])['id'], results[winner].json()['id'])
+        stock = self.client.get(self.base + '/reports/stock', headers=self.headers,
+            params={'from_date': '2026-04-01', 'to_date': '2026-04-30'}).json()
+        self.assertEqual(Decimal(stock['rows'][0]['closing_quantity']), 0)
+        self.assertEqual(len(self.client.get(self.base + '/records', headers=self.headers, params={'kind': 'pos'}).json()), 1)
+
+    def test_purchase_order_partial_receipts_serialize_remaining_quantity(self):
+        from main import business_today
+        date = business_today().isoformat()
+        item = self.create({'kind': 'item', 'name': 'Supplier receipt race', 'data': {'track_stock': True}})
+        order = self.create({'kind': 'purchase_order', 'date': date, 'name': 'Race supplier',
+            'data': {'lines': [{'item_id': item['id'], 'description': item['name'], 'quantity': 5, 'rate': 10}]}})
+        path = '/purchase-orders/' + order['id']
+        body = {'source_version': 0, 'date': date, 'lines': [{'line_index': 0, 'quantity': '4'}], 'expected_total': '40.00'}
+        keys = [uuid4().hex, uuid4().hex]
+        results = self.race([(path + '/receipts', body, key) for key in keys])
+        self.assertEqual(sorted(r.status_code for r in results), [201, 409], [r.text for r in results])
+        winner = next(i for i, result in enumerate(results) if result.status_code == 201)
+        replay = self.client.post(self.base + path + '/receipts', headers={**self.headers, 'Idempotency-Key': keys[winner]}, json=body)
+        self.assertEqual(replay.json()['id'], results[winner].json()['id'])
+        state = self.client.get(self.base + path + '/receiving', headers=self.headers).json()
+        self.assertEqual(Decimal(state['lines'][0]['remaining_quantity']), 1)
+        self.assertEqual(len(state['receipts']), 1)
+
     def test_same_retry_key_with_different_payload_has_one_winner(self):
         first = self.sale()
         second = {**first, 'name': 'Different buyer'}

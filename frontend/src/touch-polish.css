@@ -1,0 +1,211 @@
+/* Phone and touch ergonomics, loaded last. Targets stay at least 44 x 44 CSS px
+   on phones and coarse pointers (WCAG 2.5.5 guidance); inline text links are exempt. */
+
+/* The company switcher is a native select inside a card; never smaller than WCAG 2.5.8's 24px minimum. */
+.company-text select { min-height: 24px; padding-block: 4px; }
+
+.ledger-note p { margin: 0; }
+.ledger-note p + p { margin-top: 6px; }
+
+.library-count { flex-shrink: 0; }
+
+@media (max-width: 700px), (pointer: coarse) {
+  .workspace-search { min-height: 44px; }
+  .workspace-search input, .workspace-search > button { min-height: 44px; }
+  .sidebar-close, .round-action { min-width: 44px; min-height: 44px; }
+  .company-text select { min-height: 44px; }
+
+  .period-picker select,
+  .insight-link,
+  .setup-guide-intro > .icon-button,
+  .journal-source .link,
+  .workspace-sync-line .link,
+  .record-actions .link,
+  .party-open,
+  td .link,
+  .library-category-filter > button,
+  .pos-tabs > button,
+  [role="tablist"] > [role="tab"],
+  [role="tablist"] > button {
+    min-height: 44px;
+  }
+  .setup-guide-intro > .icon-button { min-width: 44px; }
+  .journal-source .link,
+  .workspace-sync-line .link,
+  .record-actions .link,
+  .party-open,
+  td .link {
+    display: inline-flex;
+    align-items: center;
+    min-width: 44px;
+    padding-inline: 8px;
+  }
+  .party-open { justify-content: flex-start; padding-inline: 0; }
+}
+
+/* Keyboard shortcut help has no use without a keyboard. */
+@media (max-width: 700px) and (hover: none) {
+  .shortcut-hint { display: none; }
+}
+
+/* List pages: summary figures sit in two columns so the records start on the first screen. */
+@media (max-width: 560px) {
+  .register-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .register-overview > div { padding: 12px 14px; min-height: 0; }
+  .register-overview > div > div { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 4px; }
+  .register-overview > div:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .library-count { white-space: normal; }
+}
+
+/* ---------- Visual alignment pass (desktop and tablet) ---------- */
+
+/* The top bar keeps the same column geometry on every page: breadcrumb length and profile name no longer move the search box. */
+@media (min-width: 901px) {
+  .workspace-topbar .workspace-location { flex: 0 0 250px; min-width: 0; }
+  .workspace-topbar .workspace-location strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .workspace-topbar .workspace-search { flex: 1 1 360px; max-width: 520px; min-width: 0; }
+  .workspace-topbar .workspace-header-actions { flex: 0 0 auto; min-width: 230px; justify-content: flex-end; }
+}
+
+/* Summary cards: four across when there is room, two by two otherwise, never three plus an orphan. */
+@media (min-width: 561px) { .register-overview { grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); } }
+@media (min-width: 561px) and (max-width: 1100px) {
+  .register-overview:has(> :nth-child(4):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Filter panel: aligned fields instead of a wrapping flex that strands Party and Sort by. */
+@media (min-width: 901px) {
+  .register-controls.panel {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) auto;
+    gap: 16px 20px;
+    align-items: start;
+  }
+  .register-controls.panel > .period-controls { grid-column: 1 / -1; }
+  .register-controls.panel > label { min-width: 0; max-width: none; width: 100%; }
+  .register-controls.panel .reset-filters { justify-self: end; align-self: start; margin: 26px 0 0; white-space: nowrap; }
+}
+@media (min-width: 1180px) {
+  .register-controls.panel { grid-template-columns: auto minmax(150px, 220px) minmax(150px, 220px) minmax(max-content, 1fr); }
+  .register-controls.panel > .period-controls { grid-column: auto; }
+}
+
+/* The Master status filter has no card, so it aligns with the page edge and shares the select styling of the filters above. */
+.register-controls:not(.panel) { padding: 0 0 4px; margin-bottom: 18px; }
+.register-controls:not(.panel) > label select {
+  height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--ink);
+}
+
+/* Register table search: the whole placeholder is visible. */
+.register .search { min-width: 300px; }
+.register .search input { flex: 1; min-width: 0; width: auto; text-overflow: ellipsis; }
+
+/* Rows are as tall as their content on desktop; the 44px targets apply to phones and touch screens only. */
+@media (min-width: 701px) and (pointer: fine) {
+  .record-actions .link, .record-actions .row-pdf, .transaction-reference > .link { min-height: 28px; min-width: 0; }
+  .transaction-reference { gap: 3px; }
+  .master-contact { display: none; }
+}
+.master-contact { margin: 3px 0 0 51px; }
+
+/* Notes inside cards sit inside the card padding, and stacked notes and cards keep one rhythm. */
+.panel > .info-box { margin-inline: 20px; }
+.info-box + .panel, .info-box + section { margin-top: 16px; }
+
+/* A note directly above an action keeps breathing room. */
+.info-box + .button, .info-box + button { margin-top: 12px; }
+
+/* Phone: parties and items keep their key columns on screen instead of clipping behind a hidden horizontal scroll. */
+@media (max-width: 700px) {
+  .table-wrap table:has(td.master-details) { min-width: 0; width: 100%; }
+  .table-wrap table:has(td.master-details) :is(th, td):nth-child(3) { display: none; }
+  .table-wrap table:has(td.master-details):has(thead th:nth-child(5)) :is(th, td):nth-child(2) { display: none; }
+  td .party-open { padding-inline: 0; }
+}
+@media (max-width: 700px) {
+  .table-wrap table:has(td.master-details) :is(th, td) { padding-inline: 10px; }
+  .table-wrap table:has(td.master-details) td .row-name { min-width: 0; gap: 10px; }
+  .table-wrap table:has(td.master-details) td .row-name strong,
+  .table-wrap table:has(td.master-details) td .party-open { white-space: normal; text-align: left; overflow-wrap: anywhere; }
+  .table-wrap table:has(td.master-details) .master-contact { margin-left: 48px; }
+}
+
+/* Tablet portrait: register tables fit their card instead of hiding Actions behind a scroll. */
+@media (min-width: 701px) and (max-width: 1000px) {
+  .transaction-register table { min-width: 680px; }
+}
+/* Summary cards and the panel after them keep the same 16px rhythm everywhere. */
+.summary-grid + .panel, .summary-grid + section, .summary-grid + .table-wrap { margin-top: 16px; }
+
+/* Hide/show amounts on the dashboard */
+.privacy-toggle { display: inline-flex; align-items: center; gap: 8px; }
+.overview-metric strong[aria-label="Amount hidden"], .insight-total, .recent-table td.right { letter-spacing: .02em; }
+.reveal-amounts { width: min(440px, calc(100vw - 32px)); }
+.reveal-amounts label { display: grid; gap: 6px; margin-top: 18px; font-size: 13px; font-weight: 600; }
+.reveal-amounts input { min-height: 44px; }
+.reveal-amounts .banner { margin-top: 14px; }
+.reveal-amounts .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; padding: 0; background: transparent; border: 0; }
+.reveal-amounts .modal-actions .button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; }
+/* On phones the toggle is an icon button; its text stays available to screen readers. */
+@media (max-width: 560px) {
+  .privacy-toggle { min-width: 44px; padding-inline: 12px; justify-content: center; }
+  .privacy-toggle .privacy-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+
+/* ---------- Stock & modules (item locations and the Automobile module) ---------- */
+.inventory-setup { display: grid; gap: 28px; }
+.inventory-block h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; }
+.inventory-block > p { margin: 0 0 14px; color: var(--muted, #58677a); max-width: 70ch; line-height: 1.55; }
+.inventory-add { display: grid; gap: 14px; margin-bottom: 14px; }
+.inventory-inline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin: 12px 0; }
+.inventory-inline label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
+.inventory-inline input, .inventory-inline select { min-height: 40px; }
+.inventory-inline .button { min-height: 40px; display: inline-flex; align-items: center; gap: 6px; }
+.inventory-range { display: flex; align-items: center; gap: 8px; }
+.inventory-range input { width: 110px; }
+.inventory-range input:nth-child(2), .inventory-range input:nth-child(4) { width: 72px; }
+.inventory-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.inventory-list li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line, #e1e6ed); border-radius: 10px; background: #fff; }
+.inventory-list li > input { flex: 1; min-width: 0; min-height: 38px; }
+.inventory-list li > span:first-child:not(.status-badge) { flex: 1; }
+.inventory-list li.is-archived { background: #f4f5f7; }
+.inventory-row-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.inventory-row-actions .button { min-height: 36px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.inventory-hint { margin: 8px 0 0; font-size: 12px; color: var(--muted, #58677a); }
+.inventory-empty { margin: 10px 0 0; color: var(--muted, #58677a); }
+.inventory-filter { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 4px; }
+.inventory-search { display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--line, #e1e6ed); border-radius: 10px; background: #fff; min-width: 260px; }
+.inventory-search input { border: 0; outline: 0; min-height: 40px; flex: 1; min-width: 0; background: transparent; }
+.inventory-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 14px; border: 1px solid var(--line, #dbe0e8); border-radius: 999px; background: #fff; font-size: 13px; cursor: pointer; color: inherit; }
+.chip.selected { background: #e0f2e7; border-color: #7bbf93; color: #005b2d; font-weight: 600; }
+.chip input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.chip:focus-within { outline: 2px solid #007a3d; outline-offset: 2px; }
+.inventory-makes { display: grid; gap: 8px; margin-top: 12px; max-height: 480px; overflow-y: auto; padding-right: 4px; overscroll-behavior: contain; }
+.inventory-makes details { border: 1px solid var(--line, #e1e6ed); border-radius: 12px; background: #fff; padding: 0 14px; }
+.inventory-makes summary { display: flex; align-items: baseline; gap: 12px; padding: 12px 0; cursor: pointer; }
+.inventory-makes summary span { color: var(--muted, #58677a); font-size: 12px; }
+.inventory-models { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 8px; }
+.inventory-model { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px 4px 10px; border-radius: 999px; background: #f1f4f8; font-size: 12px; }
+.inventory-model.is-custom { background: #e0f2e7; color: #005b2d; }
+.inventory-model button { display: inline-grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 50%; background: transparent; cursor: pointer; color: inherit; padding: 0; }
+.inventory-model button:hover { background: rgba(0, 0, 0, .08); }
+.inventory-hidden { margin-top: 12px; }
+.inventory-save { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; bottom: 0; padding: 14px 0; background: linear-gradient(transparent, var(--bg, #f4f5f7) 30%); }
+.item-placement, .item-vehicle { min-width: 0; box-sizing: border-box; border: 1px solid var(--line, #e1e6ed); border-radius: 12px; padding: 12px 14px; margin: 0; }
+.item-placement legend, .item-vehicle legend { display: inline-flex; align-items: center; gap: 6px; padding: 0 6px; font-weight: 600; font-size: 13px; }
+.fitment { display: grid; gap: 10px; margin-top: 14px; min-width: 0; }
+.fitment-row { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.2fr) 64px 64px 36px; gap: 8px; gap: 10px; align-items: end; }
+.fitment > .button { justify-self: start; width: auto; }
+.fitment-row label { display: grid; gap: 4px; font-size: 12px; min-width: 0; }
+.fitment-row input { min-height: 40px; width: 100%; min-width: 0; box-sizing: border-box; }
+.item-meta { display: grid; gap: 2px; margin-top: 4px; font-size: 11px; color: var(--muted, #58677a); }
+.item-meta-location { display: inline-flex; align-items: center; gap: 4px; color: #005b2d; font-weight: 600; }
+.pos-location { display: inline-flex; align-items: center; gap: 4px; color: #005b2d; }
+@media (max-width: 700px) {
+  .fitment-row { grid-template-columns: 1fr 1fr; }
+  .fitment-row .icon-button { justify-self: end; }
+  .inventory-search { min-width: 0; width: 100%; }
+  .inventory-list li { flex-wrap: wrap; }
+  .inventory-row-actions { margin-left: 0; width: 100%; justify-content: flex-end; }
+}

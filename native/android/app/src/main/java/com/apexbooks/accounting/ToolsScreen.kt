@@ -10,7 +10,42 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.math.BigDecimal
 
-@Composable fun ToolsScreen(vm:AppModel){val required=if(vm.tool.startsWith("recurring"))"recurring_drafts" else if(vm.tool=="reorder")"low_stock_reorder" else if(vm.tool=="attachments")"document_attachments" else "";if(required.isNotBlank()&&!vm.supports(required)){ActionDialog("Server feature availability",vm,confirm="Done",onDismiss={vm.tool=""},onSave={vm.tool=""}){FeatureUpgradeHint(vm)};return};key(vm.companyId,vm.tool){when(vm.tool){"backup"->if(vm.supports("chunked_backups"))CompleteBackupTool(vm)else BasicTool(vm);"restore"->if(vm.supports("chunked_backups"))CompleteBackupTool(vm)else ImportTool(vm);"attachments"->AttachmentsTool(vm);"recurring","recurring_new","recurring_edit","recurring_occurrence","recurring_review"->RecurringTools(vm);"reorder"->ReorderTool(vm);"branding"->BrandingTool(vm);"vyapar","master_import","statement_import"->ImportTool(vm);"period"->PeriodLockTool(vm);"cashbook"->CashBookTool(vm);"journal"->JournalTool(vm);"members"->MembersTool(vm);else->BasicTool(vm)}}}
+@Composable
+fun ToolsScreen(vm: AppModel) {
+    val required = when {
+        vm.tool.startsWith("recurring") -> "recurring_drafts"
+        vm.tool == "reorder" -> "low_stock_reorder"
+        vm.tool == "attachments" -> "document_attachments"
+        vm.tool == "stock_count" -> "stock_counts"
+        vm.tool == "purchase_receive" -> "purchase_order_receiving"
+        else -> ""
+    }
+    if (required.isNotBlank() && !vm.supports(required)) {
+        ActionDialog("Server feature availability", vm, confirm = "Done", onDismiss = { vm.tool = "" }, onSave = { vm.tool = "" }) {
+            FeatureUpgradeHint(vm)
+        }
+        return
+    }
+    key(vm.companyId, vm.tool) {
+        when (vm.tool) {
+            "backup" -> if (vm.supports("chunked_backups")) CompleteBackupTool(vm) else BasicTool(vm)
+            "restore" -> if (vm.supports("chunked_backups")) CompleteBackupTool(vm) else ImportTool(vm)
+            "attachments" -> AttachmentsTool(vm)
+            "recurring", "recurring_new", "recurring_edit", "recurring_occurrence", "recurring_review" -> RecurringTools(vm)
+            "reorder" -> ReorderTool(vm)
+            "stock_count" -> PhysicalStockCountTool(vm)
+            "purchase_receive" -> PurchaseReceivingTool(vm)
+            "branding" -> BrandingTool(vm)
+            "inventory" -> InventorySetupTool(vm)
+            "vyapar", "master_import", "statement_import" -> ImportTool(vm)
+            "period" -> PeriodLockTool(vm)
+            "cashbook" -> CashBookTool(vm)
+            "journal" -> JournalTool(vm)
+            "members" -> MembersTool(vm)
+            else -> BasicTool(vm)
+        }
+    }
+}
 @Composable private fun ToolInput(values:MutableMap<String,String>,key:String,label:String,number:Boolean=false,password:Boolean=false,multiline:Boolean=false,maximum:Int=500){Field(label,values[key]?:"",{values[key]=it},number=number,password=password,multiline=multiline,maximum=maximum)}
 
 private suspend fun legacyFileExport(vm:AppModel,cid:String,tool:String,values:JSONObject):Boolean {

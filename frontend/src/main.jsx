@@ -1,8 +1,10 @@
 import {refreshRestoredCompany} from './restoreNavigation.js';
 import {setActiveCompanyAccess,allowCompanyRecovery,blockCompanyAccess,captureCompanyAccess} from './companyAccess.js';
 import JournalSource from './JournalSource.jsx';
+import { tidyJournalMemo } from './journalMemo.js';
 import SessionBoundary from './SessionBoundary.jsx';
 import {acceptLocalSession, requireCurrentSession, captureSession} from './sessionScope.js';
+import { companyRequestRecovery } from "./companyRequestRecovery.js";
 import {sessionFetch as fetch} from './sessionScope.js';
 import { businessDate, businessFinancialYear } from "./businessDate.js";
 import { CORE_ENHANCEMENTS, capabilityFeatures, supportsFeature, routeFeature, companyDisplayName } from "./capabilities.js";
@@ -76,6 +78,10 @@ import "./ledger.css";
 import "./rich-workspace.css";
 import "./clarity.css";
 import "./quickbooks-workflows.css";
+import "./pos-register-summary.css";
+import "./pos-counter.css";
+import "./purchase-receiving.css";
+import "./touch-polish.css";
 const ReportsV2 = deferWorkspace(() => import("./Reports.jsx"), "Reports");
 const DayBook = deferWorkspace(() => import("./DayBook.jsx"), "Day book");
 import OverdueReminders, { overdueCount } from "./OverdueReminders.jsx";
@@ -94,6 +100,10 @@ const BankWorkspace = deferWorkspace(() => import("./BankWorkspace.jsx"), "Cash 
 import PaymentAllocations from "./PaymentAllocations.jsx";
 import Advances from "./Advances.jsx";
 import { downloadBlob } from "./downloadBlob.js";
+import { InventorySetupContext, itemSearchText } from "./inventorySetup.js";
+import { useInventorySetupValue } from "./InventorySetupProvider.jsx";
+import InventorySetupSettings from "./InventorySetupSettings.jsx";
+import ItemMeta from "./ItemMeta.jsx";
 
 const sections = [
   { label: "Dashboard", icon: LayoutDashboard, key: "dashboard" },
@@ -183,6 +193,7 @@ const api = async (path, options = {}) => {
     let e = await response.json().catch(() => ({}));
     const error = new Error(apiErrorMessage(response.status, e, mutation));
     error.status = response.status;
+    error.code = response.headers?.get?.("X-Apex-Error");
     throw error;
   }
   return rawResponse ? response : response.json();
@@ -534,8 +545,12 @@ function App() {
     return () => { active = false; };
   }, [signed, capabilityRevision]);
   const company = companies.find((c) => c.id === companyId);
+  const inventorySetup = useInventorySetupValue(api, companyId, features);
   const ledgerDrafts = useRef(new Map());
-  useEffect(() => { if (!signed) ledgerDrafts.current.clear(); }, [signed]);
+  const posDrafts = useRef(new Map());
+  useEffect(() => {
+    if (!signed) { ledgerDrafts.current.clear(); posDrafts.current.clear(); }
+  }, [signed]);
   const acceptedSession = useRef(localStorage.token);
   const activeCompany = useRef(companyId);
   activeCompany.current = companyId;
@@ -550,9 +565,25 @@ function App() {
   const recordsAbort = useRef(null);
   const recordsReady = recordsCompanyId === companyId;
   const records = recordsReady ? rawRecords : EMPTY_RECORDS;
+  const checkedPurchaseRecovery = useRef(null);
+  const receivingSupported = supported("purchase_order_receiving");
+  useEffect(() => {
+    if (!company?.id || !recordsReady || !receivingSupported) return;
+    const token = localStorage.token;
+    if (checkedPurchaseRecovery.current?.companyId === company.id && checkedPurchaseRecovery.current.token === token) return;
+    checkedPurchaseRecovery.current = { companyId: company.id, token };
+    try {
+      const store = companyRequestRecovery(company.id, token, window.sessionStorage, "purchase-receipt");
+      const command = store?.read();
+      if (command) beginDetail({ id: command.orderId });
+    } catch (failure) {
+      setError(failure.message);
+    }
+  }, [company?.id, recordsReady, receivingSupported]);
   useEffect(() => {
     const lost = event => {
       if (event.detail.id !== activeCompany.current) return;
+      posDrafts.current.delete(event.detail.id);
       setAccessLost(true); setRecords([]); setRecordsCompanyId(""); setPartyBalances(null);
       setDetail(null); setActiveParty(null); setRemindOverdue(false); setOpenAfterSave(null);
       editorRequests.current.latest(); setRecordsLoading(false);
@@ -734,8 +765,7 @@ function App() {
   const filtered = scopedRecords
     .filter(
       (r) =>
-        `${r.name} ${r.number} ${r.date}`
-          .toLowerCase()
+        (r.kind === "item" ? `${itemSearchText(r, inventorySetup.setup)} ${r.date}` : `${r.name} ${r.number} ${r.date}`.toLowerCase())
           .includes(search.toLowerCase()) &&
         (activeRegisterFilter === "all" ||
           (activeRegisterFilter === "active" && isActiveMaster(r)) ||
@@ -851,10 +881,10 @@ function App() {
     if (!isCurrent()) return;
     setModal("");
   }
-  async function saveStockAdjustment(body, key) {
+  async function saveStockAdjustment(body, key, countMode = false) {
     if (accessLost || !["owner", "editor"].includes(company?.role)) throw new Error("Posting stock requires owner or editor access. Your draft is preserved.");
     const isCurrent = workspaceScope.current.capture();
-    await api(`/companies/${companyId}/stock/adjustments`, {
+    const saved = await api(`/companies/${companyId}/stock/${countMode ? "counts" : "adjustments"}`, {
       method: "POST",
       headers: { "Idempotency-Key": key },
       body: JSON.stringify(body),
@@ -862,7 +892,8 @@ function App() {
     if (!isCurrent()) return;
     await loadRecords();
     if (!isCurrent()) return;
-    setModal("");
+    if (!countMode) setModal("");
+    return saved;
   }
   function closeRecord(refreshed) {
     setConversionSource(null);
@@ -1020,7 +1051,10 @@ function App() {
   }
   useEffect(() => {
     const beforeUnload = event => {
-      if (hasPendingPostings() || [...ledgerDrafts.current.values()].some(draft => draft.dirty)) { event.preventDefault(); event.returnValue = ""; }
+      if (hasPendingPostings() || [...ledgerDrafts.current.values()].some(draft => draft.dirty) ||
+          [...posDrafts.current.values()].some(draft => draft.cart.length || draft.held.length)) {
+        event.preventDefault(); event.returnValue = "";
+      }
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
@@ -1029,6 +1063,8 @@ function App() {
     if (postingNavigationBlocked()) return;
     if (document.querySelector(".overlay .modal")) return;
     if ([...ledgerDrafts.current.values()].some(draft => draft.dirty) && !window.confirm("Sign out and discard your unsaved journal/account drafts? They are kept only in this tab.")) return;
+    if ([...posDrafts.current.values()].some(draft => draft.cart.length || draft.held.length) &&
+        !window.confirm("Sign out and discard your current and held POS sales? They are kept only in this tab.")) return;
     const token = acceptedSession.current;
     if (localStorage.token !== token) { setError("Your sign-in changed in another tab. Reload before signing out."); return; }
     if (token) {
@@ -1134,7 +1170,7 @@ function App() {
   }, [page, modal, detail]);
   if (!signed) return <Auth onLogin={() => { acceptedSession.current = localStorage.token; setSigned(true); }} />;
   return (
-    <><div className="app" data-company-locked={accessLost ? "true" : "false"} hidden={accessLost} inert={accessLost ? true : undefined}>
+    <InventorySetupContext.Provider value={inventorySetup}><><div className="app" data-company-locked={accessLost ? "true" : "false"} hidden={accessLost} inert={accessLost ? true : undefined}>
       <a className="skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); document.getElementById('workspace-content')?.focus(); }}>Skip to content</a>
       <WorkspaceSidebar open={menu} onClose={() => setMenu(false)}>
         <div className="brand workspace-brand"><span className="workspace-brand-symbol"><BookOpen size={23} /></span><span>Apex<span className="workspace-brand-light">Books</span><small>BUSINESS ACCOUNTING</small></span></div>
@@ -1262,6 +1298,8 @@ function App() {
               <p>If you were invited to an existing company, ask its owner to add this registered email, then refresh.</p>
               <button className="button secondary" onClick={loadCompanies}>Refresh company access</button>
             </section>
+          ) : !company ? (
+            <section className="panel settings-panel" role="status"><p>Loading company access…</p></section>
           ) : routeFeature[page] && !supported(routeFeature[page]) ? (
             <section className="panel settings-panel"><h1>{labels[page]}</h1><p>{capabilities ? "This workflow needs an updated connected API." : "Checking connected API support…"} Core records and existing transactions remain available.</p><button className="button secondary" onClick={() => setCapabilityRevision(value => value + 1)}>Check API support again</button></section>
           ) : page === "recurring" ? (
@@ -1283,7 +1321,7 @@ function App() {
           ) : page === "day_book" ? (
             <DayBook key={companyId} companyId={companyId} records={records} api={api} labels={labels} onOpen={beginDetail} />
           ) : page === "reports" ? (
-            <ReportsV2 companyId={companyId} records={records} />
+            <ReportsV2 companyId={companyId} records={records} showStockHistory={supported("stock_movement_history")} onOpenRecord={beginDetail} />
           ) : page === "dashboard" ? (
             <BusinessOverview
               features={features}
@@ -1302,10 +1340,16 @@ function App() {
               key={companyId}
               company={company}
               records={records}
-              onParty={setActiveParty}
+              recordsReady={recordsReady}
+              booksRevision={booksRevision}
+              capabilitiesReady={!!capabilities}
+              drafts={posDrafts.current}
+              features={features}
               api={api}
-              refresh={loadRecords}
+              refresh={refreshPostedRecords}
               onPdf={downloadDocument}
+              onOpen={beginDetail}
+              onReturn={beginRelated}
             />
           ) : page === "commerce" ? (
             <CommerceWorkspace key={companyId} company={company} records={records} api={api} onPdf={downloadDocument}/>
@@ -1317,6 +1361,7 @@ function App() {
               company={company}
               onAddCompany={() => setModal("company")}
               sections={{
+                ...(supported("inventory_setup") ? { inventory: <InventorySetupSettings api={api} companyId={companyId} canEdit={company?.role === "owner"} /> } : {}),
                 commerce: <><h3>Bagisto integration</h3><p>Connect independent store channels and stock pools to this company. Review orders, deliveries and accounting reconciliation.</p><button type="button" className="primary" onClick={() => navigateWorkspace("commerce")}>Open ecommerce workspace</button></>,
                 company: (
                   <>
@@ -1591,7 +1636,7 @@ function App() {
                           className="button secondary"
                           onClick={() => setModal("stock_adjustment")}
                         >
-                          <Plus size={17} /> Adjust stock
+                          <Plus size={17} /> {supported("stock_counts") ? "Count or adjust stock" : "Adjust stock"}
                         </button>
                       )}
                       <button
@@ -1755,7 +1800,8 @@ function App() {
                               balance={page === "party" && partyBalances?.companyId === companyId ? partyBalances.byId[r.id] || { net: "0" } : undefined}
                               onPdf={downloadDocument}
                               onOpen={beginDetail}
-                              onConvert={["owner", "editor"].includes(company?.role) ? beginConversion : null}
+                              onReceive={r.kind === "purchase_order" && !r.converted_to && supported("purchase_order_receiving") ? beginDetail : null}
+                              onConvert={["owner", "editor"].includes(company?.role) && !(r.kind === "purchase_order" && supported("purchase_order_receiving")) ? beginConversion : null}
                               onRelated={beginRelated}
                               onEdit={
                                 ["owner", "editor"].includes(company?.role)
@@ -1854,7 +1900,7 @@ function App() {
       </main>
       {detail && <TransactionDetail api={api} features={features} record={detail} records={records} company={company} labels={labels}
         loading={detailLoading} error={detailError} onClose={closeDetail} onRetry={() => beginDetail(detail)}
-        onEdit={beginEdit} onRelated={beginRelated} onConvert={beginConversion} onPdf={downloadDocument} onOpen={beginDetail} onCancelDocument={cancelDocument} onManageCredits={record => navigateWorkspace(record.kind === "debit_note" ? "payment_out" : "payment_in", "", "all", true, true)} />}
+        onEdit={beginEdit} onRelated={beginRelated} onConvert={beginConversion} onPdf={downloadDocument} onOpen={beginDetail} onCancelDocument={cancelDocument} onRefresh={refreshPostedRecords} onManageCredits={record => navigateWorkspace(record.kind === "debit_note" ? "payment_out" : "payment_in", "", "all", true, true)} />}
       {remindOverdue && company && <OverdueReminders records={records} company={company} onClose={() => setRemindOverdue(false)} />}
       {activeParty && (
         <PartyStatement
@@ -1932,6 +1978,10 @@ function App() {
       )}
       {modal === "stock_adjustment" && (
         <StockAdjustment
+          api={api}
+          companyId={companyId}
+          canCount={supported("stock_counts")}
+          onOpenCount={(record) => { setModal(""); void beginDetail(record); }}
           readOnly={Boolean(accessLost) || !["owner", "editor"].includes(company?.role)}
           items={records.filter(
             (r) => r.kind === "item" && r.data?.track_stock,
@@ -1940,7 +1990,7 @@ function App() {
           save={saveStockAdjustment}
         />
       )}
-    </div>{accessLost && <div className="overlay"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="company-access-title"><h2 id="company-access-title">Company access removed or unavailable</h2><p>This company workspace is locked. Your unsaved draft remains in memory in this tab; no draft has been discarded.</p><p role="alert">{error || 'Refresh access after the company owner restores your permissions.'}</p><button className="button primary" disabled={accessRecovering} onClick={recoverCompanyAccess}>{accessRecovering ? 'Checking access…' : 'Refresh company access'}</button></section></div>}</>
+    </div>{accessLost && <div className="overlay"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="company-access-title"><h2 id="company-access-title">Company access removed or unavailable</h2><p>This company workspace is locked. Your unsaved draft remains in memory in this tab; no draft has been discarded.</p><p role="alert">{error || 'Refresh access after the company owner restores your permissions.'}</p><button className="button primary" disabled={accessRecovering} onClick={recoverCompanyAccess}>{accessRecovering ? 'Checking access…' : 'Refresh company access'}</button></section></div>}</></InventorySetupContext.Provider>
   );
 }
 function Prefixes({ companyId, role }) {
@@ -2372,10 +2422,9 @@ function Ledger({ companyId, role, onOpen, drafts }) {
       {error && <div className="error banner" role="alert">{error}</div>}
       {Object.entries(uncertainty).filter(([,pending]) => pending.length).map(([operation]) => <div key={operation} className="info-box" role="alert" data-ledger-uncertainty={operation}><strong>{operation === 'account' ? 'Account creation' : operation === 'journal' ? 'Journal posting' : 'Journal reversal'} result not confirmed.</strong> Check {operation === 'account' ? 'the chart of accounts' : 'journal history'} before changing {operation === 'account' ? 'the account code or creating another account' : 'the reference or posting again'}; the previous request may have completed. Refreshing or submitting another form does not resolve this result. {memoryPostingRecoveryMessage}</div>)}
       <div className="info-box ledger-note">
-        New invoices, bills, payments, notes, POS sales and expenses post to the
-        ledger automatically. Older prototype records remain unposted.
+        <p>Invoices, bills, payments, notes, POS sales and expenses post to the ledger automatically. Records created before automatic posting stay unposted.</p>
+        <p>Unsaved journal and account drafts are kept for each company while you stay in this tab. Reloading or signing out discards them.</p>
       </div>
-      <p className="info-box">Unsaved journal and account drafts are kept separately for each company while you navigate in this tab. Reloading or signing out discards them.</p>
       {!reversing && reversalRecovery}
       <div className="ledger-grid">
         <section className="panel settings-panel">
@@ -2529,7 +2578,7 @@ function Ledger({ companyId, role, onOpen, drafts }) {
             <div className="journal-entry" key={j.id}>
               <JournalSource journal={j} onOpen={onOpen} />
               <span>
-                {j.date} {j.memo && ` · ${j.memo}`}
+                {j.date} {tidyJournalMemo(j) && ` · ${tidyJournalMemo(j)}`}
                 {j.reversed_by
                   ? " · Reversed"
                   : j.reversal_of
@@ -2696,7 +2745,7 @@ function PaymentAllocationSummary({ record, records }) {
     </details>
   );
 }
-function RecordActions({ r, onEdit, onPdf, onConvert, onRelated }) {
+function RecordActions({ r, onEdit, onPdf, onConvert, onRelated, onReceive }) {
   const editable =
     onEdit &&
     (["party", "item"].includes(r.kind) ||
@@ -2715,7 +2764,7 @@ function RecordActions({ r, onEdit, onPdf, onConvert, onRelated }) {
         "payment_out",
         "bank_transfer",
       ].includes(r.kind) &&
-        !r.converted_to));
+        !r.converted_to && !r.data?.purchase_order_receiving_started));
   const downloadable =
     [
       ...documentKinds,
@@ -2730,6 +2779,7 @@ function RecordActions({ r, onEdit, onPdf, onConvert, onRelated }) {
     ["estimate", "proforma", "sales_order", "purchase_order"].includes(r.kind);
   // QuickBooks pattern: one primary action in the row, everything else in a menu.
   const actions = [
+    ...(onReceive ? [{ key: "receiving", label: "Receiving", run: () => onReceive(r) }] : []),
     ...(onRelated ? relatedRecordActions(r, !!onEdit) : []).map((action) => ({
       key: action.kind,
       label: action.label,
@@ -2768,12 +2818,14 @@ function RecordActions({ r, onEdit, onPdf, onConvert, onRelated }) {
     </div>
   );
 }
-function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, records, onParty, balance }) {
+function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, onReceive, records, onParty, balance }) {
   if (!["party", "item"].includes(r.kind)) {
     const invoice = ["sales_invoice", "purchase_bill", "pos"].includes(r.kind);
     const balance = Number(r.outstanding || 0);
     const status = r.cancelled ? "Cancelled" : r.converted_to
       ? "Converted"
+      : r.kind === "purchase_order" && r.data?.purchase_order_receiving_started
+        ? "Receiving started"
       : ["estimate", "proforma", "sales_order", "purchase_order"].includes(r.kind)
         ? "Open draft"
         : r.posted === false ? "Legacy · unposted" : "Posted";
@@ -2842,6 +2894,7 @@ function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, records, on
             onPdf={onPdf}
             onConvert={onConvert}
             onRelated={onRelated}
+            onReceive={onReceive}
           />
         </td>
       </tr>
@@ -2858,6 +2911,10 @@ function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, records, on
                 src={r.data.image_thumbnail}
                 alt={r.name}
               />
+            ) : r.kind === "party" ? (
+              <UsersRound size={16} />
+            ) : r.kind === "item" ? (
+              <Package size={16} />
             ) : (
               <FileText size={16} />
             )}
@@ -2902,6 +2959,7 @@ function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, records, on
                 r.data?.gst_rate !== undefined && r.data?.gst_rate !== "" ? `GST ${r.data.gst_rate}%` : "",
               ].filter(Boolean).join(" · ") || "—"
             : new Date(r.date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+        {r.kind === "item" && <ItemMeta record={r} />}
       </td>
       <td>
         <span className="pill">

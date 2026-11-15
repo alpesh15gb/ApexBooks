@@ -28,6 +28,7 @@ private data class SettingGroup(val title:String,val detail:String,val actions:L
         }))
         if(vm.isOwner){
             add(SettingGroup("Documents & branding","Company logo, signature, bank / UPI details and five formats.",listOf("Logo, signature and formats" to {tool("branding")},"Transaction prefixes" to {tool("prefixes")})))
+            if(vm.supports("inventory_setup"))add(SettingGroup("Stock & modules","Item locations such as Rack 1, and the optional Automobile module with vehicle makes and models.",listOf("Locations & Automobile" to {tool("inventory")})))
             add(SettingGroup("Accounting","Opening balances and accounting period controls.",listOf("Opening balances" to {tool("openings")},"Accounting period lock" to {tool("period")})))
             add(SettingGroup("Data & migration","Import, export and protect your books. Vyapar includes reconciliation; backup restore creates a separate company.",listOf("Import Vyapar .vyb backup" to {tool("vyapar")},"Import parties / items CSV" to {tool("master_import")},"Export company data" to {tool("data_export")},"Download backup" to {tool("backup")},"Restore company backup" to {tool("restore")})))
             add(SettingGroup("People & access","Manage company roles and permissions.",listOf("Company members" to {tool("members")})))
@@ -44,7 +45,7 @@ private data class SettingGroup(val title:String,val detail:String,val actions:L
             Text(group.title.uppercase(),style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant,fontWeight=FontWeight.Bold)
             Surface(shape=RoundedCornerShape(20.dp),color=Color.White){Column{
                 group.actions.filter{query.isBlank()||(group.title+" "+group.detail+" "+it.first).contains(query.trim(),true)}.forEachIndexed{index,(label,action)->
-                    NativeActionRow(label,icon=when(group.title){"Company"->Icons.Outlined.Business;"Documents & branding"->Icons.Outlined.Palette;"Data & migration"->Icons.Outlined.CloudUpload;"People & access"->Icons.Outlined.People;"Account security"->Icons.Outlined.Shield;"Ecommerce"->Icons.Outlined.ShoppingBag;else->Icons.Outlined.AccountBalance},onClick=action)
+                    NativeActionRow(label,icon=when(group.title){"Company"->Icons.Outlined.Business;"Documents & branding"->Icons.Outlined.Palette;"Data & migration"->Icons.Outlined.CloudUpload;"People & access"->Icons.Outlined.People;"Account security"->Icons.Outlined.Shield;"Ecommerce"->Icons.Outlined.ShoppingBag;"Stock & modules"->Icons.Outlined.Inventory2;else->Icons.Outlined.AccountBalance},onClick=action)
                     if(index<group.actions.lastIndex)HorizontalDivider(Modifier.padding(start=74.dp))
                 }
             }}

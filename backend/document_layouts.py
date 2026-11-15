@@ -171,7 +171,13 @@ def render_document(record, supplier, branding, template, title, paid=Decimal('0
         if adjustments:
             used_text+='\n'+('Credit notes / adjustments' if record.kind=='sales_invoice' else 'Debit notes / adjustments')+': INR '+format_inr(adjustments)
     elements.append(table([[p(used_text,right),p(remaining_label+': INR ' + format_inr(max(Decimal('0'),record.amount-paid)),right)]],[width/2]*2,grid))
-    if record.kind=='pos' and data.get('payment_account','cash')=='cash':elements.append(table([[p('Cash tendered: INR '+str(data.get('tender_amount',record.amount))),p('Change: INR '+str(data.get('change_amount','0')),right)]],[width/2]*2,grid))
+    if record.kind == 'pos' and data.get('payment_account', 'cash') in ('cash', 'split'):
+        rows = [[p('Cash tendered: INR ' + str(data.get('tender_amount', record.amount))),
+                 p('Change: INR ' + str(data.get('change_amount', '0')), right)]]
+        if data.get('payment_account') == 'split':
+            rows.insert(0, [p('Paid in cash: INR ' + format_inr(data['cash_amount'])),
+                            p('Paid by bank / UPI / card: INR ' + format_inr(data['bank_amount']), right)])
+        elements.append(table(rows, [width/2] * 2, grid))
     bank = [p('Bank details',bold)] + [p(label + ': ' + branding[key]) for key,label in [('bank_name','Bank'),('account_number','Account #'),('ifsc','IFSC'),('branch','Branch')] if branding.get(key)]
     qr = ''
     payable=max(Decimal('0'),record.amount-paid)
@@ -247,7 +253,10 @@ def render_thermal(record, supplier, branding, template, title, paid=Decimal('0'
     if Decimal(str(data.get('round_off', 0))): els.append(pair('Round off', format_inr(data['round_off'])))
     els.append(pair('TOTAL', 'INR ' + format_inr(record.amount), bold, grand))
     payable = max(Decimal('0'), record.amount - paid)
-    if record.kind == 'pos' and data.get('payment_account', 'cash') == 'cash':
+    if record.kind == 'pos' and data.get('payment_account', 'cash') in ('cash', 'split'):
+        if data.get('payment_account') == 'split':
+            els += [pair('Paid in cash', format_inr(data['cash_amount'])),
+                    pair('Bank / UPI / card', format_inr(data['bank_amount']))]
         els += [pair('Cash tendered', format_inr(data.get('tender_amount', record.amount))), pair('Change', format_inr(data.get('change_amount', '0')))]
     elif record.kind == 'pos':
         els.append(pair('Paid by', 'Bank / UPI / card'))

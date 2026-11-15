@@ -25,7 +25,7 @@ fun today(): String = businessDate().toString()
 fun financialStart(): String = businessDate().let { "${if (it.monthValue >= 4) it.year else it.year - 1}-04-01" }
 fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
 
-class ApiFailure(val status: Int, message: String) : Exception(message)
+class ApiFailure(val status: Int, message: String, val code: String? = null) : Exception(message)
 
 /** All accounting is posted by the shared API. This client holds no database or AI-provider keys. */
 class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? = null) {
@@ -94,7 +94,7 @@ class ApexApi(val origin: String = PRODUCTION, private val vault: SessionVault? 
                 val message = runCatching { val value = JSONObject(detail).opt("detail"); if (value is JSONArray) value.objects().joinToString("\n") { it.s("msg") } else value?.toString() }.getOrNull() ?: "The request could not be completed."
                 val challenge=path.substringBefore('?') in setOf("/api/auth/login","/api/auth/change-password","/api/auth/recovery-codes")
                 val expired=code==401&&!challenge&&invalidate(stamp)
-                throw ApiFailure(code, if (expired) "Your session has ended. Sign in again." else message)
+                throw ApiFailure(code, if (expired) "Your session has ended. Sign in again." else message, connection.getHeaderField("X-Apex-Error"))
             }
             verifyResponse(path,stamp)
             val received=connection.inputStream.use { input -> if(maximumResponse==null)input.readBytes() else {val out=java.io.ByteArrayOutputStream();val buffer=ByteArray(16384);while(true){val count=input.read(buffer);if(count<0)break;verifyResponse(path,stamp);if(out.size().toLong()+count>maximumResponse)throw ApiFailure(502,"The server response exceeds the allowed file or chunk size.");out.write(buffer,0,count)};out.toByteArray()} }

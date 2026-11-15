@@ -17,6 +17,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +40,11 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
 }
 
 @Composable fun DashboardScreen(vm:AppModel){
+    val context=LocalContext.current
+    val amountPreference=remember{AmountPrivacyPreference(context)}
+    var hidden by remember{mutableStateOf(amountPreference.hidden)}
+    var revealing by remember{mutableStateOf(false)}
+    fun shown(text:String)=AmountPrivacy.text(hidden,text)
     var setupExpanded by rememberSaveable { mutableStateOf(false) }
     var period by rememberSaveable{mutableStateOf("year")}
     var summary by remember{mutableStateOf<JSONObject?>(null)}
@@ -68,12 +74,16 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
                 for((key,label)in listOf("year" to "Financial year","month" to "This month","30days" to "30 days"))FilterChip(selected=period==key,onClick={period=key},label={Text(label,style=MaterialTheme.typography.labelMedium)})
             }
+            // Hiding needs no password; showing again asks for the account password, which the server checks.
+            if(vm.supports("password_reveal")||hidden)IconButton(onClick={if(hidden)revealing=true else{amountPreference.hidden=true;hidden=true}}){
+                Icon(if(hidden)Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,if(hidden)"Show amounts" else "Hide amounts")
+            }
         }}
         item{MetricGrid(listOf(
-            "Net sales" to (summary?.let{money(it.s("sales"))}?:"—"),
-            "Net profit" to (financial?.let{money(it.s("net_profit"))}?:"—"),
-            "To collect · to date" to (summary?.let{money(it.s("receivables"))}?:"—"),
-            "To pay · to date" to (summary?.let{money(it.s("payables"))}?:"—")
+            "Net sales" to (summary?.let{shown(money(it.s("sales")))}?:"—"),
+            "Net profit" to (financial?.let{shown(money(it.s("net_profit")))}?:"—"),
+            "To collect · to date" to (summary?.let{shown(money(it.s("receivables")))}?:"—"),
+            "To pay · to date" to (summary?.let{shown(money(it.s("payables")))}?:"—")
         ))}
         if(vm.canWrite&&vm.recordsReady)item{Section("Everyday tasks"){
             AdaptiveActions{
@@ -105,40 +115,51 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
         val overdue=invoices.filter{it.decimal("outstanding").signum()>0&&it.o("data").s("due_date").isNotBlank()&&it.o("data").s("due_date")<today()}.sortedBy{it.o("data").s("due_date")}
         if(overdue.isNotEmpty())item{Section("Needs attention · ${overdue.size} overdue"){
             Text("Open an invoice to record a receipt or review the balance.",style=MaterialTheme.typography.bodySmall)
-            overdue.take(3).forEach{row->TextButton(onClick={vm.detail=row},modifier=Modifier.fillMaxWidth()){Text("${row.s("number")} · ${row.s("name")} · ${money(row.s("outstanding"))} due")}}
+            overdue.take(3).forEach{row->TextButton(onClick={vm.detail=row},modifier=Modifier.fillMaxWidth()){Text("${row.s("number")} · ${row.s("name")} · ${shown(money(row.s("outstanding")))} due")}}
             if(overdue.size>3)TextButton(onClick={vm.navigate("sales_invoice")}){Text("View all sales invoices →")}
         }}
         if(vm.recordsReady)item{FoldSection("Planning tools"){NativeActionRow("Recurring drafts", "Review upcoming repeat invoices and bills", Icons.Outlined.Repeat) { vm.toolData=null;vm.tool="recurring" };NativeActionRow("Low stock review", "See items that need reordering", Icons.Outlined.Inventory2) { vm.tool="reorder" }}}
-        if(vm.recordsReady)item{Section("Sales & purchases"){MonthlyPerformance(vm.records,start,end);Text("Posted invoice values, including GST where applicable",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
+        if(vm.recordsReady)item{Section("Sales & purchases"){if(hidden)HiddenChartNote() else MonthlyPerformance(vm.records,start,end);Text("Posted invoice values, including GST where applicable",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
         if(vm.recordsReady)item{Section("Invoice collections"){
             Text("GET PAID",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             val fraction=if(issued>BigDecimal.ZERO)(settled.toFloat()/issued.toFloat()).coerceIn(0f,1f)else 0f
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(18.dp)){
                 Box(Modifier.size(126.dp),contentAlignment=Alignment.Center){CircularProgressIndicator(progress={fraction},modifier=Modifier.fillMaxSize(),strokeWidth=12.dp,color=ApexGreen,trackColor=Color(0xFFE1E6ED));Column(horizontalAlignment=Alignment.CenterHorizontally){Text("${(fraction*100).toInt()}%",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold);Text("settled",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
-                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("Settled",style=MaterialTheme.typography.bodySmall);Text(money(settled),fontWeight=FontWeight.SemiBold);Text("Outstanding",style=MaterialTheme.typography.bodySmall);Text(money(outstanding),fontWeight=FontWeight.SemiBold)}
+                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("Settled",style=MaterialTheme.typography.bodySmall);Text(shown(money(settled)),fontWeight=FontWeight.SemiBold);Text("Outstanding",style=MaterialTheme.typography.bodySmall);Text(shown(money(outstanding)),fontWeight=FontWeight.SemiBold)}
             }
             Text("Invoices through today · payments, advances and credits included.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick={vm.navigate("sales_invoice")}){Text("View sales invoices  →")}
         }}
         item{FoldSection("Profit & loss details"){
-            Text(financial?.let{money(it.s("net_profit"))}?:"—",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold)
+            Text(financial?.let{shown(money(it.s("net_profit")))}?:"—",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold)
             Text("Net profit for this period",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            for((key,label)in listOf("income" to "Income","expenses" to "Costs & expenses"))Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(label);Text(financial?.let{money(it.s(key))}?:"—",fontWeight=FontWeight.Medium)}
+            for((key,label)in listOf("income" to "Income","expenses" to "Costs & expenses"))Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(label);Text(financial?.let{shown(money(it.s(key)))}?:"—",fontWeight=FontWeight.Medium)}
             TextButton(onClick={vm.navigate("reports")}){Text("Explore reports  →")}
         }}
         if(vm.recordsReady)item{Section("Cash & bank balances"){
-            for(account in accounts)Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(account.s("name"),Modifier.weight(1f));Text(money(account.s("closing_balance")),fontWeight=FontWeight.Medium)}
+            for(account in accounts)Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(account.s("name"),Modifier.weight(1f));Text(shown(money(account.s("closing_balance"))),fontWeight=FontWeight.Medium)}
             TextButton(onClick={vm.navigate("bank")}){Text("Manage cash & bank  →")}
         }}
         if(vm.regular)item{Section("GST position · to date"){
-            Text(gst?.let{money(it.s("cash_total"))}?:"—",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold,color=ApexGreen)
+            Text(gst?.let{shown(money(it.s("cash_total")))}?:"—",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold,color=ApexGreen)
             Text("Estimated GST payable",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            for((key,label)in listOf("output" to "Output GST","book_itc" to "Input from entered bills")){val total=gst?.o(key)?.let{o->o.keys().asSequence().fold(BigDecimal.ZERO){sum,k->sum+o.decimal(k)}};Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(label);Text(total?.let{money(it)}?:"—",fontWeight=FontWeight.Medium)}}
+            for((key,label)in listOf("output" to "Output GST","book_itc" to "Input from entered bills")){val total=gst?.o(key)?.let{o->o.keys().asSequence().fold(BigDecimal.ZERO){sum,k->sum+o.decimal(k)}};Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(label);Text(total?.let{shown(money(it))}?:"—",fontWeight=FontWeight.Medium)}}
             Text("Estimate from entered bills. Verify ITC eligibility and GSTR-2B before filing.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }}else item{Section("Your tax settings"){Text(if(vm.company.s("tax_mode")=="composition")"Composition accounting is active. Review composition reports for your liability."else"Non-GST accounting is active. Documents use your non-GST settings.")}}
         item{Heading("Recent activity")}
-        items(vm.records.filter{it.s("kind") !in setOf("party","item","bank_account")}.take(8),key={it.s("id")}){RecordCard(vm,it)}
+        items(vm.records.filter{it.s("kind") !in setOf("party","item","bank_account")}.take(8),key={it.s("id")}){RecordCard(vm,it,maskAmounts=hidden)}
         item{Spacer(Modifier.height(8.dp))}
+    }
+    if(revealing)RevealAmountsDialog(vm,onRevealed={amountPreference.hidden=false;hidden=false;revealing=false},onDismiss={revealing=false})
+}
+
+@Composable private fun HiddenChartNote(){
+    Box(Modifier.fillMaxWidth().height(140.dp),contentAlignment=Alignment.Center){
+        Column(horizontalAlignment=Alignment.CenterHorizontally){
+            Icon(Icons.Outlined.VisibilityOff,null,tint=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Chart hidden",style=MaterialTheme.typography.titleSmall)
+            Text("Show amounts to see sales and purchases.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

@@ -5,7 +5,14 @@ namespace ApexBooks_Windows.Services;
 
 public sealed class ClientCapabilities
 {
-    private static readonly HashSet<string> Known=["master_create_idempotency","bank_import_receipts","master_import_receipts","low_stock_reorder","party_price_history","party_payment_terms","master_lifecycle","party_shipping_address","party_credit_limits","recurring_drafts","company_book_labels","document_attachments","chunked_backups","document_cancellation","payment_at_entry","financial_statements","party_balances","day_book","thermal_receipts"];
+    private static readonly HashSet<string> Known=[
+        "master_create_idempotency","bank_import_receipts","master_import_receipts","low_stock_reorder",
+        "party_price_history","party_payment_terms","master_lifecycle","party_shipping_address","party_credit_limits",
+        "recurring_drafts","company_book_labels","document_attachments","chunked_backups","document_cancellation",
+        "payment_at_entry","financial_statements","party_balances","day_book","thermal_receipts",
+        "stock_counts","pos_split_tender","pos_require_available_stock","pos_register_sessions","pos_stock_summary",
+        "purchase_order_receiving","password_reveal","inventory_setup",
+    ];
     private readonly HashSet<string> features;
     private JsonObject limits=new();
     public string ApiVersion {get;private set;}="unknown";
@@ -40,7 +47,7 @@ public sealed class ClientCapabilities
     public JsonObject MasterData(JsonObject original)
     {
         var copy=(JsonObject)original.DeepClone();
-        foreach(var (field,feature) in new[]{("low_stock_threshold","low_stock_reorder"),("payment_terms_days","party_payment_terms"),("is_active","master_lifecycle"),("shipping_address","party_shipping_address"),("credit_limit","party_credit_limits")})if(!Supports(feature))copy.Remove(field);
+        foreach(var (field,feature) in new[]{("low_stock_threshold","low_stock_reorder"),("payment_terms_days","party_payment_terms"),("is_active","master_lifecycle"),("shipping_address","party_shipping_address"),("credit_limit","party_credit_limits"),("location_ids","inventory_setup"),("vehicle_fitment","inventory_setup"),("oem_number","inventory_setup"),("part_brand","inventory_setup"),("part_grade","inventory_setup")})if(!Supports(feature))copy.Remove(field);
         return copy;
     }
     public static string CompanyLabel(JsonNode? company)=>company.Text("name")+(company.Text("book_label").Trim() is {Length:>0} label?" · "+label:"");

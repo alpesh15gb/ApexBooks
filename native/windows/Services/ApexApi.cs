@@ -7,9 +7,11 @@ using Windows.Security.Credentials;
 
 namespace ApexBooks_Windows.Services;
 
-public sealed class ApiFailure(int status, string message) : Exception(message)
+public sealed class ApiFailure(int status, string message, string? code = null) : Exception(message)
 {
     public int Status { get; } = status;
+    /// <summary>Stable machine-readable reason from the X-Apex-Error response header, if the server sent one.</summary>
+    public string? Code { get; } = code;
 }
 
 public static class J
@@ -133,7 +135,8 @@ public sealed class ApexApi : IDisposable
         {
             using var response = await http.SendAsync(request, cancellation).ConfigureAwait(false);
             var content = await response.Content.ReadAsStringAsync(cancellation).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode) throw Failure(response.StatusCode,content,sentToken,generation,path is "/api/auth/login" or "/api/auth/change-password" or "/api/auth/recovery-codes");
+            if (!response.IsSuccessStatusCode) throw Failure(response.StatusCode,content,sentToken,generation,path is "/api/auth/login" or "/api/auth/change-password" or "/api/auth/recovery-codes",
+                response.Headers.TryGetValues("X-Apex-Error", out var codes) ? codes.FirstOrDefault() : null);
             if(path.TrimStart('/').Split('?')[0]!="api/auth/login")verifySession();
             var result = string.IsNullOrWhiteSpace(content) ? new JsonObject() : JsonNode.Parse(content) ?? new JsonObject();
             // Login owns a separate attempt sequence and checks it before installing a token.
@@ -144,7 +147,7 @@ public sealed class ApexApi : IDisposable
         catch (TaskCanceledException) when (!cancellation.IsCancellationRequested) { throw new ApiFailure(0, "The server took too long to respond. Retry this same save before creating another transaction."); }
     }
 
-    private ApiFailure Failure(HttpStatusCode status,string content,string sentToken,int generation,bool credentialChallenge=false)
+    private ApiFailure Failure(HttpStatusCode status,string content,string sentToken,int generation,bool credentialChallenge=false,string? code=null)
     {
         var message = "The request could not be completed.";
         try
@@ -155,7 +158,7 @@ public sealed class ApexApi : IDisposable
         catch { }
         var expired=false;lock(sessionGate){if(status==HttpStatusCode.Unauthorized&&sentToken.Length>0&&sessionToken==sentToken&&capabilityGeneration==generation&&!credentialChallenge){ForgetSession();expired=true;}}
         if(expired){SessionExpired?.Invoke();message="Your session has ended. Sign in again.";}
-        return new ApiFailure((int)status, message);
+        return new ApiFailure((int)status, message, code);
     }
 
     public async Task<byte[]> Download(string path)

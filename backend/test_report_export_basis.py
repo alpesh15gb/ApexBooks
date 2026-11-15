@@ -1,5 +1,6 @@
 import io,unittest
 from pathlib import Path
+from tempfile import gettempdir
 from decimal import Decimal
 from openpyxl import load_workbook
 from pypdf import PdfReader
@@ -12,7 +13,7 @@ class ReportExportBasisTest(unittest.TestCase):
   self.assertIn(note,text);self.assertIn('Currency: INR',text)
   xlsx=c.get(path+'.xlsx',headers=h,params=params);xlsx.raise_for_status();book=load_workbook(io.BytesIO(xlsx.content));notes=' '.join(str(row[0]) for row in book['Report notes'].values)
   self.assertIn(note,notes);self.assertIn('Currency: INR',notes)
-  directory=Path('/tmp/apex-report-basis-pdfs');directory.mkdir(exist_ok=True);(directory/(name+'.pdf')).write_bytes(pdf.content)
+  directory=Path(gettempdir())/'apex-report-basis-pdfs';directory.mkdir(exist_ok=True);(directory/(name+'.pdf')).write_bytes(pdf.content)
   return reader,text,book
  def test_empty_and_populated_statements_retain_basis_and_numeric_values(self):
   c,h,b=test_completion.CompletionTest.client_context(self,'unregistered');params={'from_date':'2026-04-01','to_date':'2026-04-30'}

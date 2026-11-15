@@ -89,17 +89,18 @@ public sealed partial class MainPage
     private Task PreviewDocument(JsonObject row)=>ShowDocumentPdf(row,"");
     private async Task ShowDocumentPdf(JsonObject row,string template)
     {
-        var cid=CompanyId;var stamp=generation;var exportAccess=CaptureFileSaveAccess();var path=Api.CompanyPath(cid,$"/documents/{row.Text("id")}.pdf")+(template.Length>0?"?template="+template:"");await ScopedFileExport.Download(exportAccess,()=>Api.Download(path),null,async(bytes,verify)=>{if(stamp!=generation||cid!=CompanyId)return false;await ShowPdf(bytes,Friendly(row.Text("kind"))+" "+row.Text("number")+".pdf",row,verify);return true;});
+        var cid=CompanyId;var stamp=generation;var exportAccess=CaptureFileSaveAccess();var path=Api.CompanyPath(cid,$"/documents/{row.Text("id")}.pdf")+(template.Length>0?"?template="+template:"");await ScopedFileExport.Download(exportAccess,()=>Api.Download(path),null,async(bytes,verify)=>{if(stamp!=generation||cid!=CompanyId)return false;await ShowPdf(bytes,Friendly(row.Text("kind"))+" "+row.Text("number")+".pdf",row,verify,template);return true;});
     }
 
-    private async Task ShowPdf(byte[] bytes,string filename,JsonObject? record=null,Action? originalAccess=null)
+    private async Task ShowPdf(byte[] bytes,string filename,JsonObject? record=null,Action? originalAccess=null,string selectedTemplate="")
     {
         async Task<BitmapImage> Render(byte[] source,int page){var png=(await ApexPrinter.Raster(source,1400,page))[0];using var bitmapStream=new InMemoryRandomAccessStream();using(var writer=new DataWriter(bitmapStream)){writer.WriteBytes(png);await writer.StoreAsync();writer.DetachStream();}bitmapStream.Seek(0);var bitmap=new BitmapImage();await bitmap.SetSourceAsync(bitmapStream);return bitmap;}
         var cid=CompanyId;var stamp=generation;var exportAccess=originalAccess??CaptureFileSaveAccess();bool closed=false;
         void PreviewAccess(){exportAccess();if(closed||stamp!=generation||cid!=CompanyId)throw new InvalidOperationException("This PDF preview is no longer active.");}
         bool Current()=>ScopedFileExport.Current(PreviewAccess);
         if(!Current())return;
-        var count=await ApexPrinter.PageCount(bytes);if(!Current())return;var image=new Image{Source=await Render(bytes,0),Width=720,Stretch=Stretch.Uniform};var caption=Text($"Page 1 of {count}");var index=0;var renderSequence=0;var panel=Stack();panel.MinWidth=760;var toolbar=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};
+        double PageWidth(string template) => template.StartsWith("thermal_", StringComparison.Ordinal) ? 350 : 720;
+        var count=await ApexPrinter.PageCount(bytes);if(!Current())return;var image=new Image{Source=await Render(bytes,0),Width=PageWidth(selectedTemplate),Stretch=Stretch.Uniform};var caption=Text($"Page 1 of {count}");var index=0;var renderSequence=0;var panel=Stack();panel.MinWidth=760;var toolbar=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};
         Button? previousButton=null,nextButton=null;string? externalAction=null;
         void Paging(){if(previousButton is not null)previousButton.IsEnabled=index>0;if(nextButton is not null)nextButton.IsEnabled=index+1<count;}
         async Task Draw(){if(!Current())return;var current=++renderSequence;try{var result=await Render(bytes,index);if(current!=renderSequence||!Current())return;image.Source=result;caption.Text=$"Page {index+1} of {count}";Paging();}catch(Exception)when(!Current()) {}}
@@ -108,7 +109,60 @@ public sealed partial class MainPage
         toolbar.Children.Add(AsyncButton("Save PDF",async()=>{await ScopedFileExport.Run(PreviewAccess,()=>ApexFiles.Save(bytes,filename,PreviewAccess));},Error));
         toolbar.Children.Add(Button("Share PDF",()=>{if(!Current())return;externalAction="share";CloseDialog();}));
         toolbar.Children.Add(Button("Print",()=>{if(!Current())return;externalAction="print";CloseDialog();}));panel.Children.Add(toolbar);
-        if(record is not null){var template=Select("Document format",[("","Company default"),("modern","Modern"),("vintage","Vintage"),("mrp_discount","MRP + discount"),("elegant","Elegant"),("evergreen","Evergreen")]);panel.Children.Add(template);var loadedIndex=template.SelectedIndex;var reverting=false;template.SelectionChanged+=async(_,_)=>{if(reverting||!Current())return;template.IsEnabled=false;++renderSequence;foreach(var action in toolbar.Children.OfType<Button>())action.IsEnabled=false;caption.Text="Loading format…";try{var selection=Value(template);var next=await Api.Download(Api.CompanyPath(cid,$"/documents/{record.Text("id")}.pdf")+(selection.Length>0?"?template="+selection:""));if(!Current())return;var bitmap=await Render(next,0);if(!Current())return;var pageCount=await ApexPrinter.PageCount(next);if(!Current())return;loadedIndex=template.SelectedIndex;bytes=next;count=pageCount;index=0;image.Source=bitmap;}catch(Exception e){if(Current()){reverting=true;template.SelectedIndex=loadedIndex;reverting=false;Error(e);}}finally{if(Current()){template.IsEnabled=true;caption.Text=$"Page {index+1} of {count}";foreach(var action in toolbar.Children.OfType<Button>())action.IsEnabled=true;Paging();}}};}
+        if (record is not null)
+        {
+            var formats = new List<(string, string)> { ("", "Company default"), ("modern", "Modern"),
+                ("vintage", "Vintage"), ("mrp_discount", "MRP + discount"), ("elegant", "Elegant"), ("evergreen", "Evergreen") };
+            if (record.Text("kind") == "pos" && Supports("thermal_receipts"))
+                formats.AddRange([("thermal_80", "80 mm receipt"), ("thermal_58", "58 mm receipt")]);
+            var template = Select("Document format", formats, selectedTemplate);
+            panel.Children.Add(template);
+            var loadedIndex = template.SelectedIndex;
+            var reverting = false;
+            template.SelectionChanged += async (_, _) =>
+            {
+                if (reverting || !Current()) return;
+                template.IsEnabled = false;
+                ++renderSequence;
+                foreach (var action in toolbar.Children.OfType<Button>()) action.IsEnabled = false;
+                caption.Text = "Loading format…";
+                try
+                {
+                    var selection = Value(template);
+                    var next = await Api.Download(Api.CompanyPath(cid, $"/documents/{record.Text("id")}.pdf")
+                        + (selection.Length > 0 ? "?template=" + selection : ""));
+                    if (!Current()) return;
+                    var bitmap = await Render(next, 0);
+                    if (!Current()) return;
+                    var pageCount = await ApexPrinter.PageCount(next);
+                    if (!Current()) return;
+                    loadedIndex = template.SelectedIndex;
+                    bytes = next;
+                    count = pageCount;
+                    index = 0;
+                    image.Width = PageWidth(selection);
+                    image.Source = bitmap;
+                }
+                catch (Exception error)
+                {
+                    if (!Current()) return;
+                    reverting = true;
+                    template.SelectedIndex = loadedIndex;
+                    reverting = false;
+                    Error(error);
+                }
+                finally
+                {
+                    if (Current())
+                    {
+                        template.IsEnabled = true;
+                        caption.Text = $"Page {index + 1} of {count}";
+                        foreach (var action in toolbar.Children.OfType<Button>()) action.IsEnabled = true;
+                        Paging();
+                    }
+                }
+            };
+        }
         panel.Children.Add(image);if(!Current())return;
         void Invalidate(){++renderSequence;bytes=Array.Empty<byte>();image.Source=null;foreach(var action in toolbar.Children.OfType<Button>())action.IsEnabled=false;panel.Children.Clear();panel.Children.Add(Text("Company access removed or unavailable. Close this preview and reopen it after access is restored."));}
         ReadAccessInvalidated+=Invalidate;

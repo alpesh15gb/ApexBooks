@@ -3,9 +3,12 @@ import {imageInput} from "./imageInput.js";
 import React, { useEffect, useRef, useState } from "react";
 import { registerPostingRequest } from "./postingRegistry.js";
 import { X } from "lucide-react";
+import ItemPlacement from "./ItemPlacement.jsx";
+import { useInventorySetup } from "./inventorySetup.js";
 
 export default function MasterForm({ kind, close: onClose, save, record, features = [], readOnly = false, recoveryRevision = 0 }) {
   const supported = feature => supportsFeature(features, feature);
+  const { setup: inventory } = useInventorySetup();
   const isParty = kind === "party";
   const [form, setForm] = useState({
     party_type: "both",
@@ -97,6 +100,13 @@ export default function MasterForm({ kind, close: onClose, save, record, feature
             barcode: form.barcode,
             item_type: form.item_type,tax_treatment:form.tax_treatment,
             low_stock_threshold: form.low_stock_threshold !== "" && form.low_stock_threshold != null ? String(form.low_stock_threshold) : null,
+            ...(supported("inventory_setup") ? {
+              location_ids: form.location_ids || [],
+              ...(inventory?.automobile_enabled ? {
+                oem_number: form.oem_number || "", part_brand: form.part_brand || "", part_grade: form.part_grade || "",
+                vehicle_fitment: (form.vehicle_fitment || []).filter(row => (row.make || "").trim() || (row.model || "").trim()).map(row => ({ make: row.make || "", model: row.model || "", year_from: row.year_from ?? null, year_to: row.year_to ?? null })),
+              } : {}),
+            } : {}),
           };
       await save({ kind, name: form.name.trim(), data: supportedMasterData(data, features) });
     } catch (err) {
@@ -303,6 +313,7 @@ export default function MasterForm({ kind, close: onClose, save, record, feature
                 {record && " (fixed after creation)"}
                 {form.item_type === "services" && <small>Inventory tracking is supported for goods only. Existing service stock history requires review; it is not changed here.</small>}
               </label>
+              <ItemPlacement form={form} setForm={setForm} disabled={busy || readOnly} onEdit={() => setDirty(true)} />
               {supported("low_stock_reorder") && ((form.track_stock && form.item_type !== "services") || (form.low_stock_threshold !== "" && form.low_stock_threshold != null)) && <label className="full">Low-stock threshold<input name="low_stock_threshold" type="number" min="0" step="0.001" value={form.low_stock_threshold ?? ""} onChange={update} placeholder="Disabled" /><small>Alerts when on-hand stock is at or below this quantity. Blank explicitly disables alerts. Clear this value before changing to a service or untracked item. Changing this never posts stock or accounting entries.</small></label>}
 
             </>

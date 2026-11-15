@@ -72,12 +72,14 @@ public sealed partial class MainPage
             }, Error));
             buttons.Children.Add(Button("Remove image", () => { data["image_data_url"] = ""; data["image_thumbnail"] = ""; preview.Source = null; })); panel.Children.Add(buttons);
         }
-        string Signature(){var values=data.Copy().Object();values["name"]=name.Text;values["is_active"]=active.IsChecked==true;foreach(var field in fields)values[field.Key]=field.Value.Text;if(partyType is not null)values["party_type"]=Value(partyType);if(itemType is not null)values["item_type"]=Value(itemType);if(treatment is not null)values["tax_treatment"]=Value(treatment);if(tracked is not null)values["track_stock"]=tracked.IsChecked==true;return values.ToJsonString();}var baseline=Signature();
+        var placement=kind=="item"?ItemPlacement(data):null;if(placement is not null)panel.Children.Add(placement.View);
+        string Signature(){var values=data.Copy().Object();placement?.Apply(values);values["name"]=name.Text;values["is_active"]=active.IsChecked==true;foreach(var field in fields)values[field.Key]=field.Value.Text;if(partyType is not null)values["party_type"]=Value(partyType);if(itemType is not null)values["item_type"]=Value(itemType);if(treatment is not null)values["tax_treatment"]=Value(treatment);if(tracked is not null)values["track_stock"]=tracked.IsChecked==true;return values.ToJsonString();}var baseline=Signature();
         var saved = await Dialog((existing is null ? "New " : "Edit ") + kind, panel, async () =>
         {
             if (string.IsNullOrWhiteSpace(name.Text)) throw new Exception("Enter a name.");
             Api.Capabilities.RequireMasterEditsSupported(initialMasterData,JsonNode.Parse(Signature()).Object());
             foreach (var (key, field) in fields) data[key] = field.Text.Trim();
+            placement?.Apply(data);
             data["is_active"]=active.IsChecked==true;
             if(kind=="party"){if(Supports("party_payment_terms"))data["payment_terms_days"]=WorkflowMasterValues.PaymentTerms(fields["payment_terms_days"].Text);if(Supports("party_credit_limits"))data["credit_limit"]=WorkflowMasterValues.CreditLimit(fields["credit_limit"].Text);}
             else if(Supports("low_stock_reorder"))data["low_stock_threshold"]=WorkflowMasterValues.LowStockThreshold(fields["low_stock_threshold"].Text);

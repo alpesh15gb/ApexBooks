@@ -71,7 +71,7 @@ import java.net.URI
             }finally{submitting=false}
         }
     }
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFFFFE9D4),MaterialTheme.colorScheme.background))).safeDrawingPadding().imePadding(),contentAlignment=Alignment.Center){
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFFE0F2E7),MaterialTheme.colorScheme.background))).safeDrawingPadding().imePadding(),contentAlignment=Alignment.Center){
         Column(Modifier.widthIn(max=460.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),verticalArrangement=Arrangement.spacedBy(18.dp)){
             AppLogo(Modifier.fillMaxWidth())
             Heading(when(mode){"register"->"Create your account";"recover"->"Recover account access";else->"Your business, in balance."},"Your documents, balances and settings across every device.")
@@ -85,8 +85,11 @@ import java.net.URI
                 if(blocked)CircularProgressIndicator(Modifier.size(20.dp),strokeWidth=2.dp,color=MaterialTheme.colorScheme.onPrimary)
                 else Text(when(mode){"register"->"Create account";"recover"->"Reset access";else->"Sign in"})
             }
-            TextButton(enabled=!blocked,onClick={mode=if(mode=="login")"register"else"login";password="";repeat="";code="";vm.error=""}){Text(if(mode=="login")"Create an account"else"Back to sign in")}
-            if(mode=="login")TextButton(enabled=!blocked,onClick={mode="recover";password="";repeat="";vm.error=""}){Text("Use a recovery code")}
+            // Secondary actions share one centered block instead of two left-aligned links separated by the form spacing.
+            Column(Modifier.fillMaxWidth(),horizontalAlignment=Alignment.CenterHorizontally){
+                TextButton(modifier=Modifier.fillMaxWidth(),enabled=!blocked,onClick={mode=if(mode=="login")"register"else"login";password="";repeat="";code="";vm.error=""}){Text(if(mode=="login")"Create an account"else"Back to sign in")}
+                if(mode=="login")TextButton(modifier=Modifier.fillMaxWidth(),enabled=!blocked,onClick={mode="recover";password="";repeat="";vm.error=""}){Text("Use a recovery code")}
+            }
             Text("${if(BuildConfig.DEBUG)"Apex Books Dev"else"Apex Books"} ${BuildConfig.VERSION_NAME} · ${URI(vm.api.origin).host}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

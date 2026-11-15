@@ -38,7 +38,7 @@ class NativeHostedAcceptanceTest {
         val random=java.util.Random(71);val pixels=IntArray(1600*900){i->if(i%1600<64||i/1600<64)Color.TRANSPARENT else Color.argb(192,random.nextInt(256),random.nextInt(256),random.nextInt(256))};original.setPixels(pixels,0,1600,0,0,1600,900)
         Canvas(original).apply{drawRect(250f,260f,1350f,640f,Paint().apply{color=Color.rgb(18,124,102)});drawText("NATIVE LOGO QA",350f,490f,Paint().apply{color=Color.WHITE;textSize=95f;isAntiAlias=true})}
         val input=File(context.cacheDir,"native-logo-alpha-qa.png");input.outputStream().use{original.compress(Bitmap.CompressFormat.PNG,100,it)};original.recycle()
-        val converted=NativeFiles(context){throw AssertionError(it)}.image(Uri.fromFile(input),900,240000)
+        val converted=NativeFiles(context,{{}}){throw AssertionError(it)}.image(Uri.fromFile(input),900,240000)
         val logoBytes=Base64.decode(converted.substringAfter(','),Base64.DEFAULT)
         check("large transparent logo fits upload limit",logoBytes.size<=240000)
         check("complex logo exercises JPEG fallback",converted.startsWith("data:image/jpeg;base64,"))

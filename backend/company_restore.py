@@ -89,12 +89,12 @@ def validate(payload):
         if (dr>0)==(cr>0):raise ValueError('Journal lines must have one positive side')
         balances[row['journal_id']]+=dr-cr;counts[row['journal_id']]+=1
     if any(balances[j]!=0 or counts[j]<2 for j in indexes['journals']):raise ValueError('Unbalanced or empty journal in backup')
-    posted=set();posted_journals=set()
+    posted=set();posted_journals=set();journal_by_record={}
     for row in groups['record_postings']:
         rid,jid=row.get('record_id'),row.get('journal_id')
         if rid not in indexes['records'] or jid not in indexes['journals'] or rid in posted or jid in posted_journals:raise ValueError('Invalid posting link')
         if indexes['records'][rid]['date']!=indexes['journals'][jid]['date']:raise ValueError('Posting date mismatch')
-        posted.add(rid);posted_journals.add(jid)
+        posted.add(rid);posted_journals.add(jid);journal_by_record[rid]=jid
     for row in groups['records']:
         number(row['amount']);date.fromisoformat(row['date'])
         if not isinstance(row.get('name'),str) or len(row['name'])>120 or not isinstance(row.get('number'),str) or len(row['number'])>120:raise ValueError('Invalid record name or reference')
@@ -108,6 +108,10 @@ def validate(payload):
             if 'shipping_address' in data and (not isinstance(data['shipping_address'],str) or len(data['shipping_address'])>500 or (row['kind']!='party' and data['shipping_address'])):raise ValueError('Invalid party shipping address')
     from recurring_drafts import validate_backup_templates
     validate_backup_templates(groups,indexes,posted)
+    from pos_register import validate_backup as validate_pos_register_backup
+    validate_pos_register_backup(groups, indexes, posted)
+    from inventory_setup import validate_backup as validate_inventory_setup
+    validate_inventory_setup(groups)
     for row in groups['journals']:date.fromisoformat(row['date'])
     codes=[r.get('code') for r in groups['accounts']];names=[r.get('name') for r in groups['accounts']]
     if len(set(codes))!=len(codes):raise ValueError('Duplicate account code')
@@ -245,6 +249,11 @@ def validate(payload):
         reversal_targets.add(dst)
         reversed_ids.add(src)
     if reversed_ids & reversal_targets:raise ValueError('Journal reversal chains are not supported')
+    for row in groups['records']:
+        if row['kind'] != 'customer_refund' or not row['data'].get('cancelled'):
+            continue
+        if row['id'] in posted or not verified_cancelled_journals(row, indexes, groups['journal_reversals']):
+            raise ValueError('Cancelled customer refund lacks its posted journal reversal')
     def cancelled_conversion(row, origin):
         if not origin or row['id'] in posted or row['id'] in conversion_sources:return False
         allowed={'sales_invoice':{'estimate','proforma','sales_order'},'purchase_bill':{'purchase_order'}}
@@ -255,14 +264,59 @@ def validate(payload):
         if value not in (None,''):
             if not isinstance(value,str) or (conversion_sources.get(row['id'])!=value and not verified_immediate_source(row,indexes['records'].get(value)) and not cancelled_conversion(row,indexes['records'].get(value))):raise ValueError('Missing or mismatched conversion or imported payment lineage')
     if payload['schema_version']==6 and any(j.get('memo','').startswith('Reversal of') for j in groups['journals']):raise ValueError('This older export omits reversal links; take a fresh backup')
+    split_bank = {}
+    expected_tender_debits = {}
+    account_by_code = {row['code']: row['id'] for row in groups['accounts']}
+    for row in groups['records']:
+        data = row['data']
+        if row['kind'] != 'pos' or data.get('payment_account') != 'split':
+            continue
+        cash = number(data.get('cash_amount'))
+        bank = number(data.get('bank_amount'))
+        bank_id = data.get('bank_account_id') or 'default'
+        if (cash <= 0 or bank <= 0 or cash + bank != number(row['amount'])
+                or number(data.get('tender_amount')) - cash != number(data.get('change_amount'))
+                or bank_id not in bank_ids | {'default'}):
+            raise ValueError('Invalid split POS tender')
+        split_bank[row['id']] = (bank_id, bank)
+        if row['id'] in posted:
+            cash_ledger = account_by_code.get('SYS-CASH')
+            bank_ledger = (account_by_code.get('SYS-BANK') if bank_id == 'default'
+                           else indexes['bank_accounts'][bank_id]['ledger_account_id'])
+            if not cash_ledger or not bank_ledger or cash_ledger == bank_ledger:
+                raise ValueError('Missing split POS tender accounts')
+            expected_tender_debits[journal_by_record[row['id']]] = {cash_ledger: cash, bank_ledger: bank}
+    if expected_tender_debits:
+        for line in groups['journal_lines']:
+            expected = expected_tender_debits.get(line['journal_id'], {})
+            account = line['account_id']
+            if account in expected:
+                expected[account] -= number(line['debit']) - number(line['credit'])
+        if any(any(amount != 0 for amount in expected.values()) for expected in expected_tender_debits.values()):
+            raise ValueError('Split POS tender differs from posted ledger')
     for row in groups['bank_statement_lines']:
         if row.get('bank_account_id','default') not in bank_ids|{'default'} or row.get('matched_record_id') and row['matched_record_id'] not in posted:raise ValueError('Invalid statement reference')
-        number(row['amount'],signed=True);date.fromisoformat(row['date'])
+        amount = number(row['amount'],signed=True);date.fromisoformat(row['date'])
+        split_match = split_bank.get(row.get('matched_record_id'))
+        if split_match and split_match != (row.get('bank_account_id', 'default'), amount):
+            raise ValueError('Statement match differs from split POS tender')
     statement_totals=defaultdict(Decimal);record_totals=defaultdict(Decimal)
     for row in groups['bank_match_allocations']:
         if row.get('statement_line_id') not in indexes['bank_statement_lines'] or row.get('record_id') not in posted:raise ValueError('Invalid bank matching link')
-        amount=number(row['amount']);statement_totals[row['statement_line_id']]+=amount;record_totals[(row['record_id'],indexes['bank_statement_lines'][row['statement_line_id']].get('bank_account_id','default'))]+=amount
-    if any(v>abs(number(indexes['bank_statement_lines'][i]['amount'],signed=True)) for i,v in statement_totals.items()) or any(v>number(indexes['records'][i[0]]['amount']) for i,v in record_totals.items()):raise ValueError('Bank matching exceeds source amount')
+        statement = indexes['bank_statement_lines'][row['statement_line_id']]
+        if row['record_id'] in split_bank and number(statement['amount'], signed=True) <= 0:
+            raise ValueError('Split POS tender requires a positive statement line')
+        amount=number(row['amount']);statement_totals[row['statement_line_id']]+=amount;record_totals[(row['record_id'],statement.get('bank_account_id','default'))]+=amount
+    if any(v>abs(number(indexes['bank_statement_lines'][i]['amount'],signed=True)) for i,v in statement_totals.items()):raise ValueError('Bank matching exceeds source amount')
+    for (record_id, bank_id), allocated in record_totals.items():
+        if record_id in split_bank:
+            tender_bank, amount = split_bank[record_id]
+            if bank_id != tender_bank:
+                raise ValueError('Statement allocation differs from split POS tender account')
+        else:
+            amount = number(indexes['records'][record_id]['amount'])
+        if allocated > amount:
+            raise ValueError('Bank matching exceeds source amount')
     verified_zero_stock=set()
     def verified_zero_source_stock(source, movement):
         if not source or source['kind'] not in ('stock_opening','stock_adjustment') or number(source['amount'])!=0:return False
@@ -284,25 +338,34 @@ def validate(payload):
         source=indexes['records'].get(row.get('source_record_id'))
         if source and source['data'].get('cancelled'):raise ValueError('Cancelled source retains a stock movement')
         zero_inventory_only=source and source['kind']=='stock_return' and number(source['amount'])==0 and row.get('cost_value') is not None and number(row['cost_value'],signed=True)==0
-        if row.get('item_id') not in indexes['records'] or indexes['records'][row['item_id']]['kind']!='item' or not source or (source['id'] not in posted and not zero_inventory_only and not verified_zero_source_stock(source,row)):raise ValueError('Orphan stock movement')
+        zero_count = source and source['kind'] == 'stock_adjustment' and source['data'].get('quantity_only') is True
+        if row.get('item_id') not in indexes['records'] or indexes['records'][row['item_id']]['kind']!='item' or not source or (source['id'] not in posted and not zero_inventory_only and not zero_count and not verified_zero_source_stock(source,row)):raise ValueError('Orphan stock movement')
         if row.get('date')!=source['date']:raise ValueError('Stock movement date mismatch')
         number(row['quantity'],3,True)
         if row.get('cost_value') is not None:number(row['cost_value'],signed=True)
         key=(row['source_record_id'],row['line_index'])
         if key in movements:raise ValueError('Duplicate stock movement')
         movements.add(key)
-    from restore_stock_integrity import validate_stock
+    from restore_stock_integrity import validate_quantity_only_counts, validate_stock
+    validate_quantity_only_counts(groups, indexes, posted, number)
     validate_stock(groups,indexes,posted,number)
+    from purchase_receiving import validate_backup as validate_purchase_receiving
+    validate_purchase_receiving(groups, indexes, posted, number, sources)
     # Active explicit return references must be valid in the exported namespace
     # before any IDs are remapped. Never turn a stale/forged token into a valid one.
     from types import SimpleNamespace
     from purchase_returns import candidates
     for row in groups['records']:
-        if row['kind'] != 'debit_note' or row['id'] not in posted: continue
+        if row['id'] not in posted: continue
+        pos_return = row['kind'] == 'credit_note' and row['data'].get('pos_return') is True
+        if row['kind'] != 'debit_note' and not pos_return: continue
         for line in row['data'].get('lines', []):
-            if not line.get('source_line_id'): continue
+            if not line.get('source_line_id'):
+                if pos_return: raise ValueError('Missing POS return source line reference')
+                continue
             source = indexes['records'].get(row['data'].get('applied_to'))
-            if not source or source['kind'] != 'purchase_bill': raise ValueError('Invalid return source line reference')
+            if not source or source['kind'] != ('pos' if pos_return else 'purchase_bill'):
+                raise ValueError('Invalid return source line reference')
             try: candidates(line, SimpleNamespace(**source))
             except (HTTPException, ValueError, ArithmeticError, TypeError): raise ValueError('Invalid return source line reference') from None
     return groups,indexes
@@ -371,7 +434,7 @@ def restore_payload(m,user,session,payload,digest,company_name,*,action='commit'
             if isinstance(value,dict):
                 result={k:remap(v) for k,v in value.items()}
                 source_record=indexes['records'].get(value.get('source_document_id')) if isinstance(value.get('source_document_id'),str) else None
-                if value.get('source_line_id') and source_record and source_record['kind']=='purchase_bill':
+                if value.get('source_line_id') and source_record and source_record['kind'] in ('purchase_bill', 'pos'):
                     from purchase_returns import reference
                     for index,line in enumerate(source_record['data'].get('lines',[])):
                         if reference(line,index)==value['source_line_id']:

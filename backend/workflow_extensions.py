@@ -86,8 +86,14 @@ def install(app,m):
                 raise HTTPException(422, 'Preview must identify this source bill’s existing return')
         data,amount=m.calculate(body.data,company,profile.mode if profile else 'regular',body.kind,session,exclude_return_id=editing_id)
         if body.kind == 'pos':
-            from pos_validation import validate_tender
-            data = validate_tender(data, amount)
+            from pos_register import active_session
+            from pos_validation import validate_checkout_date
+            data = m.validate_pos_payment(company_id, data, amount, session)
+            validate_checkout_date(data, body.date)
+            if data.get('require_available_stock'):
+                m.value_stock_lines(company_id, 'pos', data, profile.mode if profile else 'regular', body.date, None, session)
+            register = active_session(m, company_id, session)
+            data['pos_register_session_id'] = register.id if register else None
         return {'data':data,'amount':str(amount)}
 
     @app.put('/api/companies/{company_id}/drafts/{record_id}')
@@ -102,6 +108,8 @@ def install(app,m):
         if record.kind!=body.kind:raise HTTPException(422,'Document type cannot change')
         if record.data.get('vyapar_converted') or session.scalar(select(m.DocumentConversion.id).where(m.DocumentConversion.company_id==company_id,m.DocumentConversion.source_record_id==record.id)):
             raise HTTPException(409,'Converted documents cannot be edited')
+        if record.kind == 'purchase_order' and record.data.get('purchase_order_receiving_started'):
+            raise HTTPException(409, 'Purchase order lines are locked after receiving starts')
         if body.data.get('version',0)!=record.data.get('version',0):raise HTTPException(409,'Document changed; reload it before editing')
         if not body.name.strip():raise HTTPException(422,'Party is required')
         number=body.number.strip()
@@ -149,6 +157,9 @@ def install(app,m):
 
     @app.post('/api/companies/{company_id}/credits/{note_id}/settle',status_code=201)
     def settle(company_id:str,note_id:str,body:m.RecordInput,request:Request,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
+        return settle_credit_in_transaction(company_id, note_id, body, request, user, session)
+
+    def settle_credit_in_transaction(company_id, note_id, body, request, user, session, *, commit=True):
         m.lock_company(company_id,user,session)
         key,digest,old=retry(m,company_id,body,request,session,'credit:'+note_id)
         if old:return old
@@ -172,10 +183,17 @@ def install(app,m):
             data.update({'payment_account':method,'bank_account_id':str(body.data.get('bank_account_id') or 'default')})
             if method=='bank':m.bank_account_for(company_id,data['bank_account_id'],session)
             kind='customer_refund' if customer else 'supplier_refund';dr,cr=(credit_account,m.payment_key(data)) if customer else (m.payment_key(data),credit_account)
+            source = session.get(m.Record, note.data['applied_to']) if customer and note.data.get('applied_to') else None
+            if source and source.company_id == company_id and source.kind == 'pos':
+                from pos_register import tag_posting
+                tag_posting(m, company_id, data, session)
         else:raise HTTPException(422,'Choose apply or refund')
         record=post(m,company_id,user,session,body,kind,note.name,data,[(dr,amount,Decimal(0)),(cr,Decimal(0),amount)],key,digest)
         if target:session.add(m.PaymentSplitAllocation(company_id=company_id,payment_id=record.id,document_id=target.id,amount=amount))
-        session.commit();return {**m.obj(record),'posted':True}
+        if commit: session.commit()
+        else: session.flush()
+        return {**m.obj(record), 'posted': True}
+    m.settle_credit_in_transaction = settle_credit_in_transaction
 
     @app.get('/api/companies/{company_id}/reports/credits')
     def credits(company_id:str,as_of:m.DateType,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):

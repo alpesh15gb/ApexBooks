@@ -16,6 +16,13 @@ It saves app-window screenshots, an accessibility tree (no control values/passwo
 Form entry uses UIA Value patterns resolved through control names or associated
 labels; no coordinate clicks or OS security changes are used. The editable item selector uses genuine keyboard text entry and Tab to commit its visible value.
 
+The harness also accepts a fourth argument for a focused storefront check.
+`--pos-only` covers barcode entry, stock availability, cash checkout and thermal receipt preview.
+`--pos-split-only` exercises the electronic-tender confirmation and split checkout.
+`--warehouse-only` covers barcode lookup, a stale physical count and the recount.
+`--receiving-only` covers the reviewed bill total and purchase-order links.
+Use a fresh evidence directory for each run.
+
 `.github/workflows/windows-ui.yml` publishes the app with its self-contained
 runtime and an embedded `ApexApiOrigin=http://127.0.0.1:8012`, starts an isolated
 SQLite API, and runs this project. The harness checks the assembly's Debug

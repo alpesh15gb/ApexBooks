@@ -6,13 +6,13 @@ import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
-import { createRoot } from 'react-dom/client';
 
 const temporary = await mkdtemp(resolve('node_modules/.submission-tests-'));
 const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+const { createRoot } = await import('react-dom/client');
 const company = { id: 'synthetic-company', name: 'Synthetic', tax_mode: 'unregistered', state_code: '27', role: 'owner' };
 async function component(name) {
   const outfile = resolve(temporary, `${name}.mjs`);
@@ -92,6 +92,41 @@ test('POS uncertain response retries unchanged request and renders recovered rec
   await act(async () => root.unmount());
 });
 
+test('POS reload recovers the original checkout without quoting or taking another payment', async () => {
+  localStorage.token = `header.${btoa(JSON.stringify({ sub: 'cashier-a' }))}.signature`;
+  let root = createRoot(document.getElementById('root'));
+  const requests = [];
+  const posApi = async (path, options) => {
+    if (!path.endsWith('/records')) return api(path, options);
+    requests.push(options);
+    if (requests.length === 1) throw new TypeError('Connection lost');
+    return { number: 'RECOVERED-AFTER-RELOAD', amount: '100' };
+  };
+  const workspace = React.createElement(PosWorkspace, {
+    company, records: [{ id: 'item-a', kind: 'item', name: 'Synthetic item', data: { sale_rate: '100' } }],
+    api: posApi, refresh: async () => {}, onPdf: () => {},
+  });
+  try {
+    await act(async () => root.render(workspace));
+    await act(async () => document.querySelector('.pos-product').click());
+    await act(async () => new Promise(resolve => setTimeout(resolve, 250)));
+    await act(async () => submit(document.querySelector('form')));
+    await act(async () => root.unmount());
+    root = createRoot(document.getElementById('root'));
+    await act(async () => root.render(workspace));
+    assert.match(document.body.textContent, /previous response was not confirmed/);
+    assert.equal(document.querySelector('.pos-product').disabled, true);
+    await act(async () => submit(document.querySelector('form')));
+    assert.deepEqual(requests[0], requests[1]);
+    assert.match(document.querySelector('.pos-receipt').textContent, /RECOVERED-AFTER-RELOAD/);
+    assert.equal(window.sessionStorage.length, 0);
+  } finally {
+    await act(async () => root.unmount());
+    localStorage.removeItem('token');
+    window.sessionStorage.clear();
+  }
+});
+
 test('stock adjustment retains draft key on retry and cannot be dismissed while uncertain', async () => {
   const root = createRoot(document.getElementById('root'));
   const requests = []; let closed = false;
@@ -112,6 +147,70 @@ test('stock adjustment retains draft key on retry and cannot be dismissed while 
   assert.ok(requests[0].key);
   assert.equal(document.querySelector('fieldset').disabled, false);
   await act(async () => root.unmount());
+});
+
+test('physical count scans an item and clears the quantity when stock moves', async t => {
+  const root = createRoot(document.getElementById('root'));
+  t.after(async () => act(async () => root.unmount()));
+  const stockReads = [];
+  const saves = [];
+  const countApi = async path => {
+    const item_id = path.split('/').at(-1);
+    stockReads.push(item_id);
+    return {item_id, date: '2026-11-15', on_hand: stockReads.length > 2 ? '7' : '8', stock_snapshot: String(stockReads.length)};
+  };
+  const save = async body => {
+    saves.push(body);
+    if (saves.length === 1) throw new TypeError('Connection lost');
+    if (saves.length === 2) throw Object.assign(new Error('Stock moved after this count started. Refresh on-hand stock and count again'), {status: 409});
+    return {id: 'adjustment-b', name: 'Second goods', data: {unit: 'pcs', stock_count: {counted_quantity: body.counted_quantity}}};
+  };
+  await act(async () => root.render(React.createElement(StockAdjustment, {
+    api: countApi,
+    companyId: company.id,
+    canCount: true,
+    items: [
+      {id: 'item-a', name: 'First goods', data: {unit: 'pcs', barcode: '0001'}},
+      {id: 'item-b', name: 'Second goods', data: {unit: 'pcs', barcode: '0002'}},
+    ],
+    save,
+    close: () => {},
+  })));
+  const type = async (name, value) => {
+    const input = document.querySelector(`input[name="${name}"]`);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, value);
+      input.dispatchEvent(new window.Event('input', {bubbles: true}));
+    });
+    return input;
+  };
+  await act(async () => {
+    const method = document.querySelector('select');
+    method.value = 'count';
+    method.dispatchEvent(new window.Event('change', {bubbles: true}));
+  });
+  const barcode = await type('barcode', '0002');
+  await act(async () => barcode.dispatchEvent(new window.KeyboardEvent('keydown', {key: 'Enter', bubbles: true})));
+  assert.deepEqual(stockReads, ['item-a', 'item-b']);
+  await type('counted_quantity', '6.5');
+  await type('reason', 'Shelf count');
+  assert.match(document.body.textContent, /decrease by 1.5/);
+  await act(async () => submit(document.querySelector('form')));
+  assert.equal(document.querySelector('fieldset').disabled, true);
+  await act(async () => submit(document.querySelector('form')));
+  assert.deepEqual(saves[0], {item_id: 'item-b', date: '2026-11-15', stock_snapshot: '2', counted_quantity: '6.5', reason: 'Shelf count', unit_cost: null});
+  assert.deepEqual(saves[0], saves[1]);
+  assert.equal(document.querySelector('fieldset').disabled, false);
+  assert.equal(document.querySelector('input[name=counted_quantity]').disabled, true);
+  await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === 'Refresh on hand').click());
+  assert.match(document.body.textContent, /On hand 7/);
+  assert.equal(document.querySelector('input[name=counted_quantity]').value, '');
+  assert.equal(document.querySelector('button.primary').disabled, true);
+  await type('counted_quantity', '6.5');
+  await act(async () => submit(document.querySelector('form')));
+  assert.match(document.body.textContent, /Count posted for Second goods. On hand after the count was 6.5 pcs/);
+  await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === 'Count another item').click());
+  assert.equal(document.querySelector('select[name=item_id]').value, '');
 });
 test('advance application locks selection and retries the same key after uncertain response', async () => {
   const root = createRoot(document.getElementById('root'));

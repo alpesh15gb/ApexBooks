@@ -8,6 +8,8 @@ from sqlalchemy.orm import Mapped,Session,mapped_column
 
 class CodeRequest(BaseModel):
     current_password:str=Field(max_length=128)
+class PasswordCheck(BaseModel):
+    password:str=Field(max_length=128)
 class RecoverRequest(BaseModel):
     email:str=Field(min_length=3,max_length=254)
     code:str=Field(min_length=1,max_length=128)
@@ -56,6 +58,16 @@ def install(app,m):
         session.execute(delete(RecoveryCode).where(RecoveryCode.user_id==user.id))
         session.add_all([RecoveryCode(digest=digest(user.id+':'+code.replace('-','').lower()),user_id=user.id) for code in codes]);session.commit()
         return {'codes':codes,'message':'Save these codes securely. Each works once. Generating another set invalidates this set.'}
+
+    @app.post('/api/auth/verify-password')
+    def verify_password(body:PasswordCheck,request:Request,user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):
+        """Re-check the signed-in user's password (e.g. to reveal hidden figures). Issues no session and changes nothing.
+
+        A wrong password is 403, not 401: clients treat 401 as an expired sign-in and would sign the user out."""
+        throttle(session,request,user.email,'verify-password')
+        user=session.scalar(select(m.User).where(m.User.id==user.id).execution_options(populate_existing=True))
+        if not body.password or not m.passwords.verify(body.password,user.password_hash):raise HTTPException(403,'Password is incorrect')
+        return {'verified':True}
 
     @app.get('/api/auth/recovery-codes/status')
     def status(user:m.User=Depends(m.current_user),session:Session=Depends(m.db)):

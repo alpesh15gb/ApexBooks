@@ -1423,6 +1423,57 @@
         }
       }
     },
+    "/api/companies/{company_id}/masters/import-receipts/{operation_key}": {
+      "get": {
+        "summary": "Master Import Receipt",
+        "operationId": "master_import_receipt_api_companies__company_id__masters_import_receipts__operation_key__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "operation_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Operation Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/companies/{company_id}/masters/{master_id}": {
       "put": {
         "summary": "Update Master",
@@ -1588,6 +1639,109 @@
         }
       }
     },
+    "/api/companies/{company_id}/stock/counts/{item_id}": {
+      "get": {
+        "summary": "Get Stock Count",
+        "operationId": "get_stock_count_api_companies__company_id__stock_counts__item_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/stock/counts": {
+      "post": {
+        "summary": "Post Stock Count",
+        "operationId": "post_stock_count_api_companies__company_id__stock_counts_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockCountInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/companies/{company_id}/accounts": {
       "get": {
         "summary": "List Accounts",
@@ -1605,6 +1759,22 @@
             "schema": {
               "type": "string",
               "title": "Company Id"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
             }
           }
         ],
@@ -1839,6 +2009,22 @@
             "schema": {
               "type": "string",
               "title": "Company Id"
+            }
+          },
+          {
+            "name": "reference",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reference"
             }
           }
         ],
@@ -3084,6 +3270,48 @@
         }
       }
     },
+    "/api/companies/{company_id}/pos/stock": {
+      "get": {
+        "summary": "Pos Stock Summary",
+        "operationId": "pos_stock_summary_api_companies__company_id__pos_stock_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/companies/{company_id}/reports/stock": {
       "get": {
         "summary": "Stock Report",
@@ -3121,6 +3349,123 @@
               "type": "string",
               "format": "date",
               "title": "To Date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/reports/stock/{item_id}/movements": {
+      "get": {
+        "summary": "Item Stock Movements",
+        "operationId": "item_stock_movements_api_companies__company_id__reports_stock__item_id__movements_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "from_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "From Date"
+            }
+          },
+          {
+            "name": "to_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "To Date"
+            }
+          },
+          {
+            "name": "before_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Date"
+            }
+          },
+          {
+            "name": "before_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
             }
           }
         ],
@@ -3410,6 +3755,57 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/bank-statement/import-receipts/{operation_key}": {
+      "get": {
+        "summary": "Bank Import Receipt",
+        "operationId": "bank_import_receipt_api_companies__company_id__bank_statement_import_receipts__operation_key__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "operation_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Operation Key"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -4608,6 +5004,660 @@
         }
       }
     },
+    "/api/companies/{company_id}/pos-register": {
+      "get": {
+        "summary": "Get Register",
+        "operationId": "get_register_api_companies__company_id__pos_register_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/pos-register/{register_id}": {
+      "get": {
+        "summary": "Get Session",
+        "operationId": "get_session_api_companies__company_id__pos_register__register_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "register_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Register Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/pos-register/open": {
+      "post": {
+        "summary": "Open Session",
+        "operationId": "open_session_api_companies__company_id__pos_register_open_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenRegister"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/pos-register/{register_id}/movements": {
+      "post": {
+        "summary": "Move Cash",
+        "operationId": "move_cash_api_companies__company_id__pos_register__register_id__movements_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "register_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Register Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CashMovement"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/pos-register/{register_id}/close": {
+      "post": {
+        "summary": "Close Session",
+        "operationId": "close_session_api_companies__company_id__pos_register__register_id__close_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "register_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Register Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseRegister"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/pos/{sale_id}/return/preview": {
+      "post": {
+        "summary": "Preview",
+        "operationId": "preview_api_companies__company_id__pos__sale_id__return_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "sale_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sale Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterReturn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/pos/{sale_id}/return": {
+      "post": {
+        "summary": "Post",
+        "operationId": "post_api_companies__company_id__pos__sale_id__return_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "sale_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sale Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterReturn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/purchase-orders/{order_id}/receiving": {
+      "get": {
+        "summary": "Receiving",
+        "operationId": "receiving_api_companies__company_id__purchase_orders__order_id__receiving_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/purchase-orders/{order_id}/receipts/preview": {
+      "post": {
+        "summary": "Preview",
+        "operationId": "preview_api_companies__company_id__purchase_orders__order_id__receipts_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiptInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/purchase-orders/{order_id}/receipts": {
+      "post": {
+        "summary": "Receive",
+        "operationId": "receive_api_companies__company_id__purchase_orders__order_id__receipts_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiptInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company_id}/inventory-setup": {
+      "get": {
+        "summary": "Get Setup",
+        "operationId": "get_setup_api_companies__company_id__inventory_setup_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Put Setup",
+        "operationId": "put_setup_api_companies__company_id__inventory_setup_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/companies/{company_id}/backup": {
       "get": {
         "summary": "Backup",
@@ -4711,6 +5761,48 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/auth/verify-password": {
+      "post": {
+        "summary": "Verify Password",
+        "description": "Re-check the signed-in user's password (e.g. to reveal hidden figures). Issues no session and changes nothing.\n\nA wrong password is 403, not 401: clients treat 401 as an expired sign-in and would sign the user out.",
+        "operationId": "verify_password_api_auth_verify_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordCheck"
               }
             }
           },
@@ -6764,6 +7856,67 @@
         }
       }
     },
+    "/api/companies/{company_id}/recurring-templates/{template_id}/occurrences/{occurrence_date}": {
+      "get": {
+        "summary": "Find Occurrence",
+        "operationId": "find_occurrence_api_companies__company_id__recurring_templates__template_id__occurrences__occurrence_date__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Template Id"
+            }
+          },
+          {
+            "name": "occurrence_date",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Occurrence Date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/companies/{company_id}/recurring-templates/{template_id}/occurrences": {
       "post": {
         "summary": "Instantiate",
@@ -7564,169 +8717,6 @@
           }
         }
       }
-    },
-    "/api/companies/{company_id}/masters/import-receipts/{operation_key}": {
-      "get": {
-        "summary": "Master Import Receipt",
-        "operationId": "master_import_receipt_api_companies__company_id__masters_import_receipts__operation_key__get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "company_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Company Id"
-            }
-          },
-          {
-            "name": "operation_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Operation Key"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/companies/{company_id}/recurring-templates/{template_id}/occurrences/{occurrence_date}": {
-      "get": {
-        "summary": "Find Occurrence",
-        "operationId": "find_occurrence_api_companies__company_id__recurring_templates__template_id__occurrences__occurrence_date__get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "company_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Company Id"
-            }
-          },
-          {
-            "name": "template_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Template Id"
-            }
-          },
-          {
-            "name": "occurrence_date",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "date",
-              "title": "Occurrence Date"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/companies/{company_id}/bank-statement/import-receipts/{operation_key}": {
-      "get": {
-        "summary": "Bank Import Receipt",
-        "operationId": "bank_import_receipt_api_companies__company_id__bank_statement_import_receipts__operation_key__get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "company_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Company Id"
-            }
-          },
-          {
-            "name": "operation_key",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Operation Key"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
@@ -7758,6 +8748,41 @@
           "category"
         ],
         "title": "AccountInput"
+      },
+      "AddedMake": {
+        "properties": {
+          "make": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Make"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "car",
+              "two_wheeler",
+              "commercial",
+              "three_wheeler"
+            ],
+            "title": "Type",
+            "default": "car"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 400,
+            "title": "Models"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "make"
+        ],
+        "title": "AddedMake"
       },
       "AttachmentUpdate": {
         "properties": {
@@ -7840,6 +8865,78 @@
           "reason"
         ],
         "title": "CancelInput"
+      },
+      "CashMovement": {
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out"
+            ],
+            "title": "Direction"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "direction",
+          "amount",
+          "reason"
+        ],
+        "title": "CashMovement"
+      },
+      "CloseRegister": {
+        "properties": {
+          "counted_cash": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Counted Cash"
+          },
+          "snapshot": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Snapshot"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Reason",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "counted_cash",
+          "snapshot"
+        ],
+        "title": "CloseRegister"
       },
       "CodeRequest": {
         "properties": {
@@ -8157,6 +9254,54 @@
         "type": "object",
         "title": "ExportInput"
       },
+      "FitmentIn": {
+        "properties": {
+          "make": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Make"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 60,
+            "title": "Model",
+            "default": ""
+          },
+          "year_from": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2100.0,
+                "minimum": 1950.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year From"
+          },
+          "year_to": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2100.0,
+                "minimum": 1950.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year To"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "make"
+        ],
+        "title": "FitmentIn"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -8169,6 +9314,29 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HiddenModel": {
+        "properties": {
+          "make": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Make"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Model"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "make",
+          "model"
+        ],
+        "title": "HiddenModel"
       },
       "JournalInput": {
         "properties": {
@@ -8284,6 +9452,39 @@
           "record_id"
         ],
         "title": "LinkInput"
+      },
+      "LocationIn": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "LocationIn"
       },
       "LockInput": {
         "properties": {
@@ -8505,6 +9706,40 @@
             "maxLength": 500,
             "title": "Shipping Address",
             "default": ""
+          },
+          "location_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "title": "Location Ids"
+          },
+          "vehicle_fitment": {
+            "items": {
+              "$ref": "#/components/schemas/FitmentIn"
+            },
+            "type": "array",
+            "maxItems": 60,
+            "title": "Vehicle Fitment"
+          },
+          "oem_number": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Oem Number",
+            "default": ""
+          },
+          "part_brand": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Part Brand",
+            "default": ""
+          },
+          "part_grade": {
+            "type": "string",
+            "maxLength": 12,
+            "title": "Part Grade",
+            "default": ""
           }
         },
         "type": "object",
@@ -8574,6 +9809,28 @@
         ],
         "title": "OcrInput"
       },
+      "OpenRegister": {
+        "properties": {
+          "opening_float": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Opening Float"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "opening_float"
+        ],
+        "title": "OpenRegister"
+      },
       "OpeningStockInput": {
         "properties": {
           "item_id": {
@@ -8639,6 +9896,20 @@
         ],
         "title": "PasswordChange"
       },
+      "PasswordCheck": {
+        "properties": {
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "title": "PasswordCheck"
+      },
       "PayNow": {
         "properties": {
           "amount": {
@@ -8687,6 +9958,194 @@
           "amount"
         ],
         "title": "PayNow"
+      },
+      "ReceiptInput": {
+        "properties": {
+          "source_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Source Version"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "number": {
+            "type": "string",
+            "maxLength": 16,
+            "title": "Number",
+            "default": ""
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Notes",
+            "default": ""
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ReceiptLine"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Lines"
+          },
+          "expected_total": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Total"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source_version",
+          "date",
+          "lines"
+        ],
+        "title": "ReceiptInput"
+      },
+      "ReceiptLine": {
+        "properties": {
+          "line_index": {
+            "type": "integer",
+            "exclusiveMaximum": 100.0,
+            "minimum": 0.0,
+            "title": "Line Index"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "gst_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gst Rate"
+          },
+          "tax_treatment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "taxable",
+                  "nil_rated",
+                  "exempt",
+                  "non_gst"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Treatment"
+          },
+          "itc_treatment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pending_review",
+                  "ineligible"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Itc Treatment"
+          },
+          "price_includes_tax": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Includes Tax"
+          },
+          "discount_amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discount Amount"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "line_index",
+          "quantity"
+        ],
+        "title": "ReceiptLine"
       },
       "ReconciliationReviewInput": {
         "properties": {
@@ -8799,6 +10258,90 @@
         ],
         "title": "RecoverRequest"
       },
+      "RegisterReturn": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ReturnLine"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Lines"
+          },
+          "return_stock": {
+            "type": "boolean",
+            "title": "Return Stock",
+            "default": true
+          },
+          "payment_account": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "cash",
+                  "bank"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Account"
+          },
+          "bank_account_id": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Bank Account Id",
+            "default": "default"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Reason",
+            "default": ""
+          },
+          "source_version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Version"
+          },
+          "expected_total": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Total"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "date",
+          "lines"
+        ],
+        "title": "RegisterReturn"
+      },
       "RestoreInput": {
         "properties": {
           "backup_base64": {
@@ -8824,6 +10367,35 @@
           "company_name"
         ],
         "title": "RestoreInput"
+      },
+      "ReturnLine": {
+        "properties": {
+          "source_index": {
+            "type": "integer",
+            "maximum": 99.0,
+            "minimum": 0.0,
+            "title": "Source Index"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Quantity"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source_index",
+          "quantity"
+        ],
+        "title": "ReturnLine"
       },
       "ReversalInput": {
         "properties": {
@@ -8880,6 +10452,58 @@
           "prefix"
         ],
         "title": "SeriesInput"
+      },
+      "SetupIn": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Version"
+          },
+          "automobile_enabled": {
+            "type": "boolean",
+            "title": "Automobile Enabled"
+          },
+          "locations": {
+            "items": {
+              "$ref": "#/components/schemas/LocationIn"
+            },
+            "type": "array",
+            "maxItems": 300,
+            "title": "Locations"
+          },
+          "vehicle_added": {
+            "items": {
+              "$ref": "#/components/schemas/AddedMake"
+            },
+            "type": "array",
+            "maxItems": 300,
+            "title": "Vehicle Added"
+          },
+          "vehicle_hidden_makes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 300,
+            "title": "Vehicle Hidden Makes"
+          },
+          "vehicle_hidden_models": {
+            "items": {
+              "$ref": "#/components/schemas/HiddenModel"
+            },
+            "type": "array",
+            "maxItems": 3000,
+            "title": "Vehicle Hidden Models"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version",
+          "automobile_enabled"
+        ],
+        "title": "SetupIn"
       },
       "StatementImport": {
         "properties": {
@@ -9006,6 +10630,66 @@
           "reason"
         ],
         "title": "StockAdjustmentInput"
+      },
+      "StockCountInput": {
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "title": "Item Id"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "counted_quantity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Counted Quantity"
+          },
+          "stock_snapshot": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Stock Snapshot"
+          },
+          "unit_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Cost"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item_id",
+          "date",
+          "counted_quantity",
+          "stock_snapshot",
+          "reason"
+        ],
+        "title": "StockCountInput"
       },
       "TemplateCreate": {
         "properties": {

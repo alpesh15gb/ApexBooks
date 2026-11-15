@@ -14,7 +14,7 @@ class StockOverviewAcceptance(unittest.TestCase):
   for path,body in [('/stock/opening',{'quantity':10,'unit_cost':80}),('/stock/adjustments',{'direction':'increase','quantity':2,'unit_cost':80,'reason':'Counted extra'}),('/stock/adjustments',{'direction':'decrease','quantity':5,'reason':'Damaged'})]:
    result=c.post(b+path,headers=h,json={'item_id':item.json()['id'],'date':'2026-04-01',**body});self.assertEqual(result.status_code,201,result.text)
    detail=c.get(b+'/records/'+result.json()['id'],headers=h);detail.raise_for_status();rows.append(detail.json())
-  run=subprocess.run(['node','tests/renderStockOverview.mjs'],cwd=ROOT/'frontend',input=json.dumps(rows),text=True,capture_output=True,check=True)
+  run=subprocess.run(['node','tests/renderStockOverview.mjs'],cwd=ROOT/'frontend',input=json.dumps(rows),encoding='utf-8',capture_output=True,check=True)
   opening,increase,decrease=json.loads(run.stdout)
   self.assertIn('10 pcs',opening);self.assertIn('₹80.00',opening)
   self.assertIn('+2 pcs',increase);self.assertIn('Stock value introduced',increase);self.assertIn('₹160.00',increase)

@@ -6,6 +6,7 @@ import ReportLibrary, { reportInfo, reportGroups } from "./ReportLibrary.jsx";
 import DateRangeFilter from "./DateRangeFilter.jsx";
 import GstReturnView from "./GstReturnView.jsx";
 import StatementsView from "./StatementsView.jsx";
+import StockMovementHistory from "./StockMovementHistory.jsx";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Download, ArrowLeft } from "lucide-react";
 import { downloadBlob } from "./downloadBlob.js";
@@ -39,13 +40,14 @@ const api = async (path) => {
   return response.json();
 };
 
-export default function Reports({ companyId, records }) {
+export default function Reports({ companyId, records, showStockHistory = false, onOpenRecord }) {
   const financialYear = businessFinancialYear();
   const [from, setFrom] = useState(`${financialYear}-04-01`);
   const [to, setTo] = useState(today());
   const [view, setView] = useState("summary");
   const [library, setLibrary] = useState(true);
   const [period, setPeriod] = useState("year");
+  const [stockHistory, setStockHistory] = useState(null);
   const [partySelection, setPartySelection] = useState({ companyId, name: "" });
   const selectedParty = partySelection.companyId === companyId ? partySelection.name : "";
   const setParty = (name) => setPartySelection({ companyId, name });
@@ -834,11 +836,13 @@ export default function Reports({ companyId, records }) {
                     <th className="right">SOLD NET</th>
                     <th className="right">CLOSING</th>
                     <th className="right">COST VALUE</th>
+                    {showStockHistory && <th>HISTORY</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {data.rows.map((row) => (
-                    <tr key={row.item_id}>
+                  {data.rows.map((row) => {
+                    const expanded = showStockHistory && stockHistory?.itemId === row.item_id && stockHistory?.report === requestKey;
+                    return <React.Fragment key={row.item_id}><tr>
                       <td>
                         {row.name}
                         <small className="bank-ref">{row.unit}</small>
@@ -854,8 +858,16 @@ export default function Reports({ companyId, records }) {
                           ? "Needs migration"
                           : rupees(row.closing_value)}
                       </td>
+                      {showStockHistory && <td><button type="button" className="link"
+                        aria-expanded={expanded}
+                        aria-label={`${expanded ? 'Hide' : 'View'} movements for ${row.name}`}
+                        onClick={() => setStockHistory(expanded ? null : {itemId: row.item_id, report: requestKey})}>
+                        {expanded ? 'Hide movements' : 'View movements'}
+                      </button></td>}
                     </tr>
-                  ))}
+                    {expanded && <tr><td colSpan={9}><StockMovementHistory api={api} companyId={companyId} item={row} from={from} to={to} onOpen={onOpenRecord} /></td></tr>}
+                    </React.Fragment>;
+                  })}
                 </tbody>
               </table>
               {!data.rows.length && (
@@ -867,8 +879,7 @@ export default function Reports({ companyId, records }) {
           </section>
           <div className="info-box">
             Only documents linked to stock-tracked item masters affect this
-            report. A sale that would make stock negative is rejected. Opening
-            stock can be posted once for an item before its first movement.
+            report. Opening stock can be posted once for an item before its first movement.
             Count adjustments are shown separately and post gains or losses to
             the ledger. Closing cost uses moving weighted average for newly
             tracked stock. Net realisable value adjustments and other valuation
