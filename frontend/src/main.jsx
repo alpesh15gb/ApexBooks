@@ -37,6 +37,7 @@ import ActionMenu from "./ActionMenu.jsx";
 import WorkspaceSidebar from "./WorkspaceSidebar.jsx";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+const InventorySetupSettings = deferWorkspace(() => import("./InventorySetupSettings.jsx"), "Stock & modules");
 const CompleteBackup = deferWorkspace(() => import("./CompleteBackup.jsx"), "Complete backup tools");
 import { createRoot } from "react-dom/client";
 import {
@@ -102,7 +103,6 @@ import Advances from "./Advances.jsx";
 import { downloadBlob } from "./downloadBlob.js";
 import { InventorySetupContext, itemSearchText } from "./inventorySetup.js";
 import { useInventorySetupValue } from "./InventorySetupProvider.jsx";
-import InventorySetupSettings from "./InventorySetupSettings.jsx";
 import ItemMeta from "./ItemMeta.jsx";
 
 const sections = [
@@ -1361,7 +1361,7 @@ function App() {
               company={company}
               onAddCompany={() => setModal("company")}
               sections={{
-                ...(supported("inventory_setup") ? { inventory: <InventorySetupSettings api={api} companyId={companyId} canEdit={company?.role === "owner"} /> } : {}),
+                ...(supported("inventory_setup") ? { inventory: <React.Suspense fallback={<p role="status">Loading stock settings…</p>}><InventorySetupSettings api={api} companyId={companyId} canEdit={company?.role === "owner"} /></React.Suspense> } : {}),
                 commerce: <><h3>Bagisto integration</h3><p>Connect independent store channels and stock pools to this company. Review orders, deliveries and accounting reconciliation.</p><button type="button" className="primary" onClick={() => navigateWorkspace("commerce")}>Open ecommerce workspace</button></>,
                 company: (
                   <>
