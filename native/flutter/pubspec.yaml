@@ -1,0 +1,59 @@
+name: apex_books
+description: Apex Books workspace for checkout, inventory and accounting.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.14.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_secure_storage: ^11.2.0
+  http: ^1.6.0
+  intl: ^0.20.3
+  material_ui: ^1.1.0
+  mobile_scanner: ^7.5.0
+  pdf: ^3.13.1
+  printing: ^5.15.1
+  file_picker: 13.3.2
+  image_picker: ^1.2.4
+  crypto: ^3.0.8
+  cryptography: 2.9.0
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/brand/apexbooks-logo.png
+    - assets/brand/apexbooks-wordmark.png
+    - assets/fonts/OFL.txt
+  # Static cuts of the variable font (see tool/build_fonts.py) so weights and optical size match the web app.
+  fonts:
+    - family: DM Sans
+      fonts:
+        - asset: assets/fonts/dm-sans-400.ttf
+          weight: 400
+        - asset: assets/fonts/dm-sans-500.ttf
+          weight: 500
+        - asset: assets/fonts/dm-sans-600.ttf
+          weight: 600
+        - asset: assets/fonts/dm-sans-700.ttf
+          weight: 700
+        - asset: assets/fonts/dm-sans-800.ttf
+          weight: 800
+    - family: DM Sans Display
+      fonts:
+        - asset: assets/fonts/dm-sans-display-500.ttf
+          weight: 500
+        - asset: assets/fonts/dm-sans-display-600.ttf
+          weight: 600
+        - asset: assets/fonts/dm-sans-display-700.ttf
+          weight: 700
+        - asset: assets/fonts/dm-sans-display-800.ttf
+          weight: 800
