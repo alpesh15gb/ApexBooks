@@ -53,7 +53,7 @@ export default function PosWorkspace({
     [stock, setStock] = useState(null),
     [date, setDate] = useState(businessDate),
     [billing, setBilling] = useState(() => initial?.billing || emptyBilling(company.state_code)),
-    [historyDate, setHistoryDate] = useState(businessDate),
+    [historyDate, setHistoryDate] = useState(""),
     [historySearch, setHistorySearch] = useState(""),
     [historyLimit, setHistoryLimit] = useState(20),
     [receipt, setReceipt] = useState(null),
@@ -337,8 +337,8 @@ export default function PosWorkspace({
         </div>
         <div className="pos-day-total">
           <span>Today’s sales</span>
-          <strong>{money(daySales.reduce((total, r) => total + Number(r.amount), 0))}</strong>
-          <small>{daySales.length} {daySales.length === 1 ? "receipt" : "receipts"}</small>
+          <strong>{recordsReady ? money(daySales.reduce((total, r) => total + Number(r.amount), 0)) : "—"}</strong>
+          <small>{recordsReady ? `${daySales.length} ${daySales.length === 1 ? "receipt" : "receipts"}` : "Loading sales…"}</small>
         </div>
       </header>
       <div className="pos-tabs" role="group" aria-label="Point of sale views">
@@ -412,6 +412,9 @@ export default function PosWorkspace({
             {!search && <Search size={17} aria-hidden="true" />}
           </div>
           {scanMessage && <p className="pos-scan-feedback" role="status">{scanMessage}</p>}
+          {cart.length > 0 && <button type="button" className="button secondary pos-jump-to-cart" onClick={() => cartHeading.current?.focus()}>
+            <ShoppingBag size={17} aria-hidden="true" /> Review sale · {cart.length} {cart.length === 1 ? "item line" : "item lines"}
+          </button>}
           <div className="pos-products">
             {shownProducts.map(item => (
               <button
@@ -442,9 +445,6 @@ export default function PosWorkspace({
           {recordsReady && !items.length && <p>Add items in Items to start selling.</p>}
           {!!items.length && !filtered.length && <p>No matching items.</p>}
           {filtered.length > shownProducts.length && <p>Showing {shownProducts.length} of {filtered.length} products. Search or scan to find a specific item.</p>}
-          {cart.length > 0 && <button type="button" className="button secondary pos-jump-to-cart" onClick={() => cartHeading.current?.focus()}>
-            Review sale · {cart.length} {cart.length === 1 ? "item line" : "item lines"}
-          </button>}
         </section>
         <section className="panel pos-cart">
           <div className="pos-panel-heading"><h2 ref={cartHeading} tabIndex={-1}>Current sale</h2><span>{cart.length} {cart.length === 1 ? "item line" : "item lines"}</span></div>
@@ -672,10 +672,11 @@ export default function PosWorkspace({
         </section>
       </div>
       <section className="panel settings-panel pos-history" hidden={view !== "receipts"}>
-        <h2>Receipt history</h2>
-        <div className="form-grid">
+        <div className="pos-panel-heading"><h2>Receipt history</h2><span>{recordsReady ? `${history.length} ${history.length === 1 ? "receipt" : "receipts"}` : "Loading…"}</span></div>
+        <div className="form-grid pos-receipt-filters">
+          <label>Receipt number or customer<input placeholder="Search receipts" type="search" value={historySearch} onChange={e => { setHistorySearch(e.target.value); setHistoryLimit(20); }} /></label>
           <label>Sale date<input type="date" value={historyDate} onChange={e => { setHistoryDate(e.target.value); setHistoryLimit(20); }} /></label>
-          <label>Receipt number or customer<input type="search" value={historySearch} onChange={e => { setHistorySearch(e.target.value); setHistoryLimit(20); }} /></label>
+          <button type="button" className="button secondary" onClick={() => { setHistoryDate(historyDate ? "" : businessDate()); setHistoryLimit(20); }}>{historyDate ? "Show all dates" : "Show today"}</button>
         </div>
         <ul className="pos-history-list">{history.slice(0, historyLimit).map(row => (
           <li key={row.id}>

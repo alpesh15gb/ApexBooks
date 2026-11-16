@@ -16,8 +16,10 @@ import {
   EyeOff,
   FileText,
   Landmark,
+  Package,
   Plus,
   RefreshCw,
+  ScanLine,
   ShoppingBag,
   TrendingUp,
   Wallet,
@@ -236,62 +238,90 @@ export default function BusinessOverview({ company, records, api, onNavigate, on
   useEffect(() => {
     if (!company?.id) return;
     let live = true;
+    const controller = new AbortController();
     setError(""); setResult(null);
-    Promise.all([
-      api(`/companies/${company.id}/reports/summary?from_date=${start}&to_date=${end}`),
-      api(`/companies/${company.id}/reports/financial?from_date=${start}&to_date=${end}`),
-      api(`/companies/${company.id}/bank-accounts`),
-    ]).then(([summary, financial, banks]) => { if (live) setResult({ key, summary, financial, banks }); })
-      .catch(e => { if (live) setError(e.message); });
-    return () => { live = false; };
+    const options = { signal: controller.signal };
+    Promise.allSettled([
+      api(`/companies/${company.id}/reports/summary?from_date=${start}&to_date=${end}`, options),
+      api(`/companies/${company.id}/reports/financial?from_date=${start}&to_date=${end}`, options),
+      api(`/companies/${company.id}/bank-accounts`, options),
+    ]).then(results => {
+      if (!live) return;
+      const [summary, financial, banks] = results.map(result => result.status === "fulfilled" ? result.value : null);
+      setResult({ key, summary, financial, banks });
+      const failure = results.find(result => result.status === "rejected");
+      if (failure) setError(failure.reason.message);
+    });
+    return () => { live = false; controller.abort(); };
   }, [company?.id, start, end, refreshKey, retry]);
   const data = result?.key === key ? result : null;
   const canWrite = ["owner", "editor"].includes(company?.role);
   const { overdue, openBills, quotes } = dashboardWork(records, businessDate());
-  const bankCodes = new Set(data?.banks.map(bank => bank.ledger_code) || []);
-  const cashAccounts = data?.financial.accounts.filter(a => a.code === "SYS-CASH" || a.code === "SYS-BANK" || bankCodes.has(a.code)) || [];
+  const bankCodes = new Set(data?.banks?.map(bank => bank.ledger_code) || []);
+  const balancesReady = !!(data?.financial && data?.banks);
+  const cashAccounts = balancesReady
+    ? data.financial.accounts.filter(a => a.code === "SYS-CASH" || a.code === "SYS-BANK" || bankCodes.has(a.code))
+    : [];
   const cashTotal = cashAccounts.reduce((sum, a) => sum + Number(a.closing_balance || 0), 0);
   const activity = recentTransactions(records);
   const openRecord = record => onOpenRecord ? onOpenRecord(record) : onNavigate(record.kind, record.number || record.name);
   const txName = { sales_invoice: "Sales invoice", purchase_bill: "Purchase bill", payment_in: "Payment received", payment_out: "Payment made", expense: "Expense", estimate: "Estimate", sales_order: "Sales order", proforma: "Proforma invoice", credit_note: "Credit note", debit_note: "Debit note", pos: "POS sale", purchase_order: "Purchase order", bank_transfer: "Bank transfer" };
   return <div className="business-overview">
     <div className="overview-heading">
-      <div><div className="workspace-kicker">OVERVIEW</div><h1>Business overview</h1><p>{company?.name || "Your business"}<span className="overview-subtitle-divider"> / </span>Your financial picture at a glance.</p></div>
+      <div><h1>Business overview</h1><p>{company?.name || "Your business"}</p></div>
       <div className="overview-heading-actions">
-        <label className="period-picker"><CalendarDays size={16} /><select aria-label="Dashboard period" value={period} onChange={e => setPeriod(e.target.value)}><option value="year">This financial year</option><option value="month">This month</option><option value="30days">Last 30 days</option></select></label>
         <button ref={privacyButton} type="button" className="button secondary privacy-toggle" aria-pressed={hidden}
           onClick={() => { if (hidden) setRevealing(true); else { writeAmountsHidden(true); setHidden(true); } }}>
           {hidden ? <Eye size={17} /> : <EyeOff size={17} />}<span className="privacy-label">{hidden ? "Show amounts" : "Hide amounts"}</span></button>
         <button className="button primary" disabled={!canWrite || !recordsReady} onClick={() => onCreate("sales_invoice")}><Plus size={17} />New invoice</button>
       </div>
     </div>
-    {error && <div className="error banner" role="alert"><span>We couldn't load your overview. {error}</span><button className="text-button" onClick={() => setRetry(x => x + 1)}><RefreshCw size={14} />Retry</button></div>}
-    <div className="overview-period-note">{dateText(start)} – {dateText(end)}<span>All amounts in INR</span></div>
+    <div className="overview-work-grid">
+      <section className="overview-counter" aria-label="Storefront">
+        <span className="overview-counter-symbol"><ScanLine size={24} aria-hidden="true" /></span>
+        <h2>Point of sale</h2>
+        <p>Take a payment, find a receipt, or review the register.</p>
+        <button type="button" className="button overview-counter-action" onClick={() => onNavigate("pos")}>Open checkout<ArrowUpRight size={16} aria-hidden="true" /></button>
+      </section>
+      <section className="insight-card next-actions" aria-label="Quick actions">
+        <div className="insight-heading"><h2>Quick actions</h2></div>
+        <div className="task-grid">
+          {[
+            ["item", "Manage stock", "Products and inventory", Package, () => onNavigate("item")],
+            ["purchase_order", "Receive stock", "Find a purchase order", ShoppingBag, () => onNavigate("purchase_order")],
+            ["payment_in", "Record a receipt", "Customer payment", ArrowDownLeft],
+            ["expense", "Record an expense", "Business spending", Wallet],
+          ].map(([kind, title, note, Icon, open]) => <button key={kind} disabled={!open && (!canWrite || !recordsReady)} onClick={open || (() => onCreate(kind))}><span className="task-icon"><Icon size={18} aria-hidden="true" /></span><span><strong>{title}</strong><small>{note}</small></span><ChevronRight size={16} aria-hidden="true" /></button>)}
+        </div>
+      </section>
+    </div>
+    <div className="overview-financial-heading">
+      <div><h2>Financial summary</h2><p>{dateText(start)} – {dateText(end)}</p></div>
+      <label className="period-picker"><CalendarDays size={16} aria-hidden="true" /><select aria-label="Dashboard period" value={period} onChange={e => setPeriod(e.target.value)}><option value="year">This financial year</option><option value="month">This month</option><option value="30days">Last 30 days</option></select></label>
+    </div>
+    {error && <div className="error banner" role="alert"><span>Some financial figures are unavailable. {error}</span><button className="text-button" onClick={() => setRetry(x => x + 1)}><RefreshCw size={14} aria-hidden="true" />Retry</button></div>}
     <div className="overview-metrics" aria-busy={!data && !error}>
-      <Metric label="Net sales" value={data?.summary.sales} note={company?.tax_mode === "regular" ? "Including GST, after credit notes" : "Sales after credit notes"} icon={TrendingUp} hidden={hidden} />
-      <Metric label="Net profit" value={data?.financial.net_profit} note="Income less costs and expenses" icon={BarChart3} tone="blue" hidden={hidden} />
-      <Metric label="To collect" value={data?.summary.receivables} note={`Outstanding as of ${dateText(end)}`} icon={ArrowDownLeft} tone="purple" hidden={hidden} />
-      <Metric label="To pay" value={data?.summary.payables} note={`Outstanding as of ${dateText(end)}`} icon={Wallet} tone="amber" hidden={hidden} />
+      <Metric label="Net sales" value={data?.summary?.sales} note={company?.tax_mode === "regular" ? "Including GST, after credit notes" : "Sales after credit notes"} icon={TrendingUp} hidden={hidden} />
+      <Metric label="Net profit" value={data?.financial?.net_profit} note="Income less costs and expenses" icon={BarChart3} tone="blue" hidden={hidden} />
+      <Metric label="To collect" value={data?.summary?.receivables} note={`Outstanding as of ${dateText(end)}`} icon={ArrowDownLeft} tone="purple" hidden={hidden} />
+      <Metric label="To pay" value={data?.summary?.payables} note={`Outstanding as of ${dateText(end)}`} icon={Wallet} tone="amber" hidden={hidden} />
     </div>
     <div className="overview-analytics">
       <section className="insight-card sales-insight"><div className="insight-heading"><div><h2>Sales & purchases</h2><p>Your trading activity for the selected period.</p></div><span className="subtle-tag">Net of returns</span></div>{!recordsReady ? <p className="chart-empty" role="status">Loading transactions…</p> : hidden ? <div className="chart-empty" role="status"><EyeOff size={28} /><strong>Chart hidden</strong><p>Show amounts to see sales and purchases.</p></div> : <SalesChart records={records} start={start} end={end} />}</section>
-      <section className="insight-card bank-insight"><div className="insight-heading"><div><h2>Cash & bank</h2><p>Book balance · {dateText(end)}</p></div><Landmark size={20} /></div><strong className="insight-total">{data ? show(cashTotal) : "—"}</strong><div className="money-movement"><div><span><ArrowDownLeft size={14} /> Money in</span><strong>{data ? show(data.summary.receipts) : "—"}</strong></div><div><span><ArrowUpRight size={14} /> Money out</span><strong>{data ? show(data.summary.payments) : "—"}</strong></div><small>For the selected period · excludes account transfers</small></div><div className="bank-mini-list">
-        {cashAccounts.length ? cashAccounts.slice(0, 3).map(a => <div key={a.code}><span className="bank-mini-icon">{a.code === "SYS-CASH" ? <Banknote size={17} /> : <Landmark size={17} />}</span><span>{a.name}</span><strong>{show(a.closing_balance)}</strong></div>) : <p>{data ? "Add an account to start tracking your money." : error ? "Balances are unavailable. Please retry." : "Loading balances…"}</p>}
+      <section className="insight-card bank-insight"><div className="insight-heading"><div><h2>Cash & bank</h2><p>Book balance · {dateText(end)}</p></div><Landmark size={20} aria-hidden="true" /></div><strong className="insight-total">{balancesReady ? show(cashTotal) : "—"}</strong><div className="money-movement"><div><span><ArrowDownLeft size={14} /> Money in</span><strong>{data?.summary ? show(data.summary.receipts) : "—"}</strong></div><div><span><ArrowUpRight size={14} /> Money out</span><strong>{data?.summary ? show(data.summary.payments) : "—"}</strong></div><small>For the selected period · excludes account transfers</small></div><div className="bank-mini-list">
+        {cashAccounts.length ? cashAccounts.slice(0, 3).map(a => <div key={a.code}><span className="bank-mini-icon">{a.code === "SYS-CASH" ? <Banknote size={17} /> : <Landmark size={17} />}</span><span>{a.name}</span><strong>{show(a.closing_balance)}</strong></div>) : <p>{balancesReady ? "Add an account to start tracking your money." : error ? "Balances are unavailable. Please retry." : "Loading balances…"}</p>}
       </div><button className="insight-link" onClick={() => onNavigate("bank_account")}>View accounts & reconcile <ArrowUpRight size={15} /></button></section>
     </div>
-    <div className="overview-work-grid">
-      <section className="insight-card next-actions" aria-label="Quick actions"><div className="insight-heading"><div><h2>Everyday tasks</h2><p>Start with what you need to do.</p></div></div><div className="task-grid">
-        {[["payment_in", "Record a receipt", "Customer payment", ArrowDownLeft], ["purchase_bill", "Add a purchase", "Supplier bill", ShoppingBag], ["expense", "Record an expense", "Business spending", Wallet], ["payment_out", "Pay a supplier", "Bill payment", ArrowUpRight]].map(([kind, title, note, Icon]) => <button key={kind} disabled={!canWrite || !recordsReady} onClick={() => onCreate(kind)}><span className="task-icon"><Icon size={20} /></span><span><strong>{title}</strong><small>{note}</small></span><ChevronRight size={16} /></button>)}
-      </div></section>
+    <div className="overview-follow-up">
       <section className="insight-card work-queue"><div className="insight-heading"><div><h2>Needs attention</h2><p>Open work across all dates.</p></div><Clock3 size={19} /></div>
         {[[overdue.length, "Overdue invoices", "sales_invoice", "overdue"], [openBills.length, "Unpaid bills", "purchase_bill", "unpaid"], [quotes.length, "Open estimates", "estimate", "draft"]].map(([count, label, kind, filter]) => <button key={kind} disabled={!recordsReady} onClick={() => onNavigate(kind, "", filter, true)}><span className={count ? "queue-count pending" : "queue-count"}>{recordsReady ? count : "—"}</span><span>{label}</span><ChevronRight size={16} /></button>)}
       </section>
-    </div>
     <section className="insight-card activity-insight"><div className="insight-heading"><div><h2>Recent transactions</h2><p>Your latest business activity, in one place.</p></div><button className="insight-link" onClick={() => onNavigate("day_book")}>View day book <ArrowUpRight size={15} /></button></div>
       <div className="table-wrap" tabIndex={0}><table className="recent-table"><thead><tr><th>Transaction</th><th>Reference</th><th>Date</th><th>Status</th><th className="right">Amount</th><th aria-label="Open" /></tr></thead><tbody>
         {activity.map(r => <tr key={r.id} onClick={() => openRecord(r)}><td><div className="recent-name"><span className={`recent-icon ${["purchase_bill", "payment_out", "expense"].includes(r.kind) ? "is-purchase" : ""}`}><FileText size={17} /></span><span><strong>{r.name || "Untitled"}</strong><small>{txName[r.kind] || r.kind.replaceAll("_", " ")}</small></span></div></td><td>{r.number || "—"}</td><td>{dateText(r.date)}</td><td><span className={`status-badge ${r.cancelled ? "cancelled" : r.converted_to ? "converted" : r.posted ? "posted" : "draft"}`}>{r.cancelled ? "Cancelled" : r.converted_to ? "Converted" : r.posted ? "Posted" : ["estimate", "sales_order", "proforma", "purchase_order"].includes(r.kind) ? "Draft" : "Unposted"}</span></td><td className="right">{show(r.amount)}</td><td><button className="round-action" aria-label={`Open ${r.number || r.name}`} onClick={e => { e.stopPropagation(); openRecord(r); }}><ChevronRight size={16} /></button></td></tr>)}
       </tbody></table>{!activity.length && <div className="chart-empty"><FileText size={28} /><strong>{recordsReady ? "Your books start here" : "Loading transactions…"}</strong><p>{recordsReady ? "Create your first invoice or add a purchase bill." : "Your latest activity will appear here."}</p></div>}</div>
     </section>
+    </div>
     {recordsReady && <SetupChecklist company={company} records={records} onCreate={onCreate} onNavigate={onNavigate} api={api} />}
     {revealing && <RevealAmountsDialog api={api} onClose={() => setRevealing(false)}
       onRevealed={() => { writeAmountsHidden(false); setHidden(false); setRevealing(false); requestAnimationFrame(() => privacyButton.current?.focus()); }} />}

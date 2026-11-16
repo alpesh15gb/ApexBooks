@@ -1,5 +1,7 @@
 # Apex Books
 
+The [Flutter client preview](native/flutter/README.md) targets web, Windows, and Android against the same API. The existing clients remain available during the port.
+
 Latest follow-up: [launch hardening, invoice validation and settings safety](docs/LAUNCH_HARDENING_REVIEW.md). This is not a production deployment or statutory compliance certification.
 
 Latest web validation: [performance, accessibility and PostgreSQL release review](docs/WEB_RELEASE_REVIEW.md).

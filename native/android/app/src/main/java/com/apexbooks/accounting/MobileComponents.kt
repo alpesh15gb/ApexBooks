@@ -33,20 +33,29 @@ import com.apexbooks.accounting.data.*
 @Composable fun MoreScreen(vm: AppModel) {
     var query by remember { mutableStateOf("") }
     var confirmSignOut by remember { mutableStateOf(false) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+    val menus = linkedMapOf(
+        "Inventory" to listOf("item", "purchase_order"),
+        "Contacts and accounting" to listOf("party", "bank", "day_book", "ledger"),
+        "Company" to listOf("settings", "commerce"),
+    )
+    val groups = if (query.isBlank()) menus.mapValues { (_, keys) -> keys.mapNotNull { key -> vm.navigation.find { it.key == key } } }
+    else vm.navigation.filter { (it.title + " " + it.group).contains(query.trim(), true) }.groupBy { it.group }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { SearchBarField("Find a workspace", query) { query = it } }
-        item { Section {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(16.dp)) { Icon(Icons.Outlined.Business, null, Modifier.padding(16.dp), tint = ApexGreen) }
-                Column(Modifier.weight(1f)) { Text(companyDisplayName(vm.company), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); Text(friendly(vm.company.s("tax_mode")) + " · " + friendly(vm.company.s("role")), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            }
-        } }
-        vm.navigation.filter { it.key !in setOf("dashboard", "party", "reports") && (it.title + " " + it.group).contains(query.trim(), true) }.groupBy { it.group }.forEach { (group, features) ->
+        if (groups.values.all { it.isEmpty() }) item { Section { Text("No workspaces match this search.") } }
+        groups.filterValues { it.isNotEmpty() }.forEach { (group, features) ->
             item { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(group.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Surface(shape = RoundedCornerShape(20.dp), color = Color.White) { Column { features.forEachIndexed { index, feature -> NativeActionRow(feature.title, icon = featureIcon(feature.key), onClick = { vm.navigate(feature.key) }); if (index < features.lastIndex) HorizontalDivider(Modifier.padding(start = 74.dp)) } } }
+                Text(group, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface) { Column {
+                    features.forEachIndexed { index, feature ->
+                        NativeActionRow(feature.title, icon = featureIcon(feature.key), onClick = { vm.navigate(feature.key) })
+                        if (index < features.lastIndex) HorizontalDivider(Modifier.padding(start = 74.dp))
+                    }
+                } }
             } }
         }
+        item { Text("${friendly(vm.company.s("role"))} · ${friendly(vm.company.s("tax_mode"))}",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { OutlinedButton(onClick = { if(vm.heldSaleCount>0)confirmSignOut=true else vm.task { vm.logout() } }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.AutoMirrored.Outlined.Logout, null); Spacer(Modifier.width(8.dp)); Text("Sign out") } }
         item { Text("Apex Books ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }

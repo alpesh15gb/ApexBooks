@@ -83,6 +83,7 @@ import "./pos-register-summary.css";
 import "./pos-counter.css";
 import "./purchase-receiving.css";
 import "./touch-polish.css";
+import "./workspace-refresh.css";
 const ReportsV2 = deferWorkspace(() => import("./Reports.jsx"), "Reports");
 const DayBook = deferWorkspace(() => import("./DayBook.jsx"), "Day book");
 import OverdueReminders, { overdueCount } from "./OverdueReminders.jsx";
@@ -107,8 +108,9 @@ import ItemMeta from "./ItemMeta.jsx";
 
 const sections = [
   { label: "Dashboard", icon: LayoutDashboard, key: "dashboard" },
-  { label: "Parties", icon: UsersRound, key: "party" },
+  { label: "POS", icon: ReceiptIndianRupee, key: "pos" },
   { label: "Items", icon: Package, key: "item" },
+  { label: "Parties", icon: UsersRound, key: "party" },
   {
     label: "Sales",
     icon: ShoppingCart,
@@ -119,7 +121,6 @@ const sections = [
       ["proforma", "Proforma invoices"],
       ["payment_in", "Payment in"],
       ["credit_note", "Credit notes"],
-      ["pos", "POS"],
     ],
   },
   {
@@ -754,6 +755,13 @@ function App() {
     registerQuery.page === page
       ? registerQuery
       : { period: "all", from: "", to: "", party: "", sort: "newest" };
+  const hasRegisterFilters = !!(search || query.from || query.to || query.party ||
+    query.period !== "all" || query.sort !== "newest" || activeRegisterFilter !== "all");
+  function resetRegisterFilters() {
+    setSearch("");
+    setRegisterFilter({ page, value: "all" });
+    setRegisterQuery({ page, period: "all", from: "", to: "", party: "", sort: "newest" });
+  }
   const scopedRecords = records.filter(
     (r) =>
       r.kind === page &&
@@ -775,6 +783,7 @@ function App() {
             Number(r.outstanding) > 0) ||
           (activeRegisterFilter === "paid" &&
             r.posted && !r.cancelled &&
+            r.outstanding != null && r.outstanding !== "" &&
             Number(r.outstanding) === 0) ||
           (activeRegisterFilter === "overdue" &&
             r.posted && !r.cancelled &&
@@ -1173,7 +1182,7 @@ function App() {
     <InventorySetupContext.Provider value={inventorySetup}><><div className="app" data-company-locked={accessLost ? "true" : "false"} hidden={accessLost} inert={accessLost ? true : undefined}>
       <a className="skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); document.getElementById('workspace-content')?.focus(); }}>Skip to content</a>
       <WorkspaceSidebar open={menu} onClose={() => setMenu(false)}>
-        <div className="brand workspace-brand"><span className="workspace-brand-symbol"><BookOpen size={23} /></span><span>Apex<span className="workspace-brand-light">Books</span><small>BUSINESS ACCOUNTING</small></span></div>
+        <div className="brand workspace-brand"><span className="workspace-brand-symbol"><BookOpen size={21} aria-hidden="true" /></span><span>Apex<span className="workspace-brand-light">Books</span></span></div>
         <div className="company-switch">
           <span className="company-icon">
             <Building2 size={18} />
@@ -1203,7 +1212,7 @@ function App() {
         <nav aria-label="Main navigation">
           {sections.map((s) => (
             <React.Fragment key={s.label}>
-              {(s.key === 'dashboard' || s.key === 'party' || s.label === 'Sales' || s.key === 'bank_account' || s.key === 'recurring') && <div className="nav-label">{{ dashboard: 'OVERVIEW', party: 'DIRECTORY', bank_account: 'ACCOUNTING', recurring: 'BUSINESS TOOLS' }[s.key] || 'TRANSACTIONS'}</div>}
+              {(s.key === 'dashboard' || s.label === 'Sales' || s.key === 'bank_account' || s.key === 'recurring') && <div className="nav-label">{{ dashboard: 'WORKSPACE', bank_account: 'ACCOUNTING', recurring: 'BUSINESS TOOLS' }[s.key] || 'TRANSACTIONS'}</div>}
               <button
                 disabled={!!routeFeature[s.key] && !supported(routeFeature[s.key])}
                 title={routeFeature[s.key] && !supported(routeFeature[s.key]) ? "Connected API upgrade required" : undefined}
@@ -1248,9 +1257,6 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-workspace-status">
-            <span /> Your books, connected
-          </div>
           <button onClick={() => { if (!postingNavigationBlocked()) setModal("company"); }}>
             <Plus size={16} /> Add company
           </button>
@@ -1566,13 +1572,8 @@ function App() {
             />
           ) : (
             <>
-              <div className="page-heading">
+              <div className="page-heading register-page-heading">
                 <div>
-                  <div className="eyebrow green">
-                    {page === "reports"
-                      ? "BUSINESS INSIGHTS"
-                      : "YOUR WORKSPACE"}
-                  </div>
                   <h1>{labels[page]}</h1>
                   <p>
                     {page === "reports"
@@ -1590,8 +1591,14 @@ function App() {
                             "Prepare quotations and convert accepted work to invoices.",
                           expense:
                             "Record business spending and review expense categories.",
+                          purchase_order:
+                            "Review supplier orders and receive deliveries.",
+                          party:
+                            "Customers and suppliers",
+                          item:
+                            "Products, services, and stock",
                         }[page] ||
-                        `Manage your ${labels[page]?.toLowerCase()} in one place.`}
+                        ""}
                   </p>
                 </div>
                 <div className="heading-actions">
@@ -1708,26 +1715,6 @@ function App() {
                 </section>
               ) : (
                 <>
-                  {transactionRegister && (
-                    <RegisterControls
-                      value={query}
-                      records={records.filter((r) => r.kind === page)}
-                      onChange={(value) => setRegisterQuery({ ...value, page })}
-                      onReset={() => {
-                        setRegisterQuery({
-                          page,
-                          period: "all",
-                          from: "",
-                          to: "",
-                          party: "",
-                          sort: "newest",
-                        });
-                        setSearch("");
-                        setRegisterFilter({ page, value: "all" });
-                      }}
-                    />
-                  )}
-                  {!transactionRegister && supported("master_lifecycle") && <div className="register-controls expanded-controls"><label>Master status<select aria-label="Master status" value={activeRegisterFilter} onChange={event => setRegisterFilter({ page, value: event.target.value })}><option value="all">All · history retained</option><option value="active">Active</option><option value="inactive">Archived</option></select></label><p>Archived entries stay in history. Edit an entry to archive or reactivate it.</p></div>}
                   <RegisterOverview
                     page={page}
                     records={scopedRecords}
@@ -1735,12 +1722,12 @@ function App() {
                     onFilter={(value) => setRegisterFilter({ page, value })}
                   />
                   <section
-                    className={`panel register ${transactionRegister ? "transaction-register" : ""}`}
+                    className={`panel register register-surface ${transactionRegister ? "transaction-register" : ""}`}
                   >
                     <div className="panel-header">
                       <div>
                         <h2>
-                          {page === "reports" ? "All records" : labels[page]}
+                          {transactionRegister ? "Transactions" : page === "party" ? "Directory" : "Catalogue"}
                         </h2>
                         <p>
                           {filtered.length}{" "}
@@ -1758,6 +1745,21 @@ function App() {
                         />
                       </div>
                     </div>
+                    {transactionRegister ? (
+                      <RegisterControls
+                        key={page}
+                        value={query}
+                        records={records.filter((r) => r.kind === page)}
+                        onChange={(value) => setRegisterQuery({ ...value, page })}
+                        onReset={resetRegisterFilters}
+                        hasActiveFilters={hasRegisterFilters}
+                      />
+                    ) : supported("master_lifecycle") && (
+                      <div className="register-controls expanded-controls master-register-filters">
+                        <label>Status<select aria-label="Master status" value={activeRegisterFilter} onChange={event => setRegisterFilter({ page, value: event.target.value })}><option value="all">All entries</option><option value="active">Active</option><option value="inactive">Archived</option></select></label>
+                        {hasRegisterFilters && <button type="button" className="link" onClick={resetRegisterFilters}>Reset filters</button>}
+                      </div>
+                    )}
                     {page === "party" && partyBalances?.companyId === companyId && (
                       <div className="party-balance-strip">
                         <div className="receive"><small>You'll get</small><strong>{money(partyBalances.totals.to_receive)}</strong></div>
@@ -1818,34 +1820,21 @@ function App() {
                             <FileText size={22} />
                           </span>
                           <strong>
-                            {scopedRecords.length ||
-                            search ||
-                            activeRegisterFilter !== "all"
+                            {hasRegisterFilters
                               ? "No matching records"
                               : page === "party" ? "Your party list starts here" : page === "item" ? "Build your item catalogue" : "No transactions in this view"}
                           </strong>
-                          <p>{scopedRecords.length || search || activeRegisterFilter !== "all"
-                            ? "No records match these filters. Clear them to see your existing transactions."
+                          <p>{hasRegisterFilters
+                            ? "Change the search or filters to find your records."
                             : ["owner", "editor"].includes(company?.role)
                               ? page === "party" ? "Add a customer or supplier so you can reuse their details on every document." : page === "item" ? "Add products or services with prices, tax defaults and optional stock tracking." : "Create your first document to start this register."
                               : "There are no records here yet. Your company owner can add them."}</p>
-                          <button
+                          {hasRegisterFilters && <button
                             className="button secondary"
-                            onClick={() => {
-                              setSearch("");
-                              setRegisterFilter({ page, value: "all" });
-                              setRegisterQuery({
-                                page,
-                                period: "all",
-                                from: "",
-                                to: "",
-                                party: "",
-                                sort: "newest",
-                              });
-                            }}
+                            onClick={resetRegisterFilters}
                           >
                             Clear filters
-                          </button>
+                          </button>}
                           {["owner", "editor"].includes(company?.role) && (
                             <button
                               className="button primary"
@@ -1859,7 +1848,7 @@ function App() {
                         </div>
                       )}
                     </div>
-                    <div className="register-pagination">
+                    {totalRegisterPages > 1 && <div className="register-pagination">
                       <span>
                         {filtered.length
                           ? `${(currentRegisterPage - 1) * 50 + 1}–${Math.min(currentRegisterPage * 50, filtered.length)} of ${filtered.length}`
@@ -1884,7 +1873,7 @@ function App() {
                           Next
                         </button>
                       </div>
-                    </div>
+                    </div>}
                   </section>
                   {page === "bank_account" && (
                     <div className="info-box">

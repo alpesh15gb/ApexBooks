@@ -85,6 +85,21 @@ class InventorySetupTest(unittest.TestCase):
         self.put_setup(saved, status=409, locations=[{'id': saved['locations'][0]['id'], 'name': 'Rack 9'}], version=0)
         self.assertEqual(self.get_setup()['locations'][0]['name'], 'Rack 1')
 
+    def test_repeating_an_existing_location_id_does_not_change_the_saved_location(self):
+        saved = self.put_setup(locations=[{'name': 'Rack 1'}])
+        location_id = saved['locations'][0]['id']
+        self.put_setup(saved, status=422, locations=[
+            {'id': location_id, 'name': 'Upper shelf'},
+            {'id': location_id, 'name': 'Lower shelf'},
+        ])
+        self.assertEqual(self.get_setup()['locations'], saved['locations'])
+        self.assertEqual(self.get_setup()['version'], saved['version'])
+
+    def test_vehicle_catalog_names_must_not_be_blank_after_normalization(self):
+        self.put_setup(status=422, vehicle_added=[{'make': '   ', 'models': ['Local model']}])
+        self.put_setup(status=422, vehicle_hidden_models=[{'make': 'Toyota', 'model': '   '}])
+        self.assertEqual(self.get_setup()['version'], 0)
+
     def test_only_the_owner_can_change_setup_but_editors_can_read_it(self):
         editor = {'email': 'editor-' + uuid4().hex + '@example.invalid', 'password': 'test-only-strong-password'}
         self.client.post('/api/auth/register', json=editor)

@@ -126,7 +126,10 @@ def location_usage(m, company_id, session):
 def build_setup(m, company_id, body, current, session):
     seen_names, locations = set(), []
     existing = {row['id']: row for row in current['locations']}
-    submitted_ids = {row.id for row in body.locations if row.id}
+    submitted = [row.id for row in body.locations if row.id]
+    submitted_ids = set(submitted)
+    if len(submitted_ids) != len(submitted):
+        raise HTTPException(422, 'Each existing location can be listed only once')
     unknown = submitted_ids - set(existing)
     if unknown:
         raise HTTPException(422, 'A location in this request does not exist. Reload Settings and try again')
@@ -147,6 +150,8 @@ def build_setup(m, company_id, body, current, session):
     added, seen_makes = [], set()
     for entry in body.vehicle_added:
         make = tidy(entry.make)
+        if not make:
+            raise HTTPException(422, 'Enter a name for every vehicle make')
         if key(make) in seen_makes:
             raise HTTPException(422, f'Make "{make}" is listed twice')
         seen_makes.add(key(make))
@@ -161,9 +166,12 @@ def build_setup(m, company_id, body, current, session):
     hidden_makes = sorted({tidy(name) for name in body.vehicle_hidden_makes if tidy(name)}, key=str.casefold)
     hidden_models, seen_pairs = [], set()
     for item in body.vehicle_hidden_models:
-        pair = (key(item.make), key(item.model))
+        make, model = tidy(item.make), tidy(item.model)
+        if not make or not model:
+            raise HTTPException(422, 'Choose both a make and a model to hide a vehicle model')
+        pair = (key(make), key(model))
         if pair not in seen_pairs:
-            seen_pairs.add(pair); hidden_models.append({'make': tidy(item.make), 'model': tidy(item.model)})
+            seen_pairs.add(pair); hidden_models.append({'make': make, 'model': model})
     return {'automobile_enabled': body.automobile_enabled, 'locations': locations, 'vehicle_added': added,
             'vehicle_hidden_makes': hidden_makes, 'vehicle_hidden_models': hidden_models}
 

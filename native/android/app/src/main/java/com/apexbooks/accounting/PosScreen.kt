@@ -269,10 +269,7 @@ private fun PosCatalog(
     onCamera: () -> Unit, onAdd: (JSONObject) -> Unit, setup: JSONObject? = null,
 ) {
     val keyword = search.trim()
-    val visible = products.filter { item ->
-        val details = item.o("data")
-        InventoryText.searchText(item, setup).contains(keyword, ignoreCase = true)
-    }
+    val visible = products.filter { item -> InventoryText.searchText(item, setup).contains(keyword, ignoreCase = true) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(search, onSearch, label = { Text("Search or scan barcode") }, enabled = browsingEnabled,
             leadingIcon = { IconButton(onClick = onCamera, enabled = enabled) {
@@ -304,8 +301,13 @@ private fun PosCatalog(
                         }
                         Text(item.s("name"), style = MaterialTheme.typography.titleSmall,
                             maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                        Text(money(details.s("sale_rate")), style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(money(details.s("sale_rate")), modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold)
+                            if (enabled) Icon(Icons.Outlined.Add, "Add to cart",
+                                Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
                         InventoryText.locationNames(setup, InventoryText.locationIds(details)).takeIf { it.isNotEmpty() }?.let {
                             Text("📍 " + it.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
@@ -336,6 +338,9 @@ private fun PosCart(
         if (editor.lines.isEmpty()) item {
             Section("Cart") { Text("Choose a product or scan its barcode to add it to the cart.") }
         }
+        items(editor.lines, key = { it.uiKey }) { line ->
+            PosCartLine(line, stock?.get(line.get("item_id")), vm.regular, enabled, onRemove = { editor.lines.remove(line) })
+        }
         if (editor.lines.isNotEmpty()) item {
             Section("Payment") {
                 val method = editor.get("payment_account")
@@ -350,9 +355,6 @@ private fun PosCart(
                     number = true, readOnly = !enabled)
                 if (method != "cash") Toggle("Bank / UPI / card payment received", bankConfirmed, onConfirmBank, enabled = enabled)
             }
-        }
-        items(editor.lines, key = { it.uiKey }) { line ->
-            PosCartLine(line, stock?.get(line.get("item_id")), vm.regular, enabled, onRemove = { editor.lines.remove(line) })
         }
         if (editor.lines.isNotEmpty()) item {
             Section("Customer and billing") {

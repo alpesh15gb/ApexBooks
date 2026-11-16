@@ -101,11 +101,12 @@ public sealed partial class MainPage
         form.Children.Add(notes);
         var fields = new ContentControl { Content = form, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         var panel = Stack(12);
+        panel.MinWidth = 580;
         panel.Children.Add(fields);
-        var total = Text("Review the bill total before posting stock.", 16, true);
+        var total = Text("Review to see the bill total.", 16, true);
         total.Foreground = Green;
-        var status = Card(total);
-        status.Padding = new Thickness(12);
+        total.VerticalAlignment = VerticalAlignment.Center;
+        var reviewControl = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch };
         var reloadRequested = false;
         var reload = Button("Refresh order", () => { reloadRequested = true; CloseDialog(); });
         reload.Visibility = Visibility.Collapsed;
@@ -142,7 +143,7 @@ public sealed partial class MainPage
         void Changed()
         {
             approvedDraft = null;
-            if (!retry.Unresolved) total.Text = "Review the bill total before posting stock.";
+            if (!retry.Unresolved && reload.Visibility != Visibility.Visible) total.Text = "Review to see the bill total.";
             RefreshDialogActions(clearError: true);
         }
         foreach (var (_, quantity, rate) in rows)
@@ -158,6 +159,7 @@ public sealed partial class MainPage
         {
             approvedDraft = null;
             reload.Visibility = Visibility.Visible;
+            reviewControl.IsEnabled = false;
             total.Text = "Refresh the purchase order before reviewing another receipt.";
             RefreshDialogActions();
         }
@@ -184,10 +186,11 @@ public sealed partial class MainPage
                 throw;
             }
             finally { RefreshDialogActions(); }
-        }, Error, true);
-        form.Children.Add(review);
-        panel.Children.Add(status);
-        panel.Children.Add(reload);
+        }, Error);
+        reviewControl.Content = review;
+        var approval = Stack(8);
+        approval.Children.Add(ResponsiveGrid(152, reviewControl, total));
+        approval.Children.Add(reload);
 
         async Task Post()
         {
@@ -220,12 +223,14 @@ public sealed partial class MainPage
             finally
             {
                 fields.IsEnabled = !retry.Unresolved;
+                reviewControl.IsEnabled = !retry.Unresolved && reload.Visibility != Visibility.Visible;
                 RefreshDialogActions();
             }
         }
         var confirmed = await Dialog("Receive purchase order", panel, Post, "Post supplier bill", Ready,
             hasChanges: () => !reloadRequested && (rows.Any(row => row.Quantity.Text.Length > 0 || row.Rate.Text.Length > 0)
                 || reference.Text.Length > 0 || notes.Text.Length > 0),
+            stickyFooter: approval,
             unresolved: () => retry.Unresolved);
         if (reloadRequested && ScopedFileExport.Current(access)) await TransactionDetails(order);
         if (confirmed && saved is not null && ScopedFileExport.Current(access))

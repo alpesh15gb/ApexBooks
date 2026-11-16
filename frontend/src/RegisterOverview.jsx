@@ -20,7 +20,7 @@ export default function RegisterOverview({ page, records, filter, onFilter }) {
   if (!invoice && !draft && !transaction) return null;
   const posted = rows.filter((r) => r.posted && !r.cancelled),
     open = posted.filter((r) => Number(r.outstanding) > 0),
-    closed = posted.filter((r) => Number(r.outstanding) === 0),
+    closed = posted.filter((r) => r.outstanding != null && r.outstanding !== "" && Number(r.outstanding) === 0),
     active = rows.filter((r) => !r.converted_to && !r.cancelled),
     converted = rows.filter((r) => r.converted_to);
   const stats = invoice

@@ -4,8 +4,9 @@ import {ledgerDate} from "./ledgerFormat.js";
 import { CalendarDays } from "lucide-react";
 
 export { businessDate as localDate, businessPeriodDates as periodDates } from "./businessDate.js";
-export default function DateRangeFilter({ value, onChange, allowAll = true }) {
+export default function DateRangeFilter({ value, onChange, allowAll = true, customOnly = false }) {
   const hintId=useId();
+  const showDates = !customOnly || value.period === "custom";
   return (
     <div
       className={`period-controls ${value.period === "custom" ? "custom-period" : ""}`}
@@ -32,7 +33,7 @@ export default function DateRangeFilter({ value, onChange, allowAll = true }) {
           <option value="custom">Custom dates</option>
         </select>
       </label>
-      <label>
+      {showDates && <><label>
         From
         <input
           aria-label="From date"
@@ -64,7 +65,7 @@ export default function DateRangeFilter({ value, onChange, allowAll = true }) {
           }
         />
       </label>
-      <small className="period-date-hint" id={hintId}>{value.from?ledgerDate(value.from):'All earlier dates'} to {value.to?ledgerDate(value.to):'all later dates'}. Date input order follows your device.</small>
+      <small className="period-date-hint" id={hintId}>{value.from?ledgerDate(value.from):'All earlier dates'} to {value.to?ledgerDate(value.to):'all later dates'}. Date input order follows your device.</small></>}
     </div>
   );
 }

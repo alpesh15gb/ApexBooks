@@ -2,14 +2,21 @@ package com.apexbooks.accounting
 
 /** Stable destinations shared by the mobile shell, transaction filters and create sheet. */
 object MobileNavigation {
+    val primary = listOf(
+        "dashboard" to "Home", "pos" to "POS", "transactions" to "Entries",
+        "reports" to "Reports", "more" to "More",
+    )
     val sales = listOf("sales_invoice", "estimate", "proforma", "sales_order", "payment_in", "credit_note", "pos")
     val purchases = listOf("purchase_bill", "payment_out", "expense", "purchase_order", "debit_note")
     val transactions = sales + purchases
     fun tab(page: String) = when (page) {
-        "dashboard", "party", "reports" -> page
+        "dashboard", "pos", "reports" -> page
         in transactions -> "transactions"
         else -> "more"
     }
+    fun entryDestination(previous: String) = previous.takeIf { tab(it) == "transactions" } ?: "sales_invoice"
+    fun usesRail(width: Float, height: Float) = width >= 600 && height >= 380
+
     fun group(page: String) = if (page in purchases) purchases else sales
     fun createLabel(page: String) = when (page) {
         "sales_invoice" -> "New invoice"

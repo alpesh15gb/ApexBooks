@@ -13,6 +13,7 @@ namespace ApexBooks_Windows;
 public sealed partial class MainPage
 {
     private readonly TextBlock workspaceCompany=Text("Your workspace",16,true);
+    private readonly TextBlock workspaceContext=Text("",12);
     private string dashboardPeriod="year";
     private sealed record SearchHit(string Label,string Page,JsonObject? Record=null){public override string ToString()=>Label;}
 
@@ -20,7 +21,7 @@ public sealed partial class MainPage
     {
         var grid=new Grid{ColumnSpacing=14,RowSpacing=12,VerticalAlignment=VerticalAlignment.Center};
         foreach(var width in new[]{new GridLength(1,GridUnitType.Star),new GridLength(250),GridLength.Auto,GridLength.Auto})grid.ColumnDefinitions.Add(new ColumnDefinition{Width=width});
-        var identity=Stack(3);identity.Children.Add(workspaceCompany);var caption=Text(new Uri(Api.Origin).IsLoopback?"LOCAL TEST WORKSPACE":"Your business workspace",12);caption.Foreground=Muted;identity.Children.Add(caption);grid.Children.Add(identity);
+        var identity=Stack(3);identity.Children.Add(workspaceCompany);workspaceContext.Foreground=Muted;workspaceContext.Visibility=Visibility.Collapsed;identity.Children.Add(workspaceContext);grid.Children.Add(identity);
         var search=new AutoSuggestBox{PlaceholderText="Search records or a section",TextMemberPath="Label",QueryIcon=new SymbolIcon(Symbol.Find),MinHeight=44};Grid.SetColumn(search,1);grid.Children.Add(search);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(search,"Search all records and sections");
         search.TextChanged+=(_,args)=>{if(args.Reason!=AutoSuggestionBoxTextChangeReason.UserInput)return;var q=search.Text.Trim();search.ItemsSource=q.Length==0?Array.Empty<SearchHit>():FeatureCatalog.Navigation.Where(f=>f.Title.Contains(q,StringComparison.OrdinalIgnoreCase)).Select(f=>new SearchHit(f.Title,f.Key)).Concat(Companies.OfType<JsonObject>().Where(c=>ClientCapabilities.CompanyLabel(c).Contains(q,StringComparison.OrdinalIgnoreCase)).Select(c=>new SearchHit(ClientCapabilities.CompanyLabel(c)+" · Company","company",c))).Concat(Records.OfType<JsonObject>().Where(r=>(r.Text("name")+" "+r.Text("number")).Contains(q,StringComparison.OrdinalIgnoreCase)).Select(r=>new SearchHit(r.Text("number")+" · "+r.Text("name"),RecordPage(r.Text("kind")),r))).Take(18).ToArray();};
@@ -94,16 +95,26 @@ public sealed partial class MainPage
         string Money(decimal value)=>AmountPrivacy.Text(amountsHidden,J.Money(value));
         var overview=Api.Send(PathFor("/reports/summary"+query));var earnings=Api.Send(PathFor("/reports/financial"+query));var taxes=Api.Send(PathFor("/reports/gst-payable?from_date=2000-01-01&to_date="+to));await Task.WhenAll(overview,earnings,taxes);if(cid!=CompanyId||stamp!=generation)return;
         var summary=await overview;var financial=await earnings;var gst=await taxes;
-        var period=Select("Dashboard period",new[]{("year","This financial year"),("month","This month"),("30days","Last 30 days")},dashboardPeriod);period.Width=240;
+        var shortcuts=Stack(12);shortcuts.Children.Add(Text("Registers",17,true));
+        shortcuts.Children.Add(ResponsiveGrid(168,
+            AsyncButton("Open POS",()=>Navigate("pos"),Error,true),
+            AsyncButton("Review stock",()=>Navigate("item"),Error),
+            AsyncButton("Sales & collections  ↗",()=>Navigate("sales_invoice"),Error),
+            AsyncButton("Purchases  ↗",()=>Navigate("purchase_bill"),Error),
+            AsyncButton("Reports & GST  ↗",()=>Navigate("reports"),Error)));
+        Body.Children.Add(Card(shortcuts));
+        var period=Select("Dashboard period",new[]{("year","This financial year"),("month","This month"),("30days","Last 30 days")},dashboardPeriod);
         period.SelectionChanged+=async(_,_)=>await Run(async()=>{dashboardPeriod=Value(period);await Navigate("dashboard");});
-        var dates=Text($"{start:dd MMM yyyy} – {end:dd MMM yyyy}  ·  Posted activity",13);dates.Foreground=Muted;var privacy=AmountPrivacyControl(amountsHidden);var periodRow=new StackPanel{Orientation=Orientation.Horizontal,Spacing=12,VerticalAlignment=VerticalAlignment.Bottom};periodRow.Children.Add(period);if(amountsHidden||Supports("password_reveal"))periodRow.Children.Add(privacy);Body.Children.Add(Columns(dates,periodRow));
+        var dates=Text($"{start:dd MMM yyyy} – {end:dd MMM yyyy}  ·  Posted activity",13);dates.Foreground=Muted;dates.VerticalAlignment=VerticalAlignment.Center;
+        if(amountsHidden||Supports("password_reveal"))
+        {
+            var privacy=AmountPrivacyControl(amountsHidden);
+            privacy.VerticalAlignment=VerticalAlignment.Bottom;
+            Body.Children.Add(ResponsiveGrid(185,dates,period,privacy));
+        }
+        else Body.Children.Add(ResponsiveGrid(185,dates,period));
         Border MetricCard(string label,decimal value,string note,bool hero=false){var s=Stack(12);var l=Text(label,12,true);l.Foreground=Muted;s.Children.Add(l);var amount=Text(Money(value),28,true);amount.Foreground=hero?Green:Brush(0x1C,0x29,0x3D);s.Children.Add(amount);var n=Text(note,12);n.Foreground=Muted;s.Children.Add(n);var card=Card(s);if(hero){card.Background=Brush(0x00,0x6B,0x35);card.BorderBrush=Brush(0x00,0x6B,0x35);l.Foreground=Brush(0xDD,0xF1,0xE5);n.Foreground=Brush(0xDD,0xF1,0xE5);amount.Foreground=Brush(255,255,255);}return card;}
         Body.Children.Add(ResponsiveMetrics(MetricCard("Net sales",summary.Number("sales"),"Posted sales, after credit notes",true),MetricCard("Net profit",financial.Number("net_profit"),"Income less recorded costs & expenses"),MetricCard("To collect",summary.Number("receivables"),"Outstanding as of today"),MetricCard("To pay",summary.Number("payables"),"Supplier balances as of today")));
-        void Kicker(Panel parent,string value){var label=Text(value,12,true);label.Foreground=Muted;parent.Children.Add(label);}
-        var chart=Stack(8);Kicker(chart,"BUSINESS PERFORMANCE");chart.Children.Add(Text("Sales & purchases",15,true));var legend=Text("",11);legend.Foreground=Muted;legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="●",Foreground=Green});legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="  Net sales     "});legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="●",Foreground=Brush(0x9A,0xAA,0xB9)});legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="  Net purchases     ·     Invoice values include GST where applicable"});chart.Children.Add(legend);chart.Children.Add(amountsHidden?HiddenChart():MonthChart(start,end));
-        var invoices=Records.OfType<JsonObject>().Where(r=>r.Text("kind")=="sales_invoice"&&WorkflowMasterValues.IsPostedRecord(r,to)).ToArray();var issued=invoices.Sum(r=>r.Number("amount"));var due=invoices.Sum(r=>r.Number("outstanding"));var settled=Math.Max(0,issued-due);
-        var collections=Stack(8);Kicker(collections,"GET PAID");collections.Children.Add(Text("Invoice collections",15,true));var collectionDetails=Stack(10);collectionDetails.Children.Add(Text("Settled",11));collectionDetails.Children.Add(Text(Money(settled),17,true));collectionDetails.Children.Add(Text("Outstanding",11));collectionDetails.Children.Add(Text(Money(due),17,true));collections.Children.Add(Columns(SettlementRing(issued>0?settled/issued:0),collectionDetails));var foot=Text("Invoices through today · settlements include payments, advances and credits.",11);foot.Foreground=Muted;collections.Children.Add(foot);collections.Children.Add(AsyncButton("Open sales invoices  →",()=>Navigate("sales_invoice"),Error));
-        Body.Children.Add(Columns(Card(chart),Card(collections)));
         if(CanWrite){
             var everyday=Stack(14);everyday.Children.Add(Text("Everyday tasks",17,true));
             everyday.Children.Add(ResponsiveGrid(190,
@@ -113,6 +124,10 @@ public sealed partial class MainPage
                 AsyncButton("Record expense",()=>NewEntry("expense"),Error)));
             Body.Children.Add(Card(everyday));
         }
+        var chart=Stack(8);chart.Children.Add(Text("Sales & purchases",17,true));var legend=Text("",11);legend.Foreground=Muted;legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="●",Foreground=Green});legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="  Net sales     "});legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="●",Foreground=Brush(0x9A,0xAA,0xB9)});legend.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="  Net purchases     ·     Invoice values include GST where applicable"});chart.Children.Add(legend);chart.Children.Add(amountsHidden?HiddenChart():MonthChart(start,end));
+        var invoices=Records.OfType<JsonObject>().Where(r=>r.Text("kind")=="sales_invoice"&&WorkflowMasterValues.IsPostedRecord(r,to)).ToArray();var issued=invoices.Sum(r=>r.Number("amount"));var due=invoices.Sum(r=>r.Number("outstanding"));var settled=Math.Max(0,issued-due);
+        var collections=Stack(8);collections.Children.Add(Text("Invoice collections",17,true));var collectionDetails=Stack(10);collectionDetails.Children.Add(Text("Settled",11));collectionDetails.Children.Add(Text(Money(settled),17,true));collectionDetails.Children.Add(Text("Outstanding",11));collectionDetails.Children.Add(Text(Money(due),17,true));collections.Children.Add(Columns(SettlementRing(issued>0?settled/issued:0),collectionDetails));var foot=Text("Invoices through today · settlements include payments, advances and credits.",11);foot.Foreground=Muted;collections.Children.Add(foot);collections.Children.Add(AsyncButton("Open sales invoices  →",()=>Navigate("sales_invoice"),Error));
+        Body.Children.Add(Columns(Card(chart),Card(collections)));
         // Setup prompt: invoices only carry bank / UPI and address once these are filled in.
         if(CanWrite){
             var registered=Company.Text("tax_mode") is "regular" or "composition";
@@ -125,10 +140,15 @@ public sealed partial class MainPage
                 setup.Children.Add(AsyncButton("Open settings",()=>Navigate("settings"),Error));Body.Children.Add(new Expander{Header="Complete company setup",Content=Card(setup),HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,IsExpanded=false});}
         }
         if(!Records.Any(r=>r.Flag("posted"))){var startHere=Stack(10);startHere.Children.Add(Text("Start your books",15,true));startHere.Children.Add(Text("Create your first invoice or purchase. Customers and items are optional setup steps; you can also enter them while billing.",13));if(CanWrite){var setup=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};setup.Children.Add(AsyncButton("First invoice",()=>NewEntry("sales_invoice"),Error,true));setup.Children.Add(AsyncButton("First purchase",()=>NewEntry("purchase_bill"),Error));setup.Children.Add(AsyncButton("Add party · optional",()=>NewEntry("party"),Error));setup.Children.Add(AsyncButton("Add item · optional",()=>NewEntry("item"),Error));var setupActions=setup.Children.Cast<UIElement>().ToArray();setup.Children.Clear();startHere.Children.Add(ResponsiveGrid(150,setupActions));}else startHere.Children.Add(Text("Read-only access · ask the owner to add records or invite you as an editor.",12));Body.Children.Add(Card(startHere));}
-        var shortcuts=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};shortcuts.Children.Add(Text("Overview",13,true));shortcuts.Children.Add(AsyncButton("Sales & collections  ↗",()=>Navigate("sales_invoice"),Error));shortcuts.Children.Add(AsyncButton("Purchases  ↗",()=>Navigate("purchase_bill"),Error));shortcuts.Children.Add(AsyncButton("Reports & GST  ↗",()=>Navigate("reports"),Error));shortcuts.Children.Add(FeatureButton("Low-stock review  ↗","low_stock_reorder",ReorderReport));shortcuts.Children.Add(FeatureButton("Recurring drafts  ↗","recurring_drafts",RecurringDrafts));Body.Children.Add(new ScrollViewer{Content=shortcuts,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollMode=ScrollMode.Enabled,VerticalScrollBarVisibility=ScrollBarVisibility.Disabled});
-        var attention=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};var hint=Text("Needs attention",12);hint.VerticalAlignment=VerticalAlignment.Center;hint.Foreground=Muted;attention.Children.Add(hint);
+        var attention=Stack(12);attention.Children.Add(Text("Needs attention",17,true));
         var overdue=invoices.Count(r=>r.Number("outstanding")>0&&r["data"].Text("due_date").Length>0&&string.CompareOrdinal(r["data"].Text("due_date"),to)<0);var unpaid=Records.OfType<JsonObject>().Count(r=>r.Text("kind")=="purchase_bill"&&WorkflowMasterValues.IsPostedRecord(r,to)&&r.Number("outstanding")>0);var estimates=Records.OfType<JsonObject>().Count(r=>r.Text("kind")=="estimate"&&r.Text("converted_to").Length==0);
-        attention.Children.Add(AsyncButton($"{overdue} overdue invoices",()=>Navigate("sales_invoice"),Error));attention.Children.Add(AsyncButton($"{unpaid} unpaid bills",()=>Navigate("purchase_bill"),Error));attention.Children.Add(AsyncButton($"{estimates} open estimates",()=>Navigate("estimate"),Error));Body.Children.Add(new ScrollViewer{Content=attention,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollMode=ScrollMode.Enabled,VerticalScrollBarVisibility=ScrollBarVisibility.Disabled});
+        attention.Children.Add(ResponsiveGrid(170,
+            AsyncButton($"{overdue} overdue invoices",()=>Navigate("sales_invoice"),Error),
+            AsyncButton($"{unpaid} unpaid bills",()=>Navigate("purchase_bill"),Error),
+            AsyncButton($"{estimates} open estimates",()=>Navigate("estimate"),Error),
+            FeatureButton("Low-stock review  ↗","low_stock_reorder",ReorderReport),
+            FeatureButton("Recurring drafts  ↗","recurring_drafts",RecurringDrafts)));
+        Body.Children.Add(Card(attention));
         if(overdue>0){var dueNow=Stack(8);dueNow.Children.Add(Text("Overdue invoices · take action",15,true));foreach(var invoice in invoices.Where(r=>r.Number("outstanding")>0&&r["data"].Text("due_date").Length>0&&string.CompareOrdinal(r["data"].Text("due_date"),to)<0).OrderBy(r=>r["data"].Text("due_date")).Take(3))dueNow.Children.Add(AsyncButton(invoice.Text("number")+" · "+invoice.Text("name")+" · "+Money(invoice.Number("outstanding"))+" due",()=>TransactionDetails(invoice),Error));Body.Children.Add(Card(dueNow));}
         var profit=Stack(8);profit.Children.Add(Text("Profit & loss",15,true));profit.Children.Add(Text(Money(financial.Number("net_profit")),22,true));profit.Children.Add(Text("Net profit for this period",12));profit.Children.Add(Text("Income   "+Money(financial.Number("income")),14));profit.Children.Add(Text("Costs & expenses   "+Money(financial.Number("expenses")),14));profit.Children.Add(AsyncButton("Explore reports  →",()=>Navigate("reports"),Error));
         var money=Stack(8);money.Children.Add(Text("Cash & bank",15,true));var bankCodes=Banks.Select(b=>b.Text("ledger_code")).ToHashSet();var accounts=financial["accounts"].Array().Where(a=>a.Text("code") is "SYS-CASH" or "SYS-BANK"||bankCodes.Contains(a.Text("code"))).ToArray();money.Children.Add(Text(Money(accounts.Sum(a=>a.Number("closing_balance"))),22,true));foreach(var a in accounts)money.Children.Add(Text(a.Text("name")+"   "+Money(a.Number("closing_balance")),13));money.Children.Add(AsyncButton("Manage cash & bank  →",()=>Navigate("bank"),Error));
@@ -147,7 +167,7 @@ public sealed partial class MainPage
     }
 
     /// <summary>Hide needs no password. Show asks for the account password, which the server verifies.</summary>
-    private UIElement AmountPrivacyControl(bool hidden)
+    private Button AmountPrivacyControl(bool hidden)
     {
         var button=Button(hidden?"Show amounts":"Hide amounts",()=>{});
         button.Click+=async(_,_)=>await Run(async()=>

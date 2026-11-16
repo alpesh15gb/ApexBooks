@@ -16,7 +16,9 @@ It saves app-window screenshots, an accessibility tree (no control values/passwo
 Form entry uses UIA Value patterns resolved through control names or associated
 labels; no coordinate clicks or OS security changes are used. The editable item selector uses genuine keyboard text entry and Tab to commit its visible value.
 
-The harness also accepts a fourth argument for a focused storefront check.
+The harness also accepts a fourth argument for a focused workspace check.
+`--workspace-only` checks top-level POS access, narrow dashboard and item layouts,
+barcode search in Items, and clearing invoice filters before opening payment actions.
 `--pos-only` covers barcode entry, stock availability, cash checkout and thermal receipt preview.
 `--pos-split-only` exercises the electronic-tender confirmation and split checkout.
 `--warehouse-only` covers barcode lookup, a stale physical count and the recount.

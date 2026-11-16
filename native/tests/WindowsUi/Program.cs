@@ -9,8 +9,9 @@ using System.Text.Json.Nodes;
 using System.Windows.Automation;
 using Drawing=System.Drawing;
 
-if(args.Length is <3 or >4||args.Length==4&&args[3] is not ("--navigation-only" or "--pos-only" or "--pos-split-only" or "--warehouse-only" or "--receiving-only" or "--inventory-only"))throw new ArgumentException("Usage: WindowsUi <published-directory> <http-loopback-origin> <evidence-directory> [--navigation-only|--pos-only|--pos-split-only|--warehouse-only|--receiving-only]");
+if(args.Length is <3 or >4||args.Length==4&&args[3] is not ("--navigation-only" or "--workspace-only" or "--pos-only" or "--pos-split-only" or "--warehouse-only" or "--receiving-only" or "--inventory-only"))throw new ArgumentException("Usage: WindowsUi <published-directory> <http-loopback-origin> <evidence-directory> [--navigation-only|--workspace-only|--pos-only|--pos-split-only|--warehouse-only|--receiving-only|--inventory-only]");
 var navigationOnly=args.Length==4&&args[3]=="--navigation-only";
+var workspaceOnly=args.Length==4&&args[3]=="--workspace-only";
 var posOnly=args.Length==4&&args[3] is "--pos-only" or "--pos-split-only";
 var splitOnly=args.Length==4&&args[3]=="--pos-split-only";
 var warehouseOnly=args.Length==4&&args[3]=="--warehouse-only";
@@ -130,7 +131,7 @@ void ChooseNativeFile(string title,string action,string path)
     }else Invoke(confirm);
 }
 void Snapshot(string name){if(window is null)return;var handle=new IntPtr(window.Current.NativeWindowHandle);
-    if(posOnly||warehouseOnly||receivingOnly||inventoryOnly){
+    if(workspaceOnly||posOnly||warehouseOnly||receivingOnly||inventoryOnly){
         NativeWindowCapture.SetForegroundWindow(handle);
         NativeWindowCapture.DwmFlush();
         Thread.Sleep(300);
@@ -161,7 +162,7 @@ try{
     const string posBarcode="01234567890";
     var storefrontItemId="";
     JsonObject? purchaseOrder=null;
-    if(posOnly||warehouseOnly||receivingOnly)
+    if(workspaceOnly||posOnly||warehouseOnly||receivingOnly)
     {
         var product=await Post($"/api/companies/{cid}/records",new(){["kind"]="item",["name"]="Storefront oats",
             ["data"]=new JsonObject{["barcode"]=posBarcode,["sale_rate"]="125",["track_stock"]=true,["unit"]="pack"}});
@@ -229,6 +230,13 @@ try{
         var narrowSearch=Wait(()=>Find("Search all records and sections"),"search in narrow window");
         var bounds=window.Current.BoundingRectangle;
         Check("narrow header controls stay within the app window",new[]{narrowCreate,narrowSearch}.All(control=>!control.Current.IsOffscreen&&control.Current.BoundingRectangle.Left>=bounds.Left&&control.Current.BoundingRectangle.Right<=bounds.Right));
+        if(workspaceOnly)
+        {
+            var narrowPos=Wait(()=>ReadyButton("Open POS"),"POS shortcut visible without scrolling at 800px");
+            var narrowStock=Wait(()=>ReadyButton("Review stock"),"stock shortcut visible without scrolling at 800px");
+            var salesMetric=Wait(()=>Find("Net sales",ControlType.Text),"net sales dashboard metric");
+            Check("narrow dashboard shows POS and stock before financial metrics",new[]{narrowPos,narrowStock}.All(control=>control.Current.BoundingRectangle.Bottom<salesMetric.Current.BoundingRectangle.Top));
+        }
         Snapshot("01b-narrow-dashboard");
         if(navigationOnly){
             var toggle=Wait(()=>ReadyButton("Open Navigation"),"compact navigation toggle");
@@ -251,6 +259,51 @@ try{
             Thread.Sleep(750);Console.WriteLine("Requested logical desktop size 1280x900; actual physical bounds "+window.Current.BoundingRectangle);Snapshot("01d-desktop-dashboard");
         }finally{transform.Resize(originalBounds.Width,originalBounds.Height);}
         await File.WriteAllTextAsync(Path.Combine(evidence,"result.json"),new JsonObject{["passed"]=true,["scope"]="navigation-only",["checks"]=new JsonArray(checks.Select(x=>(JsonNode)JsonValue.Create(x)!).ToArray())}.ToJsonString());return;
+    }
+    if(workspaceOnly)
+    {
+        var open=ReadyButton("Open Navigation");if(open is not null)Invoke(open);
+        var sales=Find("Sales");
+        if(sales?.TryGetCurrentPattern(ExpandCollapsePattern.Pattern,out var expandable)==true)
+            ((ExpandCollapsePattern)expandable).Collapse();
+        var pos=Wait(()=>window.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>()
+            .FirstOrDefault(element=>element.Current.Name=="POS"&&element.TryGetCurrentPattern(SelectionItemPattern.Pattern,out _)),"POS without expanding Sales");
+        Invoke(pos);
+        var close=ReadyButton("Close Navigation");if(close is not null)Invoke(close);
+        Wait(()=>EditField("Search products / scan barcode"),"POS scanner field");
+        Check("top-level POS opens directly with Sales collapsed");
+        Invoke(NavigationItem("Dashboard"));
+        Invoke(Wait(()=>RevealButton("Review stock"),"dashboard stock shortcut"));
+        Wait(()=>ReadyButton("Add item"),"item register from dashboard");
+        var itemSearch=Wait(()=>EditField("Search items"),"item register search");
+        Set(itemSearch,posBarcode);
+        Wait(()=>Find("Storefront oats",ControlType.Button),"seeded stock item found by barcode");
+        Check("item register finds a stocked item by barcode");
+        Set(itemSearch,"");
+        transform.Resize(800,800);
+        try
+        {
+            var add=Wait(()=>ReadyButton("Add item"),"visible Add item at 800px");
+            var bounds=window.Current.BoundingRectangle;
+            Check("narrow register keeps search and Add item inside the window",new[]{itemSearch,add}.All(control=>!control.Current.IsOffscreen&&control.Current.BoundingRectangle.Left>=bounds.Left&&control.Current.BoundingRectangle.Right<=bounds.Right));
+            Snapshot("02-narrow-item-register");
+        }
+        finally{transform.Resize(originalBounds.Width,originalBounds.Height);}
+        Invoke(NavigationItem("Dashboard"));
+        Invoke(Wait(()=>RevealButton("Sales & collections  ↗"),"dashboard sales register shortcut"));
+        var invoiceNumber=invoice["number"]!.GetValue<string>();
+        var search=Wait(()=>EditField("Search documents"),"invoice register search");
+        Set(search,"no synthetic invoice matches this");
+        Wait(()=>Find("No records match these filters."),"invoice register filtered to empty");
+        var filters=Wait(()=>Find("Filter documents") is { } candidate&&candidate.TryGetCurrentPattern(ExpandCollapsePattern.Pattern,out _)?candidate:null,"document filter panel");
+        ((ExpandCollapsePattern)filters.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
+        Invoke(Wait(()=>RevealButton("Clear filters"),"clear invoice filters"));
+        Invoke(Wait(()=>RevealButton(invoiceNumber),"seeded invoice restored by Clear filters"));
+        Wait(()=>Find("Document total",ControlType.Text),"labeled transaction total");
+        Wait(()=>ReadyButton("Record payment received"),"prominent payment action above the transaction items");
+        Check("invoice search, reset and transaction payment entry work");
+        Snapshot("03-transaction-detail");
+        await File.WriteAllTextAsync(Path.Combine(evidence,"result.json"),new JsonObject{["passed"]=true,["scope"]="workspace-only",["checks"]=new JsonArray(checks.Select(x=>(JsonNode)JsonValue.Create(x)!).ToArray())}.ToJsonString());return;
     }
     if(posOnly)
     {
@@ -311,7 +364,9 @@ try{
             var received=Wait(()=>Find("Bank, UPI or card payment confirmed",ControlType.CheckBox),"confirm bank payment");
             ((TogglePattern)received.GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             Wait(()=>Find("Cash share ₹85.00 · Change ₹15.00"),"split cash due and change");
-            Invoke(Wait(()=>RevealButton("Complete sale"),"post split tender"));
+            var complete=Wait(()=>RevealButton("Complete sale"),"post split tender");
+            Snapshot("pos-split-ready");
+            Invoke(complete);
             Wait(()=>Find("Sale completed"),"split checkout complete");
             Check("Windows POS confirmed the split sale");
             if(showBookStock) Wait(()=>Find($"Book on hand {expectedStock} pack"),"book stock refreshed after split tender");
@@ -487,13 +542,18 @@ try{
         var orderId=purchaseOrder["id"]!.ToString();
         Invoke(Wait(()=>RevealButton(orderNumber),"synthetic purchase order in register"));
         Invoke(Wait(()=>RevealButton("Receive stock"),"receive stock from purchase order details"));
+        transform.Resize(800,800);
         Set(Wait(()=>EditField("Quantity received for Storefront oats"),"partial receipt quantity"),"2");
         Set(Wait(()=>EditField("Bill unit price for Storefront oats"),"supplier rate override"),"60");
         Check("supplier receipt requires total review",!Find("Post supplier bill",ControlType.Button)!.Current.IsEnabled);
         Invoke(Wait(()=>RevealButton("Review bill total"),"review supplier bill total"));
-        Wait(()=>Find("Bill total ₹120.00"),"approved purchase bill amount");
+        var reviewedAmount=Wait(()=>Find("Bill total ₹120.00") is { Current.IsOffscreen:false } amount?amount:null,"visible approved purchase bill amount");
+        var postBill=Wait(()=>ReadyButton("Post supplier bill"),"post reviewed supplier bill");
+        var receivingBounds=window.Current.BoundingRectangle;
+        Check("the reviewed supplier total and posting action stay visible at 800px",
+            new[]{reviewedAmount,postBill}.All(control=>control.Current.BoundingRectangle.Bottom<=receivingBounds.Bottom));
         Snapshot("purchase-receipt-review");
-        Invoke(Wait(()=>ReadyButton("Post supplier bill"),"post reviewed supplier bill"));
+        Invoke(postBill);
         Wait(()=>Find("Receive purchase order") is null ? window : null,"supplier receipt posted and closed");
         var state=await Get($"/api/companies/{cid}/purchase-orders/{orderId}/receiving");
         var remaining=state["lines"]!.AsArray().Single();
@@ -503,8 +563,10 @@ try{
         Check("supplier rate override posted the reviewed purchase amount",Number(receivedBill,"amount")==120);
         Invoke(Wait(()=>RevealButton(orderNumber),"updated purchase order in register"));
         Wait(()=>Find("Partially received"),"partial receipt status in native order details");
+        var orderDetails=Wait(()=>Find("Transaction details",ControlType.Window),"open purchase order details dialog");
         Check("started purchase order detail hides edit and legacy conversion",
-            Find("Edit",ControlType.Button) is not { Current.IsOffscreen:false }&&Find("Convert to purchase bill",ControlType.Button) is null);
+            !orderDetails.FindAll(TreeScope.Descendants,new PropertyCondition(AutomationElement.ControlTypeProperty,ControlType.Button))
+                .Cast<AutomationElement>().Any(button=>button.Current.Name is "Edit" or "Convert to purchase bill"));
         var link=Wait(()=>window.FindAll(TreeScope.Descendants,Condition.TrueCondition).Cast<AutomationElement>()
             .FirstOrDefault(row=>row.Current.ControlType==ControlType.Button&&row.Current.Name.StartsWith(receivedBill!["number"]!.ToString()+" · ",StringComparison.Ordinal)),
             "linked supplier bill");

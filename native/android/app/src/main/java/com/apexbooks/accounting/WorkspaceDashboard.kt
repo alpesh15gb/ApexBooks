@@ -35,7 +35,7 @@ import java.time.format.DateTimeFormatter
 
 fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.now()):Pair<LocalDate,LocalDate> {
     val end=businessDate(instant)
-    val start=when(period){"month"->end.withDayOfMonth(1);"30days"->end.minusDays(29);else->LocalDate.of(if(end.monthValue>=4)end.year else end.year-1,4,1)}
+    val start=when(period){"today"->end;"month"->end.withDayOfMonth(1);"30days"->end.minusDays(29);else->LocalDate.of(if(end.monthValue>=4)end.year else end.year-1,4,1)}
     return start to end
 }
 
@@ -46,19 +46,19 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
     var revealing by remember{mutableStateOf(false)}
     fun shown(text:String)=AmountPrivacy.text(hidden,text)
     var setupExpanded by rememberSaveable { mutableStateOf(false) }
-    var period by rememberSaveable{mutableStateOf("year")}
+    var period by rememberSaveable{mutableStateOf("today")}
     var summary by remember{mutableStateOf<JSONObject?>(null)}
     var financial by remember{mutableStateOf<JSONObject?>(null)}
     var gst by remember{mutableStateOf<JSONObject?>(null)}
     val (start,end)=dashboardPeriod(period)
-    LaunchedEffect(vm.companyId,vm.revision,period,end){
+    LaunchedEffect(vm.companyId,vm.revision,period,end,vm.regular){
         summary=null;financial=null;gst=null
         try{coroutineScope{
             val query="?from_date=$start&to_date=$end"
             val report=async{vm.api.request(vm.api.company(vm.companyId,"/reports/summary$query"))as JSONObject}
             val profit=async{vm.api.request(vm.api.company(vm.companyId,"/reports/financial$query"))as JSONObject}
-            val tax=async{vm.api.request(vm.api.company(vm.companyId,"/reports/gst-payable?from_date=2000-01-01&to_date=$end"))as JSONObject}
-            summary=report.await();financial=profit.await();gst=tax.await()
+            val tax=if(vm.regular)async{vm.api.request(vm.api.company(vm.companyId,"/reports/gst-payable?from_date=2000-01-01&to_date=$end"))as JSONObject}else null
+            summary=report.await();financial=profit.await();gst=tax?.await()
         }}catch(e:Exception){currentCoroutineContext().ensureActive();vm.failure(e)}
     }
     var paymentDetails by remember{mutableStateOf<Boolean?>(null)}
@@ -69,23 +69,50 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
     val issued=invoices.fold(BigDecimal.ZERO){sum,r->sum+r.decimal("amount")}
     val outstanding=invoices.fold(BigDecimal.ZERO){sum,r->sum+r.decimal("outstanding")}
     val settled=(issued-outstanding).max(BigDecimal.ZERO)
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=14.dp,top=6.dp,end=14.dp,bottom=24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
-        item{Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
-            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                for((key,label)in listOf("year" to "Financial year","month" to "This month","30days" to "30 days"))FilterChip(selected=period==key,onClick={period=key},label={Text(label,style=MaterialTheme.typography.labelMedium)})
+    val displayDate = DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.ENGLISH)
+    val recent = remember(vm.records) {
+        vm.records.filter { it.s("kind") !in setOf("party", "item", "bank_account") }.take(6)
+    }
+    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=16.dp,top=14.dp,end=16.dp,bottom=24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
+        if (vm.recordsReady) item { Section("Store operations") {
+            Button(onClick = { vm.navigate("pos") }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.PointOfSale, null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Open point of sale")
             }
-            // Hiding needs no password; showing again asks for the account password, which the server checks.
-            if(vm.supports("password_reveal")||hidden)IconButton(onClick={if(hidden)revealing=true else{amountPreference.hidden=true;hidden=true}}){
-                Icon(if(hidden)Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,if(hidden)"Show amounts" else "Hide amounts")
+            AdaptiveActions {
+                OutlinedButton(onClick = { vm.navigate("item") }, modifier = Modifier.weight(1f)) { Text("Items & stock") }
+                OutlinedButton(onClick = { vm.navigate("purchase_order") }, modifier = Modifier.weight(1f)) { Text("Purchase orders") }
             }
-        }}
+        } }
+        item { Column {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Financial overview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(if (start == end) end.format(displayDate) else "${start.format(displayDate)} – ${end.format(displayDate)}",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (vm.supports("password_reveal") || hidden) IconButton(onClick = {
+                    if (hidden) revealing = true else { amountPreference.hidden = true; hidden = true }
+                }) {
+                    Icon(if (hidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                        if (hidden) "Show amounts" else "Hide amounts")
+                }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for ((key, label) in listOf("today" to "Today", "month" to "This month", "30days" to "30 days", "year" to "Financial year")) {
+                    FilterChip(selected = period == key, onClick = { period = key },
+                        label = { Text(label, style = MaterialTheme.typography.labelMedium) })
+                }
+            }
+        } }
         item{MetricGrid(listOf(
             "Net sales" to (summary?.let{shown(money(it.s("sales")))}?:"—"),
             "Net profit" to (financial?.let{shown(money(it.s("net_profit")))}?:"—"),
-            "To collect · to date" to (summary?.let{shown(money(it.s("receivables")))}?:"—"),
-            "To pay · to date" to (summary?.let{shown(money(it.s("payables")))}?:"—")
+            "To collect as of today" to (summary?.let{shown(money(it.s("receivables")))}?:"—"),
+            "To pay as of today" to (summary?.let{shown(money(it.s("payables")))}?:"—")
         ))}
-        if(vm.canWrite&&vm.recordsReady)item{Section("Everyday tasks"){
+        if(vm.canWrite&&vm.recordsReady&&vm.records.any{it.optBoolean("posted")})item{Section("Quick entry"){
             AdaptiveActions{
                 Button(onClick={vm.add("sales_invoice")},modifier=Modifier.weight(1f)){Text("New invoice")}
                 OutlinedButton(onClick={vm.add("payment_in")},modifier=Modifier.weight(1f)){Text("Receive payment")}
@@ -118,14 +145,32 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
             overdue.take(3).forEach{row->TextButton(onClick={vm.detail=row},modifier=Modifier.fillMaxWidth()){Text("${row.s("number")} · ${row.s("name")} · ${shown(money(row.s("outstanding")))} due")}}
             if(overdue.size>3)TextButton(onClick={vm.navigate("sales_invoice")}){Text("View all sales invoices →")}
         }}
-        if(vm.recordsReady)item{FoldSection("Planning tools"){NativeActionRow("Recurring drafts", "Review upcoming repeat invoices and bills", Icons.Outlined.Repeat) { vm.toolData=null;vm.tool="recurring" };NativeActionRow("Low stock review", "See items that need reordering", Icons.Outlined.Inventory2) { vm.tool="reorder" }}}
-        if(vm.recordsReady)item{Section("Sales & purchases"){if(hidden)HiddenChartNote() else MonthlyPerformance(vm.records,start,end);Text("Posted invoice values, including GST where applicable",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
-        if(vm.recordsReady)item{Section("Invoice collections"){
-            Text("GET PAID",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        if (recent.isNotEmpty()) {
+            item { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Recent activity", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                TextButton(onClick = { vm.navigate("day_book") }) { Text("Open day book") }
+            } }
+            items(recent, key = { it.s("id") }) { RecordCard(vm, it, maskAmounts = hidden) }
+        }
+        if (vm.recordsReady) item { FoldSection("Planning tools") {
+            NativeActionRow("Parties", icon = Icons.Outlined.People) { vm.navigate("party") }
+            if (vm.supports("recurring_drafts")) NativeActionRow("Recurring drafts", icon = Icons.Outlined.Repeat) {
+                vm.toolData = null
+                vm.tool = "recurring"
+            }
+            if (vm.supports("low_stock_reorder")) NativeActionRow("Low stock review", icon = Icons.Outlined.Inventory2) {
+                vm.tool = "reorder"
+            }
+        } }
+        if(vm.recordsReady)item{FoldSection("Sales & purchases"){if(hidden)HiddenChartNote() else MonthlyPerformance(vm.records,start,end);Text("Posted invoice values, including GST where applicable",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
+        if(vm.recordsReady)item{FoldSection("Invoice collections"){
             val fraction=if(issued>BigDecimal.ZERO)(settled.toFloat()/issued.toFloat()).coerceIn(0f,1f)else 0f
-            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(18.dp)){
-                Box(Modifier.size(126.dp),contentAlignment=Alignment.Center){CircularProgressIndicator(progress={fraction},modifier=Modifier.fillMaxSize(),strokeWidth=12.dp,color=ApexGreen,trackColor=Color(0xFFE1E6ED));Column(horizontalAlignment=Alignment.CenterHorizontally){Text("${(fraction*100).toInt()}%",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold);Text("settled",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
-                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("Settled",style=MaterialTheme.typography.bodySmall);Text(shown(money(settled)),fontWeight=FontWeight.SemiBold);Text("Outstanding",style=MaterialTheme.typography.bodySmall);Text(shown(money(outstanding)),fontWeight=FontWeight.SemiBold)}
+            if (hidden) Text("Collection amounts and settlement percentage are hidden.")
+            else {
+                Text("${(fraction * 100).toInt()}% settled", fontWeight = FontWeight.SemiBold)
+                LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                DetailValue("Settled", money(settled))
+                DetailValue("Outstanding", money(outstanding))
             }
             Text("Invoices through today · payments, advances and credits included.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick={vm.navigate("sales_invoice")}){Text("View sales invoices  →")}
@@ -146,8 +191,6 @@ fun dashboardPeriod(period:String,instant:java.time.Instant=java.time.Instant.no
             for((key,label)in listOf("output" to "Output GST","book_itc" to "Input from entered bills")){val total=gst?.o(key)?.let{o->o.keys().asSequence().fold(BigDecimal.ZERO){sum,k->sum+o.decimal(k)}};Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(label);Text(total?.let{shown(money(it))}?:"—",fontWeight=FontWeight.Medium)}}
             Text("Estimate from entered bills. Verify ITC eligibility and GSTR-2B before filing.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }}else item{Section("Your tax settings"){Text(if(vm.company.s("tax_mode")=="composition")"Composition accounting is active. Review composition reports for your liability."else"Non-GST accounting is active. Documents use your non-GST settings.")}}
-        item{Heading("Recent activity")}
-        items(vm.records.filter{it.s("kind") !in setOf("party","item","bank_account")}.take(8),key={it.s("id")}){RecordCard(vm,it,maskAmounts=hidden)}
         item{Spacer(Modifier.height(8.dp))}
     }
     if(revealing)RevealAmountsDialog(vm,onRevealed={amountPreference.hidden=false;hidden=false;revealing=false},onDismiss={revealing=false})

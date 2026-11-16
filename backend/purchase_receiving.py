@@ -15,8 +15,9 @@ from workflow_extensions import retry
 ORDER_ID = 'purchase_order_id'
 SOURCE_VERSION = 'purchase_order_version'
 LINE_INDEXES = 'purchase_order_line_indexes'
+DISCOUNT_BASES = 'purchase_order_discount_bases'
 STARTED = 'purchase_order_receiving_started'
-RECEIPT_FIELDS = {ORDER_ID, SOURCE_VERSION, LINE_INDEXES}
+RECEIPT_FIELDS = {ORDER_ID, SOURCE_VERSION, LINE_INDEXES, DISCOUNT_BASES}
 OWNED_FIELDS = RECEIPT_FIELDS | {STARTED}
 QUANTITY_LIMIT = Decimal('999999999999.999')
 
@@ -74,6 +75,27 @@ def received_quantities(rows):
     return received
 
 
+def reserved_discounts(m, rows, source_lines):
+    used = defaultdict(Decimal)
+    for receipt, posted in rows:
+        if not posted:
+            continue
+        bases = receipt.data.get(DISCOUNT_BASES)
+        for position, (index, line) in enumerate(zip(receipt.data[LINE_INDEXES], receipt.data['lines'], strict=True)):
+            source = source_lines[index]
+            if 'discount_amount' not in source:
+                continue
+            if bases is not None:
+                used[index] += Decimal(str(bases[position]))
+                continue
+            # Older bills kept only the applied discount. Use it if it could
+            # be a rounded order share; otherwise assume a supplier override.
+            nominal = Decimal(str(source['discount_amount'])) * order_quantity(line['quantity']) / order_quantity(source['quantity'])
+            applied = Decimal(str(line.get('discount_amount', 0)))
+            used[index] += applied if abs(applied - nominal) < Decimal('0.01') else m.money(nominal)
+    return used
+
+
 def order_quantity(value):
     try:
         quantity = Decimal(str(value))
@@ -110,8 +132,10 @@ def prepare_bill(m, company, order, body, session):
     if body.due_date and body.due_date < body.date:
         raise HTTPException(422, 'Due date cannot be before the bill date')
     m.require_open_period(order.company_id, body.date, session)
-    received = received_quantities(receipt_rows(m, order, session))
+    receipts = receipt_rows(m, order, session)
+    received = received_quantities(receipts)
     source_lines = order_lines(order)
+    discounts = reserved_discounts(m, receipts, source_lines)
     data = {key: order.data[key] for key in (
         'party_id', 'party_gstin', 'party_address', 'party_phone', 'place_of_supply',
         'supplier_state', 'document_discount_percent', 'round_total', 'terms',
@@ -119,7 +143,7 @@ def prepare_bill(m, company, order, body, session):
     if body.due_date:
         data['due_date'] = body.due_date.isoformat()
     data['notes'] = body.notes
-    lines, indexes = [], []
+    lines, indexes, discount_bases = [], [], []
     for entry in body.lines:
         index = entry.line_index
         if index in indexes or index >= len(source_lines):
@@ -134,13 +158,17 @@ def prepare_bill(m, company, order, body, session):
         line['quantity'] = str(entry.quantity)
         changes = entry.model_dump(mode='json', exclude_none=True, exclude={'line_index', 'quantity', 'discount_amount'})
         line.update(changes)
+        discount_basis = None
+        if 'discount_amount' in source:
+            discount = Decimal(str(source['discount_amount']))
+            discount_basis = max(Decimal('0.00'), m.money(discount * after / ordered) - discounts[index])
         if entry.discount_amount is not None:
             line.update(discount_percent='0', discount_amount=str(entry.discount_amount))
-        elif 'discount_amount' in source:
-            discount = Decimal(str(source['discount_amount']))
-            line['discount_amount'] = str(m.money(discount * after / ordered) - m.money(discount * received[index] / ordered))
+        elif discount_basis is not None:
+            line['discount_amount'] = str(discount_basis)
         lines.append(line)
         indexes.append(index)
+        discount_bases.append(str(discount_basis) if discount_basis is not None else None)
     number = body.number.strip()
     if number and session.scalar(select(m.Record.id).where(
         m.Record.company_id == order.company_id, m.Record.kind == 'purchase_bill', m.Record.number == number,
@@ -159,7 +187,7 @@ def prepare_bill(m, company, order, body, session):
     calculated, total = m.calculate(data, company, tax_mode, 'purchase_bill', session)
     if total <= 0:
         raise HTTPException(422, 'Purchase bill total must be greater than zero')
-    return data, indexes, calculated, total, tax_mode
+    return data, indexes, discount_bases, calculated, total, tax_mode
 
 
 def install(app, m):
@@ -199,7 +227,7 @@ def install(app, m):
         company = m.company_for(company_id, user, session)
         m.require_write(company, user, session)
         order = find_order(m, company_id, order_id, session)
-        _, _, calculated, total, tax_mode = prepare_bill(m, company, order, body, session)
+        _, _, _, calculated, total, tax_mode = prepare_bill(m, company, order, body, session)
         calculated = m.value_stock_lines(company_id, 'purchase_bill', calculated, tax_mode, body.date, None, session)
         return {'amount': str(total), 'data': calculated}
 
@@ -213,10 +241,11 @@ def install(app, m):
         if body.expected_total is None:
             raise HTTPException(422, 'Review the purchase bill total before posting the receipt')
         order = find_order(m, company_id, order_id, session)
-        data, indexes, _, total, _ = prepare_bill(m, company, order, body, session)
+        data, indexes, discount_bases, _, total, _ = prepare_bill(m, company, order, body, session)
         if total != body.expected_total:
             raise review_required('Purchase bill total changed. Review the updated total before posting')
-        data.update({ORDER_ID: order.id, SOURCE_VERSION: body.source_version, LINE_INDEXES: indexes})
+        data.update({ORDER_ID: order.id, SOURCE_VERSION: body.source_version, LINE_INDEXES: indexes,
+                     DISCOUNT_BASES: discount_bases})
         document = m.RecordInput(kind='purchase_bill', name=order.name, number=body.number.strip(), date=body.date, data=data)
         saved = m.save_record(company_id, document, request, user, session, commit=False, idempotency_request_hash=digest)
         order.data = {**order.data, STARTED: True}
@@ -229,6 +258,7 @@ def install(app, m):
 def validate_backup(groups, indexes, posted, number, conversion_sources):
     receiving_orders = set()
     totals = defaultdict(Decimal)
+    discount_totals = defaultdict(Decimal)
     records = indexes['records']
     for bill in groups['records']:
         data = bill['data']
@@ -254,7 +284,10 @@ def validate_backup(groups, indexes, posted, number, conversion_sources):
                 or any(type(index) is not int or not 0 <= index < len(source_lines) for index in line_indexes)
                 or len(set(line_indexes)) != len(line_indexes)):
             raise ValueError('Invalid purchase order receipt line indexes')
-        for index, line in zip(line_indexes, bill_lines, strict=True):
+        bases = data.get(DISCOUNT_BASES)
+        if DISCOUNT_BASES in data and (not isinstance(bases, list) or len(bases) != len(line_indexes)):
+            raise ValueError('Invalid purchase order receipt discount bases')
+        for position, (index, line) in enumerate(zip(line_indexes, bill_lines, strict=True)):
             source = source_lines[index]
             amount, ordered = number(line['quantity'], 3), number(source['quantity'], 3)
             if (line.get('item_id') != source.get('item_id') or line['description'] != source['description']
@@ -264,6 +297,17 @@ def validate_backup(groups, indexes, posted, number, conversion_sources):
                 totals[order_id, index] += amount
                 if totals[order_id, index] > ordered:
                     raise ValueError('Purchase order received quantity exceeds ordered quantity')
+            if bases is not None:
+                if 'discount_amount' in source:
+                    basis, fixed = number(bases[position]), number(source['discount_amount'])
+                    if basis > fixed:
+                        raise ValueError('Purchase order receipt discount basis exceeds original fixed discount')
+                    if bill['id'] in posted:
+                        discount_totals[order_id, index] += basis
+                        if discount_totals[order_id, index] > fixed:
+                            raise ValueError('Purchase order receipt discount bases exceed original fixed discount')
+                elif bases[position] is not None:
+                    raise ValueError('Purchase order receipt discount basis requires an original fixed discount')
         receiving_orders.add(order_id)
     for record in groups['records']:
         marker = record['data'].get(STARTED)

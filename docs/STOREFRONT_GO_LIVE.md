@@ -4,6 +4,8 @@ The web counter supports one store inventory pool. It records cash and externall
 
 Web and Windows keep the catalogue and current sale together on wider screens. Android offers separate Products and Cart views with a payable total near the primary action. All three confirm electronic tender before recording it. Use the web Register view to manage the shared drawer. Native checkouts enter the active session automatically when it is open.
 
+**Start at Home.** POS is a top-level destination on web, Windows and Android. The workspace shortcuts put checkout and stock work within reach before going into the accounting registers. Use **Receive stock** on the web dashboard to find the supplier's purchase order. Web receipt lookup searches all dates by default; use **Show today** for the current shift, or choose a sale date.
+
 ## Store workflow
 
 | Task | ApexBooks workflow |
@@ -23,6 +25,7 @@ Web and Windows keep the catalogue and current sale together on wider screens. A
 - Shopify POS documents receipt-linked partial refunds and restocking, with separate permissions for POS staff. ApexBooks links returns to the receipt and enforces remaining quantities, using its existing owner/editor roles. [Shopify POS refunds](https://help.shopify.com/en/manual/sell-in-person/shopify-pos/order-management/complete-refund-orders) · [Shopify POS permissions](https://help.shopify.com/en/manual/your-account/users/roles/permissions/pos-permissions)
 - Square for Retail documents partial PO receipts, stock counts and staged transfers. ApexBooks tracks received and remaining order quantities against posted bills, plus physical stock counts and item movement history. [Square purchase orders](https://squareup.com/help/us/en/article/8258-create-purchase-orders-with-square-for-retail) · [Square inventory counts](https://squareup.com/help/us/en/article/8249-conduct-full-inventory-counts-with-square-for-retail) · [Square transfer orders](https://squareup.com/help/us/en/article/8300-create-transfer-orders-with-square-for-retail)
 - Lightspeed documents opening floats, cash drops and register close. Odoo documents barcode scanner, receipt printer and cash-drawer integrations. Browser printing and keyboard-wedge scanner input still need to be tested with the store’s devices. [Lightspeed register guide](https://retail-support.lightspeedhq.com/hc/en-us/articles/1260800790810-Opening-and-closing-a-register) · [Odoo POS hardware](https://www.odoo.com/documentation/19.0/applications/sales/point_of_sale/pos_hardware.html)
+- Shopify puts frequent cashier actions on its POS smart grid and supports order search and filtering from the counter. QuickBooks keeps workspace shortcuts and financial performance visible on the dashboard. These informed the placement of checkout and warehouse shortcuts and the separation of financial controls. [Shopify smart grid](https://help.shopify.com/en/manual/sell-in-person/getting-started/smart-grid) · [Shopify order search](https://help.shopify.com/en/manual/sell-in-person/shopify-pos/order-management/search-orders) · [QuickBooks navigation and dashboard](https://quickbooks.intuit.com/learn-support/en-us/help-article/product-setup/navigate-quickbooks-online-menus-transactions-set/L5eM9dp7W_US_en_US)
 
 ## Customer-site acceptance
 

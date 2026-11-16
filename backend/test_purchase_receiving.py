@@ -169,3 +169,45 @@ class PurchaseReceivingTest(unittest.TestCase):
         legacy_bill = self.record('purchase_bill', order['name'], {'source_document_id': order['id'], 'lines': [line]})
         self.assertTrue(legacy_bill['posted'])
         self.assertEqual(self.state()['status'], 'converted')
+
+    def test_replacing_middle_receipt_retains_original_fixed_discount_after_rounding(self):
+        order = self.record('purchase_order', 'Bulk packaging supplier', {'lines': [
+            {'description': 'Packaging fee', 'quantity': '3', 'rate': '10', 'discount_amount': '1'},
+        ]})
+        self.url = self.base + '/purchase-orders/' + order['id']
+        selected = [{'line_index': 0, 'quantity': '1'}]
+        bills = [self.receive(self.preview(selected)).json() for _ in range(3)]
+        self.assertEqual([Decimal(bill['amount']) for bill in bills], list(map(Decimal, ['9.67', '9.66', '9.67'])))
+        cancelled = self.client.post(self.base + '/records/' + bills[1]['id'] + '/cancel', headers=self.headers,
+            json={'reason': 'Supplier sent a replacement for the second bill'})
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        replacement = self.receive(self.preview(selected))
+        self.assertEqual(replacement.status_code, 201, replacement.text)
+        self.assertEqual(Decimal(replacement.json()['amount']), Decimal('9.66'))
+        self.assertEqual(sum(Decimal(bill['amount']) for bill in self.state()['receipts'] if not bill['cancelled']),
+                         Decimal(order['amount']))
+
+    def test_supplier_discount_override_preserves_future_order_discount_basis_and_backup(self):
+        order = self.record('purchase_order', 'Packaging supplier', {'lines': [
+            {'description': 'Packaging fee', 'quantity': '3', 'rate': '10', 'discount_amount': '1'},
+        ]})
+        self.url = self.base + '/purchase-orders/' + order['id']
+        first = self.receive(self.preview([{'line_index': 0, 'quantity': '1', 'discount_amount': '0.34'}]))
+        self.assertEqual(first.status_code, 201, first.text)
+        self.assertEqual(Decimal(first.json()['amount']), Decimal('9.66'))
+        second = self.receive(self.preview([{'line_index': 0, 'quantity': '2'}]))
+        self.assertEqual(second.status_code, 201, second.text)
+        self.assertEqual(Decimal(second.json()['amount']), Decimal('19.33'))
+
+        payload = self.client.get(self.base + '/data-export.json', headers=self.headers)
+        payload.raise_for_status()
+        def check_backup(export, expected):
+            backup = {'company_name': 'Restored discount',
+                      'backup_base64': base64.b64encode(json.dumps(export).encode()).decode()}
+            reply = self.client.post('/api/backups/restore/preview', headers=self.headers, json=backup)
+            self.assertEqual(reply.status_code, expected, reply.text)
+        check_backup(payload.json(), 200)
+        old_export = payload.json()
+        for record in old_export['records']:
+            record['data'].pop('purchase_order_discount_bases', None)
+        check_backup(old_export, 200)

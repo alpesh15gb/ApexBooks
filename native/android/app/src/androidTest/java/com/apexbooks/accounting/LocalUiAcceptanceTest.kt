@@ -170,7 +170,7 @@ class LocalUiAcceptanceTest {
         assertTrue("Company selector closes",device.wait(Until.gone(By.text("Each company keeps its own books and settings.")),15000))
         assertTrue("Second workspace opens",device.wait(Until.hasObject(By.text(target)),30000))
         device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-dashboard.png"))
-        device.findObject(By.desc("Transactions")).click()
+        device.findObject(By.desc("Entries")).click()
         assertTrue("Invoice is searchable in native register",device.wait(Until.hasObject(By.text("UI Smoke Buyer")),30000))
         device.findObject(By.text("UI Smoke Buyer")).click()
         assertTrue("Contextual collection action appears",device.wait(Until.hasObject(By.text("Record payment received")),30000))
@@ -348,7 +348,7 @@ class LocalUiAcceptanceTest {
                 clickReadyAction(device,"Open restored company")
                 assertTrue("Explicitly opened new company",device.wait(Until.hasObject(By.text(restoredName)),30000))
                 assertTrue("Restore dialog dismissed",device.wait(Until.gone(By.text("Restore complete portable backup")),15000))
-                clickReadyDescription(device,"Transactions")
+                clickReadyDescription(device,"Entries")
                 assertTrue("Restored company history loaded into the actual register",device.wait(Until.hasObject(By.text("UI Smoke Buyer")),30000))
                 device.takeScreenshot(File(context.getExternalFilesDir(null),"local-native-restored-company.png"))
             } finally { device.executeShellCommand("rm -f '/sdcard/Download/$backupName'") }

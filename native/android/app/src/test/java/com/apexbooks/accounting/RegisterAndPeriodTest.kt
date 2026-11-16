@@ -8,6 +8,7 @@ class RegisterAndPeriodTest {
     @Test fun dashboardUsesSameIndiaDayAsDocumentDefaults(){
         val instant=java.time.Instant.parse("2026-11-02T18:30:00Z")
         assertEquals(java.time.LocalDate.parse("2026-04-01") to java.time.LocalDate.parse("2026-11-03"),dashboardPeriod("year",instant))
+        assertEquals(java.time.LocalDate.parse("2026-11-03") to java.time.LocalDate.parse("2026-11-03"),dashboardPeriod("today",instant))
         assertEquals(java.time.LocalDate.parse("2026-11-01") to java.time.LocalDate.parse("2026-11-03"),dashboardPeriod("month",instant))
         assertEquals(java.time.LocalDate.parse("2026-10-05") to java.time.LocalDate.parse("2026-11-03"),dashboardPeriod("30days",instant))
         assertEquals(java.time.LocalDate.parse("2027-04-01") to java.time.LocalDate.parse("2027-04-01"),dashboardPeriod("year",java.time.Instant.parse("2027-03-31T18:30:00Z")))

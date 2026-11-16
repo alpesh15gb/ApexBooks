@@ -224,6 +224,7 @@ with sync_playwright() as p:
         page.get_by_role('combobox', name='Choose company', exact=True).select_option(large_company['id'])
         navigate('Dashboard')
         expect(page.locator('.overview-metric').first).to_contain_text('99,99,99,99,99,999.99')
+        expect(page.locator('.recent-table').get_by_text('Synthetic large customer', exact=True)).to_be_visible()
         for width in (320, 390, 768, 1440):
             page.set_viewport_size({'width': width, 'height': 1000})
             capture(f'large-balance-{width}')
@@ -231,6 +232,11 @@ with sync_playwright() as p:
                 const range = document.createRange(); range.selectNodeContents(n);
                 return range.getBoundingClientRect().width <= n.clientWidth + 1;
             })'''), f'A financial amount is clipped at {width}px'
+            assert page.locator('.recent-table tbody tr').first.evaluate('''row => {
+                const name = row.querySelector('.recent-name').getBoundingClientRect();
+                const amount = row.querySelector('td.right').getBoundingClientRect();
+                return name.right <= amount.left + 1 || name.bottom <= amount.top + 1;
+            }'''), f'A recent transaction amount overlaps the customer at {width}px'
         navigate('Reports')
         page.locator('.report-choice').filter(has=page.get_by_text('Party statement',exact=True)).click()
         for width in (1200,768,390,320):

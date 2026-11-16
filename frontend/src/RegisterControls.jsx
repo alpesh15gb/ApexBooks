@@ -7,6 +7,7 @@ export default function RegisterControls({
   onChange,
   records,
   onReset,
+  hasActiveFilters,
 }) {
   const [expanded, setExpanded] = useState(false);
   const extraFilters = Number(!!value.party) + Number(!!value.sort && value.sort !== "newest");
@@ -20,6 +21,7 @@ export default function RegisterControls({
       <DateRangeFilter
         value={value}
         onChange={(dates) => onChange({ ...value, ...dates })}
+        customOnly
       />
       <button
         className="mobile-filter-toggle link"
@@ -57,7 +59,8 @@ export default function RegisterControls({
         </select>
       </label>
       <button
-        className={`link reset-filters ${extraFilters ? "has-active-filters" : ""}`}
+        className={`link reset-filters ${hasActiveFilters || extraFilters ? "has-active-filters" : ""}`}
+        disabled={!hasActiveFilters && extraFilters === 0}
         onClick={() =>
           onReset
             ? onReset()

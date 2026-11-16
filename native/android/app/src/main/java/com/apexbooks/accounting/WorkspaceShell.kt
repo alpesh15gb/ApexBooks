@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -18,10 +19,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.platform.LocalDensity
 import com.apexbooks.accounting.data.*
+import org.json.JSONObject
 
 @Composable fun ApexWorkspace(vm: AppModel, activity: MainActivity) {
     if (!vm.signedIn) { LoginScreen(vm); return }
@@ -29,25 +31,41 @@ import com.apexbooks.accounting.data.*
     var companyQuery by remember { mutableStateOf("") }
     var searchOpen by remember { mutableStateOf(false) }
     var createOpen by remember { mutableStateOf(false) }
+    var lastEntry by rememberSaveable { mutableStateOf("sales_invoice") }
     val currentTab = MobileNavigation.tab(vm.page)
-    val destinations = listOf("dashboard" to "Home", "transactions" to "Transactions", "party" to "Parties", "reports" to "Reports", "more" to "More")
-    fun navigate(key: String) = vm.navigate(if (key == "transactions") "sales_invoice" else key)
+    val canCreate = vm.canWrite && vm.recordsReady && vm.companyId.isNotBlank()
+    val pageCreates = currentTab == "transactions" || vm.page in setOf("party", "item")
+    fun navigate(key: String) {
+        vm.navigate(if (key == "transactions") MobileNavigation.entryDestination(lastEntry) else key)
+    }
+    LaunchedEffect(vm.page) { if (MobileNavigation.tab(vm.page) == "transactions") lastEntry = vm.page }
     BackHandler(enabled = vm.page != "dashboard" && vm.editor == null && vm.detail == null && vm.pdf == null && vm.statement == null && vm.tool.isBlank() && !vm.companyForm && !searchOpen && !createOpen && !companies) { vm.navigate("dashboard") }
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = maxWidth >= 840.dp
-        val compactLabels = maxWidth / LocalDensity.current.fontScale < 600.dp
+        val wide = MobileNavigation.usesRail(maxWidth.value, maxHeight.value)
         Row(Modifier.fillMaxSize()) {
-            if (wide) NavigationRail(containerColor = Color.White, header = { AppLogo(Modifier.width(100.dp).padding(8.dp)) }) {
-                destinations.forEach { (key, label) -> NavigationRailItem(selected = key == currentTab, onClick = { navigate(key) }, icon = { Icon(mobileIcon(key), null) }, label = { Text(label) }) }
+            if (wide) NavigationRail(containerColor = MaterialTheme.colorScheme.surface) {
+                MobileNavigation.primary.forEach { (key, label) ->
+                    NavigationRailItem(modifier = Modifier.semantics { contentDescription = label },
+                        selected = key == currentTab, onClick = { navigate(key) },
+                        icon = { Icon(mobileIcon(key), null) }, label = { Text(label, Modifier.clearAndSetSemantics {}) },
+                        colors = NavigationRailItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer))
+                }
             }
             Scaffold(
                 modifier = Modifier.weight(1f).imePadding(),
                 containerColor = MaterialTheme.colorScheme.background,
                 topBar = { Column {
                     TopAppBar(title = {
-                        Text(when { vm.page == "dashboard" -> "Business overview"; currentTab == "transactions" -> vm.title(vm.page); vm.page == "more" -> "Workspace"; else -> vm.title(vm.page) }, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(when (vm.page) {
+                            "dashboard" -> "Business overview"
+                            "pos" -> "Point of sale"
+                            "more" -> "Workspace"
+                            else -> vm.title(vm.page)
+                        }, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }, actions = {
-                        if(vm.canWrite && vm.recordsReady && vm.companyId.isNotBlank()) IconButton(onClick = { createOpen = true }) { Icon(Icons.Outlined.Add, "Create entry") }
+                        if (canCreate && !pageCreates && vm.page != "pos") {
+                            IconButton(onClick = { createOpen = true }) { Icon(Icons.Outlined.Add, "Create entry") }
+                        }
                         IconButton(onClick = { searchOpen = true }, enabled = vm.companyId.isNotBlank()) { Icon(Icons.Outlined.Search, "Search workspace") }
                         IconButton(onClick = { vm.task { vm.refresh() } }, enabled = vm.busy == 0 && vm.companyId.isNotBlank()) { Icon(Icons.Outlined.Refresh, "Refresh") }
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White))
@@ -64,11 +82,17 @@ import com.apexbooks.accounting.data.*
                 } },
                 bottomBar = { if (!wide && !WindowInsets.isImeVisible) {
                     Surface(shadowElevation = 10.dp, color = Color.White) { NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
-                        destinations.forEach { (key, label) -> NavigationBarItem(modifier=Modifier.semantics{contentDescription=label}, selected = currentTab == key, onClick = { navigate(key) }, icon = { Icon(mobileIcon(key), null) }, label = { Text(if(compactLabels&&key=="transactions")"Entries"else label, maxLines = 1, overflow=TextOverflow.Ellipsis) }, colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer)) }
+                        MobileNavigation.primary.forEach { (key, label) ->
+                            NavigationBarItem(modifier = Modifier.semantics { contentDescription = label },
+                                selected = currentTab == key, onClick = { navigate(key) },
+                                icon = { Icon(mobileIcon(key), null) },
+                                label = { Text(label, Modifier.clearAndSetSemantics {}, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer))
+                        }
                     } }
                 } },
-                floatingActionButton = { if (vm.canWrite && vm.recordsReady && vm.companyId.isNotBlank() && vm.page !in setOf("dashboard", "reports", "settings", "more", "commerce", "pos") && !WindowInsets.isImeVisible) {
-                    ExtendedFloatingActionButton(onClick = { if (vm.page in MobileNavigation.transactions || vm.page in setOf("party", "item")) vm.add(vm.page) else createOpen = true }, icon = { Icon(Icons.Outlined.Add, null) }, text = { Text(MobileNavigation.createLabel(vm.page)) }, containerColor = ApexGreen, contentColor = Color.White)
+                floatingActionButton = { if (canCreate && pageCreates && !WindowInsets.isImeVisible) {
+                    ExtendedFloatingActionButton(onClick = { vm.add(vm.page) }, icon = { Icon(Icons.Outlined.Add, null) }, text = { Text(MobileNavigation.createLabel(vm.page)) }, containerColor = ApexGreen, contentColor = Color.White)
                 } }
             ) { padding -> Column(Modifier.padding(padding).fillMaxSize()) {
                 if(BuildConfig.DEBUG)Text("Test workspace · ${java.net.URI(BuildConfig.API_ORIGIN).host}",Modifier.padding(horizontal=16.dp),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -124,22 +148,73 @@ private fun mobileIcon(key: String) = when (key) {
     else -> featureIcon(key)
 }
 
+internal fun searchWorkspaceRecords(records: List<JSONObject>, query: String): List<JSONObject> {
+    val term = query.trim()
+    if (term.isBlank()) return emptyList()
+    val ranked = List(3) { mutableListOf<JSONObject>() }
+    for (record in records) {
+        val kind = record.s("kind")
+        val name = record.s("name")
+        val number = record.s("number")
+        val data = record.optJSONObject("data")
+        val barcode = if (kind == "item") data?.s("barcode").orEmpty() else ""
+        val secondary = when (kind) {
+            "item" -> data?.s("hsn").orEmpty()
+            "party" -> data?.s("phone").orEmpty()
+            else -> ""
+        }
+        val rank = when {
+            name.equals(term, true) || number.equals(term, true) || barcode.equals(term, true) -> 0
+            name.startsWith(term, true) || number.startsWith(term, true) || barcode.startsWith(term, true) -> 1
+            name.contains(term, true) || number.contains(term, true) || barcode.contains(term, true)
+                || secondary.contains(term, true) -> 2
+            else -> continue
+        }
+        if (ranked[rank].size < 30) ranked[rank].add(record)
+        if (ranked[0].size == 30) break
+    }
+    return ranked.flatten().take(30)
+}
+
 @Composable private fun WorkspaceSearch(vm: AppModel, close: () -> Unit) {
     var query by remember { mutableStateOf("") }
+    val search = query.trim()
+    val workspaces = remember(search, vm.navigation) {
+        if (search.isBlank()) emptyList() else vm.navigation.filter { it.title.contains(search, true) }
+    }
+    val matches = remember(search, vm.records) { searchWorkspaceRecords(vm.records, search) }
     ModalBottomSheet(onDismissRequest = close) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-            Heading("Find anything")
+            Heading("Search this company")
             Spacer(Modifier.height(12.dp))
-            SearchBarField("Parties, invoices, items or sections", query) { query = it }
+            SearchBarField("Name, reference or barcode", query) { query = it }
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 460.dp)) {
-                if (query.isNotBlank()) {
-                    items(vm.navigation.filter { it.title.contains(query.trim(), true) }, key = { "section-" + it.key }) { hit ->
-                        ListItem(headlineContent = { Text(hit.title) }, supportingContent = { Text("Open section") }, leadingContent = { Icon(featureIcon(hit.key), null) }, modifier = Modifier.clickable { close(); vm.navigate(hit.key) })
-                    }
-                    val rows = vm.records.filter { (it.s("name") + " " + it.s("number")).contains(query.trim(), true) }.take(30)
-                    items(rows, key = { it.s("id") }) { row -> ListItem(headlineContent = { Text(row.s("number").ifBlank { row.s("name") }) }, supportingContent = { Text(row.s("name") + " · " + friendly(row.s("kind"))) }, leadingContent = { Icon(featureIcon(row.s("kind")), null) }, modifier = Modifier.clickable { close(); if (row.s("kind") == "party") vm.statement = row else if (row.s("kind") == "item") { vm.navigate("item"); if (vm.canWrite) vm.edit(row) } else vm.detail = row }) }
-                    if (rows.isEmpty() && vm.navigation.none { it.title.contains(query.trim(), true) }) item { Text("No matches. Try a party name or document number.", Modifier.padding(16.dp)) }
-                } else item { Text("Search across the current company.", Modifier.padding(vertical = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                if (workspaces.isNotEmpty()) item {
+                    Text("Workspaces", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.labelMedium)
+                }
+                items(workspaces, key = { "section-" + it.key }) { hit ->
+                    ListItem(headlineContent = { Text(hit.title) }, leadingContent = { Icon(featureIcon(hit.key), null) },
+                        modifier = Modifier.clickable(role = Role.Button) { close(); vm.navigate(hit.key) })
+                }
+                if (matches.isNotEmpty()) item {
+                    Text("Records", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.labelMedium)
+                }
+                items(matches, key = { it.s("id") }) { row ->
+                    val kind = row.s("kind")
+                    val number = row.s("number")
+                    ListItem(
+                        headlineContent = { Text(number.ifBlank { row.s("name") }) },
+                        supportingContent = { Text(if (number.isBlank()) friendly(kind) else "${row.s("name")} · ${friendly(kind)}") },
+                        leadingContent = { Icon(featureIcon(kind), null) },
+                        modifier = Modifier.clickable(role = Role.Button) {
+                            close()
+                            if (kind == "party") vm.statement = row else vm.detail = row
+                        },
+                    )
+                }
+                if (search.isNotBlank() && workspaces.isEmpty() && matches.isEmpty()) item {
+                    Text("No matches. Try a name, document number or barcode.", Modifier.padding(vertical = 16.dp))
+                }
             }
             Spacer(Modifier.height(24.dp))
         }
