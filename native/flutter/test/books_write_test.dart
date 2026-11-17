@@ -272,6 +272,57 @@ void main() {
     expect(find.textContaining('INV-4'), findsWidgets);
   });
 
+  testWidgets('a purchase order offers Receive items and shows its receiving status', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final order = BooksRecord({
+      ..._record('po', 'purchase_order', {
+        'lines': [
+          {'description': 'Tape', 'quantity': '5', 'rate': '10'},
+        ],
+      }).json,
+      'number': 'PO-3',
+      'posted': false,
+    });
+    final api = _Api(
+      read: (path, query) {
+        if (path.endsWith('/receiving')) {
+          return {'order_id': 'po', 'status': 'partial'};
+        }
+        final id = path.split('/').last;
+        if (id == 'records') return [order.json];
+        return order.json;
+      },
+      write: (method, path, body, key) async => throw UnimplementedError(),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BooksRegister(
+            workspace: WorkspaceContext(
+              api: api,
+              company: _company(),
+              pending: _MemoryPending(),
+              features: const {'purchase_order_receiving'},
+              refresh: () async {},
+            ),
+            kind: 'purchase_order',
+            title: 'Purchase orders',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Receive items'), findsOneWidget);
+    expect(find.text('Convert to purchase bill'), findsNothing);
+    await tester.tap(find.text('PO-3'));
+    await tester.pumpAndSettle();
+    expect(find.text('Receiving status · Partially received'), findsOneWidget);
+  });
+
   test('detail amendments preserve posted identity and omit financial inputs for receipts, payouts and notes', () {
     for (final kind in [
       'payment_in',

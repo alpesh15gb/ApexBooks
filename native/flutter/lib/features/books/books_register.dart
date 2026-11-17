@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/workspace.dart';
+import '../inventory/inventory_receiving.dart' show openPurchaseOrderReceiving;
 import 'books_data.dart';
 import 'books_attachments.dart';
 import 'books_detail.dart';
@@ -465,6 +466,16 @@ class _BooksRegisterState extends State<BooksRegister> {
             BooksEntryIntent('sales_order', source: row, convert: true),
           ),
         ),
+      if (receivesPurchase &&
+          widget.workspace.company.canWrite &&
+          row.kind == 'purchase_order' &&
+          row.json['cancelled'] != true &&
+          booksText(row.json['converted_to']).isEmpty)
+        RegisterRowAction(
+          label: 'Receive items',
+          style: RegisterActionStyle.tonal,
+          run: () => unawaited(_receive(row)),
+        ),
       if (editableDraft && row.kind == 'purchase_order' && !receivesPurchase)
         RegisterRowAction(
           label: 'Convert to purchase bill',
@@ -519,11 +530,23 @@ class _BooksRegisterState extends State<BooksRegister> {
     ];
   }
 
+  /// Opens goods receiving for a purchase order, as the web register's Receive button does.
+  Future<void> _receive(BooksRecord row) async {
+    if (!_posting.canStart || !widget.active) return;
+    await openPurchaseOrderReceiving(context, widget.workspace, row.id);
+    if (!mounted) return;
+    setState(() => _detailRevision++);
+    _reload();
+  }
+
   Widget _entryActions(BooksRecord row) {
     final actions = _rowActions(row);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (row.kind == 'purchase_order' &&
+            widget.workspace.features.contains('purchase_order_receiving'))
+          _ReceivingStatus(workspace: widget.workspace, order: row),
         BooksDocumentOutput(workspace: widget.workspace, record: row),
         if (widget.workspace.features.contains('document_attachments') &&
             const {'purchase_bill', 'expense'}.contains(row.kind))
@@ -725,4 +748,44 @@ class _BooksRegisterState extends State<BooksRegister> {
           : null,
     );
   }
+}
+
+/// "Receiving status" for a purchase order, from the server's receiving snapshot.
+class _ReceivingStatus extends StatefulWidget {
+  const _ReceivingStatus({required this.workspace, required this.order});
+
+  final WorkspaceContext workspace;
+  final BooksRecord order;
+
+  @override
+  State<_ReceivingStatus> createState() => _ReceivingStatusState();
+}
+
+class _ReceivingStatusState extends State<_ReceivingStatus> {
+  late final Future<Object?> _status = widget.workspace.api.get(
+    '/api/companies/${Uri.encodeComponent(widget.workspace.company.id)}'
+    '/purchase-orders/${Uri.encodeComponent(widget.order.id)}/receiving',
+  );
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Object?>(
+    future: _status,
+    builder: (context, snapshot) {
+      final data = snapshot.data;
+      if (data is! Map || booksText(data['order_id']) != widget.order.id) {
+        return const SizedBox.shrink();
+      }
+      final label = switch (booksText(data['status'])) {
+        'received' => 'Fully received',
+        'partial' => 'Partially received',
+        'converted' => 'Converted to bill',
+        'unavailable' => 'Full-order billing',
+        _ => 'Open order',
+      };
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Text('Receiving status · $label'),
+      );
+    },
+  );
 }
