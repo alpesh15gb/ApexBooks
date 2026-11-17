@@ -594,6 +594,7 @@ class _Line extends StatelessWidget {
         for (final info in [
           if (description.isNotEmpty && name != description && name.isNotEmpty)
             description,
+          if (booksText(line['details']).isNotEmpty) booksText(line['details']),
           if (details.isNotEmpty) details.join(' · '),
         ])
           Text(info, style: Apex.note.copyWith(height: 1.4)),

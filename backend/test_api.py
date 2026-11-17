@@ -190,6 +190,29 @@ class ApiTest(unittest.TestCase):
                 self.assertEqual(response.status_code,200)
                 self.assertGreater(len(PdfReader(io.BytesIO(response.content)).pages),1)
 
+    def test_item_details_are_stored_validated_and_printed(self):
+        from pypdf import PdfReader
+        with TestClient(app) as client:
+            credentials={'email':'item-details@example.com','password':'strong-password'}
+            client.post('/api/auth/register',json=credentials)
+            headers={'Authorization':'Bearer '+client.post('/api/auth/login',json=credentials).json()['token']}
+            company=client.post('/api/companies',headers=headers,json={'name':'Item details','tax_mode':'regular','state_code':'27','gstin':'27AAAAA0000A1Z2'}).json()
+            base='/api/companies/'+company['id']
+            line={'description':'Laptop','quantity':1,'rate':100,'gst_rate':18,'details':'  Serial SN-12345\nWarranty 1 year  '}
+            invoice=client.post(base+'/records',headers=headers,json={'kind':'sales_invoice','name':'Buyer','date':'2026-10-31','data':{'place_of_supply':'27','lines':[line]}})
+            self.assertEqual(invoice.status_code,200,invoice.text)
+            saved=client.get(base+'/records/'+invoice.json()['id'],headers=headers).json()
+            self.assertEqual(saved['data']['lines'][0]['details'],'Serial SN-12345\nWarranty 1 year')
+            plain=client.post(base+'/records',headers=headers,json={'kind':'sales_invoice','name':'Buyer','date':'2026-10-31','data':{'place_of_supply':'27','lines':[{**line,'details':'   '}]}}).json()
+            self.assertNotIn('details',plain['data']['lines'][0])
+            too_long=client.post(base+'/records',headers=headers,json={'kind':'sales_invoice','name':'Buyer','date':'2026-10-31','data':{'place_of_supply':'27','lines':[{**line,'details':'x'*501}]}})
+            self.assertEqual(too_long.status_code,422)
+            for template in ('classic','modern','vintage','mrp_discount','elegant','evergreen'):
+                response=client.get(base+'/documents/'+saved['id']+'.pdf?template='+template,headers=headers)
+                self.assertEqual(response.status_code,200,template)
+                text=' '.join(page.extract_text() for page in PdfReader(io.BytesIO(response.content)).pages)
+                self.assertIn('SN-12345',text,template)
+
     def test_reference_pdf_payment_qr_uses_only_remaining_receivable(self):
         from types import SimpleNamespace
         from datetime import date

@@ -101,6 +101,7 @@ def render_document(record, supplier, branding, template, title, paid=Decimal('0
         qty, rate, taxable, tax = [Decimal(str(line.get(key, 0))) for key in ('quantity','rate','taxable','tax')]
         total_qty += qty
         desc = line.get('description', '')
+        if line.get('details'): desc += '\n' + str(line['details'])
         if line.get('unit'): desc += '\nUnit: ' + str(line['unit'])
         if template == 'mrp_discount': desc += '\nHSN: ' + str(line.get('hsn') or '—')
         if line.get('price_includes_tax'):desc += chr(10)+'Rate includes GST'
@@ -236,6 +237,7 @@ def render_thermal(record, supplier, branding, template, title, paid=Decimal('0'
     for index, line in enumerate(lines, 1):
         qty, rate, taxable, tax = [Decimal(str(line.get(key, 0))) for key in ('quantity', 'rate', 'taxable', 'tax')]
         els.append(p(f"{index}. {line.get('description', '')}", bold))
+        if line.get('details'): els.append(p(line['details']))
         detail = f"{qty.normalize():f} {line.get('unit') or ''} x {format_inr(rate)}".replace('  ', ' ')
         if Decimal(str(line.get('gst_rate', 0))) and tax: detail += f" · GST {Decimal(str(line['gst_rate'])).normalize():f}%"
         els.append(pair(detail, format_inr(taxable + tax)))

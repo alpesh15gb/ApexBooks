@@ -74,6 +74,7 @@ class BooksEntryLine {
 
   static const _keys = [
     'description',
+    'details',
     'item_id',
     'quantity',
     'rate',

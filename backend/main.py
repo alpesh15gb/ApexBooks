@@ -763,6 +763,12 @@ def calculate(data, company, tax_mode, kind, session, *, exclude_return_id=None)
         for line in lines:
             if not isinstance(line, dict): raise ValueError()
             description = str(line.get('description', '')).strip()
+            # Optional free-text item details printed under the item name (specs, serial numbers).
+            details = line.get('details', '')
+            if details is None: details = ''
+            if not isinstance(details, str) or len(details.strip()) > 500:
+                raise HTTPException(422, 'Keep item details within 500 characters')
+            details = details.strip()
             hsn = str(line.get('hsn', '')).strip()
             if not hsn and isinstance(line.get('item_id'), str):
                 # A linked item's HSN/SAC is authoritative when the client left it blank (statutory invoice field).
@@ -818,6 +824,8 @@ def calculate(data, company, tax_mode, kind, session, *, exclude_return_id=None)
             line = {key: value for key, value in line.items() if key not in {'inventory_cost', 'legacy_shortage_cost', 'shortage_cost', 'shortage_quantity', 'stock_cost_provisional', 'return_cost_basis', 'return_purchase_variance', 'return_cost_reconciliation'}}
             line = {key: value for key, value in line.items() if key not in {'remaining_return_quantity', 'return_capacity_reason', 'return_capacity_scope'}}
             if kind != 'debit_note': line = {key: value for key, value in line.items() if key not in {'source_line_id', 'source_document_id', 'source_line_number'}}
+            line = {key: value for key, value in line.items() if key != 'details'}
+            if details: line['details'] = details
             cleaned.append({**line, 'description': description, 'hsn': hsn, 'gross': str(gross),
                             'discount_percent': str(discount_percent), 'discount': str(discount),'document_discount':str(document_discount_value),
                             'taxable': str(base), 'tax': str(line_tax), 'itc_treatment': itc_treatment,
@@ -3334,6 +3342,7 @@ def document_pdf(company_id: str, record_id: str, template: str = '', user: User
     rows = [[Paragraph(safe(h), styles['ApexHead']) for h in headings]]
     for line in data.get('lines', []):
         description = safe(line.get('description'))
+        if line.get('details'): description += '<br/><font size="8">' + safe(line['details']).replace('\n', '<br/>') + '</font>'
         if line.get('unit'): description += '<br/>Unit: ' + safe(line['unit'])
         if line.get('price_includes_tax'): description += '<br/>Rate includes GST'
         if Decimal(str(line.get('document_discount', 0))): description += '<br/>Document discount: INR ' + safe(format_inr(line['document_discount']))

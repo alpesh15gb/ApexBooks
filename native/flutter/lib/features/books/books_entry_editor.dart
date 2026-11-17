@@ -794,10 +794,14 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
               title: Text(booksText(row['description'])),
               subtitle: Text(
                 [
-                  booksText(row['quantity']),
-                  booksText(row['unit']),
-                  '× ${booksMoney(row['rate'])}',
-                ].where((value) => value.isNotEmpty).join(' '),
+                  if (booksText(row['details']).isNotEmpty)
+                    '${booksText(row['details'])}\n',
+                  [
+                    booksText(row['quantity']),
+                    booksText(row['unit']),
+                    '× ${booksMoney(row['rate'])}',
+                  ].where((value) => value.isNotEmpty).join(' '),
+                ].join(),
               ),
               trailing: Text(
                 booksMoney(
@@ -1850,6 +1854,19 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
                 ),
               ),
             ],
+            // Free-text item details printed under the item name on the document.
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 4),
+              child: _input(
+                'Item details (optional)',
+                line.get('details'),
+                (value) => line.set('details', value),
+                hint: 'Specifications, serial number, size or colour, printed under the item',
+                maxLength: 500,
+                lines: 2,
+                fieldKey: ValueKey('line-$index-details'),
+              ),
+            ),
             more,
           ],
         ),

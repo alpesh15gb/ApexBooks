@@ -342,6 +342,33 @@ void _newEntryTests() {
     expect((draft.command().body['data'] as Json)['notes'], '');
   });
 
+  test('item details are kept when editing and sent with the line', () {
+    final invoice = _record(
+      'inv',
+      'sales_invoice',
+      data: {
+        'version': 1,
+        'lines': [
+          {
+            'description': 'Laptop',
+            'details': 'Serial SN-1',
+            'quantity': '1',
+            'rate': '100',
+            'gst_rate': '18',
+          },
+        ],
+      },
+    );
+    final draft = _amend(invoice);
+    expect(draft.lines.single.get('details'), 'Serial SN-1');
+    draft.lines.single.set('details', 'Serial SN-2');
+    final lines = (draft.command().body['data'] as Json)['lines'] as List;
+    expect((lines.single as Json)['details'], 'Serial SN-2');
+    draft.lines.single.set('details', '  ');
+    final cleared = (draft.command().body['data'] as Json)['lines'] as List;
+    expect((cleared.single as Json).containsKey('details'), isFalse);
+  });
+
   test('new item lines start at 18% GST only for regular GST companies', () {
     final regular = BooksEntryDraft(
       const BooksEntryIntent('purchase_bill'),
