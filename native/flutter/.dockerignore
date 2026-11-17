@@ -1,0 +1,10 @@
+.dart_tool/
+build/
+test_shots/out/
+.flutter-plugins-dependencies
+android/
+windows/
+ios/
+linux/
+macos/
+*.iml

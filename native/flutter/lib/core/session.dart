@@ -70,17 +70,44 @@ class SecurePendingStore implements PendingStore {
   }
 }
 
+/// Keeps the sign-in token between page loads, like the web app's storage.
+abstract class CredentialStore {
+  Future<String?> read();
+  Future<void> write(String token);
+  Future<void> clear();
+}
+
+class SecureCredentialStore implements CredentialStore {
+  const SecureCredentialStore([this._storage = const FlutterSecureStorage()]);
+
+  static const _key = 'apexbooks-flutter-session-v1';
+  final FlutterSecureStorage _storage;
+
+  @override
+  Future<String?> read() => _storage.read(key: _key);
+
+  @override
+  Future<void> write(String token) => _storage.write(key: _key, value: token);
+
+  @override
+  Future<void> clear() => _storage.delete(key: _key);
+}
+
 class ApexSession extends ChangeNotifier {
   ApexSession({
     required this.origin,
     http.Client? client,
     PendingFactory? pendingFactory,
+    CredentialStore? credentials,
   }) : _client = client ?? http.Client(),
-       _pendingFactory = pendingFactory ?? SecurePendingStore.new;
+       _pendingFactory = pendingFactory ?? SecurePendingStore.new,
+       _credentials =
+           credentials ?? (kIsWeb ? const SecureCredentialStore() : null);
 
   final Uri origin;
   final http.Client _client;
   final PendingFactory _pendingFactory;
+  final CredentialStore? _credentials;
   String? _token;
   String? _accountId;
   bool _disposed = false;
@@ -170,22 +197,8 @@ class ApexSession extends ChangeNotifier {
       );
       final token = login is Json ? login['token'] : null;
       if (token is! String || token.isEmpty) throw const FormatException();
-      final accountId = _subject(token);
-      final api = HttpApexApi(origin: origin, client: _client, token: token);
-      final payloads = await Future.wait([
-        api.get('/api/companies'),
-        _loadFeatures(api),
-      ]);
-      if (!_authActive(generation)) return;
-      final assigned = (payloads[0] as List)
-          .cast<Json>()
-          .map(ApexCompany.fromJson)
-          .toList(growable: false);
-      companies = List.unmodifiable(assigned);
-      features = payloads[1] as Set<String>;
-      _token = token;
-      _accountId = accountId;
-      if (assigned.length == 1) _choose(assigned.single);
+      if (!await _activate(token, generation)) return;
+      await _remember(token);
     } on ApexApiException catch (error) {
       if (_authActive(generation)) message = error.message;
     } on ArgumentError {
@@ -202,6 +215,68 @@ class ApexSession extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  /// Opens the account from a token kept by an earlier page load, if any.
+  Future<void> restore() async {
+    final store = _credentials;
+    if (store == null || busy || signedIn) return;
+    final String? token;
+    try {
+      token = await store.read();
+    } catch (_) {
+      return;
+    }
+    if (token == null || token.isEmpty || busy || signedIn) return;
+    busy = true;
+    final generation = ++_authGeneration;
+    notifyListeners();
+    try {
+      await _activate(token, generation);
+    } on ApexApiException catch (error) {
+      if (error.status == 401 || error.status == 403) await _forget();
+    } catch (_) {
+      await _forget();
+    } finally {
+      if (_authActive(generation)) {
+        busy = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<bool> _activate(String token, int generation) async {
+    final accountId = _subject(token);
+    final api = HttpApexApi(origin: origin, client: _client, token: token);
+    final payloads = await Future.wait([
+      api.get('/api/companies'),
+      _loadFeatures(api),
+    ]);
+    if (!_authActive(generation)) return false;
+    final assigned = (payloads[0] as List)
+        .cast<Json>()
+        .map(ApexCompany.fromJson)
+        .toList(growable: false);
+    companies = List.unmodifiable(assigned);
+    features = payloads[1] as Set<String>;
+    _token = token;
+    _accountId = accountId;
+    if (assigned.length == 1) _choose(assigned.single);
+    return true;
+  }
+
+  Future<void> _remember(String token) async {
+    try {
+      await _credentials?.write(token);
+    } catch (_) {
+      // Staying signed in is a convenience; the session still works.
+    }
+  }
+
+  Future<void> _forget() async {
+    try {
+      await _credentials?.clear();
+    } catch (_) {}
   }
 
   Future<Set<String>> _loadFeatures(HttpApexApi api) async {
@@ -254,6 +329,7 @@ class ApexSession extends ChangeNotifier {
     final token = _token;
     _clear();
     notifyListeners();
+    await _forget();
     if (token == null) return;
     try {
       await HttpApexApi(
@@ -290,6 +366,7 @@ class ApexSession extends ChangeNotifier {
     _clear();
     message = 'Your session ended. Sign in to continue.';
     notifyListeners();
+    _forget();
   }
 
   void _clear() {

@@ -7,7 +7,9 @@ import 'core/session.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    runApp(ApexApp(session: ApexSession(origin: apiOrigin())));
+    final session = ApexSession(origin: apiOrigin());
+    runApp(ApexApp(session: session));
+    session.restore();
   } catch (_) {
     runApp(
       const MaterialApp(

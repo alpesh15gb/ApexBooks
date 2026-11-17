@@ -40,19 +40,21 @@ def stage(root,sha):
         run(['sha256sum','--check','VPS_FILES.sha256'],cwd=root)
         controller(root).verify_image_identity()
         print('Exact release is already staged: '+str(root));return
-    if shutil.disk_usage(BASE).free<5*1024**3:raise RuntimeError('At least 5 GB free disk is required for staging/building')
+    # The web image compiles the Flutter app, which downloads the Flutter SDK inside the build.
+    if shutil.disk_usage(BASE).free<8*1024**3:raise RuntimeError('At least 8 GB free disk is required for staging/building')
     BASE.joinpath('releases').mkdir(exist_ok=True)
     temporary=BASE/'releases'/('.building-'+sha+'-'+datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
     temporary.mkdir()
-    archive=run(['git','archive',sha,'backend','frontend','deploy','docs'],cwd=SOURCE,capture_output=True).stdout
+    archive=run(['git','archive',sha,'backend','native/flutter','deploy','docs'],cwd=SOURCE,capture_output=True).stdout
     with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:bundle.extractall(temporary,filter='data')
     identity={'target':'apexbooks-vps','version':VERSION,'source_sha':sha}
     # Sequential builds reduce peak memory/CPU pressure on the shared VPS.
-    for service,arg in [('api','APEX_BUILD_SHA'),('web','VITE_BUILD_SHA')]:
+    # The web service is the Flutter web build (native/flutter); the React frontend is retired.
+    for service,context,dockerfile in [('api','backend','Dockerfile'),('web','native/flutter','web.Dockerfile')]:
         tag='apexbooks-vps-'+service+':'+VERSION+'-'+sha
         print('Building '+service+' from '+sha,flush=True)
-        run(['docker','build','--platform','linux/amd64','--build-arg',arg+'='+sha,
-             '--build-arg','APEX_RELEASE_VERSION='+VERSION,'-t',tag,str(temporary/('backend' if service=='api' else 'frontend'))])
+        run(['docker','build','--platform','linux/amd64','--build-arg','APEX_BUILD_SHA='+sha,
+             '--build-arg','APEX_RELEASE_VERSION='+VERSION,'-f',str(temporary/context/dockerfile),'-t',tag,str(temporary/context)])
         data=json.loads(output(['docker','image','inspect',tag]))[0]
         labels=data['Config']['Labels']
         if data['Architecture']!='amd64' or labels.get('org.opencontainers.image.revision')!=sha or labels.get('org.opencontainers.image.version')!=VERSION:

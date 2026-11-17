@@ -1,0 +1,50 @@
+# Apex Books — https://apexbooks.in
+# Public pages are open to search engines and AI assistants. The API and signed-in workspace are not content.
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# AI search and assistant crawlers (explicitly allowed so answers can cite Apex Books)
+User-agent: GPTBot
+Allow: /
+Disallow: /api/
+
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /api/
+
+User-agent: ChatGPT-User
+Allow: /
+Disallow: /api/
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /api/
+
+User-agent: Claude-SearchBot
+Allow: /
+Disallow: /api/
+
+User-agent: Claude-User
+Allow: /
+Disallow: /api/
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /api/
+
+User-agent: Perplexity-User
+Allow: /
+Disallow: /api/
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+Disallow: /api/
+
+Sitemap: https://apexbooks.in/sitemap.xml

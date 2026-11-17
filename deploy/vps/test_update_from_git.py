@@ -15,22 +15,24 @@ class GitUpdaterTest(unittest.TestCase):
         sha='a'*40
         memory=io.BytesIO()
         with tarfile.open(fileobj=memory,mode='w') as archive:
-            for name in ('backend/Dockerfile','frontend/Dockerfile','deploy/vps/manage.py'):
+            for name in ('backend/Dockerfile','native/flutter/web.Dockerfile','deploy/vps/manage.py'):
                 data=b'public source\n';entry=tarfile.TarInfo(name);entry.size=len(data);archive.addfile(entry,io.BytesIO(data))
         calls=[]
         def run(args,**kwargs):
             calls.append(args)
             return SimpleNamespace(stdout=memory.getvalue() if args[:2]==['git','archive'] else '')
         def inspect(args):
-            tag=args[-1];key='APEX_BUILD_SHA' if '-api:' in tag else 'VITE_BUILD_SHA'
-            return json.dumps([{'Id':'sha256:'+('b' if key=='APEX_BUILD_SHA' else 'c')*64,'Architecture':'amd64',
+            tag=args[-1]
+            return json.dumps([{'Id':'sha256:'+('b' if '-api:' in tag else 'c')*64,'Architecture':'amd64',
               'Config':{'Labels':{'org.opencontainers.image.revision':sha,'org.opencontainers.image.version':u.VERSION}}}])
         with tempfile.TemporaryDirectory() as directory:
             base=Path(directory);root=base/'releases'/('1.5.0-'+sha);m=Mock()
-            with patch.object(u,'BASE',base),patch.object(u,'run',side_effect=run),patch.object(u,'output',side_effect=inspect),patch.object(u,'controller',return_value=m),patch.object(u.shutil,'disk_usage',return_value=SimpleNamespace(free=8*1024**3)):
+            with patch.object(u,'BASE',base),patch.object(u,'run',side_effect=run),patch.object(u,'output',side_effect=inspect),patch.object(u,'controller',return_value=m),patch.object(u.shutil,'disk_usage',return_value=SimpleNamespace(free=9*1024**3)):
                 u.stage(root,sha)
             builds=[args for args in calls if args[:2]==['docker','build']]
-            self.assertEqual(len(builds),2);self.assertIn('APEX_BUILD_SHA='+sha,builds[0]);self.assertIn('VITE_BUILD_SHA='+sha,builds[1])
+            self.assertEqual(len(builds),2);self.assertIn('APEX_BUILD_SHA='+sha,builds[0]);self.assertIn('APEX_BUILD_SHA='+sha,builds[1])
+            self.assertTrue(Path(builds[1][-1]).as_posix().endswith('native/flutter'));self.assertTrue(builds[1][builds[1].index('-f')+1].endswith('web.Dockerfile'))
+            archive=[args for args in calls if args[:2]==['git','archive']][0];self.assertIn('native/flutter',archive);self.assertNotIn('frontend',archive)
             self.assertFalse((root/'.env').exists());self.assertTrue((root/'VPS_FILES.sha256').is_file())
             self.assertEqual(json.loads((root/'release.json').read_text())['source_sha'],sha)
             m.verify_image_identity.assert_called_once()

@@ -38,12 +38,13 @@ set -euo pipefail
 docker build --build-arg APEX_BUILD_SHA="$APEX_SOURCE_SHA" \
   --build-arg APEX_RELEASE_VERSION="$APEX_RELEASE_VERSION" \
   -t "apexbooks-vps-api:$APEX_RELEASE_VERSION-$APEX_SOURCE_SHA" backend
-docker build --build-arg VITE_BUILD_SHA="$APEX_SOURCE_SHA" \
+docker build --build-arg APEX_BUILD_SHA="$APEX_SOURCE_SHA" \
   --build-arg APEX_RELEASE_VERSION="$APEX_RELEASE_VERSION" \
-  -t "apexbooks-vps-web:$APEX_RELEASE_VERSION-$APEX_SOURCE_SHA" frontend
+  -f native/flutter/web.Dockerfile \
+  -t "apexbooks-vps-web:$APEX_RELEASE_VERSION-$APEX_SOURCE_SHA" native/flutter
 ```
 
-The API image bakes `APEX_BUILD_SHA` into its environment. The frontend exposes `VITE_BUILD_SHA` **before** `npm run build`, so the browser bundle contains the source identity; changing Nginx runtime variables cannot rewrite that bundle. Both final images carry matching OCI revision/version labels. Record their actual immutable image IDs in release.json after building. No argument defaults to a guessed SHA/version: absent inputs remain `unknown` and the VPS release checks refuse them.
+The API image bakes `APEX_BUILD_SHA` into its environment. The web image is the Flutter web app (`native/flutter`, served by Nginx with `web.nginx.conf`, which also proxies `/api/`); it passes `APEX_BUILD_SHA` as a `--dart-define` **before** `flutter build web`, so the browser bundle contains the source identity. The React app in `frontend/` is no longer deployed; changing Nginx runtime variables cannot rewrite that bundle. Both final images carry matching OCI revision/version labels. Record their actual immutable image IDs in release.json after building. No argument defaults to a guessed SHA/version: absent inputs remain `unknown` and the VPS release checks refuse them.
 
 Root development Compose passes `APEX_SOURCE_SHA`/`APEX_RELEASE_VERSION` as explicit build arguments (API and commerce worker use `APEX_BUILD_SHA`; web uses `VITE_BUILD_SHA`), defaulting to unknown when omitted. Dedicated VPS Compose does not rebuild: it requires the approved immutable images and validated `APEX_SOURCE_SHA` exported by `manage.py release-env`; `manage.py` also supplies that SHA on its own Compose calls. The API runtime receives the same approved SHA, while image labels/IDs and served readiness revision must independently agree. Inspect the web's displayed build revision as well as the API response during operator acceptance; a runtime API variable is not evidence of the browser bundle's identity.
 

@@ -206,6 +206,51 @@ void main() {
     expect(session.workspace?.features, isEmpty);
   });
 
+  test('a kept sign-in reopens the account and a rejected one is forgotten', () async {
+    final account = base64Url.encode(utf8.encode('{"sub":"account-a"}'));
+    final kept = _Credentials();
+    var accept = true;
+    ApexSession build() => ApexSession(
+      origin: origin,
+      credentials: kept,
+      pendingFactory: (_, _, _) => _Pending(),
+      client: MockClient(
+        (request) async => switch (request.url.path) {
+          '/api/auth/login' => jsonResponse({'token': 'qa.$account.signature'}),
+          '/api/auth/logout' => jsonResponse({}),
+          '/api/companies' => accept
+              ? jsonResponse([
+                  {'id': 'shop', 'name': 'Corner Store', 'role': 'owner'},
+                ])
+              : jsonResponse({'detail': 'Not authenticated'}, 401),
+          '/api/capabilities' => jsonResponse({'supported_features': []}),
+          _ => throw StateError('Unexpected request ${request.url.path}'),
+        },
+      ),
+    );
+    final first = build();
+    await first.signIn('staff@example.invalid', 'synthetic password');
+    expect(kept.token, 'qa.$account.signature');
+    first.dispose();
+
+    final reloaded = build();
+    addTearDown(reloaded.dispose);
+    await reloaded.restore();
+    expect(reloaded.signedIn, isTrue);
+    expect(reloaded.workspace?.company.id, 'shop');
+    await reloaded.signOut();
+    expect(kept.token, isNull);
+
+    kept.token = 'qa.$account.signature';
+    accept = false;
+    final expired = build();
+    addTearDown(expired.dispose);
+    await expired.restore();
+    expect(expired.signedIn, isFalse);
+    expect(expired.busy, isFalse);
+    expect(kept.token, isNull);
+  });
+
   test('India business day turns over at 18:30 UTC', () {
     expect(businessDate(DateTime.utc(2026, 11, 16, 18, 29)), '2026-11-16');
     expect(businessDate(DateTime.utc(2026, 11, 16, 18, 30)), '2026-11-17');
@@ -219,4 +264,14 @@ class _Pending implements PendingStore {
   Future<Json?> load(String operation) async => null;
   @override
   Future<void> save(String operation, Json data) async {}
+}
+
+class _Credentials implements CredentialStore {
+  String? token;
+  @override
+  Future<String?> read() async => token;
+  @override
+  Future<void> write(String value) async => token = value;
+  @override
+  Future<void> clear() async => token = null;
 }

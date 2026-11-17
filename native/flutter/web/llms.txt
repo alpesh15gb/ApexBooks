@@ -1,0 +1,28 @@
+# Apex Books
+
+> Apex Books is GST billing and accounting software for Indian small and medium businesses. It creates GST invoices, sends WhatsApp payment reminders with a UPI ID, runs point of sale with barcode scanning, tracks stock, and keeps a double-entry ledger with day book, party balances, financial statements and GSTR-1/2A/3B working papers. It runs in a web browser and as Windows 10/11 and Android apps that share the same company books.
+
+Key facts:
+- Audience: Indian shops, traders, distributors and service businesses, GST-registered or not (composition supported).
+- Platforms: web (https://apexbooks.in), Windows desktop app with per-user installer, Android app.
+- GST: CGST/SGST or IGST from place of supply; tax invoices and bills of supply; GSTR-1, GSTR-2A and GSTR-3B are book-derived working papers for review before filing on the GST portal.
+- Not yet supported: e-invoicing (IRN) and e-way bill generation.
+
+## Product
+
+- [Features and FAQ](https://apexbooks.in/features/): full feature list, comparison table and answers to common questions
+- [Sign in](https://apexbooks.in/): the Apex Books web app
+
+## Features
+
+- [Billing](https://apexbooks.in/features/#billing): GST invoices, estimates, proforma, sales orders, credit/debit notes, WhatsApp share and reminders, UPI QR, nine invoice layouts, 80/58 mm thermal receipts
+- [Inventory, POS and purchases](https://apexbooks.in/features/#stock): barcode POS (scanner or Android camera), stock tracking, low-stock reorder, purchase bills with photo scanning, expenses
+- [Accounts and GST](https://apexbooks.in/features/#accounts): party balances, statements, ageing, day book, cash/bank book, bank reconciliation, ledger, trial balance, P&L, balance sheet, GST working papers, multi-company, team roles, period lock, encrypted backups, Vyapar import
+
+## FAQ
+
+- [What is Apex Books?](https://apexbooks.in/features/#faq)
+- [WhatsApp invoices and reminders](https://apexbooks.in/features/#faq)
+- [Bank details and UPI QR on invoices](https://apexbooks.in/features/#faq)
+- [POS, barcode and thermal printing](https://apexbooks.in/features/#faq)
+- [GSTR-1 and GSTR-3B](https://apexbooks.in/features/#faq)

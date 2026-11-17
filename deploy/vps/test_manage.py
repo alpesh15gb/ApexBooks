@@ -208,6 +208,19 @@ class ReleaseIdentityTests(unittest.TestCase):
         self.assertEqual(compose.count('APEX_BUILD_SHA: ${APEX_SOURCE_SHA:-unknown}'),2)
         self.assertIn('VITE_BUILD_SHA: ${APEX_SOURCE_SHA:-unknown}',compose)
 
+    def test_flutter_web_image_identity_is_explicit(self):
+        root=Path(__file__).resolve().parents[2]
+        web=(root/'native/flutter/web.Dockerfile').read_text()
+        self.assertLess(web.index('ARG APEX_BUILD_SHA=unknown'),web.index('RUN flutter build web'))
+        self.assertIn('--dart-define=APEX_BUILD_SHA=${APEX_BUILD_SHA}',web)
+        final=web.split('FROM nginx:alpine',1)[1]
+        for line in ('ARG APEX_BUILD_SHA=unknown','ARG APEX_RELEASE_VERSION=unknown','org.opencontainers.image.revision=${APEX_BUILD_SHA}','org.opencontainers.image.version=${APEX_RELEASE_VERSION}'):
+            self.assertIn(line,final)
+        self.assertNotIn('git rev-parse',web)
+        nginx=(root/'native/flutter/web.nginx.conf').read_text()
+        self.assertIn('proxy_pass http://api:8000',nginx)
+        self.assertNotIn('immutable',nginx)
+
     def test_shell_release_validation_failure_stops_before_eval_or_bootstrap(self):
         folder=Path(__file__).parent
         install=(folder/'install.sh').read_text()
