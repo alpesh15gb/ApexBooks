@@ -220,6 +220,9 @@ class ReleaseIdentityTests(unittest.TestCase):
         nginx=(root/'native/flutter/web.nginx.conf').read_text()
         self.assertIn('proxy_pass http://api:8000',nginx)
         self.assertNotIn('immutable',nginx)
+        controller=(root/'deploy/vps/manage.py').read_text()
+        self.assertEqual(controller.count("'flutter_bootstrap.js' not in html"),2);self.assertNotIn('id="root"',controller)
+        self.assertIn('flutter_bootstrap.js',(root/'native/flutter/web/index.html').read_text())
 
     def test_shell_release_validation_failure_stops_before_eval_or_bootstrap(self):
         folder=Path(__file__).parent

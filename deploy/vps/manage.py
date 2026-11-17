@@ -238,8 +238,8 @@ def verify_local():
             ready('http://127.0.0.1:18091/api/ready')
             ready('http://127.0.0.1:18090/api/health')
             html = run(['curl', '-fsS', '--max-time', '10', 'http://127.0.0.1:18090/'], capture_output=True).stdout
-            if 'id="root"' not in html: raise RuntimeError('React entry page not found')
-            print('Local API, shared web/API routing and React entry page passed')
+            if 'flutter_bootstrap.js' not in html: raise RuntimeError('Flutter web entry page not found')
+            print('Local API, shared web/API routing and Flutter web entry page passed')
             return
         except Exception as error:
             last = type(error).__name__
@@ -325,7 +325,7 @@ def public_probe_once():
         html = run(['curl', '-fsS', '--noproxy', '*', '--resolve', 'apexbooks.in:443:127.0.0.1', '--connect-timeout', '3', '--max-time', '8', 'https://apexbooks.in/'], capture_output=True).stdout
     except subprocess.CalledProcessError as error:
         raise RuntimeError('HTTPS web probe https://apexbooks.in/: curl exit ' + str(error.returncode) + ': ' + (error.stderr or '').strip()[:500]) from None
-    if 'id="root"' not in html: raise RuntimeError('Public React entry page not found')
+    if 'flutter_bootstrap.js' not in html: raise RuntimeError('Public Flutter web entry page not found')
 
 def verify_public():
     verify_image_identity(running=True)
