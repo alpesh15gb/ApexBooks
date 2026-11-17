@@ -620,6 +620,10 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
     required double gutter,
   }) {
     final busy = _busy || posting.busy;
+    // Receipts, payments and plain expenses have no item quote; their total is the entered amount.
+    final plainAmount = !draft.hasLines && booksPositive(draft.amount)
+        ? draft.amount
+        : null;
     final total = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -630,11 +634,13 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
               ? 'Total  ${booksMoney(_reviewAmount)}'
               : _liveTotal != null
               ? booksMoney(booksDecimal(_liveTotal!.total))
+              : plainAmount != null
+              ? booksMoney(plainAmount)
               : '—',
           key: const ValueKey('books-entry-footer-total'),
           style: reviewed
               ? Apex.panelTitle
-              : _liveTotal != null
+              : _liveTotal != null || plainAmount != null
               ? Apex.panelTitle.copyWith(fontSize: 22)
               : Apex.note,
         ),
@@ -1207,32 +1213,51 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
       if (draft.payment && !draft.advance)
         _section('Apply payment', [
           for (final allocation in draft.allocations)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(
-                '${allocation.document.label} · ${allocation.document.party}',
-              ),
-              subtitle: Column(
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (draft.editingPayment)
-                    Text(
-                      '${booksMoney(booksDecimal(draft.allocationCapacity(allocation.document) ?? BigInt.zero))} available to allocate',
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${allocation.document.label} · ${allocation.document.party}',
+                          style: Apex.strong,
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2, bottom: 10),
+                          child: Text(
+                            draft.editingPayment
+                                ? '${booksMoney(booksDecimal(draft.allocationCapacity(allocation.document) ?? BigInt.zero))} available to allocate'
+                                : '${allocation.document.date} · ${booksMoney(allocation.document.json['outstanding'])} outstanding',
+                            style: Apex.small,
+                          ),
+                        ),
+                        _input(
+                          'Allocated amount (₹)',
+                          allocation.amount,
+                          (value) => allocation.amount = value,
+                          numeric: true,
+                        ),
+                      ],
                     ),
-                  _input(
-                    'Allocated amount (₹)',
-                    allocation.amount,
-                    (value) => allocation.amount = value,
-                    numeric: true,
+                  ),
+                  const SizedBox(width: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 34),
+                    child: IconButton(
+                      onPressed: _editable
+                          ? () => _edit(
+                              () => draft.allocations.remove(allocation),
+                            )
+                          : null,
+                      tooltip: 'Remove allocation',
+                      icon: const Icon(Icons.delete_outline),
+                    ),
                   ),
                 ],
-              ),
-              trailing: IconButton(
-                onPressed: _editable
-                    ? () => _edit(() => draft.allocations.remove(allocation))
-                    : null,
-                tooltip: 'Remove allocation',
-                icon: const Icon(Icons.delete_outline),
               ),
             ),
           OutlinedButton(

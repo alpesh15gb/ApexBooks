@@ -34,11 +34,16 @@ class ApexRegisterHeading extends StatelessWidget {
           children: [heading, const SizedBox(height: 14), Wrap(spacing: 8, runSpacing: 8, children: actions)],
         );
       }
-      return Row(
+      // Title and actions share a row only while the subtitle fits on one line;
+      // otherwise the actions move below, as the web header wraps.
+      return Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 16,
+        runSpacing: 14,
         children: [
-          Expanded(child: heading),
-          const SizedBox(width: 16),
-          Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.end, children: actions),
+          ConstrainedBox(constraints: BoxConstraints(maxWidth: limits.maxWidth), child: heading),
+          Wrap(spacing: 8, runSpacing: 8, children: actions),
         ],
       );
     },

@@ -174,6 +174,55 @@ void main() {
     expect(find.text('500'), findsOneWidget);
   });
 
+  testWidgets('a receipt shows its allocation clear of the amount field and totals the footer', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final invoice = BooksRecord({
+      ..._record('inv', 'sales_invoice', {
+        'lines': <Json>[],
+      }, outstanding: '125.50').json,
+      'number': 'INV-9',
+    });
+    final api = _Api(
+      read: (path, query) {
+        final id = path.split('/').last;
+        if (id == 'records') return [invoice.json];
+        return invoice.json;
+      },
+      write: (method, path, body, key) async => throw UnimplementedError(),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BooksRegister(
+            workspace: _workspace(api, _MemoryPending()),
+            kind: 'sales_invoice',
+            title: 'Sales invoices',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Collect payment').first);
+    await tester.pumpAndSettle();
+    final title = find.text('INV-9 · Corner Shop');
+    expect(title, findsOneWidget);
+    final field = _findField('Allocated amount (₹)');
+    expect(
+      tester.getRect(title).bottom,
+      lessThanOrEqualTo(tester.getRect(field).top),
+    );
+    expect(
+      tester.widget<Text>(
+        find.byKey(const ValueKey('books-entry-footer-total')),
+      ).data,
+      '₹125.50',
+    );
+  });
+
   test('detail amendments preserve posted identity and omit financial inputs for receipts, payouts and notes', () {
     for (final kind in [
       'payment_in',

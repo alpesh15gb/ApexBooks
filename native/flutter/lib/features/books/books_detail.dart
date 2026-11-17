@@ -198,16 +198,25 @@ class _BooksRecordDetailState extends State<BooksRecordDetail> {
     final allocations = row.json['allocations'] == null
         ? const <BooksJson>[]
         : booksRows(row.json['allocations']);
+    final noTax = [
+      data['cgst'],
+      data['sgst'],
+      data['igst'],
+    ].every((value) => (booksParsePaise(value) ?? BigInt.zero) == BigInt.zero);
     final fields = <(String, String)>[
       ('Date', row.date),
       ('Due date', booksText(data['due_date'])),
       ('Reference', booksText(data['reference'])),
       ('Advance remaining', _moneyIfPresent(row.json['advance_remaining'])),
       ('Credit remaining', _moneyIfPresent(row.json['credit_remaining'])),
-      ('Taxable', _moneyIfPresent(data['taxable'])),
-      ('CGST', _moneyIfPresent(data['cgst'])),
-      ('SGST', _moneyIfPresent(data['sgst'])),
-      ('IGST', _moneyIfPresent(data['igst'])),
+      // Like the web app, a document without GST (or a receipt) does not show empty tax boxes.
+      if (!noTax || lines.isNotEmpty)
+        ('Taxable', _moneyIfPresent(data['taxable'])),
+      if (!noTax) ...[
+        ('CGST', _moneyIfPresent(data['cgst'])),
+        ('SGST', _moneyIfPresent(data['sgst'])),
+        ('IGST', _moneyIfPresent(data['igst'])),
+      ],
       ('Bank amount', _moneyIfPresent(data['bank_amount'])),
       ('Cash amount', _moneyIfPresent(data['cash_amount'])),
       ('Cash tendered', _moneyIfPresent(data['tender_amount'])),

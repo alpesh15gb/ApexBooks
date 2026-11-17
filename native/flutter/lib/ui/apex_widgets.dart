@@ -184,13 +184,17 @@ class ApexPageHeading extends StatelessWidget {
         children: [heading, const SizedBox(height: 14), Wrap(spacing: 8, runSpacing: 8, children: actions)],
       );
     }
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(child: heading),
-        const SizedBox(width: 20),
-        Wrap(spacing: 8, runSpacing: 8, children: actions),
-      ],
+    return LayoutBuilder(
+      builder: (context, limits) => Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.end,
+        spacing: 20,
+        runSpacing: 14,
+        children: [
+          ConstrainedBox(constraints: BoxConstraints(maxWidth: limits.maxWidth), child: heading),
+          Wrap(spacing: 8, runSpacing: 8, children: actions),
+        ],
+      ),
     );
   }
 }
