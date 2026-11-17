@@ -8,6 +8,7 @@ import '../books/books_data.dart';
 import '../books/books_detail.dart';
 import 'inventory_models.dart';
 import 'inventory_posting.dart';
+import 'inventory_rules.dart';
 import 'inventory_widgets.dart';
 
 class InventoryReceivingPage extends StatefulWidget {
@@ -109,6 +110,12 @@ class _InventoryReceivingPageState extends State<InventoryReceivingPage> {
           }
         }
         changes[entry.key] = value is String ? value.trim() : value;
+      }
+      final treatment = changes['tax_treatment'];
+      if (treatment is String &&
+          treatment != 'taxable' &&
+          !changes.containsKey('gst_rate')) {
+        changes['gst_rate'] = '0';
       }
       selections.add({'line_index': index, 'quantity': input, ...changes});
     }
@@ -648,7 +655,9 @@ class _InventoryReceivingPageState extends State<InventoryReceivingPage> {
     final taxed = [
       if (editing)
         for (final line in lines)
-          if (hasBalance(line)) line,
+          if (hasBalance(line) &&
+              receivingShowsTaxTile(_quantities[line['line_index'] as int]))
+            line,
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -829,19 +838,36 @@ class _InventoryReceivingPageState extends State<InventoryReceivingPage> {
             'exempt': 'Exempt',
             'non_gst': 'Non-GST',
           }, enabled),
-          _lineDropdown(index, 'itc_treatment', 'Input tax credit', const {
-            'pending_review': 'Pending review',
-            'ineligible': 'Ineligible',
-          }, enabled),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Supplier rate includes GST'),
-            value:
-                (_overrides[index]?['price_includes_tax'] ??
-                    line['price_includes_tax']) ==
-                true,
+          if (receivingShowsInputCredit(_workspace.company.taxMode))
+            _lineDropdown(index, 'itc_treatment', 'Input tax credit', const {
+              'pending_review': 'Pending ITC review',
+              'ineligible': 'Ineligible ITC',
+            }, enabled),
+          DropdownButtonFormField<String>(
+            key: ValueKey('receiving-price_includes_tax-$index'),
+            initialValue: switch (_overrides[index]?['price_includes_tax']) {
+              true => 'true',
+              false => 'false',
+              _ => '',
+            },
+            decoration: const InputDecoration(labelText: 'Unit price tax basis'),
+            items: [
+              DropdownMenuItem(
+                value: '',
+                child: Text(
+                  'Use order value (${line['price_includes_tax'] == true ? 'Includes GST' : 'Excludes GST'})',
+                ),
+              ),
+              const DropdownMenuItem(value: 'true', child: Text('Includes GST')),
+              const DropdownMenuItem(value: 'false', child: Text('Excludes GST')),
+            ],
             onChanged: enabled
-                ? (value) => _override(index, 'price_includes_tax', value)
+                ? (value) => _edit(
+                    () => applyReceivingTaxBasis(
+                      _overrides.putIfAbsent(index, () => {}),
+                      value == null || value.isEmpty ? null : value == 'true',
+                    ),
+                  )
                 : null,
           ),
         ],
@@ -922,3 +948,36 @@ Widget _money(String text) => Text(
     fontFeatures: [FontFeature.tabularFigures()],
   ),
 );
+
+/// Opens the receiving page for one purchase order, e.g. from the Books
+/// register or detail. Loads the order and any saved pending receipt first,
+/// and resolves when the page is closed.
+Future<void> openPurchaseOrderReceiving(
+  BuildContext context,
+  WorkspaceContext workspace,
+  String purchaseOrderId,
+) async {
+  final posting = InventoryPosting(workspace);
+  final navigator = Navigator.of(context);
+  try {
+    final results = await Future.wait<Object?>([
+      workspace.api.get(
+        '${posting.base}/records/${Uri.encodeComponent(purchaseOrderId)}',
+      ),
+      posting.load(),
+    ]);
+    final order = inventoryObject(results.first);
+    if (order.isEmpty || !navigator.mounted) return;
+    await navigator.push<void>(
+      MaterialPageRoute(
+        builder: (_) => InventoryReceivingPage(
+          posting: posting,
+          order: order,
+          today: businessDate(),
+        ),
+      ),
+    );
+  } finally {
+    posting.dispose();
+  }
+}

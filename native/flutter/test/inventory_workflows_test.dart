@@ -401,11 +401,11 @@ void main() {
     await pumpInventory(tester, InventoryApi(), MemoryPending());
     await click(tester, find.text('Board switch'));
     await click(tester, find.text('Stock movements'));
-    expect(find.text('POS sale POS-1'), findsOneWidget);
-    expect(find.text('-3'), findsOneWidget);
+    expect(find.text('POS receipt · POS-1'), findsOneWidget);
+    expect(find.text('-3 pcs'), findsOneWidget);
     await click(tester, find.text('Load older movements'));
-    expect(find.text('Opening stock OPEN-1'), findsOneWidget);
-    expect(find.text('+10'), findsOneWidget);
+    expect(find.text('Opening stock · OPEN-1'), findsOneWidget);
+    expect(find.text('+10 pcs'), findsOneWidget);
     expect(find.text('Load older movements'), findsNothing);
   });
 
