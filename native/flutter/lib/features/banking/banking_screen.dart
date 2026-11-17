@@ -516,7 +516,7 @@ class _BankingScreenState extends State<BankingScreen> {
   }
 
   static const _importHelp =
-      'Map the date, description, reference and amount columns in your bank CSV. Separate debit and credit columns are supported. Positive amounts are received; negative amounts are paid. Import into the selected account. Payment suggestions use amount, date, reference and party name; confirm every allocation.';
+      'Choose your bank CSV. Common headers (Date, Txn Date, Narration, Particulars, Withdrawal Amt, Deposit Amt, Debit, Credit, Ref No) are detected and can be corrected before import. Dates may be DD/MM/YYYY, DD-MMM-YYYY or YYYY-MM-DD, and comma, semicolon or tab files work. Debit is paid and credit is received; with one amount column, positive is received and negative is paid. Import into the selected account. Payment suggestions use amount, date, reference and party name; confirm every allocation.';
 
   @override
   Widget build(BuildContext context) => FutureBuilder<BankView>(

@@ -6,7 +6,45 @@ import '../inventory/inventory_posting.dart';
 import 'bank_data.dart';
 import 'bank_forms.dart';
 
-typedef MatchCandidate = ({Json record, BigInt available});
+typedef MatchCandidate = ({Json record, BigInt available, int score});
+
+/// Suggestion score, ported from the web app's matchScore(): the record number
+/// in the statement text (+80), the same amount (+40), the party name (+20) and
+/// date proximity (+20 within 2 days, +10 within 7).
+int bankMatchScore(Json line, Json record, BigInt available) {
+  final text =
+      '${inventoryText(line['reference'])} ${inventoryText(line['description'])}'
+          .toLowerCase();
+  final number = inventoryText(record['number']).toLowerCase();
+  final name = inventoryText(record['name']).trim().toLowerCase();
+  final remaining = signedMoney(inventoryText(line['remaining_amount']));
+  final lineDate = DateTime.tryParse('${inventoryText(line['date'])}T00:00:00Z');
+  final recordDate = DateTime.tryParse(
+    '${inventoryText(record['date'])}T00:00:00Z',
+  );
+  var score = 0;
+  if (number.isNotEmpty && text.contains(number)) score += 80;
+  if (remaining != null && remaining.abs() == available) score += 40;
+  if (name.length >= 4 && text.contains(name)) score += 20;
+  if (lineDate != null && recordDate != null) {
+    final days = lineDate.difference(recordDate).inHours.abs() / 24;
+    if (days <= 2) {
+      score += 20;
+    } else if (days <= 7) {
+      score += 10;
+    }
+  }
+  return score;
+}
+
+/// Highest score first, then newest date, as in the web app.
+int compareMatchCandidates(MatchCandidate a, MatchCandidate b) {
+  final score = b.score.compareTo(a.score);
+  if (score != 0) return score;
+  return inventoryText(b.record['date']).compareTo(inventoryText(a.record['date']));
+}
+
+const matchListLimit = 40;
 
 class BankMatchDialog extends StatefulWidget {
   const BankMatchDialog({
@@ -98,22 +136,16 @@ class _BankMatchDialogState extends State<BankMatchDialog> {
         }
         final available = movement.abs() - (used[id] ?? BigInt.zero);
         if (available > BigInt.zero) {
-          candidates.add((record: record, available: available));
+          candidates.add((
+            record: record,
+            available: available,
+            score: bankMatchScore(widget.line, record, available),
+          ));
         }
       }
       if (page.length < pageSize || seen.length == previous) break;
     }
-    candidates.sort((a, b) {
-      final x = a.available == _remaining ? 0 : 1;
-      final y = b.available == _remaining ? 0 : 1;
-      if (x != y) return x.compareTo(y);
-      final date = inventoryText(widget.line['date']);
-      final first = inventoryText(a.record['date']);
-      final second = inventoryText(b.record['date']);
-      if (first == date) return second == date ? 0 : -1;
-      if (second == date) return 1;
-      return second.compareTo(first);
-    });
+    candidates.sort(compareMatchCandidates);
     return candidates;
   }
 
@@ -168,15 +200,15 @@ class _BankMatchDialogState extends State<BankMatchDialog> {
             return const LinearProgressIndicator();
           }
           if (state.hasError) return Text(inventoryError(state.error!));
-          final choices = (state.data ?? const <MatchCandidate>[])
+          final matching = (state.data ?? const <MatchCandidate>[])
               .where(
                 (candidate) =>
                     '${candidate.record['number']} ${candidate.record['name']} ${candidate.record['date']}'
                         .toLowerCase()
                         .contains(_search),
               )
-              .take(40)
               .toList();
+          final choices = matching.take(matchListLimit).toList();
           if (choices.isEmpty) {
             return const Text('No eligible transactions match.');
           }
@@ -191,12 +223,19 @@ class _BankMatchDialogState extends State<BankMatchDialog> {
                   ),
                   title: Text(inventoryText(candidate.record['name'])),
                   subtitle: Text(
-                    '${candidate.record['number']} · ${candidate.record['date']}',
+                    '${candidate.score >= 50 ? 'Suggested · ' : ''}${candidate.record['number']} · ${candidate.record['date']}',
                   ),
                   trailing: Text(
                     inventoryAmount(decimalMoney(candidate.available)),
                   ),
                   onTap: () => _choose(candidate),
+                ),
+              if (matching.length > choices.length)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Showing ${choices.length} of ${matching.length} · search to narrow',
+                  ),
                 ),
             ],
           );
