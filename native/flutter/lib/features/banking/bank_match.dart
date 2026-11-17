@@ -13,11 +13,15 @@ class BankMatchDialog extends StatefulWidget {
     required this.workspace,
     required this.bank,
     required this.line,
+    this.asOf,
     super.key,
   });
   final WorkspaceContext workspace;
   final String bank;
   final Json line;
+
+  /// Reconcile-through date; later entries are not offered, as in the web app.
+  final String? asOf;
   @override
   State<BankMatchDialog> createState() => _BankMatchDialogState();
 }
@@ -80,6 +84,11 @@ class _BankMatchDialogState extends State<BankMatchDialog> {
       for (final record in page) {
         final id = inventoryText(record['id']);
         if (!seen.add(id) || exact.contains(id) || onThisLine.contains(id)) {
+          continue;
+        }
+        final asOf = widget.asOf;
+        if (asOf != null &&
+            inventoryText(record['date']).compareTo(asOf) > 0) {
           continue;
         }
         final movement = bankMovement(record, bank);

@@ -432,7 +432,12 @@ class _BankingScreenState extends State<BankingScreen> {
     final bank = _bank;
     final body = await showDialog<Json>(
       context: context,
-      builder: (_) => BankMatchDialog(workspace: owner, bank: bank, line: line),
+      builder: (_) => BankMatchDialog(
+        workspace: owner,
+        bank: bank,
+        line: line,
+        asOf: validBankDate(_asOf.text),
+      ),
     );
     if (body == null || !mounted || owner != _workspace) return;
     final id = Uri.encodeComponent(inventoryText(line['id']));

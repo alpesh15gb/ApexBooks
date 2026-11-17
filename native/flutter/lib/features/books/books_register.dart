@@ -252,10 +252,12 @@ class _BooksRegisterState extends State<BooksRegister> {
   }
 
   static bool _compactSource(BooksRecord source) {
+    // Compact rows carry neither item lines nor a payment's allocations.
+    if (booksPaymentKinds.contains(source.kind)) {
+      return source.json['allocations'] == null;
+    }
     final lines = source.data['lines'];
-    return lines is List &&
-        lines.isEmpty &&
-        !booksPaymentKinds.contains(source.kind);
+    return lines is List && lines.isEmpty;
   }
 
   Future<void> _startWithFullSource(

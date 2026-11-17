@@ -107,13 +107,20 @@ class _TransferFormState extends State<TransferForm> {
         label: 'Bank account',
         value: _from,
         accounts: widget.accounts,
-        onChanged: (value) => _edit(() => _from = value!),
+        onChanged: (value) => _edit(() {
+          _from = value!;
+          if (_to == value) _to = null;
+        }),
       ),
       if (_direction == 'bank_to_bank')
         BankChoice(
           label: 'Destination bank account',
           value: _to,
-          accounts: widget.accounts,
+          // The source account cannot also be the destination.
+          accounts: [
+            for (final row in widget.accounts)
+              if (inventoryText(row['id']) != _from) row,
+          ],
           onChanged: (value) => _edit(() => _to = value),
         ),
       BankField(

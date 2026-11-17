@@ -344,7 +344,7 @@ class _PartyStatementPageState extends State<PartyStatementPage> {
     Widget actions(Json row) => Wrap(
       spacing: 10,
       children: [
-        if (_canWrite && row['editable'] == true) ApexLink('Edit', onTap: () => _open(inventoryText(row['id']))),
+        if (_canWrite && row['editable'] == true) ApexLink('Open', onTap: () => _open(inventoryText(row['id']))),
         if (_pdfKinds.contains(inventoryText(row['kind']))) ApexLink('PDF', onTap: () => _pdf(row)),
       ],
     );

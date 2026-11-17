@@ -223,6 +223,55 @@ void main() {
     );
   });
 
+  testWidgets('amending a payment from the register list loads its allocations', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final compact = BooksRecord({
+      ..._record('receipt', 'payment_in', {'version': 2}).json,
+      'number': 'PIN-4',
+    });
+    final full = BooksRecord({
+      ...compact.json,
+      'allocations': [
+        {'document_id': 'inv', 'amount': '125.50'},
+      ],
+    });
+    final invoice = BooksRecord({
+      ..._record('inv', 'sales_invoice', {}, outstanding: '0.00').json,
+      'number': 'INV-4',
+    });
+    final loaded = <String>[];
+    final api = _Api(
+      read: (path, query) {
+        final id = path.split('/').last;
+        if (id == 'records') return [compact.json];
+        loaded.add(id);
+        return id == 'receipt' ? full.json : invoice.json;
+      },
+      write: (method, path, body, key) async => throw UnimplementedError(),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BooksRegister(
+            workspace: _workspace(api, _MemoryPending()),
+            kind: 'payment_in',
+            title: 'Payment in',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Amend entry').last);
+    await tester.pumpAndSettle();
+    expect(loaded.first, 'receipt');
+    expect(find.textContaining('verifiable allocations'), findsNothing);
+    expect(find.textContaining('INV-4'), findsWidgets);
+  });
+
   test('detail amendments preserve posted identity and omit financial inputs for receipts, payouts and notes', () {
     for (final kind in [
       'payment_in',

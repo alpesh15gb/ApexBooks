@@ -331,7 +331,7 @@ class _MastersScreenState extends State<MastersScreen> {
     }
   }
 
-  Future<void> _countItem(Json item, Object? stock) async {
+  Future<void> _countItem(Json item, Object? stock, {String? startWith}) async {
     final workspace = _workspace;
     final posting = await _stockPosting();
     final setup = await _loadedSetup();
@@ -346,6 +346,7 @@ class _MastersScreenState extends State<MastersScreen> {
           stock: stock,
           locations: ids is List ? ids.map((id) => names[id]).whereType<String>().toList() : <String>[],
           automobileEnabled: setup.automobileEnabled,
+          startWith: startWith,
         ),
       ),
     );
@@ -354,13 +355,23 @@ class _MastersScreenState extends State<MastersScreen> {
 
   bool _tracked(Json row) => inventoryObject(row['data'])['track_stock'] == true;
 
-  Future<void> _pickStockItem(List<Json> rows) async {
-    final choices = rows.where(_tracked).toList();
+  /// Like the Stock page: only tracked goods, and only active items for opening stock.
+  Future<void> _pickStockItem(List<Json> rows, {String? startWith}) async {
+    final opening = startWith == 'opening';
+    final choices = rows.where((row) {
+      final data = inventoryObject(row['data']);
+      return _tracked(row) &&
+          (data['item_type'] ?? 'goods') == 'goods' &&
+          (!opening || data['is_active'] != false);
+    }).toList();
     final picked = await showDialog<Json>(
       context: context,
-      builder: (context) => _StockItemDialog(items: choices),
+      builder: (context) => _StockItemDialog(
+        items: choices,
+        title: opening ? 'Opening stock' : 'Count or adjust stock',
+      ),
     );
-    if (picked != null && mounted) await _countItem(picked, null);
+    if (picked != null && mounted) await _countItem(picked, null, startWith: startWith);
   }
 
   void _openLowStock(List<Json> rows) {
@@ -480,7 +491,9 @@ class _MastersScreenState extends State<MastersScreen> {
         ),
       ),
       OutlinedButton.icon(
-        onPressed: canStock ? () => _pickStockItem(rows) : null,
+        onPressed: canStock && features.contains('stock_counts')
+            ? () => _pickStockItem(rows, startWith: 'opening')
+            : null,
         icon: const Icon(Icons.add, size: 17),
         label: const Text('Opening stock'),
       ),
@@ -965,8 +978,9 @@ class _MastersScreenState extends State<MastersScreen> {
 }
 
 class _StockItemDialog extends StatefulWidget {
-  const _StockItemDialog({required this.items});
+  const _StockItemDialog({required this.items, this.title = 'Choose a tracked item'});
   final List<Json> items;
+  final String title;
 
   @override
   State<_StockItemDialog> createState() => _StockItemDialogState();
@@ -979,7 +993,7 @@ class _StockItemDialogState extends State<_StockItemDialog> {
   Widget build(BuildContext context) {
     final rows = widget.items.where((row) => inventoryText(row['name']).toLowerCase().contains(_search)).toList();
     return AlertDialog(
-      title: const Text('Choose a tracked item'),
+      title: Text(widget.title),
       content: SizedBox(
         width: 420,
         height: 320,

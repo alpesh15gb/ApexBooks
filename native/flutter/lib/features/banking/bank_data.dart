@@ -30,7 +30,8 @@ String? validBankDate(String value) {
 }
 
 BigInt? bankMovement(Json record, String bank) {
-  if (record['posted'] != true) return null;
+  // A cancelled entry keeps its posting but has been reversed; it is not a bank movement.
+  if (record['posted'] != true || record['cancelled'] == true) return null;
   final kind = record['kind'];
   final data = inventoryObject(record['data']);
   final account = data['bank_account_id'] ?? 'default';

@@ -5,6 +5,8 @@ import 'package:apex_books/features/books/books_entry_posting.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  _newEntryTests();
+
   test('payment amendment verifies original allocations and adds only this payment’s exact share back', () async {
     final payment = _record(
       'payment',
@@ -267,6 +269,97 @@ void main() {
       expect(draft.lines, hasLength(1));
     },
   );
+}
+
+void _newEntryTests() {
+  const company = ApexCompany(
+    id: 'shop',
+    name: 'Corner Shop',
+    role: 'owner',
+    stateCode: '27',
+    taxMode: 'regular',
+  );
+
+  test('a new return cannot exceed the remaining source quantity', () {
+    final line = {
+      'description': 'Cable',
+      'quantity': '3',
+      'rate': '20.00',
+      'gst_rate': '18',
+      'source_line_id': '0:invoice',
+      'source_document_id': 'invoice',
+    };
+    final invoice = _record(
+      'invoice',
+      'sales_invoice',
+      data: {
+        'lines': [line],
+      },
+      extra: {
+        'return_capacity_lines': [
+          {...line, 'remaining_return_quantity': '2'},
+        ],
+      },
+    );
+    final draft = BooksEntryDraft(
+      BooksEntryIntent('credit_note', source: invoice),
+      company,
+    );
+    draft.addSourceLine(draft.sourceLines.single);
+    draft.lines.single.set('quantity', '3');
+    expect(
+      draft.issue(),
+      'A return quantity exceeds the available source quantity.',
+    );
+    draft.lines.single.set('quantity', '2');
+    expect(
+      draft.issue(),
+      isNot('A return quantity exceeds the available source quantity.'),
+    );
+  });
+
+  test('editing a one-time party document does not send party fields it never had', () {
+    final bill = _record(
+      'bill',
+      'purchase_bill',
+      data: {
+        'version': 3,
+        'notes': 'Old note',
+        'lines': [
+          {'description': 'Tape', 'quantity': '1', 'rate': '10', 'gst_rate': '0'},
+        ],
+      },
+    );
+    final draft = _amend(bill);
+    draft.set('notes', 'New note');
+    final data = draft.command().body['data'] as Json;
+    expect(data['notes'], 'New note');
+    for (final key in ['party_id', 'party_gstin', 'party_phone', 'due_date']) {
+      expect(data.containsKey(key), isFalse, reason: key);
+    }
+    draft.set('notes', '');
+    expect((draft.command().body['data'] as Json)['notes'], '');
+  });
+
+  test('new item lines start at 18% GST only for regular GST companies', () {
+    final regular = BooksEntryDraft(
+      const BooksEntryIntent('purchase_bill'),
+      company,
+    );
+    expect(regular.lines.single.get('gst_rate'), '18');
+    expect(regular.blankLine().get('gst_rate'), '18');
+    final unregistered = BooksEntryDraft(
+      const BooksEntryIntent('purchase_bill'),
+      const ApexCompany(
+        id: 'shop',
+        name: 'Corner Shop',
+        role: 'owner',
+        stateCode: '27',
+        taxMode: 'unregistered',
+      ),
+    );
+    expect(unregistered.lines.single.get('gst_rate'), '0');
+  });
 }
 
 BooksEntryDraft _amend(BooksRecord record) => BooksEntryDraft(

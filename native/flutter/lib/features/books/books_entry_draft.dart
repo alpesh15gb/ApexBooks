@@ -208,11 +208,19 @@ class BooksEntryDraft {
         set('date', source.date);
       }
     }
-    if (hasLines && !note && lines.isEmpty) lines.add(BooksEntryLine());
+    if (hasLines && !note && lines.isEmpty) lines.add(blankLine());
+    // The web app files a new expense under "General" unless changed.
+    if (expense && !intent.editing && get('category').isEmpty) {
+      set('category', 'General');
+    }
   }
 
   final BooksEntryIntent intent;
   final ApexCompany company;
+
+  /// A new empty line; GST-registered (regular) companies start at 18%, like the web app.
+  BooksEntryLine blankLine() =>
+      BooksEntryLine({'gst_rate': company.taxMode == 'regular' ? '18' : '0'});
   final values = <String, String>{};
   final lines = <BooksEntryLine>[];
   final allocations = <BooksAllocation>[];
@@ -333,7 +341,7 @@ class BooksEntryDraft {
       ..clear()
       ..addAll(
         items.isEmpty
-            ? [BooksEntryLine()]
+            ? [blankLine()]
             : [
                 for (final item in items)
                   BooksEntryLine({
@@ -641,6 +649,21 @@ class BooksEntryDraft {
       )) {
         return 'A return quantity exceeds the available source quantity.';
       }
+    } else if (note && !intent.editing) {
+      // New returns: check against the server's remaining quantities before posting.
+      final capacityLines = booksRows(
+        noteSource?.json['return_capacity_lines'] ?? const [],
+      );
+      final linked = [
+        for (final line in lines)
+          if (line.returnSourceIndex != null)
+            (line.returnSourceIndex, line.get('quantity')),
+      ];
+      if (capacityLines.isNotEmpty &&
+          linked.isNotEmpty &&
+          !BooksReturnCapacity.forSource(capacityLines).accepts(linked)) {
+        return 'A return quantity exceeds the available source quantity.';
+      }
     }
     if (settlement) {
       final available =
@@ -723,7 +746,11 @@ class BooksEntryDraft {
           'supplier_state',
           'due_date',
         ])
-          if (get(key).isNotEmpty || intent.editing) key: get(key).trim(),
+          // On edit, send a cleared field only if the saved document had it;
+          // an empty value for an absent key reads as a change on the server.
+          if (get(key).isNotEmpty ||
+              (intent.editing && booksText(source?.data[key]).isNotEmpty))
+            key: get(key).trim(),
         if (hasLines) ...{
           'lines': lines.map((line) => line.body()).toList(),
           'round_total': round,

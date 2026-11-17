@@ -62,6 +62,10 @@ class BooksReturnCapacity {
     );
   }
 
+  /// Capacity for a new return against the server's `return_capacity_lines`.
+  factory BooksReturnCapacity.forSource(List<BooksJson> sourceLines) =>
+      BooksReturnCapacity._(List.unmodifiable(sourceLines), const []);
+
   final List<BooksJson> lines;
   final List<int> originalIndexes;
 

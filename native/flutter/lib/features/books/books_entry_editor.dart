@@ -1103,7 +1103,7 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
               ? (value) => _edit(() {
                   draft.itemizedExpense = value;
                   if (value && draft.lines.isEmpty) {
-                    draft.lines.add(BooksEntryLine());
+                    draft.lines.add(draft.blankLine());
                   }
                 })
               : null,
@@ -1199,7 +1199,7 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
                 alignment: Alignment.centerLeft,
                 child: OutlinedButton.icon(
                   onPressed: _editable && draft.lines.length < 100
-                      ? () => _edit(() => draft.lines.add(BooksEntryLine()))
+                      ? () => _edit(() => draft.lines.add(draft.blankLine()))
                       : null,
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Add item / service'),
