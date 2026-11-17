@@ -1,0 +1,13 @@
+/api/companies/{cid}/reports/parties?from_date={fy_from}&to_date={today}
+/api/companies/{cid}/reports/credits?as_of={today}
+/api/companies/{cid}/reports/advances?as_of={today}
+/api/companies/{cid}/reports/gst?from_date={fy_from}&to_date={today}
+/api/companies/{cid}/gst-returns/gstr1?from_date={month_from}&to_date=2026-11-30
+/api/companies/{cid}/gst-returns/gstr2a?from_date={month_from}&to_date=2026-11-30
+/api/companies/{cid}/gst-returns/gstr3b?from_date={month_from}&to_date=2026-11-30
+/api/companies/{cid}/reports/items?from_date={fy_from}&to_date={today}
+/api/companies/{cid}/reports/stock?from_date={fy_from}&to_date={today}
+/api/companies/{cid}/day-book?day={today}
+/api/companies/{cid}/trial-balance?through={today}
+/api/companies/{cid}/day-book?day=2026-11-10
+/api/companies/{cid}/reports/stock/3bb259c9-d4fa-4e1f-b673-8dede47d0b12/movements?from_date={fy_from}&to_date={today}

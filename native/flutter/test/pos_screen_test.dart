@@ -190,7 +190,7 @@ void main() {
       final search = find.widgetWithText(TextField, 'Search loaded receipts');
       await tester.enterText(search, 'missing');
       await tester.pumpAndSettle();
-      expect(find.text('No receipts match this search.'), findsOneWidget);
+      expect(find.text('No receipts match your filters.'), findsOneWidget);
       await tester.enterText(search, '0001');
       await tester.pumpAndSettle();
       await tester.tap(find.text('POS/26-27/0001'));
@@ -308,7 +308,8 @@ void main() {
       '100',
     );
     await tester.pumpAndSettle();
-    expect(find.text('Cash share ₹80.00 · Change ₹20.00'), findsOneWidget);
+    expect(find.text('Cash due ₹80.00'), findsOneWidget);
+    expect(find.text('Change ₹20.00'), findsOneWidget);
     final complete = find.byKey(const ValueKey('pos-complete-sale'));
     final cash = find.widgetWithText(TextField, 'Cash tendered (₹)');
     await tester.tap(find.text('Bank, UPI or card payment received'));
@@ -321,7 +322,8 @@ void main() {
     expect(tester.widget<TextField>(quantity).controller!.text, '1.5');
     expect(tester.widget<TextField>(cash).controller!.text, '100');
     expect(tester.widget<FilledButton>(complete).onPressed, isNotNull);
-    expect(find.text('Cash share ₹80.00 · Change ₹20.00'), findsOneWidget);
+    expect(find.text('Cash due ₹80.00'), findsOneWidget);
+    expect(find.text('Change ₹20.00'), findsOneWidget);
     tester.view.physicalSize = const Size(1150, 900);
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(cash).controller!.text, '100');

@@ -1,7 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/workspace.dart';
+import '../../ui/apex_theme.dart';
+import '../../ui/apex_widgets.dart';
 import '../inventory/inventory_models.dart';
+import '../inventory/inventory_widgets.dart';
 import 'commerce_commands.dart';
 import 'commerce_forms.dart';
 
@@ -56,6 +59,29 @@ class _CommerceOrderFormState extends State<CommerceOrderForm> {
     _carrier.dispose();
     _tracking.dispose();
     super.dispose();
+  }
+
+  String _progress(Json item) =>
+      '${item['quantity'] ?? 0} / ${item['invoiced'] ?? 0} / ${item['shipped'] ?? 0}'
+      '${orderQuantity(item['refunded']) > BigInt.zero ? ' · credited ${item['refunded']}' : ''}';
+
+  Widget? _quantityField(Json item) {
+    if (!widget.writable ||
+        _operation == 'order.cancel' ||
+        orderAvailable(item, _operation) <= BigInt.zero) {
+      return null;
+    }
+    return CommerceField(
+      label:
+          'Quantity for ${item['name']} (up to ${orderAvailable(item, _operation)})',
+      controller: _amounts.putIfAbsent(
+        inventoryText(item['id']),
+        TextEditingController.new,
+      ),
+      maxLength: 9,
+      type: TextInputType.number,
+      onChanged: (_) => _edited(),
+    );
   }
 
   void _edited() => setState(() {
@@ -143,8 +169,9 @@ class _CommerceOrderFormState extends State<CommerceOrderForm> {
     error: _error,
     fields: [
       Text(
-        '${commerceLabel(widget.order['status'])} · ${inventoryAmount(widget.order['amount'])}',
+        '${commerceLabel(widget.order['status'])} · Source ${widget.order['external_id']}',
       ),
+      const SizedBox(height: 10),
       for (final shipment in inventoryRows(_snapshot['shipments']))
         ListTile(
           contentPadding: EdgeInsets.zero,
@@ -180,30 +207,53 @@ class _CommerceOrderFormState extends State<CommerceOrderForm> {
             });
           },
         ),
-      for (final item in _lines) ...[
+      if (_lines.isNotEmpty) ...[
         const SizedBox(height: 8),
-        Text(
-          inventoryText(item['name']),
-          style: Theme.of(context).textTheme.titleSmall,
-        ),
-        Text(
-          'Ordered ${item['quantity']} · Invoiced ${item['invoiced'] ?? 0} · Shipped ${item['shipped'] ?? 0}'
-          ' · Credited ${item['refunded'] ?? 0}',
-        ),
-        if (widget.writable &&
-            _operation != 'order.cancel' &&
-            orderAvailable(item, _operation) > BigInt.zero)
-          CommerceField(
-            label:
-                'Quantity for ${item['name']} (up to ${orderAvailable(item, _operation)})',
-            controller: _amounts.putIfAbsent(
-              inventoryText(item['id']),
-              TextEditingController.new,
-            ),
-            maxLength: 9,
-            type: TextInputType.number,
-            onChanged: (_) => _edited(),
+        ApexPanel(
+          padding: EdgeInsets.zero,
+          child: InventoryDialogTable(
+            headers: const ['Item', 'Ordered / invoiced / shipped', 'Action qty'],
+            flex: const [2, 1.3, 2.2],
+            breakpoint: 640,
+            rowCount: _lines.length,
+            cell: (row, column) {
+              final item = _lines[row];
+              return switch (column) {
+                0 => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(inventoryText(item['name']), style: Apex.strong),
+                    if (inventoryText(item['sku']).isNotEmpty)
+                      Text(inventoryText(item['sku']), style: Apex.note),
+                  ],
+                ),
+                1 => Text(_progress(item)),
+                _ => _quantityField(item) ?? const Text('—'),
+              };
+            },
+            card: (row) {
+              final item = _lines[row];
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(inventoryText(item['name']), style: Apex.strong),
+                  if (inventoryText(item['sku']).isNotEmpty)
+                    Text(inventoryText(item['sku']), style: Apex.note),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Ordered / invoiced / shipped ${_progress(item)}',
+                    style: Apex.note,
+                  ),
+                  if (_quantityField(item) case final field?) ...[
+                    const SizedBox(height: 10),
+                    field,
+                  ],
+                ],
+              );
+            },
           ),
+        ),
+        const SizedBox(height: 8),
       ],
       if (_operation == 'order.ship') ...[
         CommerceField(
@@ -219,7 +269,7 @@ class _CommerceOrderFormState extends State<CommerceOrderForm> {
       ],
       if (_operation == 'order.refund')
         const Text(
-          'This records a store credit note. Confirm money movement separately.',
+          'A credit note and a cash refund are separate accounting events. Source quantities and payment evidence are validated before posting.',
         ),
       if (_reviewed != null)
         Card(

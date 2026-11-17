@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:apex_books/core/workspace.dart';
+import 'package:apex_books/features/pos/pos_day_summary.dart';
 import 'package:apex_books/features/pos/pos_register_controller.dart';
 import 'package:apex_books/features/pos/pos_screen.dart';
 import 'package:apex_books/features/pos/pos_workspace_api.dart';
@@ -9,6 +10,68 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
 void main() {
+  test('daily totals split tenders, link refunds and export a safe CSV', () {
+    Map<String, dynamic> row(
+      String id,
+      String kind,
+      String amount, {
+      Map<String, dynamic> data = const {},
+      bool cancelled = false,
+    }) => {
+      'id': id,
+      'kind': kind,
+      'number': '=$id',
+      'date': '2026-11-16',
+      'amount': amount,
+      'posted': true,
+      'cancelled': cancelled,
+      'data': data,
+    };
+    final records = [
+      row('s1', 'pos', '100.00', data: {'payment_account': 'cash'}),
+      row(
+        's2',
+        'pos',
+        '80.00',
+        data: {
+          'payment_account': 'split',
+          'cash_amount': '30.00',
+          'bank_amount': '50.00',
+        },
+      ),
+      row('s3', 'pos', '10.00', cancelled: true),
+      row('c1', 'credit_note', '20.00', data: {'applied_to': 's1'}),
+      row(
+        'r1',
+        'customer_refund',
+        '20.00',
+        data: {'credit_note_id': 'c1', 'payment_account': 'cash'},
+      ),
+    ];
+    final day = summarizePosDay(records, '2026-11-16');
+    expect(day.saleCount, 2);
+    expect(day.refundCount, 1);
+    expect(day.cancelledCount, 1);
+    expect(day.cashSales, BigInt.from(13000));
+    expect(day.bankSales, BigInt.from(5000));
+    expect(day.cashRefunds, BigInt.from(2000));
+    final result = reconcilePosCash(day, {
+      'openingFloat': '50',
+      'cashCounted': '160',
+    });
+    expect(result.expected, BigInt.from(16000));
+    expect(result.variance, BigInt.zero);
+    final csv = posCloseCsv(
+      companyName: '=Shop',
+      date: '2026-11-16',
+      day: day,
+      reconciliation: result,
+    );
+    expect(csv, contains("\"'=Shop\""));
+    expect(csv, contains('Cash over / short,0.00'));
+    expect(reconcilePosCash(day, {'openingFloat': 'x'}).expected, isNull);
+  });
+
   testWidgets(
     '390px register opens, records cash and requires a variance reason',
     (tester) async {
@@ -30,34 +93,35 @@ void main() {
       await _tap(tester, 'Register');
       await _write(tester, 'Opening float (₹)', '100');
       await _tap(tester, 'Open register');
-      expect(find.text('Expected cash'), findsOneWidget);
+      expect(find.text('Expected cash'), findsWidgets);
       expect(find.text('Register opening recorded.'), findsOneWidget);
 
-      await _tap(tester, 'Record cash movement');
-      await _write(tester, 'Cash movement amount (₹)', '15');
+      await _write(tester, 'Amount (₹)', '15');
       final postMovement = find.widgetWithText(
-        FilledButton,
-        'Post cash movement',
+        OutlinedButton,
+        'Record cash movement',
       );
-      expect(tester.widget<FilledButton>(postMovement).onPressed, isNull);
-      await _write(tester, 'Reason (required)', 'Extra change');
-      await _tap(tester, 'Post cash movement');
-      expect(find.text('₹115.00'), findsOneWidget);
+      expect(tester.widget<OutlinedButton>(postMovement).onPressed, isNull);
+      await _write(tester, 'Reason', 'Extra change');
+      await _tap(tester, 'Record cash movement');
+      expect(find.text('₹115.00'), findsWidgets);
 
-      await _tap(tester, 'Count & close register');
       await _write(tester, 'Counted cash (₹)', '110');
-      expect(find.text('−₹5.00'), findsOneWidget);
-      final postClose = find.widgetWithText(FilledButton, 'Post closing count');
+      expect(find.text('Cash short by ₹5.00.'), findsOneWidget);
+      final postClose = find.widgetWithText(FilledButton, 'Close register');
       expect(tester.widget<FilledButton>(postClose).onPressed, isNull);
-      await _write(tester, 'Reason (required)', 'Five rupees short');
-      await _tap(tester, 'Post closing count');
-      expect(find.text('No register session is open'), findsOneWidget);
+      await _write(tester, 'Reason for any difference *', 'Five rupees short');
+      await _tap(tester, 'Close register');
+      expect(find.text('Closed'), findsOneWidget);
       expect(find.text('Register closing count recorded.'), findsOneWidget);
       expect(
         tester.getRect(find.text('Register closing count recorded.')).bottom,
         lessThan(860),
       );
-      await _tap(tester, 'Closed 2026-11-16');
+      final recent = find.textContaining('Counted ₹110.00');
+      await tester.ensureVisible(recent);
+      await tester.tap(recent);
+      await tester.pumpAndSettle();
       expect(find.text('Five rupees short'), findsOneWidget);
       expect(api.closePayload?['snapshot'], api.afterMovementSnapshot);
       expect(api.closePayload?['counted_cash'], '110.00');

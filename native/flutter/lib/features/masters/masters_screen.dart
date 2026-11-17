@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:material_ui/material_ui.dart';
 
@@ -14,6 +16,7 @@ import '../inventory/inventory_setup.dart';
 import 'item_setup_fields.dart';
 import 'master_editor.dart';
 import 'master_import.dart';
+import 'overdue_reminders.dart';
 import 'party_statement.dart';
 
 class MastersScreen extends StatefulWidget {
@@ -50,6 +53,7 @@ class _MastersScreenState extends State<MastersScreen> {
   Json? _pending;
   String? _error;
   Json? _balances;
+  List<Json>? _invoices;
   Future<InventorySetup>? _setup;
   InventoryPosting? _posting;
 
@@ -109,6 +113,7 @@ class _MastersScreenState extends State<MastersScreen> {
   void _loadSide() {
     final workspace = _workspace;
     _balances = null;
+    _invoices = null;
     _setup = null;
     if (_items) {
       final setup = InventorySetup.load(workspace);
@@ -116,6 +121,15 @@ class _MastersScreenState extends State<MastersScreen> {
       _setup = setup;
       return;
     }
+    () async {
+      // Invoices feed "Remind overdue" (the web app derives it from every company record).
+      try {
+        final invoices = [...await _fetch('sales_invoice'), ...await _fetch('pos')];
+        if (mounted && workspace == _workspace && !_items) setState(() => _invoices = invoices);
+      } catch (_) {
+        if (mounted && workspace == _workspace) setState(() => _invoices = null);
+      }
+    }();
     if (!workspace.features.contains('party_balances')) return;
     () async {
       try {
@@ -152,8 +166,8 @@ class _MastersScreenState extends State<MastersScreen> {
     }
   }
 
-  Future<List<Json>> _fetch() async {
-    final kind = _items ? 'item' : 'party';
+  Future<List<Json>> _fetch([String? recordKind]) async {
+    final kind = recordKind ?? (_items ? 'item' : 'party');
     final base = _base;
     final api = _workspace.api;
     const pageSize = 200;
@@ -276,8 +290,19 @@ class _MastersScreenState extends State<MastersScreen> {
 
   void _openStatement(Json record) {
     final workspace = _workspace;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => PartyStatementPage(workspace: workspace, party: record)),
+    showDialog<void>(
+      context: context,
+      builder: (_) => PartyStatementPage(workspace: workspace, party: record),
+    );
+  }
+
+  List<Json> _overdueRecords(List<Json> parties) => [...parties, ...?_invoices];
+
+  Future<void> _remindOverdue(List<Json> parties) {
+    final workspace = _workspace;
+    return showDialog<void>(
+      context: context,
+      builder: (_) => OverdueRemindersDialog(workspace: workspace, records: _overdueRecords(parties)),
     );
   }
 
@@ -473,10 +498,11 @@ class _MastersScreenState extends State<MastersScreen> {
     ];
   }
 
-  Widget _balanceStrip() {
+  Widget _balanceStrip(List<Json> parties) {
     final balances = _balances;
     if (balances == null) return const SizedBox.shrink();
     final totals = inventoryObject(balances['totals']);
+    final overdue = overdueByParty(_overdueRecords(parties), businessDate()).length;
     Widget figure(String label, Object? value, Color color) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -495,18 +521,40 @@ class _MastersScreenState extends State<MastersScreen> {
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-        child: Wrap(
-          spacing: 24,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            figure("You'll get", totals['to_receive'], Apex.green),
-            figure("You'll pay", totals['to_pay'], Apex.red),
-            Text(
+        child: LayoutBuilder(
+          builder: (context, limits) {
+            final note = Text(
               'Closing balances as of ${inventoryText(balances['as_of'])}',
               style: const TextStyle(fontSize: 12, color: Apex.muted),
-            ),
-          ],
+            );
+            final remind = overdue > 0
+                ? OutlinedButton.icon(
+                    onPressed: () => _remindOverdue(parties),
+                    icon: const Icon(Icons.notifications_active_outlined, size: 15),
+                    label: Text('Remind overdue ($overdue)'),
+                  )
+                : null;
+            final figures = [
+              figure("You'll get", totals['to_receive'], Apex.green),
+              figure("You'll pay", totals['to_pay'], Apex.red),
+            ];
+            if (limits.maxWidth < 640) {
+              return Wrap(
+                spacing: 24,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [...figures, note, ?remind],
+              );
+            }
+            return Row(
+              children: [
+                for (final item in figures) Padding(padding: const EdgeInsets.only(right: 24), child: item),
+                const Spacer(),
+                note,
+                if (remind != null) Padding(padding: const EdgeInsets.only(left: 16), child: remind),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -529,7 +577,7 @@ class _MastersScreenState extends State<MastersScreen> {
     final unit = inventoryText(data['unit']);
     final text = [
       if (inventoryText(data['hsn']).isNotEmpty) 'HSN ${data['hsn']}',
-      if (rate.isNotEmpty && rate != '0') '${apexMoney(apexNumber(rate) ?? 0)}${unit.isEmpty ? '' : ' / $unit'}',
+      if (rate.isNotEmpty) '${apexMoney(apexNumber(rate) ?? 0)}${unit.isEmpty ? '' : ' / $unit'}',
       if (gst.isNotEmpty) 'GST $gst%',
     ].join(' · ');
     return text.isEmpty ? '—' : text;
@@ -557,20 +605,45 @@ class _MastersScreenState extends State<MastersScreen> {
     return _cap(type.isEmpty ? 'both' : type);
   }
 
+  Uint8List? _thumbnail(Object? value) {
+    final url = inventoryText(value);
+    final comma = url.indexOf(',');
+    if (!url.startsWith('data:image/') || comma < 0) return null;
+    try {
+      return base64Decode(url.substring(comma + 1));
+    } catch (_) {
+      return null;
+    }
+  }
+
   Widget _nameCell(Json row) {
     final data = inventoryObject(row['data']);
     final archived = data['is_active'] == false;
     final name = inventoryText(row['name']).isEmpty ? 'Untitled' : inventoryText(row['name']);
+    final thumbnail = _items ? _thumbnail(data['image_thumbnail']) : null;
     return Row(
       children: [
-        ApexIconTile(
-          _items ? Icons.inventory_2_outlined : Icons.people_outline_rounded,
-          background: const Color(0xfff0f2f5),
-          foreground: Apex.muted,
-          size: 38,
-          iconSize: 17,
-          radius: 10,
-        ),
+        if (thumbnail != null)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.memory(
+              thumbnail,
+              width: 38,
+              height: 38,
+              fit: BoxFit.cover,
+              semanticLabel: name,
+              errorBuilder: (_, _, _) => const SizedBox(width: 38, height: 38),
+            ),
+          )
+        else
+          ApexIconTile(
+            _items ? Icons.inventory_2_outlined : Icons.person_outline_rounded,
+            background: const Color(0xfff0f2f5),
+            foreground: Apex.muted,
+            size: 38,
+            iconSize: 17,
+            radius: 10,
+          ),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -807,7 +880,7 @@ class _MastersScreenState extends State<MastersScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (!_items) _balanceStrip(),
+          if (!_items) _balanceStrip(all),
           if (rows.isEmpty)
             ApexEmptyState(
               icon: Icons.description_outlined,

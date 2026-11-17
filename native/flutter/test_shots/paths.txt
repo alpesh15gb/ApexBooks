@@ -1,0 +1,37 @@
+# One GET path per line; {cid} is the seeded company id. Query strings must match what the app sends
+# (the fake API also falls back to the same path without its query).
+/api/capabilities
+/api/companies
+/api/companies/{cid}/records
+/api/companies/{cid}/records?compact=true
+/api/companies/{cid}/bank-accounts
+/api/companies/{cid}/parties/balances
+/api/companies/{cid}/inventory-setup
+/api/companies/{cid}/document-branding
+/api/companies/{cid}/preferences
+/api/companies/{cid}/members
+/api/companies/{cid}/number-series
+/api/companies/{cid}/period-lock
+/api/companies/{cid}/accounts
+/api/companies/{cid}/journals
+/api/companies/{cid}/reports/summary
+/api/companies/{cid}/reports/financial
+/api/companies/{cid}/reports/day-book
+/api/companies/{cid}/reports/ageing
+/api/companies/{cid}/reports/statements
+/api/companies/{cid}/stock/summary
+/api/companies/{cid}/pos/register
+/api/companies/{cid}/recurring-templates
+/api/companies/{cid}/recurring-templates/due
+/api/companies/{cid}/audit
+/api/auth/sessions
+
+# Dated reports ({fy_from}, {month_from} and {today} are filled in when recording)
+/api/companies/{cid}/reports/summary?from_date={fy_from}&to_date={today}
+/api/companies/{cid}/reports/financial?from_date={fy_from}&to_date={today}
+/api/companies/{cid}/reports/statements?from_date={fy_from}&to_date={today}
+/api/companies/{cid}/reports/day-book?date={today}
+/api/companies/{cid}/reports/ageing?as_of={today}
+/api/companies/{cid}/reports/register?group=sales&from_date={fy_from}&to_date={today}
+/api/companies/{cid}/cash-book?from_date={month_from}&to_date={today}
+/api/companies/{cid}/trial-balance?through={today}

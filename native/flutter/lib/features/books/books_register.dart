@@ -53,6 +53,7 @@ class _BooksRegisterState extends State<BooksRegister> {
   bool _recurring = false;
   BooksRecord? _recurringSource;
   String? _notice;
+  String? _editorNotice;
   int _detailRevision = 0;
   String _kind = '';
   BooksRegisterQuery _query = const BooksRegisterQuery();
@@ -241,6 +242,7 @@ class _BooksRegisterState extends State<BooksRegister> {
     if (!_posting.canStart || !widget.active) return;
     setState(() {
       _editor = BooksEntryDraft(intent, widget.workspace.company);
+      _editorNotice = null;
       _notice = null;
     });
   }
@@ -251,6 +253,26 @@ class _BooksRegisterState extends State<BooksRegister> {
     if (mounted && identical(posting, _posting) && record != null) {
       _saved(record, null);
     }
+  }
+
+  /// "Save & new": the saved document is recorded and a fresh draft of the same type opens.
+  void _savedAndNew(BooksRecord record, String? reviewedAmount) {
+    final kind = _editor?.kind;
+    if (kind == null || record.kind == 'recurring_template') {
+      _saved(record, reviewedAmount);
+      return;
+    }
+    final actual = booksParsePaise(record.json['amount']);
+    final reviewed = booksParsePaise(reviewedAmount);
+    setState(() {
+      _editor = BooksEntryDraft(BooksEntryIntent(kind), widget.workspace.company);
+      _editorNotice = reviewed != null && actual != null && reviewed != actual
+          ? '${record.label} saved at ${booksMoney(record.json['amount'])}. The posted amount differs from the reviewed amount.'
+          : '${record.label} saved.';
+      _detailRevision++;
+    });
+    _reload();
+    unawaited(_refreshAfterSave());
   }
 
   void _saved(BooksRecord record, String? reviewedAmount) {
@@ -552,6 +574,8 @@ class _BooksRegisterState extends State<BooksRegister> {
         posting: _posting,
         onBack: () => setState(() => _editor = null),
         onSaved: _saved,
+        onSavedAndNew: _savedAndNew,
+        notice: _editorNotice,
       );
     }
     if (_detailsToEdit case final record?) {

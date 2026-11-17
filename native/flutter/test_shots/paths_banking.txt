@@ -1,0 +1,5 @@
+/api/companies/{cid}/cash-book?from_date={fy_from}&to_date={today}&bank_account_id=default
+/api/companies/{cid}/bank-reconciliation?bank_account_id=default&as_of={today}&opening_balance=0.00
+/api/companies/{cid}/bank-statement?bank_account_id=default&as_of={today}
+/api/companies/{cid}/bank-statement?bank_account_id=default
+/api/companies/{cid}/bank-reconciliation/reviews?bank_account_id=default

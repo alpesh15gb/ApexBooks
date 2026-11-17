@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/workspace.dart';
@@ -8,6 +10,7 @@ import '../books/books_data.dart';
 import '../books/books_detail.dart';
 import '../inventory/inventory_models.dart';
 import '../inventory/inventory_posting.dart';
+import '../inventory/inventory_reorder_order.dart';
 import 'commerce_commands.dart';
 import 'commerce_evidence.dart';
 import 'commerce_forms.dart';
@@ -48,6 +51,8 @@ class _CommerceScreenState extends State<CommerceScreen> {
   String? _notice;
   String? _error;
   late CommerceCommandQueue _queue;
+  Map<String, String> _partyNames = const {};
+  WorkspaceContext? _partiesFor;
 
   WorkspaceContext get _workspace => widget.workspace;
   bool get _owner => _workspace.company.role == 'owner';
@@ -73,6 +78,8 @@ class _CommerceScreenState extends State<CommerceScreen> {
       _data = null;
       _connections = [];
       _setupUnconfirmed = null;
+      _partyNames = const {};
+      _partiesFor = null;
       _selected = '';
       _panel = _Panel.overview;
       _busy = false;
@@ -132,6 +139,7 @@ class _CommerceScreenState extends State<CommerceScreen> {
         );
       }
       setState(() => _data = data);
+      unawaited(_loadParties(workspace));
     } catch (failure) {
       if (mounted && generation == _generation) {
         setState(() {
@@ -143,6 +151,25 @@ class _CommerceScreenState extends State<CommerceScreen> {
       if (mounted && generation == _generation) {
         setState(() => _loading = false);
       }
+    }
+  }
+
+  /// Names for the Customer column, as the web resolves `party_id` against its records.
+  Future<void> _loadParties(WorkspaceContext workspace) async {
+    if (_partiesFor == workspace) return;
+    _partiesFor = workspace;
+    try {
+      final parties = await inventoryAllRecords(workspace, 'party');
+      if (!mounted || workspace != _workspace) return;
+      setState(
+        () => _partyNames = {
+          for (final party in parties)
+            inventoryText(party['id']): inventoryText(party['name']),
+        },
+      );
+    } catch (_) {
+      // The order's own customer id is still shown.
+      if (mounted && workspace == _workspace) _partiesFor = null;
     }
   }
 
@@ -1025,9 +1052,10 @@ class _CommerceScreenState extends State<CommerceScreen> {
                     subtitle: inventoryText(order['external_id']),
                   ),
                   1 => CommerceCell(
-                    inventoryText(
-                      inventoryObject(order['snapshot'])['customer_id'],
-                    ),
+                    _partyNames[inventoryText(order['party_id'])] ??
+                        inventoryText(
+                          inventoryObject(order['snapshot'])['customer_id'],
+                        ),
                   ),
                   2 => CommerceStatus(order['status']),
                   3 => CommerceCell(inventoryAmount(order['amount'])),

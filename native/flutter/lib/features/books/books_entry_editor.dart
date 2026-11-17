@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/workspace.dart';
@@ -9,6 +10,7 @@ import 'books_entry_picker.dart';
 import 'books_entry_posting.dart';
 import 'books_party_insights.dart';
 import 'books_return_capacity.dart';
+import 'editor_amounts.dart';
 import 'purchase_scan.dart';
 
 class BooksEntryEditor extends StatefulWidget {
@@ -17,6 +19,8 @@ class BooksEntryEditor extends StatefulWidget {
     required this.posting,
     required this.onBack,
     required this.onSaved,
+    this.onSavedAndNew,
+    this.notice,
     super.key,
   });
 
@@ -24,6 +28,13 @@ class BooksEntryEditor extends StatefulWidget {
   final BooksPosting posting;
   final VoidCallback onBack;
   final void Function(BooksRecord record, String? reviewedAmount) onSaved;
+
+  /// "Save & new": called instead of [onSaved] so the register can open a fresh draft.
+  final void Function(BooksRecord record, String? reviewedAmount)?
+  onSavedAndNew;
+
+  /// Confirmation of the previous save, shown above the form after "Save & new".
+  final String? notice;
 
   @override
   State<BooksEntryEditor> createState() => _BooksEntryEditorState();
@@ -92,12 +103,12 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
     });
   }
 
-  Future<void> _review() async {
-    if (!_editable) return;
+  Future<bool> _review() async {
+    if (!_editable) return false;
     final issue = draft.issue();
     if (issue != null) {
       setState(() => _message = issue);
-      return;
+      return false;
     }
     final command = draft.command();
     setState(() {
@@ -134,13 +145,14 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
           );
         }
       }
-      if (!mounted || draft.command().payload != command.payload) return;
+      if (!mounted || draft.command().payload != command.payload) return false;
       setState(() {
         _reviewed = command;
         _reviewAmount = amount;
         _reviewData = reviewData;
       });
       _toTop();
+      return true;
     } catch (error) {
       if (mounted) {
         setState(
@@ -149,12 +161,32 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
               : 'Could not review this entry. Try again.',
         );
       }
+      return false;
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _save() async {
+  /// "Save & new": quotes the document on the server and posts it straight away, but only when
+  /// the server's amount equals the live total the person was looking at. Otherwise the review
+  /// card opens so the difference is seen before anything is posted.
+  Future<void> _saveAndNew() async {
+    if (!_editable) return;
+    if (_reviewed == null) {
+      if (!await _review() || !mounted) return;
+      final live = editorTotals(draft);
+      final quoted = booksParsePaise(_reviewAmount);
+      if (draft.hasLines && (live == null || quoted != live.total)) {
+        setState(
+          () => _message = 'The quoted total differs from the live total. Review it, then post.',
+        );
+        return;
+      }
+    }
+    await _save(andNew: true);
+  }
+
+  Future<void> _save({bool andNew = false}) async {
     final command = _reviewed;
     if (!_editable || command == null) return;
     if (draft.command().payload != command.payload ||
@@ -168,7 +200,12 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
     final saved = await posting.submit(command);
     if (!mounted) return;
     if (saved != null) {
-      widget.onSaved(saved, _reviewAmount);
+      final next = widget.onSavedAndNew;
+      if (andNew && next != null) {
+        next(saved, _reviewAmount);
+      } else {
+        widget.onSaved(saved, _reviewAmount);
+      }
     } else if (posting.pending == null) {
       setState(() {
         _reviewed = null;
@@ -462,83 +499,115 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
     final reviewed = _reviewed != null;
     final company = workspace.company;
     final profile = switch (company.taxMode) {
-      'regular' => 'Regular GST',
+      'regular' => 'GST registered',
       'composition' => 'Composition',
       'unregistered' => 'Non-GST business',
       _ => '',
     };
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 1200),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final wide =
-                constraints.maxWidth >=
-                MediaQuery.textScalerOf(context).scale(820);
-            final gutter = wide ? 24.0 : 16.0;
-            return Column(
-              children: [
-                Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    gutter,
-                    wide ? 20 : 8,
-                    gutter,
-                    6,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          onPressed: posting.busy ? null : widget.onBack,
-                          icon: const Icon(Icons.arrow_back, size: 18),
-                          label: const Text('Back to transactions'),
-                          style: TextButton.styleFrom(
-                            padding: EdgeInsets.zero,
-                            minimumSize: const Size(0, 40),
-                            foregroundColor: Apex.link,
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
+          if (!_editable) return;
+          if (_reviewed != null) {
+            _save();
+          } else {
+            _review();
+          }
+        },
+      },
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1200),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final wide =
+                  constraints.maxWidth >=
+                  MediaQuery.textScalerOf(context).scale(820);
+              final gutter = wide ? 24.0 : 16.0;
+              return Column(
+                children: [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      gutter,
+                      wide ? 20 : 8,
+                      gutter,
+                      6,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: posting.busy ? null : widget.onBack,
+                            icon: const Icon(Icons.arrow_back, size: 18),
+                            label: const Text('Back to transactions'),
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(0, 40),
+                              foregroundColor: Apex.link,
+                            ),
                           ),
                         ),
-                      ),
-                      Semantics(
-                        header: true,
-                        child: Text(
-                          draft.title,
-                          style: Apex.registerTitle.copyWith(
-                            fontSize: wide ? 26 : 22,
+                        Semantics(
+                          header: true,
+                          child: Text(
+                            draft.title,
+                            style: Apex.registerTitle.copyWith(
+                              fontSize: wide ? 26 : 22,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        [
-                          company.displayName(),
-                          profile,
-                        ].where((value) => value.isNotEmpty).join(' · '),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Apex.note,
-                      ),
-                    ],
+                        const SizedBox(height: 3),
+                        Text(
+                          [
+                            company.displayName(),
+                            profile,
+                          ].where((value) => value.isNotEmpty).join(' · '),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Apex.note,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: ListView(
-                    controller: _scroll,
-                    padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 16),
-                    children: [
-                      if (reviewed)
-                        _reviewCard(theme, wide)
-                      else
-                        ..._fields(wide),
-                    ],
+                  Expanded(
+                    child: ListView(
+                      controller: _scroll,
+                      padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 16),
+                      children: [
+                        if (widget.notice case final notice?)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _infoBox(notice),
+                          ),
+                        if (draft.intent.source != null &&
+                            !draft.cancel &&
+                            !draft.settlement &&
+                            (draft.intent.editing || draft.intent.convert))
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _infoBox(
+                              '${draft.intent.editing ? 'Editing' : 'Converting'} ${draft.intent.source!.label}. Review the ${booksKindLabel(draft.kind).toLowerCase()} before saving.',
+                            ),
+                          ),
+                        if (reviewed)
+                          _reviewCard(theme, wide)
+                        else
+                          ..._fields(wide),
+                      ],
+                    ),
                   ),
-                ),
-                _footer(theme, reviewed: reviewed, wide: wide, gutter: gutter),
-              ],
-            );
-          },
+                  _footer(
+                    theme,
+                    reviewed: reviewed,
+                    wide: wide,
+                    gutter: gutter,
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -559,10 +628,18 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
         Text(
           reviewed
               ? 'Total  ${booksMoney(_reviewAmount)}'
-              : 'Total available after review',
+              : _liveTotal != null
+              ? booksMoney(booksDecimal(_liveTotal!.total))
+              : '—',
           key: const ValueKey('books-entry-footer-total'),
-          style: reviewed ? Apex.panelTitle : Apex.note,
+          style: reviewed
+              ? Apex.panelTitle
+              : _liveTotal != null
+              ? Apex.panelTitle.copyWith(fontSize: 22)
+              : Apex.note,
         ),
+        if (wide && !reviewed)
+          const Text('Ctrl + Enter to save', style: Apex.note),
       ],
     );
     final actions = Wrap(
@@ -572,7 +649,7 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
       children: [
         OutlinedButton(
           onPressed: busy ? null : widget.onBack,
-          child: const Text('Cancel'),
+          child: Text(draft.cancel ? 'Keep document' : 'Cancel'),
         ),
         if (reviewed)
           OutlinedButton(
@@ -580,6 +657,11 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
                 ? () => setState(() => _reviewed = null)
                 : null,
             child: const Text('Edit entry'),
+          ),
+        if (_canSaveAndNew)
+          OutlinedButton(
+            onPressed: _editable ? _saveAndNew : null,
+            child: const Text('Save & new'),
           ),
         FilledButton(
           onPressed: _editable ? (reviewed ? _save : _review) : null,
@@ -619,9 +701,10 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
               if (wide)
                 Row(
                   children: [
-                    Expanded(child: total),
+                    Expanded(flex: 1, child: total),
                     const SizedBox(width: 16),
                     Expanded(
+                      flex: 4,
                       child: Align(
                         alignment: Alignment.centerRight,
                         child: actions,
@@ -641,8 +724,30 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
     );
   }
 
+  EditorTotals? get _liveTotal => editorTotals(draft);
+
+  bool get _canSaveAndNew =>
+      widget.onSavedAndNew != null &&
+      !draft.intent.editing &&
+      !draft.intent.convert &&
+      draft.intent.source == null &&
+      !draft.cancel &&
+      !draft.settlement &&
+      !draft.payment &&
+      !draft.payAtEntry;
+
+  Widget _infoBox(String text) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Apex.tint,
+      border: Border.all(color: Apex.line),
+      borderRadius: BorderRadius.circular(Apex.radiusPanel),
+    ),
+    child: Text(text, style: Apex.note.copyWith(color: Apex.ink)),
+  );
+
   String get _postLabel => draft.cancel
-      ? 'Confirm cancellation'
+      ? 'Cancel document'
       : draft.payAtEntry
       ? 'Post with payment'
       : booksDraftKinds.contains(draft.kind)
@@ -831,15 +936,20 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
     }
     if (draft.cancel) {
       return [
-        _section('Cancellation reason', [
+        _section('Cancel ${draft.intent.source!.label}?', [
+          Text(
+            'This reverses its ledger entry${const {'sales_invoice', 'purchase_bill', 'pos', 'credit_note', 'debit_note'}.contains(draft.kind) ? ', returns its stock' : ''} and frees any balance it used. The number is kept and the action is recorded in the activity log. It cannot be undone; create a new document if you need to redo it.',
+          ),
           Text(
             '${draft.intent.source!.party} · ${booksMoney(draft.intent.source!.json['amount'])}',
+            style: Apex.note,
           ),
           _input(
-            'Reason',
+            'Reason (required)',
             draft.reason,
             (value) => draft.reason = value,
             maxLength: 200,
+            hint: 'e.g. Entered twice',
           ),
         ]),
       ];
@@ -865,6 +975,7 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
         ]),
       ];
     }
+    final showTax = draft.regular || draft.purchase;
     final partyFields = _group([
       if (draft.kind == 'purchase_bill' && draft.canPayAtEntry) ...[
         Align(
@@ -906,11 +1017,12 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
           draft.expense
               ? 'Payee or description'
               : draft.purchase
-              ? 'Supplier name'
-              : 'Customer name',
+              ? 'Supplier / description'
+              : 'Customer / description',
           draft.get('name'),
           draft.setPartyName,
           maxLength: 120,
+          hint: 'Search or enter party name',
         ),
         Align(
           alignment: Alignment.centerLeft,
@@ -924,9 +1036,58 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
             ),
           ),
         ),
+        if (draft.get('party_id').isNotEmpty)
+          const Text(
+            'Saved party · balance and reminders tracked',
+            style: Apex.note,
+          ),
       ] else if (draft.get('name').isNotEmpty)
         Text(draft.get('name'), style: Theme.of(context).textTheme.titleSmall),
-      if (draft.expense) _field('Category', 'category', maxLength: 100),
+      if (!draft.payment)
+        Wrap(
+          spacing: 12,
+          runSpacing: 10,
+          children: [
+            SizedBox(
+              width: 200,
+              child: _field(
+                'Phone',
+                'party_phone',
+                maxLength: 32,
+                hint: 'Phone number',
+              ),
+            ),
+            if (showTax)
+              SizedBox(
+                width: 200,
+                child: _field(
+                  'GSTIN',
+                  'party_gstin',
+                  maxLength: 15,
+                  upper: true,
+                  hint: 'If registered',
+                ),
+              ),
+          ],
+        ),
+      if (!draft.payment)
+        _collapsible(
+          'Billing & shipping addresses${draft.get('party_address').isNotEmpty ? ' · saved details filled' : ''}',
+          [
+            _field(
+              'Billing address',
+              'party_address',
+              lines: 2,
+              maxLength: 1000,
+            ),
+            _field(
+              'Shipping address',
+              'shipping_address',
+              lines: 2,
+              maxLength: 1000,
+            ),
+          ],
+        ),
       if (draft.expense && !draft.intent.editing)
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
@@ -947,85 +1108,102 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
       'purchase_bill',
     }.contains(draft.kind);
     final documentFields = _group([
-      _field('Reference', 'number', hint: 'Automatic if blank', maxLength: 16),
-      Wrap(
-        spacing: 8,
-        runSpacing: 4,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          _dateButton('Date', 'date'),
-          if (datedDocument) ...[
-            _dateButton('Due date', 'due_date'),
-            if (workspace.features.contains('party_payment_terms') &&
-                draft.get('party_id').isNotEmpty)
-              TextButton(
-                onPressed: _editable ? _usePaymentTerms : null,
-                child: const Text('Use party terms'),
-              ),
-            if (draft.get('due_date').isNotEmpty)
-              IconButton(
-                icon: const Icon(Icons.clear),
-                tooltip: 'Clear due date',
-                onPressed: _editable
-                    ? () => _edit(() => draft.set('due_date', ''))
-                    : null,
-              ),
-          ],
-        ],
+      _field(
+        'Reference number',
+        'number',
+        hint: 'Assigned on save',
+        maxLength: 16,
       ),
+      _dateField('Document date', 'date'),
+      if (datedDocument) ...[
+        _dateField('Due date', 'due_date'),
+        if (workspace.features.contains('party_payment_terms') &&
+            draft.get('party_id').isNotEmpty)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: _editable ? _usePaymentTerms : null,
+              child: const Text('Apply payment terms'),
+            ),
+          ),
+        if (draft.get('due_date').isNotEmpty)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: _editable
+                  ? () => _edit(() => draft.set('due_date', ''))
+                  : null,
+              child: const Text('Clear due date'),
+            ),
+          ),
+      ],
+      if (draft.hasLines && showTax)
+        _field(
+          'Place of supply · state code',
+          'place_of_supply',
+          maxLength: 2,
+          digits: true,
+        ),
+      if (draft.hasLines && draft.purchase)
+        _field(
+          'Supplier state code',
+          'supplier_state',
+          maxLength: 2,
+          digits: true,
+        ),
     ]);
+    final totals = editorTotals(draft);
     return [
       _section(
-        datedDocument
-            ? (draft.purchase
-                  ? 'Supplier & document details'
-                  : 'Customer & document details')
-            : 'Document details',
+        draft.purchase
+            ? 'Supplier & bill details'
+            : 'Customer & document details',
         [_paired(wide: wide, main: partyFields, side: documentFields)],
+        subtitle:
+            'Choose a saved ${draft.purchase ? 'supplier' : 'customer'}, or enter a name for this document.',
       ),
       if (draft.hasLines)
-        _section('Line items', [
-          for (final (index, line) in draft.lines.indexed)
-            _line(index, line, wide),
-          if (draft.note) ...[
-            if (draft.noteSource != null && draft.sourceLines.isEmpty)
-              const Text('No source lines are available.'),
-            for (final (index, line) in draft.sourceLines.indexed)
-              if (booksReturnStartingQuantity(line) != null)
-                OutlinedButton.icon(
-                  onPressed:
-                      !_editable ||
-                          draft.lines.length >= 100 ||
-                          draft.lines.any(
-                            (existing) => existing.returnSourceIndex == index,
-                          )
-                      ? null
-                      : () => _edit(() => draft.addSourceLine(line)),
-                  icon: const Icon(Icons.add),
-                  label: Text(
-                    '${booksText(line['description'])} · ${booksText(line['remaining_return_quantity'] ?? line['quantity'])} available',
+        _section(
+          'Items & services',
+          [
+            if (wide) _tableHeader(showTax),
+            for (final (index, line) in draft.lines.indexed)
+              _line(index, line, wide, showTax, totals),
+            if (draft.note) ...[
+              if (draft.noteSource != null && draft.sourceLines.isEmpty)
+                const Text('No source lines are available.'),
+              for (final (index, line) in draft.sourceLines.indexed)
+                if (booksReturnStartingQuantity(line) != null)
+                  OutlinedButton.icon(
+                    onPressed:
+                        !_editable ||
+                            draft.lines.length >= 100 ||
+                            draft.lines.any(
+                              (existing) => existing.returnSourceIndex == index,
+                            )
+                        ? null
+                        : () => _edit(() => draft.addSourceLine(line)),
+                    icon: const Icon(Icons.add),
+                    label: Text(
+                      '${booksText(line['description'])} · ${booksText(line['remaining_return_quantity'] ?? line['quantity'])} available',
+                    ),
                   ),
+            ] else
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _editable && draft.lines.length < 100
+                      ? () => _edit(() => draft.lines.add(BooksEntryLine()))
+                      : null,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add item / service'),
                 ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Move returned items in stock'),
-              value: draft.returnStock,
-              onChanged: _editable
-                  ? (value) => _edit(() => draft.returnStock = value)
-                  : null,
-            ),
-          ] else
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: _editable && draft.lines.length < 100
-                    ? () => _edit(() => draft.lines.add(BooksEntryLine()))
-                    : null,
-                icon: const Icon(Icons.add),
-                label: const Text('Add line'),
               ),
-            ),
-        ]),
+          ],
+          subtitle: 'Select an item or type a description. Tax and totals are calculated automatically.',
+          trailing:
+              '${draft.lines.length} ${draft.lines.length == 1 ? 'line' : 'lines'}',
+        ),
       if (draft.payment && !draft.advance)
         _section('Apply payment', [
           for (final allocation in draft.allocations)
@@ -1065,23 +1243,6 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
           ),
           Text('Total payment  ${booksMoney(draft.amount)}'),
         ]),
-      if (draft.canPayAtEntry &&
-          workspace.features.contains('payment_at_entry'))
-        _section(draft.purchase ? 'Supplier payment' : 'Customer payment', [
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(draft.purchase ? 'Paid now' : 'Received now'),
-            value: draft.payAtEntry,
-            onChanged: _editable
-                ? (value) => _edit(() => draft.payAtEntry = value)
-                : null,
-          ),
-          if (draft.payAtEntry) ...[
-            _field('Payment amount (₹)', 'pay_amount', numeric: true),
-            ..._paymentFields(),
-            _field('Payment reference', 'pay_reference', maxLength: 200),
-          ],
-        ]),
       if (draft.usesPaymentAccount && !draft.payAtEntry)
         _section('Payment', [
           if (!draft.hasLines && (!draft.payment || draft.advance))
@@ -1089,8 +1250,8 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
           ..._paymentFields(),
           if (draft.advance && draft.regular && !draft.purchase) ...[
             _select('Advance for', draft.get('advance_supply'), const {
-              'goods': 'Goods',
-              'services': 'Services',
+              'goods': 'Goods · GST deferred until invoice',
+              'services': 'Services · GST on advance',
             }, (value) => draft.set('advance_supply', value)),
             if (draft.get('advance_supply') == 'services') ...[
               _field('Advance GST rate (%)', 'advance_gst_rate', numeric: true),
@@ -1104,74 +1265,448 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
           ],
         ]),
       if (!draft.payment)
-        _section('Billing and notes', [
-          if (draft.hasLines) ...[
-            _field('GSTIN', 'party_gstin', maxLength: 15, upper: true),
-            if (draft.regular || draft.purchase)
-              _field(
-                'Place of supply (state code)',
-                'place_of_supply',
-                maxLength: 2,
-                digits: true,
+        _section('Adjustments & notes', [
+          _paired(
+            wide: wide,
+            main: _group([
+              if (draft.hasLines) ...[
+                _field(
+                  'Document discount (%)',
+                  'document_discount_percent',
+                  numeric: true,
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('Round total to nearest rupee'),
+                  value: draft.round,
+                  onChanged: _editable
+                      ? (value) => _edit(() => draft.round = value == true)
+                      : null,
+                ),
+              ],
+              if (draft.note)
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('Return stock with this note'),
+                  value: draft.returnStock,
+                  onChanged: _editable
+                      ? (value) =>
+                            _edit(() => draft.returnStock = value == true)
+                      : null,
+                ),
+              if (draft.expense)
+                _field(
+                  'Expense category',
+                  'category',
+                  maxLength: 80,
+                  hint: 'Travel, rent, office supplies',
+                ),
+              _collapsible(
+                'Notes & terms${draft.get('notes').isNotEmpty || draft.get('terms').isNotEmpty ? ' · added' : ''}',
+                [
+                  _field('Notes', 'notes', lines: 3, maxLength: 1500),
+                  _field(
+                    'Terms and conditions',
+                    'terms',
+                    lines: 3,
+                    maxLength: 3000,
+                  ),
+                ],
               ),
-            if (draft.purchase)
-              _field(
-                'Supplier state code',
-                'supplier_state',
-                maxLength: 2,
-                digits: true,
+            ]),
+            side: draft.hasLines
+                ? _group([
+                    _totalsCard(totals),
+                    if (workspace.features.contains('party_credit_limits') &&
+                        const {
+                          'sales_invoice',
+                          'estimate',
+                          'proforma',
+                          'sales_order',
+                        }.contains(draft.kind) &&
+                        !draft.intent.editing &&
+                        draft.get('party_id').isNotEmpty &&
+                        totals != null &&
+                        totals.total > BigInt.zero)
+                      BooksPartyCredit(
+                        key: ValueKey((
+                          draft.get('party_id'),
+                          draft.get('date'),
+                          booksDecimal(totals.total),
+                        )),
+                        workspace: workspace,
+                        party: draft.get('party_id'),
+                        day: draft.get('date'),
+                        amount: booksDecimal(totals.total),
+                      ),
+                  ])
+                : const SizedBox.shrink(),
+          ),
+        ], subtitle: 'Review the final amounts before saving.'),
+      if (draft.canPayAtEntry &&
+          workspace.features.contains('payment_at_entry'))
+        _section(draft.purchase ? 'Supplier payment' : 'Customer payment', [
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            title: Text(draft.purchase ? 'Paid now' : 'Received now'),
+            subtitle: Text(
+              'Records the ${draft.purchase ? 'payment' : 'receipt'} together with this ${draft.purchase ? 'bill' : 'invoice'}, in one step.',
+            ),
+            value: draft.payAtEntry,
+            onChanged: _editable
+                ? (value) => _edit(() => draft.payAtEntry = value == true)
+                : null,
+          ),
+          if (draft.payAtEntry) ...[
+            _field('Payment amount (₹)', 'pay_amount', numeric: true),
+            if (totals != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton(
+                  onPressed: _editable
+                      ? () => _edit(
+                          () => draft.set(
+                            'pay_amount',
+                            booksDecimal(totals.total),
+                          ),
+                        )
+                      : null,
+                  child: const Text('Full amount'),
+                ),
               ),
-            _field(
-              'Document discount (%)',
-              'document_discount_percent',
-              numeric: true,
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Round total to nearest rupee'),
-              value: draft.round,
-              onChanged: _editable
-                  ? (value) => _edit(() => draft.round = value)
-                  : null,
-            ),
+            ..._paymentFields(),
+            _field('Payment reference', 'pay_reference', maxLength: 200),
+            if (totals != null &&
+                (booksParsePaise(draft.get('pay_amount')) ?? BigInt.zero) >
+                    BigInt.zero)
+              Text(
+                'Balance after this: ${booksMoney(booksDecimal(_atLeastZero(totals.total - booksParsePaise(draft.get('pay_amount'))!)))}',
+                style: Apex.strong,
+              ),
           ],
-          _field('Billing address', 'party_address', maxLength: 1000),
-          if (!draft.purchase)
-            _field('Shipping address', 'shipping_address', maxLength: 1000),
-          _field('Notes', 'notes', lines: 2, maxLength: 1000),
         ]),
     ];
   }
 
-  Widget _line(int index, BooksEntryLine line, bool wide) {
+  static BigInt _atLeastZero(BigInt value) =>
+      value < BigInt.zero ? BigInt.zero : value;
+
+  Widget _collapsible(String title, List<Widget> children) => Theme(
+    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+    child: ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: const EdgeInsets.only(bottom: 8),
+      dense: true,
+      shape: const Border(),
+      collapsedShape: const Border(),
+      title: Text(
+        title,
+        style: const TextStyle(
+          fontFamily: Apex.body,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: Apex.link,
+        ),
+      ),
+      children: [_group(children)],
+    ),
+  );
+
+  Widget _totalsCard(EditorTotals? t) {
+    final box = BoxDecoration(
+      color: Apex.tint,
+      border: Border.all(color: Apex.line),
+      borderRadius: BorderRadius.circular(Apex.radiusPanel),
+    );
+    if (t == null) {
+      return Container(
+        key: const ValueKey('editor-live-totals'),
+        padding: const EdgeInsets.all(16),
+        decoration: box,
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('DOCUMENT TOTAL', style: Apex.tableHeader),
+            SizedBox(height: 4),
+            Text('—', style: Apex.panelTitle),
+            SizedBox(height: 4),
+            Text(
+              'Complete the item details to calculate totals.',
+              style: Apex.note,
+            ),
+          ],
+        ),
+      );
+    }
+    String money(BigInt v) => booksMoney(booksDecimal(v));
+    Widget row(String label, String value) => Row(
+      children: [
+        Expanded(child: Text(label, style: Apex.note)),
+        Text(value, style: Apex.strong),
+      ],
+    );
+    return Container(
+      key: const ValueKey('editor-live-totals'),
+      padding: const EdgeInsets.all(16),
+      decoration: box,
+      child: Column(
+        spacing: 8,
+        children: [
+          row('Subtotal after discounts', money(t.taxable)),
+          if (t.cgst != BigInt.zero) row('CGST', money(t.cgst)),
+          if (t.sgst != BigInt.zero) row('SGST', money(t.sgst)),
+          if (t.igst != BigInt.zero) row('IGST', money(t.igst)),
+          if (t.supplierTax != BigInt.zero)
+            row('Supplier tax', money(t.supplierTax)),
+          if (t.roundOff != BigInt.zero) row('Round off', money(t.roundOff)),
+          const Divider(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('Total', style: Apex.panelTitle)),
+              Text(
+                money(t.total),
+                style: Apex.panelTitle.copyWith(fontSize: 22),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tableHeader(bool showTax) {
+    Widget h(String t) => Text(t, style: Apex.tableHeader);
+    return Container(
+      color: Apex.tableHead,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        spacing: 10,
+        children: [
+          Expanded(flex: 10, child: h('ITEM / SERVICE')),
+          Expanded(flex: 4, child: h('QTY / UNIT')),
+          Expanded(flex: 4, child: h('RATE ₹')),
+          Expanded(flex: 6, child: h('DISCOUNT')),
+          if (showTax) Expanded(flex: 3, child: h('GST %')),
+          Expanded(
+            flex: 4,
+            child: Align(alignment: Alignment.centerRight, child: h('AMOUNT')),
+          ),
+          const SizedBox(width: 40),
+        ],
+      ),
+    );
+  }
+
+  Widget _line(
+    int index,
+    BooksEntryLine line,
+    bool wide,
+    bool showTax,
+    EditorTotals? totals,
+  ) {
     final theme = Theme.of(context);
+    final calculated = totals != null && index < totals.lines.length
+        ? totals.lines[index]
+        : null;
+    final amountText = calculated == null
+        ? '—'
+        : booksMoney(booksDecimal(calculated.total));
     final remove = IconButton(
-      onPressed: _editable ? () => _edit(() => draft.lines.remove(line)) : null,
-      tooltip: 'Remove line ${index + 1}',
+      onPressed: _editable && draft.lines.length > 1
+          ? () => _edit(() => draft.lines.remove(line))
+          : null,
+      tooltip: 'Remove item ${index + 1}',
       icon: const Icon(Icons.delete_outline, size: 20),
     );
     final description = _lineField(
+      index,
       line,
-      'Description',
+      'Item / service ${index + 1}',
       'description',
       maxLength: 200,
       locked: draft.note || line.get('item_id').isNotEmpty,
+      bare: wide,
+      hint: 'Search item or enter description',
     );
-    final quantity = _lineField(line, 'Quantity', 'quantity', numeric: true);
-    final rate = _lineField(line, 'Unit rate (₹)', 'rate', numeric: true);
-    final discount = _lineField(
+    final quantity = _lineField(
+      index,
+      line,
+      'Quantity',
+      'quantity',
+      numeric: true,
+      bare: wide,
+    );
+    final unit = _lineField(
+      index,
+      line,
+      'Unit',
+      'unit',
+      maxLength: 24,
+      bare: wide,
+    );
+    final rate = _lineField(
+      index,
+      line,
+      'Rate ₹',
+      'rate',
+      numeric: true,
+      bare: wide,
+    );
+    final discountMode = DropdownButtonFormField<String>(
+      key: ValueKey(('discount-mode', index, line.fixedDiscount)),
+      initialValue: line.fixedDiscount ? 'amount' : 'percent',
+      isExpanded: true,
+      decoration: InputDecoration(labelText: wide ? null : 'Line discount'),
+      items: const [
+        DropdownMenuItem(value: 'percent', child: Text('%')),
+        DropdownMenuItem(value: 'amount', child: Text('₹')),
+      ],
+      onChanged: !_editable
+          ? null
+          : (value) {
+              if (value == null) return;
+              _edit(() {
+                line.fixedDiscount = value == 'amount';
+                line.set('discount_percent', '');
+                line.set('discount_amount', '');
+              });
+            },
+    );
+    final discountValue = _lineField(
+      index,
       line,
       line.fixedDiscount ? 'Discount (₹)' : 'Discount (%)',
       line.fixedDiscount ? 'discount_amount' : 'discount_percent',
       numeric: true,
+      bare: wide,
+      hint: '0',
+    );
+    final gst = _lineField(
+      index,
+      line,
+      'GST %',
+      'gst_rate',
+      numeric: true,
+      locked:
+          draft.note ||
+          (draft.regular && line.get('tax_treatment') != 'taxable'),
+      bare: wide,
+    );
+    const compact = ButtonStyle(
+      minimumSize: WidgetStatePropertyAll(Size(0, 32)),
+      padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 6)),
+    );
+    final caption = Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 6,
+      children: [
+        Text(
+          '#${index + 1}${line.get('item_id').isNotEmpty ? ' · saved item' : ' · one-time item'}',
+          style: Apex.note,
+        ),
+        if (!draft.note)
+          TextButton(
+            onPressed: _editable ? () => _chooseItem(line) : null,
+            style: compact,
+            child: Text(
+              line.get('item_id').isEmpty
+                  ? 'Choose saved item'
+                  : 'Change saved item',
+            ),
+          ),
+        if (!draft.note && line.get('item_id').isNotEmpty)
+          TextButton(
+            onPressed: _editable
+                ? () => _edit(() => line.set('item_id', ''))
+                : null,
+            style: compact,
+            child: const Text('Clear item link'),
+          ),
+        if (line.get('item_id').isNotEmpty &&
+            draft.get('party_id').isNotEmpty &&
+            workspace.features.contains('party_price_history') &&
+            !draft.expense)
+          OutlinedButton(
+            onPressed: _editable ? () => _pastPrices(line) : null,
+            style: compact,
+            child: const Text('Previous prices'),
+          ),
+      ],
+    );
+    final more = _collapsible(
+      showTax ? 'HSN, MRP & tax options' : 'HSN, MRP & details',
+      [
+        _paired(
+          wide: wide,
+          main: _lineField(index, line, 'HSN / SAC', 'hsn', maxLength: 16),
+          side: _lineField(
+            index,
+            line,
+            'MRP · reference only',
+            'mrp',
+            numeric: true,
+          ),
+        ),
+        if (showTax)
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            title: const Text('Rate includes GST'),
+            value: line.inclusive,
+            onChanged: _editable && !draft.note
+                ? (value) => _edit(() => line.inclusive = value == true)
+                : null,
+          ),
+        if (draft.regular)
+          _select(
+            'GST treatment',
+            line.get('tax_treatment'),
+            const {
+              'taxable': 'Taxable',
+              'nil_rated': 'Nil rated',
+              'exempt': 'Exempt',
+              'non_gst': 'Non-GST supply',
+            },
+            (value) {
+              line.set('tax_treatment', value);
+              line.set(
+                'gst_rate',
+                value == 'taxable'
+                    ? (booksPositive(line.get('gst_rate'))
+                          ? line.get('gst_rate')
+                          : '18')
+                    : '0',
+              );
+            },
+            locked: draft.note,
+          ),
+        if (draft.purchase && draft.regular)
+          _select(
+            'Supplier GST treatment',
+            line.get('itc_treatment'),
+            const {
+              'pending_review': 'Input credit pending review',
+              'ineligible': 'Ineligible · include GST in cost',
+            },
+            (value) => line.set('itc_treatment', value),
+            locked: draft.note,
+          ),
+      ],
     );
     return Container(
       key: ObjectKey(line),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      padding: wide
+          ? const EdgeInsets.fromLTRB(12, 12, 12, 2)
+          : const EdgeInsets.fromLTRB(12, 10, 12, 4),
       decoration: BoxDecoration(
-        border: Border.all(color: Apex.line),
-        borderRadius: BorderRadius.circular(Apex.radiusPanel),
-        color: Apex.tint,
+        border: wide
+            ? const Border(bottom: BorderSide(color: Apex.line))
+            : Border.all(color: Apex.line),
+        borderRadius: wide ? null : BorderRadius.circular(Apex.radiusPanel),
+        color: wide ? null : Apex.tint,
       ),
       child: Semantics(
         container: true,
@@ -1184,11 +1719,52 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 spacing: 10,
                 children: [
-                  Expanded(flex: 5, child: description),
-                  Expanded(flex: 2, child: quantity),
-                  Expanded(flex: 2, child: rate),
-                  Expanded(flex: 2, child: discount),
-                  remove,
+                  Expanded(
+                    flex: 10,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [description, caption],
+                    ),
+                  ),
+                  Expanded(flex: 4, child: Column(children: [quantity, unit])),
+                  Expanded(
+                    flex: 4,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        rate,
+                        if (showTax)
+                          Text(
+                            line.inclusive ? 'Includes GST' : 'Excludes GST',
+                            style: Apex.note,
+                          ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    flex: 6,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      spacing: 6,
+                      children: [
+                        SizedBox(width: 62, child: discountMode),
+                        Expanded(child: discountValue),
+                      ],
+                    ),
+                  ),
+                  if (showTax) Expanded(flex: 3, child: gst),
+                  Expanded(
+                    flex: 4,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 14),
+                      child: Text(
+                        amountText,
+                        textAlign: TextAlign.end,
+                        style: Apex.strong,
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 40, child: remove),
                 ],
               )
             else ...[
@@ -1196,7 +1772,7 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Line ${index + 1}',
+                      'Item / service ${index + 1}',
                       style: theme.textTheme.titleSmall,
                     ),
                   ),
@@ -1204,120 +1780,42 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
                 ],
               ),
               description,
-            ],
-            if (!draft.note)
-              Wrap(
+              caption,
+              Row(
                 spacing: 8,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TextButton(
-                    onPressed: _editable ? () => _chooseItem(line) : null,
-                    child: Text(
-                      line.get('item_id').isEmpty
-                          ? 'Choose saved item'
-                          : 'Change saved item',
-                    ),
-                  ),
-                  if (line.get('item_id').isNotEmpty)
-                    TextButton(
-                      onPressed: _editable
-                          ? () => _edit(() => line.set('item_id', ''))
-                          : null,
-                      child: const Text('Clear item link'),
-                    ),
-                  if (line.get('item_id').isNotEmpty &&
-                      draft.get('party_id').isNotEmpty &&
-                      workspace.features.contains('party_price_history') &&
-                      !draft.expense)
-                    TextButton(
-                      onPressed: _editable ? () => _pastPrices(line) : null,
-                      child: const Text('Past prices'),
-                    ),
+                  Expanded(child: quantity),
+                  Expanded(child: unit),
                 ],
               ),
-            if (!wide)
-              LayoutBuilder(
-                builder: (context, constraints) =>
-                    constraints.maxWidth >=
-                        MediaQuery.textScalerOf(context).scale(216)
-                    ? Row(
-                        spacing: 8,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(child: quantity),
-                          Expanded(child: rate),
-                        ],
-                      )
-                    : Column(children: [quantity, rate]),
-              ),
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              dense: true,
-              shape: const Border(),
-              collapsedShape: const Border(),
-              title: const Text('Tax, unit and discount'),
-              children: [
-                _paired(
-                  wide: wide,
-                  main: _lineField(line, 'Unit', 'unit', maxLength: 24),
-                  side: _lineField(line, 'HSN/SAC', 'hsn', maxLength: 16),
-                ),
-                if (draft.regular || draft.purchase) ...[
-                  _select(
-                    'GST treatment',
-                    line.get('tax_treatment'),
-                    const {
-                      'taxable': 'Taxable',
-                      'nil_rated': 'Nil rated',
-                      'exempt': 'Exempt',
-                      'non_gst': 'Non-GST',
-                    },
-                    (value) {
-                      line.set('tax_treatment', value);
-                      if (value != 'taxable') line.set('gst_rate', '0');
-                    },
-                    locked: draft.note,
-                  ),
-                  if (line.get('tax_treatment') == 'taxable')
-                    _lineField(
-                      line,
-                      'GST rate (%)',
-                      'gst_rate',
-                      numeric: true,
-                      locked: draft.note,
-                    ),
-                  if (draft.purchase && draft.regular)
-                    _select(
-                      'Supplier input GST',
-                      line.get('itc_treatment'),
-                      const {
-                        'pending_review': 'Pending input-credit review',
-                        'ineligible': 'Ineligible',
-                      },
-                      (value) => line.set('itc_treatment', value),
-                      locked: draft.note,
-                    ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Rate includes GST'),
-                    value: line.inclusive,
-                    onChanged: _editable && !draft.note
-                        ? (value) => _edit(() => line.inclusive = value)
-                        : null,
-                  ),
+              Row(
+                spacing: 8,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: rate),
+                  if (showTax) Expanded(child: gst),
                 ],
-                _select(
-                  'Discount type',
-                  line.fixedDiscount ? 'amount' : 'percent',
-                  const {'percent': 'Percent', 'amount': 'Fixed amount'},
-                  (value) {
-                    line.fixedDiscount = value == 'amount';
-                    line.set('discount_percent', '');
-                    line.set('discount_amount', '');
-                  },
+              ),
+              Row(
+                spacing: 8,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(width: 110, child: discountMode),
+                  Expanded(child: discountValue),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    const Expanded(child: Text('Amount', style: Apex.note)),
+                    Text(amountText, style: Apex.strong),
+                  ],
                 ),
-                if (!wide) discount,
-              ],
-            ),
+              ),
+            ],
+            more,
           ],
         ),
       ),
@@ -1368,7 +1866,12 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
     );
   }
 
-  Widget _section(String label, List<Widget> children) {
+  Widget _section(
+    String label,
+    List<Widget> children, {
+    String? subtitle,
+    String? trailing,
+  }) {
     final number = (++_sectionNumber).toString().padLeft(2, '0');
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -1398,11 +1901,18 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
                   ),
                 ),
                 Expanded(
-                  child: Semantics(
-                    header: true,
-                    child: Text(label, style: Apex.panelTitle),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Semantics(
+                        header: true,
+                        child: Text(label, style: Apex.panelTitle),
+                      ),
+                      if (subtitle != null) Text(subtitle, style: Apex.note),
+                    ],
                   ),
                 ),
+                if (trailing != null) Text(trailing, style: Apex.note),
               ],
             ),
             ...children,
@@ -1414,6 +1924,47 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
 
   int _sectionNumber = 0;
 
+  Widget _dateField(String label, String key) {
+    final value = draft.get(key);
+    final parsed = DateTime.tryParse(value);
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return InkWell(
+      onTap: _editable ? () => _date(key) : null,
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          suffixIcon: const Icon(Icons.calendar_today_outlined, size: 18),
+          helperText: key == 'date' && parsed != null
+              ? '${parsed.day.toString().padLeft(2, '0')}-${months[parsed.month - 1]}-${parsed.year}'
+              : null,
+        ),
+        child: Text(
+          parsed == null
+              ? 'dd-mm-yyyy'
+              : '${parsed.day.toString().padLeft(2, '0')}-${parsed.month.toString().padLeft(2, '0')}-${parsed.year}',
+          style: TextStyle(
+            fontFamily: Apex.body,
+            color: parsed == null ? Apex.inkSoft : Apex.ink,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ignore: unused_element
   Widget _dateButton(String label, String key) => OutlinedButton.icon(
     onPressed: _editable ? () => _date(key) : null,
     icon: const Icon(Icons.calendar_today_outlined),
@@ -1441,12 +1992,15 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
   );
 
   Widget _lineField(
+    int index,
     BooksEntryLine line,
     String label,
     String key, {
     int? maxLength,
     bool numeric = false,
     bool locked = false,
+    bool bare = false,
+    String? hint,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
     child: _input(
@@ -1456,6 +2010,9 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
       maxLength: maxLength,
       numeric: numeric,
       locked: locked,
+      bare: bare,
+      hint: hint,
+      fieldKey: ValueKey('line-$index-$key'),
     ),
   );
 
@@ -1469,7 +2026,11 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
     bool digits = false,
     bool locked = false,
     int lines = 1,
+    bool bare = false,
+    Key? fieldKey,
   }) => _SyncedField(
+    fieldKey: fieldKey,
+    bare: bare,
     label: label,
     value: value,
     onChange: (value) => _edit(() => onChange(value)),
@@ -1515,7 +2076,11 @@ class _SyncedField extends StatefulWidget {
     required this.lines,
     this.hint,
     this.maxLength,
+    this.bare = false,
+    this.fieldKey,
   });
+  final bool bare;
+  final Key? fieldKey;
   final String label;
   final String value;
   final ValueChanged<String> onChange;
@@ -1552,6 +2117,7 @@ class _SyncedFieldState extends State<_SyncedField> {
 
   @override
   Widget build(BuildContext context) => TextField(
+    key: widget.fieldKey,
     controller: _controller,
     onChanged: widget.onChange,
     enabled: widget.enabled,
@@ -1562,8 +2128,8 @@ class _SyncedFieldState extends State<_SyncedField> {
         ? TextInputType.numberWithOptions(decimal: widget.numeric)
         : null,
     decoration: InputDecoration(
-      labelText: widget.label,
-      hintText: widget.hint,
+      labelText: widget.bare ? null : widget.label,
+      hintText: widget.hint ?? (widget.bare ? widget.label : null),
       counterText: '',
     ),
   );

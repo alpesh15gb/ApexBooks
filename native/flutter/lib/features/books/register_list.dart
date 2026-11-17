@@ -60,6 +60,7 @@ class BooksRegisterList extends StatelessWidget {
     this.onAdd,
     this.onRecurring,
     this.onKind,
+    this.onOpenParty,
     super.key,
   });
 
@@ -91,6 +92,10 @@ class BooksRegisterList extends StatelessWidget {
 
   /// Set only on the "All transactions" page, which keeps a type filter.
   final ValueChanged<String>? onKind;
+
+  /// Opens a party from its name in the register (the web app's party link). The register page
+  /// passes this; the name stays plain text when it is null.
+  final void Function(String partyId, String name)? onOpenParty;
 
   List<Widget> _headingActions() => [
     OutlinedButton.icon(
@@ -433,7 +438,7 @@ class BooksRegisterList extends StatelessWidget {
             ApexColumn('Status', width: 140),
             ApexColumn('Amount', width: 120, alignEnd: true),
             ApexColumn('Balance', width: 120, alignEnd: true),
-            ApexColumn('Actions', width: 230, alignEnd: true),
+            ApexColumn('Actions', width: 260, alignEnd: true),
           ],
           rowCount: shown.length,
           onRowTap: (row) => onOpen(shown[row].id),
@@ -580,16 +585,32 @@ class BooksRegisterList extends StatelessWidget {
           const SizedBox(height: 3),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: Text(
-              r.party,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: Apex.inkSoft,
-              ),
-            ),
+            child: onOpenParty == null
+                ? Text(
+                    r.party,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: Apex.inkSoft,
+                    ),
+                  )
+                : InkWell(
+                    onTap: () =>
+                        onOpenParty!(booksText(r.data['party_id']), r.party),
+                    borderRadius: BorderRadius.circular(4),
+                    child: Text(
+                      r.party,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: Apex.link,
+                      ),
+                    ),
+                  ),
           ),
         ],
         if (kind.isEmpty)
@@ -658,7 +679,7 @@ class BooksRegisterList extends StatelessWidget {
       style: TextStyle(
         fontSize: 13,
         fontWeight: owing ? FontWeight.w700 : FontWeight.w500,
-        color: owing ? Apex.red : Apex.muted,
+        color: owing ? const Color(0xff606a77) : Apex.muted,
       ),
     );
   }
@@ -679,7 +700,7 @@ class BooksRegisterList extends StatelessWidget {
                 foregroundColor: Apex.link,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 minimumSize: const Size(0, 36),
-                textStyle: const TextStyle(
+                textStyle: const TextStyle(fontFamily: Apex.body, 
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),

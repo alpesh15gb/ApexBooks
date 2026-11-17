@@ -49,6 +49,11 @@ class _MockCommerce implements ApexApi, ApexWriteApi {
         {'id': 'settlement', 'name': 'Settlement bank'},
       ];
     }
+    if (path == '/api/companies/shop/records' && query?['kind'] == 'party') {
+      return [
+        {'id': 'cust-1', 'name': 'Asha Traders', 'kind': 'party'},
+      ];
+    }
     if (path == '/api/companies/shop/records/record-19') {
       return {
         'id': 'record-19',
@@ -86,6 +91,7 @@ class _MockCommerce implements ApexApi, ApexWriteApi {
             'id': 'local-order',
             'external_id': '19',
             'number': 'ORDER-19',
+            'party_id': 'cust-1',
             'status': 'processing',
             'amount': '100.00',
             'snapshot': {
@@ -354,7 +360,7 @@ void main() {
       await _show(tester, _scope(api, _Pending(), 'editor'));
       await _tap(tester, 'Orders');
       await _tap(tester, 'Open order');
-      await _tap(tester, 'Create store invoice');
+      await _tap(tester, 'Create invoice');
       await _tap(tester, 'Create shipment');
       await _field(tester, 'Quantity for Counter cable (up to 3)', '4');
       await _tap(tester, 'Review command');
@@ -378,6 +384,12 @@ void main() {
       });
     },
   );
+
+  testWidgets('Orders list the customer name instead of the id', (tester) async {
+    await _show(tester, _scope(_MockCommerce(), _Pending(), 'editor'));
+    await _tap(tester, 'Orders');
+    expect(find.text('Asha Traders'), findsOneWidget);
+  });
 
   testWidgets('Viewers can inspect reconciliation without action controls', (
     tester,

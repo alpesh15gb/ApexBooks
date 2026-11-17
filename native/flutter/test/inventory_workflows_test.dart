@@ -50,6 +50,15 @@ class InventoryApi implements ApexApi {
         },
       ];
     }
+    if (path == '$base/records' && query?['kind'] == 'party') {
+      return [
+        {
+          'id': 'supplier-1',
+          'name': 'Switch supplier',
+          'data': {'party_type': 'supplier', 'phone': '9000000001'},
+        },
+      ];
+    }
     if (path == '$base/records' && query?['kind'] == 'purchase_order') {
       return [
         {
@@ -178,6 +187,9 @@ class InventoryApi implements ApexApi {
     String? idempotencyKey,
   }) async {
     posted.add((path: path, key: idempotencyKey, body: body));
+    if (path == '$base/records' && body['kind'] == 'purchase_order') {
+      return {'id': 'new-po', 'number': 'PO-9', 'kind': 'purchase_order'};
+    }
     if (path == '$base/purchase-orders/order/receipts/preview') {
       return {
         'amount': '200.00',
@@ -409,6 +421,35 @@ void main() {
     await click(tester, find.text('Board switch'));
     expect(find.text('7 pcs on hand'), findsOneWidget);
     expect(api.posted, isEmpty);
+  });
+
+  testWidgets('Creates a purchase order draft from selected suggestions', (
+    tester,
+  ) async {
+    final api = InventoryApi();
+    await pumpInventory(tester, api, MemoryPending());
+    await click(tester, find.text('Low stock & reorder'));
+    expect(find.text('0 selected · Draft only, no stock or payment movement'),
+        findsOneWidget);
+    await click(tester, find.byType(Checkbox));
+    await click(tester, find.text('Create purchase order'));
+    expect(api.posted, isEmpty);
+    await tester.tap(find.text('Supplier'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Switch supplier').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Create purchase order').last);
+    await tester.pumpAndSettle();
+    final post = api.posted.single;
+    expect(post.path, '$base/records');
+    expect(post.key, isNotNull);
+    expect(post.body['kind'], 'purchase_order');
+    expect(post.body['name'], 'Switch supplier');
+    final data = post.body['data'] as Map;
+    expect(data['party_id'], 'supplier-1');
+    expect((data['lines'] as List).single['item_id'], 'switch');
+    expect((data['lines'] as List).single['quantity'], '2');
+    expect(find.textContaining('Purchase order PO-9 created'), findsOneWidget);
   });
 
   testWidgets(

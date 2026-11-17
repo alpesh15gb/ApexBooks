@@ -73,11 +73,23 @@ class PosProduct {
   PosProduct.fromJson(PosJson row)
     : id = posText(row['id']),
       name = posText(row['name']),
+      number = posText(row['number']),
       data = posObject(row['data']);
 
   final String id;
   final String name;
+  final String number;
   final PosJson data;
+
+  /// Shelf ids from the item's `location_ids` (names come from inventory setup).
+  List<String> get locationIds => [
+    for (final id in data['location_ids'] is List
+        ? data['location_ids'] as List
+        : const [])
+      if (id is String) id,
+  ];
+
+  String get thumbnail => posText(data['image_thumbnail']);
 
   String get barcode => posText(data['barcode']);
   String get unit => posText(data['unit']);
@@ -99,6 +111,113 @@ class PosProduct {
 
   bool matches(String query) =>
       '$name $barcode $hsn'.toLowerCase().contains(query.trim().toLowerCase());
+
+  /// Same text the web POS searches: name, number, HSN, barcode, shelf names,
+  /// part number, brand, grade and the vehicles the part fits.
+  String searchText(Map<String, String> shelves) {
+    String tidy(Object? value) =>
+        posText(value).replaceAll(RegExp(r'\s+'), ' ').trim();
+    const grades = {
+      'oem': 'OEM',
+      'aftermarket': 'Aftermarket',
+      'used': 'Used',
+      'refurbished': 'Refurbished',
+    };
+    final fits = [
+      for (final row in data['vehicle_fitment'] is List
+          ? data['vehicle_fitment'] as List
+          : const [])
+        if (row is Map)
+          [
+            tidy(row['make']),
+            tidy(row['model']),
+            _years(posText(row['year_from']), posText(row['year_to'])),
+          ].where((part) => part.isNotEmpty).join(' '),
+    ];
+    return [
+      name,
+      number,
+      hsn,
+      barcode,
+      ...posLocationNames(this, shelves),
+      tidy(data['oem_number']),
+      tidy(data['part_brand']),
+      grades[posText(data['part_grade'])] ?? '',
+      ...fits,
+    ].where((part) => part.isNotEmpty).join(' ').toLowerCase();
+  }
+}
+
+String _years(String from, String to) {
+  if (from.isNotEmpty && to.isNotEmpty) {
+    return from == to ? from : '$from–$to';
+  }
+  if (from.isNotEmpty) return '$from onwards';
+  if (to.isNotEmpty) return 'up to $to';
+  return '';
+}
+
+/// Names of the shelves an item sits on, in the item's own order.
+List<String> posLocationNames(PosProduct product, Map<String, String> shelves) =>
+    [
+      for (final id in product.locationIds)
+        if (shelves[id] case final name? when name.isNotEmpty) name,
+    ];
+
+/// A customer from Parties, used for the customer suggestions.
+class PosParty {
+  PosParty.fromJson(PosJson row)
+    : name = posText(row['name']),
+      address = posText(posObject(row['data'])['address']),
+      gstin = posText(posObject(row['data'])['gstin']),
+      phone = posText(posObject(row['data'])['phone']);
+
+  final String name;
+  final String address;
+  final String gstin;
+  final String phone;
+}
+
+/// A sale set aside at the counter. Held sales live in memory only and do not
+/// reserve stock, the same as the web POS.
+class PosHeldSale {
+  PosHeldSale({
+    required this.lines,
+    required this.customer,
+    required this.address,
+    required this.gstin,
+    required this.phone,
+    required this.place,
+    required this.tender,
+    required this.bankId,
+    required this.inclusive,
+    required this.round,
+  }) : id = newPosKey();
+
+  final String id;
+  final List<PosLine> lines;
+  final String customer;
+  final String address;
+  final String gstin;
+  final String phone;
+  final String place;
+  final PosTender tender;
+  final String bankId;
+  final bool inclusive;
+  final bool round;
+}
+
+/// Per-company held sales for this app session (the web keeps them in a
+/// session-long in-memory draft; nothing is written to disk).
+class PosHeldStore {
+  PosHeldStore();
+
+  static final _byCompany = <String, PosHeldStore>{};
+  static PosHeldStore forCompany(String companyId) =>
+      _byCompany.putIfAbsent(companyId, PosHeldStore.new);
+
+  static const limit = 12;
+  final List<PosHeldSale> sales = [];
 }
 
 class PosLine {
@@ -108,6 +227,11 @@ class PosLine {
   String quantity = '1';
   String rate;
   String discount = '';
+
+  PosLine copy() => PosLine(product)
+    ..quantity = quantity
+    ..rate = rate
+    ..discount = discount;
 
   int? get quantityMilli => parsePosDecimal(quantity, 3, wholeDigits: 12);
 
@@ -261,7 +385,10 @@ class PosPayment {
       );
     }
     final cash = total - bank;
-    final tendered = parsePosMoney(tenderedText);
+    // Like the web counter, leaving the cash box empty means the exact amount.
+    final tendered = tenderedText.trim().isEmpty
+        ? cash
+        : parsePosMoney(tenderedText);
     if (tendered == null) {
       return PosPayment(
         cash: cash,
@@ -279,4 +406,30 @@ class PosPayment {
           : null,
     );
   }
+}
+
+const _posMonths = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sept',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/// "14 Nov 2026, 3:45 pm" in business (India) time, like the web register.
+String posDateTime(String iso) {
+  final parsed = DateTime.tryParse(iso);
+  if (parsed == null) return iso;
+  final time = parsed.toUtc().add(const Duration(hours: 5, minutes: 30));
+  final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
+  final minute = time.minute.toString().padLeft(2, '0');
+  return '${time.day} ${_posMonths[time.month - 1]} ${time.year}, '
+      '$hour:$minute ${time.hour < 12 ? 'am' : 'pm'}';
 }

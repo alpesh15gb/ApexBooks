@@ -257,7 +257,7 @@ class SettingsJumpLink extends StatelessWidget {
       foregroundColor: Apex.link,
       side: const BorderSide(color: Color(0xffb9c0c9)),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-      textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w400),
+      textStyle: const TextStyle(fontFamily: Apex.body, fontSize: 11, fontWeight: FontWeight.w400),
     ),
     child: Text(label),
   );

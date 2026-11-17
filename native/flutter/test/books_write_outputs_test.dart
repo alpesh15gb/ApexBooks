@@ -42,7 +42,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('Save PDF'));
+    await tester.tap(find.text('Download PDF'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Print document'));
     await tester.pumpAndSettle();
@@ -129,7 +129,7 @@ void main() {
           ),
         ),
       );
-      await tester.tap(find.text('Receipts & attachments'));
+      await tester.pumpAndSettle();
       await tester.pumpAndSettle();
       expect(find.text('Attach receipt'), findsNothing);
       await tester.tap(find.byTooltip('Receipt actions'));

@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:material_ui/material_ui.dart';
 
+import '../../core/apex_files.dart';
 import '../../core/workspace.dart';
 import '../inventory/inventory_models.dart';
 import '../inventory/inventory_posting.dart';
@@ -19,6 +20,8 @@ typedef BankView = ({
   Json totals,
   List<Json> statement,
   List<Json> reviews,
+  String? bookError,
+  String? reconError,
 });
 
 class BankingScreen extends StatefulWidget {
@@ -38,13 +41,17 @@ class BankingScreen extends StatefulWidget {
 
 class _BankingScreenState extends State<BankingScreen> {
   static const _storage = 'banking';
-  final _end = TextEditingController(text: businessDate());
-  final _start = TextEditingController(
-    text: '${businessDate().substring(0, 7)}-01',
-  );
+  // Cash book period (web: From / To inside the Cash and bank book panel).
+  final _from = TextEditingController(text: _financialYearStart());
+  final _to = TextEditingController(text: businessDate());
+  // Reconciliation (web: Reconcile through / Statement opening balance).
+  final _asOf = TextEditingController(text: businessDate());
   final _opening = TextEditingController(text: '0');
+  final _name = TextEditingController();
+  final _hint = TextEditingController();
+  final _note = TextEditingController();
+  bool _exporting = false;
   String _bank = 'default';
-  bool _reconcile = false;
   bool _busy = false;
   bool _ready = false;
   String? _error;
@@ -84,11 +91,22 @@ class _BankingScreenState extends State<BankingScreen> {
     }
   }
 
+  static String _financialYearStart() {
+    final today = businessDate();
+    final year = int.parse(today.substring(0, 4));
+    final month = int.parse(today.substring(5, 7));
+    return '${month >= 4 ? year : year - 1}-04-01';
+  }
+
   @override
   void dispose() {
-    _start.dispose();
-    _end.dispose();
+    _from.dispose();
+    _to.dispose();
+    _asOf.dispose();
     _opening.dispose();
+    _name.dispose();
+    _hint.dispose();
+    _note.dispose();
     super.dispose();
   }
 
@@ -96,51 +114,56 @@ class _BankingScreenState extends State<BankingScreen> {
     final api = _workspace.api;
     final base = _base;
     final bank = _bank;
-    final from = validBankDate(_start.text);
-    final to = validBankDate(_end.text);
-    if (to == null) throw const FormatException('Enter a valid closing date.');
     final selected = {'bank_account_id': bank};
-    if (!_reconcile) {
+    final accounts = inventoryRows(await api.get('$base/bank-accounts'));
+
+    Future<(Json, String?)> book() async {
+      final from = validBankDate(_from.text);
+      final to = validBankDate(_to.text);
+      if (to == null) return (const <String, dynamic>{}, 'Enter a valid closing date.');
       if (from == null || from.compareTo(to) > 0) {
-        throw const FormatException(
-          'Enter a start date on or before the closing date.',
-        );
+        return (const <String, dynamic>{}, 'Enter a start date on or before the closing date.');
       }
-      final result = await Future.wait([
-        api.get('$base/bank-accounts'),
-        api.get(
-          '$base/cash-book',
-          query: {...selected, 'from_date': from, 'to_date': to},
-        ),
-      ]);
-      return (
-        accounts: inventoryRows(result[0]),
-        book: inventoryObject(result[1]),
-        totals: const <String, dynamic>{},
-        statement: const <Json>[],
-        reviews: const <Json>[],
-      );
+      try {
+        final value = await api.get('$base/cash-book', query: {...selected, 'from_date': from, 'to_date': to});
+        return (inventoryObject(value), null);
+      } catch (failure) {
+        return (const <String, dynamic>{}, inventoryError(failure));
+      }
     }
-    final opening = signedMoney(_opening.text);
-    if (opening == null) {
-      throw const FormatException('Enter a valid statement opening balance.');
+
+    Future<(Json, List<Json>, List<Json>, String?)> reconcile() async {
+      const none = <Json>[];
+      final asOf = validBankDate(_asOf.text);
+      final opening = signedMoney(_opening.text);
+      if (asOf == null) return (const <String, dynamic>{}, none, none, 'Enter a valid reconcile-through date.');
+      if (opening == null) {
+        return (const <String, dynamic>{}, none, none, 'Enter a valid statement opening balance.');
+      }
+      try {
+        final period = {...selected, 'as_of': asOf};
+        final result = await Future.wait([
+          api.get('$base/bank-reconciliation', query: {...period, 'opening_balance': decimalMoney(opening)}),
+          api.get('$base/bank-statement', query: period),
+          api.get('$base/bank-reconciliation/reviews', query: selected),
+        ]);
+        return (inventoryObject(result[0]), inventoryRows(result[1]), inventoryRows(result[2]), null);
+      } catch (failure) {
+        return (const <String, dynamic>{}, none, none, inventoryError(failure));
+      }
     }
-    final period = {...selected, 'as_of': to};
-    final result = await Future.wait([
-      api.get('$base/bank-accounts'),
-      api.get(
-        '$base/bank-reconciliation',
-        query: {...period, 'opening_balance': decimalMoney(opening)},
-      ),
-      api.get('$base/bank-statement', query: period),
-      api.get('$base/bank-reconciliation/reviews', query: selected),
-    ]);
+
+    final results = await Future.wait([book(), reconcile()]);
+    final cash = results[0] as (Json, String?);
+    final recon = results[1] as (Json, List<Json>, List<Json>, String?);
     return (
-      accounts: inventoryRows(result[0]),
-      book: const <String, dynamic>{},
-      totals: inventoryObject(result[1]),
-      statement: inventoryRows(result[2]),
-      reviews: inventoryRows(result[3]),
+      accounts: accounts,
+      book: cash.$1,
+      totals: recon.$1,
+      statement: recon.$2,
+      reviews: recon.$3,
+      bookError: cash.$2,
+      reconError: recon.$4,
     );
   }
 
@@ -315,18 +338,54 @@ class _BankingScreenState extends State<BankingScreen> {
     }
   }
 
-  Future<void> _newBank() async {
-    final owner = _workspace;
-    final body = await showDialog<Json>(
-      context: context,
-      builder: (_) => const BankAccountForm(),
-    );
-    if (body == null || !mounted || owner != _workspace) return;
+  Future<void> _createBank() async {
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Enter a name for this bank account.');
+      return;
+    }
+    final hint = _hint.text.trim();
     await _change(
-      (owner) => owner.api.post('${owner.path}/bank-accounts', body: body),
+      (owner) => owner.api.post(
+        '${owner.path}/bank-accounts',
+        body: {'name': name, 'account_hint': hint},
+      ),
       'Bank account created.',
-      accept: (value) => _bank = inventoryText(inventoryObject(value)['id']),
+      accept: (value) {
+        _bank = inventoryText(inventoryObject(value)['id']);
+        _name.clear();
+        _hint.clear();
+      },
     );
+  }
+
+  Future<void> _export(String format) async {
+    if (_exporting) return;
+    final owner = _workspace;
+    final from = validBankDate(_from.text);
+    final to = validBankDate(_to.text);
+    if (from == null || to == null) return;
+    setState(() {
+      _exporting = true;
+      _error = null;
+    });
+    try {
+      final bytes = await owner.api.download(
+        '${owner.path}/cash-book.$format',
+        query: {'from_date': from, 'to_date': to, 'bank_account_id': _bank},
+      );
+      await saveApexFile(
+        'apex-cash-book.$format',
+        bytes,
+        format == 'pdf'
+            ? 'application/pdf'
+            : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+    } catch (_) {
+      if (mounted && owner == _workspace) setState(() => _error = 'Could not export cash book');
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
   }
 
   Future<void> _transfer(List<Json> accounts) async {
@@ -414,22 +473,33 @@ class _BankingScreenState extends State<BankingScreen> {
     );
   }
 
-  Future<void> _review(Json totals) async {
-    final owner = _workspace;
-    final body = await showDialog<Json>(
-      context: context,
-      builder: (_) => BankReviewForm(totals: totals),
-    );
-    if (body == null || !mounted || owner != _workspace) return;
+  Future<void> _saveReview(Json totals) async {
+    final body = {
+      'bank_account_id': totals['bank_account_id'],
+      'as_of': totals['as_of'],
+      'opening_balance': totals['opening_balance'],
+      'note': _note.text.trim(),
+    };
     await _change(
       (owner) => owner.api.post(
         '${owner.path}/bank-reconciliation/reviews',
         body: body,
       ),
       'Reconciliation review saved.',
+      accept: (_) => _note.clear(),
     );
   }
 
+  /// Reload when every inline filter holds a usable value (the web page reloads on each change).
+  void _refilter() {
+    if (validBankDate(_from.text) == null ||
+        validBankDate(_to.text) == null ||
+        validBankDate(_asOf.text) == null ||
+        signedMoney(_opening.text) == null) {
+      return;
+    }
+    _reload();
+  }
 
   static String _money(Object? value) => apexMoney(apexNumber(value) ?? 0);
 
@@ -440,17 +510,20 @@ class _BankingScreenState extends State<BankingScreen> {
     return 'Bank clearing';
   }
 
+  static const _importHelp =
+      'Map the date, description, reference and amount columns in your bank CSV. Separate debit and credit columns are supported. Positive amounts are received; negative amounts are paid. Import into the selected account. Payment suggestions use amount, date, reference and party name; confirm every allocation.';
+
   @override
   Widget build(BuildContext context) => FutureBuilder<BankView>(
     future: _data,
     builder: (context, state) {
       final data = state.data;
       if (data != null) _view = data;
+      final view = _view;
       final loading = state.connectionState != ConnectionState.done;
       final usable = _writable && !loading && !state.hasError;
-      final ready = data != null && !loading && !state.hasError;
       final canWrite = _workspace.company.canWrite;
-      final accounts = _view?.accounts ?? const <Json>[];
+      final accounts = view?.accounts ?? const <Json>[];
       final choices = [
         for (final row in accounts)
           (
@@ -459,92 +532,112 @@ class _BankingScreenState extends State<BankingScreen> {
                 (inventoryText(row['account_hint']).isEmpty ? '' : ' · ${inventoryText(row['account_hint'])}'),
           ),
       ];
+      final activeBank = choices.any((choice) => choice.$1 == _bank) ? _bank : (choices.isEmpty ? _bank : choices.first.$1);
+      final bankSelect = ApexFilterSelect<String>(
+        label: 'Active bank',
+        width: 260,
+        value: activeBank,
+        items: choices,
+        onChanged: (id) => setState(() {
+          _bank = id;
+          _data = _fetch();
+        }),
+      );
       final sections = <Widget>[
-        ApexRegisterHeading(
-          'Cash & bank',
+        BankHeading(
+          eyebrow: 'CASH & BANK',
+          title: 'Cash & bank',
           subtitle: 'Track payments and reconcile each bank account separately.',
           actions: [
             if (canWrite)
               FilledButton.icon(
                 onPressed: usable ? _import : null,
                 icon: const Icon(Icons.add, size: 16),
-                label: const Text('Import statement CSV'),
+                label: Text(_busy ? 'Working…' : 'Import statement CSV'),
               ),
           ],
         ),
-        BankTabs(
-          reconcile: _reconcile,
-          onChanged: (value) => setState(() {
-            _reconcile = value;
-            _data = _fetch();
-          }),
-        ),
-        BankPanel(
-          title: 'Bank accounts',
-          note: 'Choose the account for its balance, statement and matches.',
-          children: [
-            Wrap(
-              spacing: 16,
-              runSpacing: 14,
-              crossAxisAlignment: WrapCrossAlignment.end,
+        LayoutBuilder(
+          key: const ValueKey('bank-accounts'),
+          builder: (context, limits) {
+            final wide = limits.maxWidth >= 720;
+            return BankPanel(
+              title: 'Bank accounts',
+              note: 'Choose the account for its balance, statement and matches.',
+              trailing: wide && choices.isNotEmpty ? bankSelect : null,
               children: [
-                if (choices.isNotEmpty)
-                  ApexFilterSelect<String>(
-                    label: 'Active bank',
-                    width: 300,
-                    value: choices.any((choice) => choice.$1 == _bank) ? _bank : choices.first.$1,
-                    items: choices,
-                    onChanged: (id) => setState(() {
-                      _bank = id;
-                      _data = _fetch();
-                    }),
+                if (!wide && choices.isNotEmpty) ...[bankSelect, const SizedBox(height: 16)],
+                if (canWrite) ...[
+                  BankFormRow(
+                    flexes: const [5, 2, 0],
+                    [
+                      BankFilterField(
+                        label: 'New bank account name',
+                        controller: _name,
+                        width: null,
+                        hint: 'e.g. Operating account',
+                        maxLength: 120,
+                      ),
+                      BankFilterField(
+                        label: 'Account hint',
+                        controller: _hint,
+                        width: null,
+                        hint: 'Last four digits',
+                        maxLength: 32,
+                      ),
+                      SizedBox(
+                        height: 40,
+                        child: OutlinedButton(
+                          onPressed: _writable && !loading ? _createBank : null,
+                          child: const Text('Add bank account'),
+                        ),
+                      ),
+                    ],
                   ),
-                if (canWrite)
-                  OutlinedButton(onPressed: _writable ? _newBank : null, child: const Text('Add bank account')),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Divider(height: 1, color: Apex.lineSoft),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 14,
-              runSpacing: 14,
-              crossAxisAlignment: WrapCrossAlignment.end,
-              children: [
-                if (!_reconcile) BankFilterField(label: 'From', controller: _start, hint: 'YYYY-MM-DD', maxLength: 10),
-                BankFilterField(
-                  label: _reconcile ? 'Reconcile through' : 'To',
-                  controller: _end,
-                  hint: 'YYYY-MM-DD',
-                  maxLength: 10,
+                  const SizedBox(height: 16),
+                  const Divider(height: 1, color: Apex.lineSoft),
+                  const SizedBox(height: 16),
+                ],
+                Wrap(
+                  spacing: 14,
+                  runSpacing: 14,
+                  crossAxisAlignment: WrapCrossAlignment.end,
+                  children: [
+                    BankFilterField(
+                      label: 'Reconcile through',
+                      controller: _asOf,
+                      hint: 'YYYY-MM-DD',
+                      maxLength: 10,
+                      date: true,
+                      onChanged: (_) => _refilter(),
+                    ),
+                    BankFilterField(
+                      label: 'Statement opening balance (₹)',
+                      controller: _opening,
+                      width: 230,
+                      maxLength: 17,
+                      keyboard: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                      onChanged: (_) => _refilter(),
+                    ),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: limits.maxWidth - 44 < 520 ? limits.maxWidth - 44 : 520),
+                      child: const Padding(
+                        padding: EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          'Compare the imported statement closing balance with the posted bank ledger through this date.',
+                          style: Apex.note,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                if (_reconcile)
-                  BankFilterField(
-                    label: 'Statement opening balance (₹)',
-                    controller: _opening,
-                    width: 230,
-                    maxLength: 17,
-                    keyboard: const TextInputType.numberWithOptions(decimal: true, signed: true),
-                  ),
-                SizedBox(
-                  height: 40,
-                  child: OutlinedButton.icon(
-                    onPressed: _busy ? null : _reload,
-                    icon: const Icon(Icons.refresh, size: 16),
-                    label: const Text('Load'),
-                  ),
-                ),
               ],
-            ),
-            if (_reconcile) ...[
-              const SizedBox(height: 12),
-              const Text(
-                'Compare the imported statement closing balance with the posted bank ledger through this date.',
-                style: Apex.note,
-              ),
-            ],
-          ],
+            );
+          },
         ),
+        SizedBox(height: 4, child: loading ? const LinearProgressIndicator() : null),
+        if (state.hasError) BankNote(tone: BankTone.error, live: true, child: Text(inventoryError(state.error!))),
+        if (view != null) ..._cashBook(view, usable),
         if (_pending != null)
           BankNote(
             live: true,
@@ -559,6 +652,7 @@ class _BankingScreenState extends State<BankingScreen> {
             ),
           ),
         if (_notice != null) BankNote(tone: BankTone.ok, live: true, child: Text(_notice!)),
+        const BankNote(child: Text(_importHelp)),
         if (_error != null)
           BankNote(
             tone: BankTone.error,
@@ -570,9 +664,7 @@ class _BankingScreenState extends State<BankingScreen> {
               ],
             ),
           ),
-        if (loading) const LinearProgressIndicator(),
-        if (state.hasError) BankNote(tone: BankTone.error, live: true, child: Text(inventoryError(state.error!))),
-        if (ready) ...(_reconcile ? _reconciliation(data, usable) : _cashBook(data, usable)),
+        if (view != null) ..._reconciliation(view, usable),
       ];
       return ApexPage(
         children: [
@@ -586,17 +678,18 @@ class _BankingScreenState extends State<BankingScreen> {
   );
 
   List<Widget> _cashBook(BankView view, bool usable) {
+    final book = view.bookError == null;
     final opening = inventoryObject(view.book['opening']);
     final closing = inventoryObject(view.book['closing']);
     final rows = inventoryRows(view.book['rows']);
-    final through = 'Through ${apexDate(_end.text.trim())}';
-    final negative = (apexNumber(closing['cash']) ?? 0) < 0;
+    final through = 'Through ${apexDate(_to.text.trim())}';
+    final negative = book && (apexNumber(closing['cash']) ?? 0) < 0;
     final note = inventoryText(view.book['ordering_note']);
     final canWrite = _workspace.company.canWrite;
     return [
       BankMetricGrid([
-        BankMetric(label: 'Cash balance', value: _money(closing['cash']), caption: through),
-        BankMetric(label: '$_bankName balance', value: _money(closing['bank']), caption: through),
+        BankMetric(label: 'Cash balance', value: book ? _money(closing['cash']) : '—', caption: through),
+        BankMetric(label: '$_bankName balance', value: book ? _money(closing['bank']) : '—', caption: through),
       ]),
       if (negative)
         BankNote(
@@ -604,7 +697,7 @@ class _BankingScreenState extends State<BankingScreen> {
             TextSpan(
               children: [
                 TextSpan(
-                  text: 'Review negative cash through ${apexDate(_end.text.trim())}. ',
+                  text: 'Review negative cash through ${apexDate(_to.text.trim())}. ',
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
                 const TextSpan(
@@ -615,10 +708,26 @@ class _BankingScreenState extends State<BankingScreen> {
             ),
           ),
         ),
+      if (view.bookError != null) BankNote(tone: BankTone.error, live: true, child: Text(view.bookError!)),
       BankPanel(
+        key: const ValueKey('cash-book'),
         title: 'Cash and bank book',
         note: 'Posted ledger movements for cash and the selected bank.',
         flush: true,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            OutlinedButton(
+              onPressed: book && !_exporting ? () => _export('xlsx') : null,
+              child: const Text('XLSX'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton(
+              onPressed: book && !_exporting ? () => _export('pdf') : null,
+              child: const Text('PDF'),
+            ),
+          ],
+        ),
         children: [
           if (note.isNotEmpty)
             Padding(
@@ -626,15 +735,42 @@ class _BankingScreenState extends State<BankingScreen> {
               child: BankNote(child: Text(note)),
             ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(22, 0, 22, 14),
-            child: Text(
-              'Opening cash ${_money(opening['cash'])} · bank ${_money(opening['bank'])}',
-              style: Apex.note,
+            padding: const EdgeInsets.fromLTRB(22, 0, 22, 16),
+            child: Wrap(
+              spacing: 14,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.end,
+              children: [
+                BankFilterField(
+                  label: 'From',
+                  controller: _from,
+                  hint: 'YYYY-MM-DD',
+                  maxLength: 10,
+                  date: true,
+                  onChanged: (_) => _refilter(),
+                ),
+                BankFilterField(
+                  label: 'To',
+                  controller: _to,
+                  hint: 'YYYY-MM-DD',
+                  maxLength: 10,
+                  date: true,
+                  onChanged: (_) => _refilter(),
+                ),
+                if (book)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 11),
+                    child: Text(
+                      'Opening cash ${_money(opening['cash'])} · bank ${_money(opening['bank'])}',
+                      style: Apex.note,
+                    ),
+                  ),
+              ],
             ),
           ),
-          if (rows.isEmpty)
+          if (book && rows.isEmpty)
             const ApexEmptyState(icon: Icons.account_balance_wallet_outlined, title: 'No posted movements in this period')
-          else
+          else if (book)
             ApexTable(
               columns: const [
                 ApexColumn('Date', width: 120),
@@ -694,10 +830,10 @@ class _BankingScreenState extends State<BankingScreen> {
           spacing: 8,
           runSpacing: 8,
           children: [
-            FilledButton.icon(
+            OutlinedButton.icon(
               onPressed: usable ? () => _transfer(view.accounts) : null,
-              icon: const Icon(Icons.swap_horiz, size: 18),
-              label: const Text('Record transfer'),
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('Record cash/bank transfer'),
             ),
             if (_workspace.company.role == 'owner')
               OutlinedButton(onPressed: usable ? () => _openingBalance(view.accounts) : null, child: const Text('Opening balance')),
@@ -719,41 +855,53 @@ class _BankingScreenState extends State<BankingScreen> {
   List<Widget> _reconciliation(BankView data, bool usable) {
     final totals = data.totals;
     final canWrite = _workspace.company.canWrite;
-    final asOf = inventoryText(totals['as_of']).isEmpty ? _end.text.trim() : inventoryText(totals['as_of']);
+    final ok = data.reconError == null;
+    final asOf = inventoryText(totals['as_of']).isEmpty ? _asOf.text.trim() : inventoryText(totals['as_of']);
     return [
-      const BankNote(
-        child: Text(
-          'Map the date, description, reference and amount columns in your bank CSV. Separate debit and credit columns are supported. Positive amounts are received; negative amounts are paid. Import into the selected account. Payment suggestions use amount, date, reference and party name; confirm every allocation.',
-        ),
-      ),
-      BankMetricGrid([
-        BankMetric(
-          label: 'Statement closing',
-          value: _money(totals['statement_closing_balance']),
-          icon: Icons.account_balance_wallet_outlined,
-        ),
-        BankMetric(
-          label: 'Ledger closing',
-          value: _money(totals['ledger_closing_balance']),
-          icon: Icons.description_outlined,
-        ),
-        BankMetric(label: 'Difference', value: _money(totals['difference']), icon: Icons.south_west_rounded),
-        BankMetric(label: 'Unmatched', value: '${totals['unmatched'] ?? 0}', icon: Icons.search_rounded),
-      ]),
+      if (data.reconError != null) BankNote(tone: BankTone.error, live: true, child: Text(data.reconError!)),
+      if (ok)
+        BankMetricGrid([
+          BankMetric(
+            label: 'Statement closing',
+            value: _money(totals['statement_closing_balance']),
+            icon: Icons.account_balance_wallet_outlined,
+          ),
+          BankMetric(
+            label: 'Ledger closing',
+            value: _money(totals['ledger_closing_balance']),
+            icon: Icons.description_outlined,
+          ),
+          BankMetric(label: 'Difference', value: _money(totals['difference']), icon: Icons.south_west_rounded),
+          BankMetric(label: 'Unmatched', value: '${totals['unmatched'] ?? 0}', icon: Icons.search_rounded),
+        ]),
       BankPanel(
+        key: const ValueKey('history'),
         title: 'Reconciliation history',
         note:
             'Save a dated review of the current statement and ledger balances. Reviews with a difference or unmatched lines need follow-up.',
         children: [
-          if (canWrite)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton(
-                onPressed: usable ? () => _review(totals) : null,
-                child: Text('Save review through $asOf'),
-              ),
+          if (canWrite && ok) ...[
+            BankFormRow(
+              flexes: const [5, 0],
+              [
+                BankFilterField(
+                  label: 'Review note',
+                  controller: _note,
+                  width: null,
+                  hint: 'Optional note about outstanding items',
+                  maxLength: 500,
+                ),
+                SizedBox(
+                  height: 40,
+                  child: OutlinedButton(
+                    onPressed: usable ? () => _saveReview(totals) : null,
+                    child: Text(_busy ? 'Saving…' : 'Save review through $asOf'),
+                  ),
+                ),
+              ],
             ),
-          if (canWrite) const SizedBox(height: 14),
+            const SizedBox(height: 16),
+          ],
           if (data.reviews.isEmpty)
             const Text('No saved reviews for this account.', style: Apex.lead)
           else
@@ -777,6 +925,7 @@ class _BankingScreenState extends State<BankingScreen> {
         ],
       ),
       BankPanel(
+        key: const ValueKey('statement'),
         title: '$_bankName · statement lines',
         note: '${data.statement.length} imported lines · allocate a statement amount across one or more posted payments',
         flush: true,

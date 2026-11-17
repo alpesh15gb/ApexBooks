@@ -43,10 +43,7 @@ void main() {
       expect(output.sent.last.name, 'apex-POS-26-27-0001-80-mm.pdf');
 
       await _tap(tester, 'Return items');
-      final quantity = find.widgetWithText(
-        TextFormField,
-        'Return quantity for Counter oats (line 1)',
-      );
+      final quantity = find.byKey(const ValueKey(0));
       await tester.ensureVisible(quantity);
       await tester.enterText(quantity, '3');
       await tester.pumpAndSettle();
@@ -64,11 +61,11 @@ void main() {
       await tester.pumpAndSettle();
       final submit = find.byKey(const ValueKey('pos-post-return'));
       expect(tester.widget<FilledButton>(submit).onPressed, isNull);
-      await _tap(tester, 'I handed this cash refund to the customer.');
+      await _tap(tester, 'I am recording the cash paid out for this return.');
       await _tap(tester, 'Post return');
       expect(find.text('Return posted'), findsOneWidget);
       expect(tester.getRect(find.text('Return posted')).bottom, lessThan(860));
-      expect(find.text('Refund REF-RETURN'), findsOneWidget);
+      expect(find.textContaining('Refund REF-RETURN'), findsOneWidget);
       expect(api.committed?.body, containsPair('source_version', 3));
       expect(api.committed?.body, containsPair('expected_total', '62.50'));
       expect(api.committed?.body, containsPair('return_stock', true));

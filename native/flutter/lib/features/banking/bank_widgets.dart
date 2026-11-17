@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../../ui/apex_register.dart';
 import '../../ui/apex_theme.dart';
 import '../../ui/apex_widgets.dart';
 
@@ -99,7 +100,7 @@ class BankMetricGrid extends StatelessWidget {
     builder: (context, limits) {
       final columns = limits.maxWidth >= 720
           ? cards.length
-          : limits.maxWidth >= 360 && cards.length > 2
+          : limits.maxWidth >= 300 && cards.length > 2
           ? 2
           : 1;
       const gap = 16.0;
@@ -113,7 +114,8 @@ class BankMetricGrid extends StatelessWidget {
   );
 }
 
-/// Text field with its label above it, used in filter bands.
+/// Text field with its label above it, used in filter bands and the inline forms. A null [width]
+/// fills the space its parent gives it. [date] adds the calendar button the web date input has.
 class BankFilterField extends StatelessWidget {
   const BankFilterField({
     required this.label,
@@ -122,20 +124,40 @@ class BankFilterField extends StatelessWidget {
     this.hint,
     this.maxLength,
     this.keyboard,
+    this.onChanged,
+    this.enabled = true,
+    this.date = false,
     super.key,
   });
 
   final String label;
   final TextEditingController controller;
-  final double width;
+  final double? width;
   final String? hint;
   final int? maxLength;
   final TextInputType? keyboard;
+  final ValueChanged<String>? onChanged;
+  final bool enabled;
+  final bool date;
+
+  Future<void> _pick(BuildContext context) async {
+    final parsed = DateTime.tryParse(controller.text.trim());
+    final day = await showDatePicker(
+      context: context,
+      initialDate: parsed ?? DateTime.now(),
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2100, 12, 31),
+    );
+    if (day == null) return;
+    final text =
+        '${day.year.toString().padLeft(4, '0')}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+    controller.text = text;
+    onChanged?.call(text);
+  }
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: width,
-    child: Column(
+  Widget build(BuildContext context) {
+    final field = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Apex.muted)),
@@ -146,19 +168,140 @@ class BankFilterField extends StatelessWidget {
             label: label,
             child: TextField(
               controller: controller,
+              enabled: enabled,
               maxLength: maxLength,
               keyboardType: keyboard,
+              onChanged: onChanged,
               style: const TextStyle(fontSize: 13),
               decoration: InputDecoration(
                 hintText: hint,
                 counterText: '',
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                suffixIcon: date
+                    ? IconButton(
+                        tooltip: 'Choose date',
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.calendar_today_outlined, size: 16),
+                        onPressed: enabled ? () => _pick(context) : null,
+                      )
+                    : null,
               ),
             ),
           ),
         ),
       ],
-    ),
+    );
+    return width == null ? field : SizedBox(width: width, child: field);
+  }
+}
+
+/// Dropdown with its label above it that may be empty ("Choose account"), for the inline forms.
+class BankSelectField<T> extends StatelessWidget {
+  const BankSelectField({
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+    this.hint,
+    super.key,
+  });
+
+  final String label;
+  final T? value;
+  final List<(T, String)> items;
+  final ValueChanged<T?>? onChanged;
+  final String? hint;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Apex.muted)),
+      const SizedBox(height: 6),
+      Semantics(
+        label: label,
+        child: Container(
+          height: 40,
+          padding: const EdgeInsets.only(left: 12, right: 6),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(Apex.radiusChip),
+            border: Border.all(color: Apex.fieldBorder),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<T>(
+              value: items.any((item) => item.$1 == value) ? value : null,
+              hint: Text(hint ?? 'Choose', style: const TextStyle(fontSize: 13, color: Apex.muted)),
+              isExpanded: true,
+              isDense: true,
+              icon: const Icon(Icons.expand_more_rounded, size: 18),
+              style: const TextStyle(fontFamily: Apex.body, fontSize: 13, color: Apex.ink),
+              items: [for (final (key, text) in items) DropdownMenuItem(value: key, child: Text(text, overflow: TextOverflow.ellipsis))],
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+/// Fields side by side on wide forms, stacked on phones (the web `form-grid`).
+class BankFormRow extends StatelessWidget {
+  const BankFormRow(this.children, {this.gap = 14, this.breakpoint = 460, this.flexes, super.key});
+
+  final List<Widget> children;
+  final double gap;
+  final double breakpoint;
+  final List<int>? flexes;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, limits) {
+      if (limits.maxWidth < breakpoint) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final (index, child) in children.indexed) ...[
+              if (index > 0) SizedBox(height: gap),
+              child,
+            ],
+          ],
+        );
+      }
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          for (final (index, child) in children.indexed) ...[
+            if (index > 0) SizedBox(width: gap),
+            if (child is SizedBox && child.width != null && child.child is! Column) child else Expanded(flex: flexes?[index] ?? 1, child: child),
+          ],
+        ],
+      );
+    },
+  );
+}
+
+/// Small uppercase label above a page title, as on the web page headings.
+class BankHeading extends StatelessWidget {
+  const BankHeading({required this.eyebrow, required this.title, this.subtitle, this.actions = const [], super.key});
+
+  final String eyebrow;
+  final String title;
+  final String? subtitle;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(
+        eyebrow,
+        style: Apex.eyebrow.copyWith(fontSize: 12, letterSpacing: .96, color: const Color(0xff596472)),
+      ),
+      const SizedBox(height: 8),
+      ApexRegisterHeading(title, subtitle: subtitle, actions: actions),
+    ],
   );
 }
 

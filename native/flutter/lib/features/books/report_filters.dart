@@ -5,6 +5,25 @@ import '../../ui/apex_theme.dart';
 import '../../ui/apex_widgets.dart';
 import 'books_data.dart';
 
+const _mon = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/// The web's ledger date, 01-Apr-2026.
+String _ledgerDate(DateTime date) =>
+    '${date.day.toString().padLeft(2, '0')}-${_mon[date.month - 1]}-${date.year}';
+
 String reportFieldDate(DateTime date) =>
     '${date.day.toString().padLeft(2, '0')}-${date.month.toString().padLeft(2, '0')}-${date.year}';
 
@@ -100,6 +119,7 @@ class ReportFilterPanel extends StatelessWidget {
     required this.quarterly,
     required this.onQuarterly,
     required this.party,
+    required this.parties,
     required this.onParty,
     super.key,
   });
@@ -115,8 +135,9 @@ class ReportFilterPanel extends StatelessWidget {
   final VoidCallback onPickMonth;
   final bool quarterly;
   final ValueChanged<bool> onQuarterly;
-  final TextEditingController party;
-  final VoidCallback onParty;
+  final String party;
+  final List<String> parties;
+  final ValueChanged<String> onParty;
 
   static const _months = [
     'January',
@@ -191,42 +212,21 @@ class ReportFilterPanel extends StatelessWidget {
               onTap: onPickTo,
             ),
           ],
-          if (report == BooksReport.parties)
-            SizedBox(
+          if (const {
+            BooksReport.parties,
+            BooksReport.ageing,
+            BooksReport.credits,
+            BooksReport.advances,
+          }.contains(report))
+            ApexFilterSelect<String>(
+              label: 'Party',
               width: width(280),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Party',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Apex.muted,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  SizedBox(
-                    height: 40,
-                    child: TextField(
-                      controller: party,
-                      onSubmitted: (_) => onParty(),
-                      style: const TextStyle(fontSize: 13),
-                      decoration: InputDecoration(
-                        hintText: 'Party name (optional)',
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 11,
-                        ),
-                        suffixIcon: IconButton(
-                          tooltip: 'Apply party name',
-                          onPressed: onParty,
-                          icon: const Icon(Icons.search_rounded, size: 18),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+              value: party,
+              items: [
+                ('', 'All parties'),
+                for (final name in parties) (name, name),
+              ],
+              onChanged: onParty,
             ),
         ];
         return Column(
@@ -236,7 +236,9 @@ class ReportFilterPanel extends StatelessWidget {
             if (report.gstReturn || !report.asOfOnly) ...[
               const SizedBox(height: 10),
               Text(
-                '${apexDate(booksDate(range.start))} to ${apexDate(booksDate(range.end))}',
+                report.gstReturn
+                    ? '${booksDate(range.start)} to ${booksDate(range.end)}'
+                    : '${_ledgerDate(range.start)} to ${_ledgerDate(range.end)}',
                 style: Apex.small,
               ),
             ],

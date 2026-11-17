@@ -73,38 +73,38 @@ abstract final class Apex {
     height: 1.2,
     color: Color(0xff223e4d),
   );
-  static const sectionTitle = TextStyle(
+  static const sectionTitle = TextStyle(fontFamily: body, 
     fontSize: 19,
     fontWeight: FontWeight.w700,
     letterSpacing: -.38,
     color: heading,
   );
-  static const panelTitle = TextStyle(
+  static const panelTitle = TextStyle(fontFamily: body, 
     fontSize: 18,
     fontWeight: FontWeight.w600,
     letterSpacing: -.36,
     color: ink,
   );
-  static const lead = TextStyle(fontSize: 14, height: 1.7, color: muted);
-  static const note = TextStyle(fontSize: 12, height: 1.7, color: muted);
-  static const small = TextStyle(fontSize: 11, color: muted);
-  static const strong = TextStyle(
+  static const lead = TextStyle(fontFamily: body, fontSize: 14, height: 1.7, color: muted);
+  static const note = TextStyle(fontFamily: body, fontSize: 12, height: 1.7, color: muted);
+  static const small = TextStyle(fontFamily: body, fontSize: 11, color: muted);
+  static const strong = TextStyle(fontFamily: body, 
     fontSize: 13,
     fontWeight: FontWeight.w600,
     color: ink,
   );
-  static const button = TextStyle(
+  static const button = TextStyle(fontFamily: body, 
     fontSize: 13,
     fontWeight: FontWeight.w600,
     letterSpacing: 0,
   );
-  static const eyebrow = TextStyle(
+  static const eyebrow = TextStyle(fontFamily: body, 
     fontSize: 10,
     fontWeight: FontWeight.w700,
     letterSpacing: .8,
     color: sidebarLabel,
   );
-  static const tableHeader = TextStyle(
+  static const tableHeader = TextStyle(fontFamily: body, 
     fontSize: 10,
     fontWeight: FontWeight.w700,
     letterSpacing: .6,
@@ -184,7 +184,7 @@ ThemeData apexTheme() {
       bodyLarge: TextStyle(fontSize: 14, color: Apex.ink),
       bodyMedium: TextStyle(fontSize: 13, color: Apex.inkSoft),
       bodySmall: TextStyle(fontSize: 12, color: Apex.muted),
-      labelLarge: TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0),
+      labelLarge: TextStyle(fontFamily: Apex.body, fontWeight: FontWeight.w600, letterSpacing: 0),
       labelMedium: TextStyle(fontWeight: FontWeight.w600, color: Apex.label),
     ),
     navigationBarTheme: NavigationBarThemeData(
@@ -211,13 +211,14 @@ ThemeData apexTheme() {
       focusedBorder: inputBorder.copyWith(
         borderSide: const BorderSide(color: Apex.green, width: 1.6),
       ),
-      labelStyle: const TextStyle(fontSize: 13, color: Apex.muted),
+      labelStyle: const TextStyle(fontFamily: Apex.body, fontSize: 13, color: Apex.muted),
       floatingLabelStyle: const TextStyle(
+        fontFamily: Apex.body,
         fontSize: 13,
         fontWeight: FontWeight.w600,
         color: Apex.label,
       ),
-      hintStyle: const TextStyle(fontSize: 13, color: Color(0xff8a929c)),
+      hintStyle: const TextStyle(fontFamily: Apex.body, fontSize: 13, color: Color(0xff8a929c)),
       contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 13),
     ),
     cardTheme: CardThemeData(
@@ -264,6 +265,7 @@ ThemeData apexTheme() {
       selectedColor: const Color(0xffe3f2e9),
       side: const BorderSide(color: Apex.lineStrong),
       labelStyle: const TextStyle(
+        fontFamily: Apex.body,
         fontSize: 12,
         fontWeight: FontWeight.w700,
         color: Apex.inkSoft,

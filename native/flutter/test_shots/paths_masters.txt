@@ -1,0 +1,10 @@
+# masters: party statement
+/api/companies/{cid}/parties/008a4e3e-645c-44e9-b5fc-66a68355676c/ledger?from_date={fy_from}&to_date={today}
+/api/companies/{cid}/parties/008a4e3e-645c-44e9-b5fc-66a68355676c/statement?from_date={fy_from}&to_date={today}
+/api/companies/{cid}/parties/008a4e3e-645c-44e9-b5fc-66a68355676c/credit-status?as_of={today}&proposed_amount=0
+/api/companies/{cid}/parties/a762aa7a-57a8-49eb-bf6e-6cfb9373c2ae/ledger?from_date={fy_from}&to_date={today}
+/api/companies/{cid}/parties/a762aa7a-57a8-49eb-bf6e-6cfb9373c2ae/statement?from_date={fy_from}&to_date={today}
+/api/companies/{cid}/parties/a762aa7a-57a8-49eb-bf6e-6cfb9373c2ae/credit-status?as_of={today}&proposed_amount=0
+/api/companies/{cid}/parties/6095d020-8387-40c8-abbe-b9818ef91f7e/ledger?from_date={fy_from}&to_date={today}
+/api/companies/{cid}/parties/6095d020-8387-40c8-abbe-b9818ef91f7e/statement?from_date={fy_from}&to_date={today}
+/api/companies/{cid}/parties/6095d020-8387-40c8-abbe-b9818ef91f7e/credit-status?as_of={today}&proposed_amount=0

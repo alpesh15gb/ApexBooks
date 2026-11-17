@@ -1,7 +1,7 @@
 name: apex_books
 description: Apex Books workspace for checkout, inventory and accounting.
 publish_to: none
-version: 0.1.0+1
+version: 1.5.0+1
 
 environment:
   sdk: ^3.14.0
@@ -12,6 +12,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_secure_storage: ^11.2.0
   http: ^1.6.0
+  image: ^4.13.1
   intl: ^0.20.3
   material_ui: ^1.1.0
   mobile_scanner: ^7.5.0
@@ -32,6 +33,7 @@ flutter:
   assets:
     - assets/brand/apexbooks-logo.png
     - assets/brand/apexbooks-wordmark.png
+    - assets/document-templates/
     - assets/fonts/OFL.txt
   # Static cuts of the variable font (see tool/build_fonts.py) so weights and optical size match the web app.
   fonts:

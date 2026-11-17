@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/workspace.dart';
+import '../../ui/apex_register.dart';
 import '../../ui/apex_theme.dart';
 import '../../ui/apex_widgets.dart';
 import '../books/books_data.dart';
@@ -346,8 +347,12 @@ class _InventoryReceivingPageState extends State<InventoryReceivingPage> {
                                       style: Apex.sectionTitle,
                                     ),
                                   ),
-                                for (final line in lines)
-                                  _line(line, receiving && _editing, canEdit),
+                                if (lines.isNotEmpty)
+                                  _linesTable(
+                                    lines,
+                                    receiving && _editing,
+                                    canEdit,
+                                  ),
                                 if (quote != null && pending == null)
                                   _reviewLines(quote.result),
                                 if (receipts.isNotEmpty) ...[
@@ -635,129 +640,211 @@ class _InventoryReceivingPageState extends State<InventoryReceivingPage> {
           ),
   );
 
-  Widget _line(InventoryJson line, bool editing, bool enabled) {
-    final index = line['line_index'] as int;
-    final unit = inventoryText(line['unit']);
-    final remaining = inventoryQuantity(line['remaining_quantity']);
-    final hasBalance =
-        (inventoryDecimal(remaining, 3) ?? BigInt.zero) > BigInt.zero;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: ApexPanel(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(inventoryText(line['description']), style: Apex.strong),
-            const SizedBox(height: 6),
-            Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 12,
-              runSpacing: 6,
-              children: [
-                ApexStatusBadge(
-                  'Remaining $remaining $unit'.trim(),
-                  tone: hasBalance
-                      ? ApexBadgeTone.draft
-                      : ApexBadgeTone.neutral,
-                ),
-                Text(
-                  'Ordered ${inventoryQuantity(line['ordered_quantity'])}',
-                  style: Apex.note,
-                ),
-                Text(
-                  'Received ${inventoryQuantity(line['received_quantity'])}',
-                  style: Apex.note,
-                ),
-                Text(
-                  'Order rate ${inventoryAmount(line['rate'])}',
-                  style: Apex.note,
-                ),
-              ],
-            ),
-            if (editing && hasBalance) ...[
-              const SizedBox(height: 12),
-              _receivingFields(
-                TextFormField(
-                  key: ValueKey('receiving-quantity-$index'),
-                  initialValue: _quantities[index],
-                  enabled: enabled,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
+  Widget _linesTable(List<InventoryJson> lines, bool editing, bool enabled) {
+    bool hasBalance(InventoryJson line) =>
+        (inventoryDecimal(inventoryQuantity(line['remaining_quantity']), 3) ??
+            BigInt.zero) >
+        BigInt.zero;
+    final taxed = [
+      if (editing)
+        for (final line in lines)
+          if (hasBalance(line)) line,
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ApexPanel(
+          padding: EdgeInsets.zero,
+          child: ApexTable(
+            columns: [
+              const ApexColumn('Item', flex: 3),
+              const ApexColumn('Ordered', width: 100, alignEnd: true),
+              const ApexColumn('Received', width: 100, alignEnd: true),
+              const ApexColumn('Remaining', width: 110, alignEnd: true),
+              if (editing) ...const [
+                ApexColumn('Quantity received', width: 170),
+                ApexColumn('Unit price', width: 150),
+              ] else
+                const ApexColumn('Unit price', width: 120, alignEnd: true),
+            ],
+            rowCount: lines.length,
+            cell: (row, column) {
+              final line = lines[row];
+              final index = line['line_index'] as int;
+              final open = editing && hasBalance(line);
+              switch (column) {
+                case 0:
+                  final unit = inventoryText(line['unit']);
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        inventoryText(line['description']),
+                        style: Apex.strong,
+                      ),
+                      Text(
+                        'Line ${index + 1}${unit.isEmpty ? '' : ' · $unit'}',
+                        style: Apex.note,
+                      ),
+                    ],
+                  );
+                case 1:
+                  return Text(inventoryQuantity(line['ordered_quantity']));
+                case 2:
+                  return Text(inventoryQuantity(line['received_quantity']));
+                case 3:
+                  return Text(
+                    inventoryQuantity(line['remaining_quantity']),
+                    style: Apex.strong,
+                  );
+                case 4 when editing:
+                  return open
+                      ? SizedBox(
+                          width: 130,
+                          child: TextFormField(
+                            key: ValueKey('receiving-quantity-$index'),
+                            initialValue: _quantities[index],
+                            enabled: enabled,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            decoration: const InputDecoration(
+                              isDense: true,
+                              hintText: '0',
+                            ),
+                            onChanged: (value) =>
+                                _edit(() => _quantities[index] = value),
+                          ),
+                        )
+                      : const Text('—');
+                default:
+                  return open
+                      ? SizedBox(
+                          width: 120,
+                          child: _lineField(
+                            index,
+                            'rate',
+                            'Unit price (₹)',
+                            inventoryAmount(line['rate']),
+                            enabled,
+                            dense: true,
+                          ),
+                        )
+                      : Text(inventoryAmount(line['rate']));
+              }
+            },
+            card: (row) {
+              final line = lines[row];
+              final index = line['line_index'] as int;
+              final open = editing && hasBalance(line);
+              final unit = inventoryText(line['unit']);
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(inventoryText(line['description']), style: Apex.strong),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 4,
+                    children: [
+                      Text(
+                        'Ordered ${inventoryQuantity(line['ordered_quantity'])}',
+                        style: Apex.note,
+                      ),
+                      Text(
+                        'Received ${inventoryQuantity(line['received_quantity'])}',
+                        style: Apex.note,
+                      ),
+                      Text(
+                        'Remaining ${inventoryQuantity(line['remaining_quantity'])} $unit'
+                            .trim(),
+                        style: Apex.strong,
+                      ),
+                      Text(
+                        'Unit price ${inventoryAmount(line['rate'])}',
+                        style: Apex.note,
+                      ),
+                    ],
                   ),
-                  decoration: InputDecoration(
-                    labelText: 'Quantity received for ${line['description']}',
-                  ),
-                  onChanged: (value) => _edit(() => _quantities[index] = value),
-                ),
-                _lineField(
-                  index,
-                  'rate',
-                  'Unit price (₹)',
-                  inventoryAmount(line['rate']),
-                  enabled,
-                ),
-              ),
-              Material(
-                type: MaterialType.transparency,
-                child: ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  title: const Text('Discount and tax'),
-                  children: [
+                  if (open) ...[
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      key: ValueKey('receiving-quantity-$index'),
+                      initialValue: _quantities[index],
+                      enabled: enabled,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText:
+                            'Quantity received for ${line['description']}',
+                      ),
+                      onChanged: (value) =>
+                          _edit(() => _quantities[index] = value),
+                    ),
+                    const SizedBox(height: 10),
                     _lineField(
                       index,
-                      'discount_amount',
-                      'Fixed discount on this bill',
-                      'Use the order discount',
+                      'rate',
+                      'Unit price (₹)',
+                      inventoryAmount(line['rate']),
                       enabled,
-                    ),
-                    _lineField(
-                      index,
-                      'gst_rate',
-                      'GST rate (%)',
-                      '${line['gst_rate']}%',
-                      enabled,
-                    ),
-                    _lineDropdown(
-                      index,
-                      'tax_treatment',
-                      'Tax treatment',
-                      const {
-                        'taxable': 'Taxable',
-                        'nil_rated': 'Nil rated',
-                        'exempt': 'Exempt',
-                        'non_gst': 'Non-GST',
-                      },
-                      enabled,
-                    ),
-                    _lineDropdown(
-                      index,
-                      'itc_treatment',
-                      'Input tax credit',
-                      const {
-                        'pending_review': 'Pending review',
-                        'ineligible': 'Ineligible',
-                      },
-                      enabled,
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Supplier rate includes GST'),
-                      value:
-                          (_overrides[index]?['price_includes_tax'] ??
-                              line['price_includes_tax']) ==
-                          true,
-                      onChanged: enabled
-                          ? (value) =>
-                                _override(index, 'price_includes_tax', value)
-                          : null,
                     ),
                   ],
-                ),
-              ),
-            ],
-          ],
+                ],
+              );
+            },
+          ),
         ),
+        for (final line in taxed) _taxTile(line, enabled),
+      ],
+    );
+  }
+
+  Widget _taxTile(InventoryJson line, bool enabled) {
+    final index = line['line_index'] as int;
+    return Material(
+      type: MaterialType.transparency,
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        title: Text('Supplier tax and discount · ${line['description']}'),
+        children: [
+          _lineField(
+            index,
+            'discount_amount',
+            'Fixed discount on this bill',
+            'Use the order discount',
+            enabled,
+          ),
+          _lineField(
+            index,
+            'gst_rate',
+            'GST rate (%)',
+            '${line['gst_rate']}%',
+            enabled,
+          ),
+          _lineDropdown(index, 'tax_treatment', 'Tax treatment', const {
+            'taxable': 'Taxable',
+            'nil_rated': 'Nil rated',
+            'exempt': 'Exempt',
+            'non_gst': 'Non-GST',
+          }, enabled),
+          _lineDropdown(index, 'itc_treatment', 'Input tax credit', const {
+            'pending_review': 'Pending review',
+            'ineligible': 'Ineligible',
+          }, enabled),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Supplier rate includes GST'),
+            value:
+                (_overrides[index]?['price_includes_tax'] ??
+                    line['price_includes_tax']) ==
+                true,
+            onChanged: enabled
+                ? (value) => _override(index, 'price_includes_tax', value)
+                : null,
+          ),
+        ],
       ),
     );
   }
@@ -770,13 +857,16 @@ class _InventoryReceivingPageState extends State<InventoryReceivingPage> {
     String name,
     String label,
     String hint,
-    bool enabled,
-  ) => TextFormField(
+    bool enabled, {
+    bool dense = false,
+  }) => TextFormField(
     key: ValueKey('receiving-$name-$index'),
     initialValue: _overrides[index]?[name] as String?,
     keyboardType: const TextInputType.numberWithOptions(decimal: true),
     enabled: enabled,
-    decoration: InputDecoration(labelText: label, hintText: hint),
+    decoration: dense
+        ? InputDecoration(isDense: true, hintText: hint)
+        : InputDecoration(labelText: label, hintText: hint),
     onChanged: (value) => _override(index, name, value),
   );
 

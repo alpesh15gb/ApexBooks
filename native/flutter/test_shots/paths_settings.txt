@@ -1,0 +1,4 @@
+/api/capabilities
+/api/companies/{cid}/audit-events?limit=50
+/api/companies/{cid}/bank-accounts
+/api/companies/{cid}/inventory-setup

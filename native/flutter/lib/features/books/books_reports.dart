@@ -12,6 +12,7 @@ import 'report_catalog.dart';
 import 'report_day_book.dart';
 import 'report_filters.dart';
 import 'report_library.dart';
+import 'report_records.dart';
 
 class BooksReports extends StatefulWidget {
   const BooksReports({
@@ -40,8 +41,9 @@ class _BooksReportsState extends State<BooksReports> {
   late DateTimeRange _range;
   Future<BooksJson>? _future;
   final _details = <String>[];
-  final _party = TextEditingController();
   String _appliedParty = '';
+  ReportRecordInfo _info = const ReportRecordInfo();
+  int _infoGeneration = 0;
   bool _exporting = false;
   bool _customPeriod = false;
   bool _quarterly = false;
@@ -56,6 +58,7 @@ class _BooksReportsState extends State<BooksReports> {
   void initState() {
     super.initState();
     _range = _financialYear();
+    if (widget.active) _loadInfo();
     if (widget.report case final report?) {
       _read(report, _initialRange(report), notify: false);
     }
@@ -69,8 +72,9 @@ class _BooksReportsState extends State<BooksReports> {
       _selected = null;
       _future = null;
       _details.clear();
-      _party.clear();
       _appliedParty = '';
+      _info = const ReportRecordInfo();
+      if (widget.active) _loadInfo();
       _customPeriod = false;
       _quarterly = false;
       _ordinary = null;
@@ -79,7 +83,7 @@ class _BooksReportsState extends State<BooksReports> {
         (oldWidget.report != widget.report || widget.report != _selected)) {
       _details.clear();
       if (widget.report case final report?) {
-        _party.clear();
+        _appliedParty = '';
         _read(report, _initialRange(report), notify: false);
       } else {
         _selected = null;
@@ -89,6 +93,7 @@ class _BooksReportsState extends State<BooksReports> {
         (!oldWidget.active || oldWidget.revision != widget.revision)) {
       final report = _selected;
       _future = report != null && _details.isEmpty ? _fetch(report) : null;
+      _loadInfo();
     }
   }
 
@@ -141,23 +146,54 @@ class _BooksReportsState extends State<BooksReports> {
       _selected = report;
       _range = range;
       if (!report.gstReturn && !report.asOfOnly) _ordinary = range;
-      _appliedParty = _party.text.trim();
       _future = _fetch(report);
     }
 
     notify ? setState(apply) : apply();
   }
 
-  Future<BooksJson> _fetch(BooksReport report) => _data.report(
-    report,
-    from: _range.start,
-    to: _range.end,
-    party: _appliedParty,
+  Future<BooksJson> _fetch(BooksReport report) async => booksObject(
+    await widget.workspace.api.get(
+      '${widget.workspace.path}${report.path}',
+      query: _query(report, _range, _appliedParty),
+    ),
   );
+
+  /// Web query: the party applies to the party statement and to the as-of balance reports.
+  static Map<String, String> _query(
+    BooksReport report,
+    DateTimeRange range,
+    String party,
+  ) => {
+    ...report.query(range.start, range.end),
+    if (_partyReports.contains(report) && party.isNotEmpty) 'party': party,
+  };
+
+  static const _partyReports = {
+    BooksReport.parties,
+    BooksReport.ageing,
+    BooksReport.credits,
+    BooksReport.advances,
+  };
+
+  Future<void> _loadInfo() async {
+    final generation = ++_infoGeneration;
+    final workspace = widget.workspace;
+    try {
+      final info = await loadReportRecordInfo(workspace);
+      if (!mounted ||
+          generation != _infoGeneration ||
+          workspace != widget.workspace) {
+        return;
+      }
+      setState(() => _info = info);
+    } catch (_) {
+      // The party list and the legacy count are conveniences; the report still loads.
+    }
+  }
 
   @override
   void dispose() {
-    _party.dispose();
     super.dispose();
   }
 
@@ -170,7 +206,7 @@ class _BooksReportsState extends State<BooksReports> {
     try {
       final result = await workspace.api.download(
         '${workspace.path}${report.path}.$format',
-        query: report.query(range.start, range.end, party: party),
+        query: _query(report, range, party),
       );
       if (!mounted || !widget.active || workspace != widget.workspace) return;
       final slug = report.title.toLowerCase().replaceAll(
@@ -364,7 +400,7 @@ class _BooksReportsState extends State<BooksReports> {
         key: ValueKey(widget.workspace.company.id),
         available: _available,
         onSelect: (report) {
-          _party.clear();
+          _appliedParty = '';
           _choose(report);
         },
       );
@@ -569,8 +605,14 @@ class _BooksReportsState extends State<BooksReports> {
                   _quarterly = value;
                   _read(report, _returnRange(_range.start, value));
                 },
-                party: _party,
-                onParty: () => _read(report, _range),
+                party: _info.parties.contains(_appliedParty)
+                    ? _appliedParty
+                    : '',
+                parties: _info.parties,
+                onParty: (name) {
+                  _appliedParty = name;
+                  _read(report, _range);
+                },
               ),
               if (!done)
                 _loading()
@@ -587,6 +629,13 @@ class _BooksReportsState extends State<BooksReports> {
                   onOpenRecord: _open,
                   asOf: booksDate(_range.end),
                   party: _appliedParty,
+                  fetch: widget.workspace.api.get,
+                  root: widget.workspace.path,
+                  from: booksDate(_range.start),
+                  stockHistory: widget.workspace.features.contains(
+                    'stock_movement_history',
+                  ),
+                  legacy: _info.legacy,
                 ),
             ],
           ],

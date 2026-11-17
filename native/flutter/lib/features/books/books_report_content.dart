@@ -5,6 +5,7 @@ import '../../ui/apex_theme.dart';
 import 'books_data.dart';
 import 'report_day_book.dart';
 import 'report_statements.dart';
+import 'report_stock.dart';
 import 'report_widgets.dart';
 
 part 'books_extended_reports.dart';
@@ -17,6 +18,11 @@ class BooksReportContent extends StatelessWidget {
     required this.onOpenRecord,
     this.asOf = '',
     this.party = '',
+    this.fetch,
+    this.root = '',
+    this.from = '',
+    this.stockHistory = false,
+    this.legacy = 0,
     super.key,
   });
 
@@ -29,6 +35,17 @@ class BooksReportContent extends StatelessWidget {
 
   /// Party name applied to the party statement.
   final String party;
+
+  /// Reads the API for the stock movements opened from the tracked stock report.
+  final BooksGet? fetch;
+  final String root;
+
+  /// Start date of the period (the stock movements use the report's dates).
+  final String from;
+  final bool stockHistory;
+
+  /// Unposted legacy documents, named in the transaction summary note.
+  final int legacy;
 
   @override
   Widget build(BuildContext context) {
@@ -124,8 +141,8 @@ class BooksReportContent extends StatelessWidget {
               ),
             ),
         ]),
-        const ReportInfoBox(
-          'Receivables and payables are outstanding as of the end date, including documents issued before the selected period. These figures are preparation aids, not filed returns.',
+        ReportInfoBox(
+          'Receivables and payables are outstanding as of the end date, including documents issued before the selected period. $legacy legacy records are excluded. These figures are preparation aids, not filed returns.',
         ),
       ],
     );
@@ -324,40 +341,15 @@ class BooksReportContent extends StatelessWidget {
   Widget _stock() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      ReportTable(
+      ReportStockTable(
         key: ObjectKey(data),
-        title: 'Tracked stock quantities',
-        empty: 'No stock-tracked items',
-        columns: [
-          reportText('Item / unit', flex: 1.6),
-          reportAmount('Opening'),
-          reportAmount('Introduced'),
-          reportAmount('Adjustments net'),
-          reportAmount('Purchased net'),
-          reportAmount('Sold net'),
-          reportAmount('Closing'),
-          reportAmount('Cost value'),
-        ],
-        rows: [
-          for (final row in reportRows(data['rows']))
-            ReportTableRow(
-              onTap: booksText(row['item_id']).isEmpty
-                  ? null
-                  : () => onOpenRecord(booksText(row['item_id'])),
-              [
-                ReportCell(booksText(row['name']), sub: booksText(row['unit'])),
-                booksText(row['opening_quantity']),
-                booksText(row['introduced_quantity']),
-                booksText(row['adjustment_quantity']),
-                booksText(row['purchased_quantity']),
-                booksText(row['sold_quantity']),
-                booksText(row['closing_quantity']),
-                row['closing_value'] == null
-                    ? 'Needs migration'
-                    : booksMoney(row['closing_value']),
-              ],
-            ),
-        ],
+        data: data,
+        fetch: fetch ?? (_, {query}) async => const {},
+        root: root,
+        from: from,
+        to: asOf,
+        history: stockHistory && fetch != null,
+        onOpenRecord: onOpenRecord,
       ),
       const ReportInfoBox(
         'Only documents linked to stock-tracked item masters affect this report. Opening stock can be posted once for an item before its first movement. Count adjustments are shown separately and post gains or losses to the ledger. Closing cost uses moving weighted average for newly tracked stock. Net realisable value adjustments and other valuation cases still need review.',

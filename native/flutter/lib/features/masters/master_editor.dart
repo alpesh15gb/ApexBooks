@@ -4,6 +4,7 @@ import '../../core/workspace.dart';
 import '../../ui/apex_theme.dart';
 import '../inventory/inventory_models.dart';
 import '../inventory/inventory_posting.dart';
+import 'item_image.dart';
 import 'item_setup_fields.dart';
 import 'master_form_widgets.dart';
 
@@ -52,6 +53,9 @@ class _MasterEditorPageState extends State<MasterEditorPage> {
   late String _partyType;
   late String _itemType;
   late String _tax;
+  // Item image as the web form keeps it: null means the full image was never loaded or changed.
+  String? _imageData;
+  late String _imageThumb;
   bool _busy = false;
   bool _touched = false;
   bool _discard = false;
@@ -76,6 +80,8 @@ class _MasterEditorPageState extends State<MasterEditorPage> {
     _active = _original['is_active'] != false;
     _itemType = (_original['item_type'] as String?) ?? 'goods';
     _partyType = (_original['party_type'] as String?) ?? 'both';
+    _imageData = _original['image_data_url'] is String ? _original['image_data_url'] as String : null;
+    _imageThumb = inventoryText(_original['image_thumbnail']);
     final rate = num.tryParse(inventoryText(_original['gst_rate']));
     _tax = (_original['tax_treatment'] as String?) ?? (rate != null && rate > 0 ? 'taxable' : 'nil_rated');
   }
@@ -122,6 +128,8 @@ class _MasterEditorPageState extends State<MasterEditorPage> {
       if (fitError != null) throw FormatException(fitError);
       return {
         ...data,
+        if (_imageData != null) 'image_data_url': _imageData,
+        'image_thumbnail': _imageThumb,
         'item_type': _itemType,
         'track_stock': _tracked,
         'tax_treatment': _tax,
@@ -329,6 +337,23 @@ class _MasterEditorPageState extends State<MasterEditorPage> {
   ];
 
   List<MasterFormCell> _itemCells() => [
+    MasterFormCell(
+      full: true,
+      ItemImageField(
+        image: (_imageData ?? '').isNotEmpty ? _imageData! : _imageThumb,
+        enabled: _editable,
+        onPicked: (picked) => setState(() {
+          _touched = true;
+          _imageData = picked.image;
+          _imageThumb = picked.thumbnail;
+        }),
+        onRemoved: () => setState(() {
+          _touched = true;
+          _imageData = '';
+          _imageThumb = '';
+        }),
+      ),
+    ),
     MasterFormCell(
       _choice('Item type', _itemType, const {'goods': 'Goods', 'services': 'Services'}, (value) {
         _itemType = value;

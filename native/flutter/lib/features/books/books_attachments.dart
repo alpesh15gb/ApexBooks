@@ -102,7 +102,6 @@ class _BooksAttachmentsState extends State<BooksAttachments> {
   BooksAttachmentCommand? _pending;
   bool _loaded = false;
   bool _busy = false;
-  bool _expanded = false;
   String? _message;
   int _limit = 2 * 1024 * 1024;
 
@@ -113,6 +112,15 @@ class _BooksAttachmentsState extends State<BooksAttachments> {
       'books-attachment-${Uri.encodeComponent(widget.record.id)}';
   bool get _canWrite => widget.workspace.company.canWrite;
   bool get _canUpload => widget.workspace.api is HttpApexApi;
+
+  @override
+  void initState() {
+    super.initState();
+    // The web shows receipts inline on the document, so they load with it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_loaded) _load();
+    });
+  }
 
   Future<void> _load() async {
     if (_busy) return;
@@ -383,85 +391,109 @@ class _BooksAttachmentsState extends State<BooksAttachments> {
 
   @override
   Widget build(BuildContext context) => ApexPanel(
-    child: ExpansionTile(
-      tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      shape: const Border(),
-      collapsedShape: const Border(),
-      maintainState: true,
-      title: const Text('Receipts & attachments', style: Apex.panelTitle),
-      onExpansionChanged: (open) {
-        setState(() => _expanded = open);
-        if (open && !_loaded) _load();
-      },
-      children: [
-        if (_expanded && _busy)
-          const LinearProgressIndicator(
-            semanticsLabel: 'Working on receipt attachment',
-          ),
-        if (_message case final message?)
-          Semantics(liveRegion: true, child: Text(message)),
-        if (_pending case final saved?)
-          OutlinedButton(
-            onPressed: _busy
-                ? null
-                : () => saved.upload
-                      ? _choose(retry: saved)
-                      : _archive(retry: saved),
-            child: Text(
-              saved.upload
-                  ? 'Retry with original receipt file'
-                  : 'Retry original receipt update',
-            ),
-          ),
-        if (_loaded && _rows.isEmpty) const Text('No retained receipts.'),
-        for (final row in _rows)
-          ListTile(
-            title: Text(booksText(row['filename'])),
-            subtitle: row['is_archived'] == true
-                ? const Text('Archived')
-                : null,
-            trailing: PopupMenuButton<String>(
-              tooltip: 'Receipt actions',
-              enabled: !_busy,
-              onSelected: (value) =>
-                  value == 'download' ? _download(row) : _archive(row: row),
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'download',
-                  child: Text('Save receipt'),
-                ),
-                if (_loaded &&
-                    _canWrite &&
-                    _pending == null &&
-                    widget.workspace.api is ApexWriteApi)
-                  PopupMenuItem(
-                    value: 'archive',
-                    child: Text(
-                      row['is_archived'] == true
-                          ? 'Restore receipt'
-                          : 'Archive receipt',
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          children: [
-            OutlinedButton(
-              onPressed: _busy ? null : _load,
-              child: const Text('Refresh receipts'),
-            ),
-            if (_canWrite && _canUpload && _pending == null)
-              FilledButton.tonal(
-                onPressed: _loaded && !_busy ? _choose : null,
-                child: const Text('Attach receipt'),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        spacing: 8,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Receipts & evidence', style: Apex.panelTitle),
               ),
-          ],
-        ),
-      ],
+              Text('${_rows.length} retained files', style: Apex.note),
+            ],
+          ),
+          const Text(
+            'PDF, PNG or JPEG · up to 2 MiB each. Files download only; Apex Books does not preview or certify their safety.',
+            style: Apex.note,
+          ),
+          const Text(
+            'Archiving hides a receipt from active use; it does not delete evidence or release storage. Complete backups retain archived files.',
+            style: Apex.note,
+          ),
+          if (_busy)
+            const LinearProgressIndicator(
+              semanticsLabel: 'Working on receipt attachment',
+            ),
+          if (_message case final message?)
+            Semantics(liveRegion: true, child: Text(message)),
+          if (_pending case final saved?)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton(
+                onPressed: _busy
+                    ? null
+                    : () => saved.upload
+                          ? _choose(retry: saved)
+                          : _archive(retry: saved),
+                child: Text(
+                  saved.upload
+                      ? 'Retry with original receipt file'
+                      : 'Retry original receipt update',
+                ),
+              ),
+            ),
+          for (final row in _rows)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(booksText(row['filename'])),
+              subtitle: Text(
+                row['is_archived'] == true ? 'Archived · retained' : 'Active',
+              ),
+              trailing: PopupMenuButton<String>(
+                tooltip: 'Receipt actions',
+                enabled: !_busy,
+                onSelected: (value) =>
+                    value == 'download' ? _download(row) : _archive(row: row),
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'download',
+                    child: Text('Save receipt'),
+                  ),
+                  if (_loaded &&
+                      _canWrite &&
+                      _pending == null &&
+                      widget.workspace.api is ApexWriteApi)
+                    PopupMenuItem(
+                      value: 'archive',
+                      child: Text(
+                        row['is_archived'] == true
+                            ? 'Restore receipt'
+                            : 'Archive receipt',
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          if (_loaded && _rows.isEmpty)
+            const Text(
+              'No receipt attached yet. Your accounting entry is unchanged.',
+              style: Apex.note,
+            ),
+          if (!_canWrite)
+            const Text(
+              'Read-only access: you can download receipts, but cannot upload, archive or reactivate them.',
+              style: Apex.note,
+            ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              OutlinedButton(
+                onPressed: _busy ? null : _load,
+                child: const Text('Refresh receipts'),
+              ),
+              if (_canWrite && _canUpload && _pending == null)
+                FilledButton(
+                  onPressed: _loaded && !_busy ? _choose : null,
+                  child: const Text('Attach receipt'),
+                ),
+            ],
+          ),
+        ],
+      ),
     ),
   );
 }

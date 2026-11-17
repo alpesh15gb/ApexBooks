@@ -76,61 +76,69 @@ class ReportMetricGrid extends StatelessWidget {
           : 1;
       columns = columns.clamp(1, metrics.isEmpty ? 1 : metrics.length);
       const gap = 16.0;
-      final cell = (width - gap * (columns - 1)) / columns;
-      return Padding(
-        padding: const EdgeInsets.only(top: 16),
-        child: Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: [
-            for (final metric in metrics)
-              SizedBox(
-                width: cell,
-                child: Semantics(
-                  container: true,
-                  label: '${metric.label}, ${metric.value}',
-                  child: ExcludeSemantics(
-                    child: ApexPanel(
-                      radius: 10,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 22,
-                        vertical: 22,
-                      ),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              metric.label.toUpperCase(),
-                              style: Apex.tableHeader.copyWith(fontSize: 11),
-                            ),
-                            const SizedBox(height: 14),
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                metric.value,
-                                style: TextStyle(
-                                  fontFamily: Apex.display,
-                                  fontSize: 30,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -1,
-                                  color: metric.color ?? Apex.ink,
-                                ),
-                              ),
-                            ),
-                            if (metric.note != null) ...[
-                              const SizedBox(height: 10),
-                              Text(metric.note!, style: Apex.small),
-                            ],
-                          ],
-                        ),
+      Widget card(ReportMetric metric) => Semantics(
+        container: true,
+        label: '${metric.label}, ${metric.value}',
+        child: ExcludeSemantics(
+          child: ApexPanel(
+            radius: 10,
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 22),
+            child: SizedBox(
+              width: double.infinity,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    metric.label.toUpperCase(),
+                    style: Apex.tableHeader.copyWith(fontSize: 11),
+                  ),
+                  const SizedBox(height: 14),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      metric.value,
+                      style: TextStyle(
+                        fontFamily: Apex.display,
+                        fontSize: 30,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -1,
+                        color: metric.color ?? Apex.ink,
                       ),
                     ),
                   ),
+                  if (metric.note != null) ...[
+                    const SizedBox(height: 10),
+                    Text(metric.note!, style: Apex.small),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      return Padding(
+        padding: const EdgeInsets.only(top: 16),
+        child: Column(
+          children: [
+            for (var start = 0; start < metrics.length; start += columns) ...[
+              if (start > 0) const SizedBox(height: gap),
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < columns; i++) ...[
+                      if (i > 0) const SizedBox(width: gap),
+                      Expanded(
+                        child: start + i < metrics.length
+                            ? card(metrics[start + i])
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ],
                 ),
               ),
+            ],
           ],
         ),
       );
@@ -326,12 +334,16 @@ class ReportCell {
     this.color,
     this.bold = false,
     this.link = false,
+    this.onTap,
   });
   final String text;
   final String? sub;
   final Color? color;
   final bool bold;
   final bool link;
+
+  /// Overrides the row tap for this link cell.
+  final VoidCallback? onTap;
 }
 
 class ReportTableRow {
@@ -355,6 +367,7 @@ class ReportTable extends StatefulWidget {
     this.subtitle,
     this.pageSize = 30,
     this.minColumnWidth = 112,
+    this.below,
     super.key,
   });
 
@@ -365,6 +378,9 @@ class ReportTable extends StatefulWidget {
   final String empty;
   final int pageSize;
   final double minColumnWidth;
+
+  /// Shown under the rows inside the panel (for example an opened stock history).
+  final Widget? below;
 
   @override
   State<ReportTable> createState() => _ReportTableState();
@@ -391,7 +407,11 @@ class _ReportTableState extends State<ReportTable> {
               : CrossAxisAlignment.start,
           children: [
             if (value.link)
-              ApexLink(value.text, onTap: rows[row].onTap, strong: value.bold)
+              ApexLink(
+                value.text,
+                onTap: value.onTap ?? rows[row].onTap,
+                strong: value.bold,
+              )
             else
               Text(
                 value.text,
@@ -447,19 +467,27 @@ class _ReportTableState extends State<ReportTable> {
                       ),
                       const SizedBox(width: 12),
                       Flexible(
-                        child: Text(
-                          cells[i].sub == null || cells[i].sub!.isEmpty
-                              ? cells[i].text
-                              : '${cells[i].text}\n${cells[i].sub}',
-                          textAlign: TextAlign.right,
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: cells[i].bold
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                            color: cells[i].color ?? Apex.inkSoft,
-                          ),
-                        ),
+                        child: cells[i].link && cells[i].onTap != null
+                            ? Align(
+                                alignment: Alignment.centerRight,
+                                child: ApexLink(
+                                  cells[i].text,
+                                  onTap: cells[i].onTap,
+                                ),
+                              )
+                            : Text(
+                                cells[i].sub == null || cells[i].sub!.isEmpty
+                                    ? cells[i].text
+                                    : '${cells[i].text}\n${cells[i].sub}',
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: cells[i].bold
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                  color: cells[i].color ?? Apex.inkSoft,
+                                ),
+                              ),
                       ),
                     ],
                   ),
@@ -503,13 +531,17 @@ class _ReportTableState extends State<ReportTable> {
         title: widget.title,
         subtitle: widget.subtitle,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Divider(color: Apex.line, height: 1),
+            _body(const []),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 36),
-              child: Text(
-                widget.empty,
-                style: Apex.strong.copyWith(fontSize: 14),
+              child: Center(
+                child: Text(
+                  widget.empty,
+                  style: Apex.strong.copyWith(fontSize: 14),
+                ),
               ),
             ),
           ],
@@ -527,6 +559,7 @@ class _ReportTableState extends State<ReportTable> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _body(current),
+          ?widget.below,
           if (rows.length > size)
             DecoratedBox(
               decoration: const BoxDecoration(

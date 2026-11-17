@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/workspace.dart';
+import '../banking/bank_widgets.dart';
 import '../books/books_data.dart';
 
 class JournalEditor extends StatefulWidget {
@@ -157,45 +158,8 @@ class _JournalEditorState extends State<JournalEditor> {
     }
   }
 
-  Future<bool> _checkPosted(Json body) async {
-    try {
-      final workspace = widget.workspace;
-      final rows = booksRows(
-        await workspace.api.get(
-          '${workspace.path}/journals',
-          query: {'reference': body['reference'] as String},
-        ),
-      );
-      if (rows.length != 1 || rows.single['date'] != body['date']) return false;
-      final row = rows.single;
-      if (_reversing) {
-        return row['reversal_of'] == widget.reverse?['id'] &&
-            row['memo'] == body['reason'];
-      }
-      if (row['memo'] != body['memo'] ||
-          row['reversal_of'] != null ||
-          row['source_record_id'] != null) {
-        return false;
-      }
-      List<String> keys(Object? lines) =>
-          booksRows(lines)
-              .map(
-                (line) =>
-                    '${line['account_id']}:${_paise(booksText(line['debit']))}:${_paise(booksText(line['credit']))}',
-              )
-              .toList()
-            ..sort();
-      final actual = keys(row['lines']);
-      final expected = keys(body['lines']);
-      if (actual.length != expected.length) return false;
-      for (var i = 0; i < actual.length; i++) {
-        if (actual[i] != expected[i]) return false;
-      }
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
+  Future<bool> _checkPosted(Json body) =>
+      journalAlreadyPosted(widget.workspace, body, reverse: widget.reverse);
 
   Future<void> _chooseDate() async {
     final original = DateTime.tryParse(booksText(widget.reverse?['date']));
@@ -390,4 +354,217 @@ class _JournalEditorState extends State<JournalEditor> {
       ),
     ),
   );
+}
+
+/// After a lost or conflicting response: is exactly this journal (or reversal) already in the ledger?
+Future<bool> journalAlreadyPosted(WorkspaceContext workspace, Json body, {Json? reverse}) async {
+  try {
+    final rows = booksRows(
+      await workspace.api.get(
+        '${workspace.path}/journals',
+        query: {'reference': body['reference'] as String},
+      ),
+    );
+    if (rows.length != 1 || rows.single['date'] != body['date']) return false;
+    final row = rows.single;
+    if (reverse != null) {
+      return row['reversal_of'] == reverse['id'] &&
+          row['memo'] == body['reason'];
+    }
+    if (row['memo'] != body['memo'] ||
+        row['reversal_of'] != null ||
+        row['source_record_id'] != null) {
+      return false;
+    }
+    List<String> keys(Object? lines) =>
+        booksRows(lines)
+            .map(
+              (line) =>
+                  '${line['account_id']}:${_paise(booksText(line['debit']))}:${_paise(booksText(line['credit']))}',
+            )
+            .toList()
+          ..sort();
+    final actual = keys(row['lines']);
+    final expected = keys(body['lines']);
+    if (actual.length != expected.length) return false;
+    for (var i = 0; i < actual.length; i++) {
+      if (actual[i] != expected[i]) return false;
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// The "New journal entry" form shown inline on the Ledger page, as on the web: date, reference, memo,
+/// one debit account, one credit account and an amount. Posting, the recovery check after a lost
+/// response and the validation match [JournalEditor].
+class InlineJournalForm extends StatefulWidget {
+  const InlineJournalForm({
+    required this.workspace,
+    required this.accounts,
+    required this.onPosted,
+    super.key,
+  });
+
+  final WorkspaceContext workspace;
+  final List<Json> accounts;
+  final Future<void> Function() onPosted;
+
+  @override
+  State<InlineJournalForm> createState() => _InlineJournalFormState();
+}
+
+class _InlineJournalFormState extends State<InlineJournalForm> {
+  final _date = TextEditingController(text: businessDate());
+  final _reference = TextEditingController();
+  final _memo = TextEditingController();
+  final _amount = TextEditingController();
+  String? _debit;
+  String? _credit;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _date.dispose();
+    _reference.dispose();
+    _memo.dispose();
+    _amount.dispose();
+    super.dispose();
+  }
+
+  Future<void> _post() async {
+    if (_busy) return;
+    final workspace = widget.workspace;
+    final date = DateTime.tryParse(_date.text.trim());
+    final reference = _reference.text.trim();
+    final amount = _paise(_amount.text);
+    if (date == null || booksDate(date) != _date.text.trim()) {
+      setState(() => _error = 'Enter a valid date (YYYY-MM-DD).');
+      return;
+    }
+    if (reference.isEmpty) {
+      setState(() => _error = 'Enter a reference.');
+      return;
+    }
+    if (_debit == null || _credit == null) {
+      setState(() => _error = 'Choose a debit and a credit account.');
+      return;
+    }
+    if (_debit == _credit) {
+      setState(() => _error = 'Choose different accounts for debit and credit');
+      return;
+    }
+    if (amount == null || amount == BigInt.zero) {
+      setState(() => _error = 'Enter an amount greater than zero.');
+      return;
+    }
+    final value = _decimal(amount);
+    final body = <String, dynamic>{
+      'date': booksDate(date),
+      'reference': reference,
+      'memo': _memo.text.trim(),
+      'lines': [
+        {'account_id': _debit, 'debit': value, 'credit': '0'},
+        {'account_id': _credit, 'debit': '0', 'credit': value},
+      ],
+    };
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    var posted = false;
+    String? failure;
+    try {
+      await workspace.api.post('${workspace.path}/journals', body: body);
+      posted = true;
+    } on ApexApiException catch (error) {
+      if ((error.uncertain || error.status == 409) &&
+          await journalAlreadyPosted(workspace, body)) {
+        posted = true;
+      } else {
+        failure = error.uncertain
+            ? 'The journal could not be confirmed. Check this reference in the ledger before trying again.'
+            : error.message;
+      }
+    } catch (_) {
+      failure = 'Couldn’t save the journal.';
+    }
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _error = failure;
+      if (posted) {
+        _reference.clear();
+        _memo.clear();
+        _amount.clear();
+        _date.text = businessDate();
+        _debit = null;
+        _credit = null;
+      }
+    });
+    if (posted) await widget.onPosted();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final choices = [
+      for (final account in widget.accounts)
+        if (!_JournalEditorState._controlAccounts.contains(account['code']))
+          (booksText(account['id']), '${account['code']} · ${account['name']}'),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        BankFormRow(
+          breakpoint: 360,
+          [
+            BankFilterField(label: 'Date', controller: _date, width: null, hint: 'YYYY-MM-DD', maxLength: 10, date: true, enabled: !_busy),
+            BankFilterField(label: 'Reference', controller: _reference, width: null, maxLength: 80, enabled: !_busy),
+          ],
+        ),
+        const SizedBox(height: 14),
+        BankFilterField(label: 'Memo', controller: _memo, width: null, maxLength: 500, enabled: !_busy),
+        const SizedBox(height: 14),
+        BankFormRow(
+          breakpoint: 360,
+          [
+            BankSelectField<String>(
+              label: 'Debit account',
+              value: _debit,
+              hint: 'Choose account',
+              items: choices,
+              onChanged: _busy ? null : (value) => setState(() => _debit = value),
+            ),
+            BankSelectField<String>(
+              label: 'Credit account',
+              value: _credit,
+              hint: 'Choose account',
+              items: choices,
+              onChanged: _busy ? null : (value) => setState(() => _credit = value),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        BankFilterField(
+          label: 'Amount (₹)',
+          controller: _amount,
+          width: null,
+          maxLength: 16,
+          keyboard: const TextInputType.numberWithOptions(decimal: true),
+          enabled: !_busy,
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 14),
+          BankNote(tone: BankTone.error, live: true, child: Text(_error!)),
+        ],
+        const SizedBox(height: 14),
+        FilledButton(
+          onPressed: _busy || widget.accounts.length < 2 ? null : _post,
+          child: Text(_busy ? 'Posting…' : 'Post journal'),
+        ),
+      ],
+    );
+  }
 }

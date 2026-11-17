@@ -47,6 +47,12 @@ class _ShopApi implements ApexApi, ApexWriteApi {
 
   @override
   Future<dynamic> get(String path, {Map<String, String>? query}) async {
+    if (path == '$_base/parties/party/statement') {
+      return {
+        'balances': {'receivable': '120.00', 'payable': '0'},
+        'transactions': [],
+      };
+    }
     if (path == '$_base/parties/party/ledger') {
       expect(query?['from_date'], isNotEmpty);
       expect(query?['to_date'], isNotEmpty);
@@ -244,10 +250,10 @@ void main() {
     // The party name opens its statement, as on the web.
     await _tap(tester, find.text('Test customer'));
     expect(find.text('Closing balance'), findsWidgets);
-    expect(find.text('₹120.00 Dr'), findsWidgets);
+    expect(find.text('120.00 Dr'), findsWidgets);
     expect(find.text('To Sales'), findsOneWidget);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
+    expect(find.text('Balance components'), findsOneWidget);
+    await _tap(tester, find.byTooltip('Close'));
     await _tap(tester, find.text('Edit'));
     await _tap(tester, find.text('Active for new transactions'));
     await _tap(tester, find.text('Save party'));
@@ -269,7 +275,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await _tap(tester, find.text('Record transfer'));
+    await _tap(tester, find.text('Record cash/bank transfer'));
     await tester.enterText(
       find.widgetWithText(TextField, 'Amount (₹)'),
       '10.50',
@@ -327,7 +333,6 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await _tap(tester, find.text('Reconciliation'));
     await _tap(tester, find.text('Deposit'));
     await _tap(tester, find.text('Match transaction'));
     await _tap(tester, find.text('Retail checkout'));

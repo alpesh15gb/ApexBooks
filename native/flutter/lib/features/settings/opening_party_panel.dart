@@ -6,6 +6,7 @@ import '../../core/workspace.dart';
 import '../books/books_data.dart';
 import '../books/books_entry_picker.dart';
 import 'settings_blocks.dart';
+import 'settings_fields.dart';
 
 class OpeningPartyPanel extends StatefulWidget {
   const OpeningPartyPanel({required this.workspace, super.key});
@@ -18,9 +19,19 @@ class OpeningPartyPanel extends StatefulWidget {
 
 class _OpeningPartyPanelState extends State<OpeningPartyPanel> {
   static const _operation = 'opening-party-balance';
+  static const _typeLabels = {
+    'receivable': 'Customer owes us',
+    'payable': 'We owe supplier',
+    'cash': 'Cash in hand',
+    'bank': 'Bank balance',
+  };
   final _amount = TextEditingController();
   DateTime _date = DateTime.parse(businessDate());
   String _type = 'receivable';
+  String _bank = 'default';
+  bool _overdraft = false;
+  List<Json> _banks = const [];
+  bool _banksLoaded = false;
   BooksRecord? _party;
   Json? _pending;
   String? _message;
@@ -84,11 +95,16 @@ class _OpeningPartyPanelState extends State<OpeningPartyPanel> {
     final party = _party;
     final amount = _amount.text.trim();
     final retry = _pending != null;
+    final needsParty = _type == 'receivable' || _type == 'payable';
     if (!retry &&
-        (party == null ||
+        ((needsParty && party == null) ||
             !RegExp(r'^\d{1,12}(?:\.\d{1,2})?$').hasMatch(amount) ||
             (num.tryParse(amount) ?? 0) <= 0)) {
-      setState(() => _message = 'Choose a party and enter a positive amount.');
+      setState(
+        () => _message = needsParty
+            ? 'Choose a party and enter a positive amount.'
+            : 'Enter a positive amount.',
+      );
       return;
     }
     setState(() {
@@ -104,12 +120,17 @@ class _OpeningPartyPanelState extends State<OpeningPartyPanel> {
               24,
               (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
             ).join(),
-            'party': party!.party,
+            'party': party?.party ?? _typeLabels[_type],
             'body': {
               'kind': 'opening',
               'date': booksDate(_date),
               'amount': amount,
-              'data': {'balance_kind': _type, 'party_id': party.id},
+              'data': {
+                'balance_kind': _type,
+                'party_id': needsParty ? party!.id : '',
+                'bank_account_id': _type == 'bank' ? _bank : 'default',
+                'overdraft': _type == 'bank' && _overdraft,
+              },
             },
           };
       if (!retry) {
@@ -171,6 +192,43 @@ class _OpeningPartyPanelState extends State<OpeningPartyPanel> {
     super.dispose();
   }
 
+  Future<void> _loadBanks() async {
+    if (_banksLoaded) return;
+    _banksLoaded = true;
+    try {
+      final rows = booksRows(
+        await _workspace.api.get('${_workspace.path}/bank-accounts'),
+      );
+      if (mounted) setState(() => _banks = rows);
+    } catch (_) {
+      _banksLoaded = false;
+      if (mounted) {
+        setState(() => _message = 'Bank accounts could not be loaded.');
+      }
+    }
+  }
+
+  Widget _pseudoField(String label, String value, VoidCallback? onTap, IconData icon) =>
+      SettingsLabeled(
+        label: label,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(4),
+          child: InputDecorator(
+            decoration: InputDecoration(
+              suffixIcon: Icon(icon, size: 18),
+              enabled: onTap != null,
+            ),
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     if (!_owner) {
@@ -180,6 +238,7 @@ class _OpeningPartyPanelState extends State<OpeningPartyPanel> {
     final body = pending == null
         ? const <String, dynamic>{}
         : booksObject(pending['body']);
+    final needsParty = _type == 'receivable' || _type == 'payable';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -189,67 +248,102 @@ class _OpeningPartyPanelState extends State<OpeningPartyPanel> {
           const SizedBox(height: 12),
         ],
         if (pending != null) ...[
-          Text(
-            'Check the original balance for ${pending['party']} · ${booksMoney(body['amount'])} · ${body['date']}.',
-          ),
-          const SizedBox(height: 12),
-          FilledButton(
-            onPressed: _busy ? null : _post,
-            child: const Text('Retry original opening balance'),
-          ),
-        ] else ...[
-          const Text(
-            'Enter the amount due before the first transaction for this party.',
-          ),
-          const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            initialValue: _type,
-            decoration: const InputDecoration(labelText: 'Balance type'),
-            items: const [
-              DropdownMenuItem(
-                value: 'receivable',
-                child: Text('Customer owes us'),
-              ),
-              DropdownMenuItem(
-                value: 'payable',
-                child: Text('We owe a supplier'),
-              ),
-            ],
-            onChanged: _busy ? null : (value) => setState(() => _type = value!),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          SettingsInfoBox(
             children: [
-              OutlinedButton.icon(
-                onPressed: _busy ? null : _pickParty,
-                icon: const Icon(Icons.person_outline),
-                label: Text(_party?.party ?? 'Choose a party'),
+              Text(
+                'Check the original balance for ${pending['party']} · ${booksMoney(body['amount'])} · ${body['date']}.',
+                style: const TextStyle(fontSize: 13, height: 1.6),
               ),
-              OutlinedButton.icon(
-                onPressed: _busy ? null : _pickDate,
-                icon: const Icon(Icons.calendar_today_outlined),
-                label: Text(booksDate(_date)),
+              const SizedBox(height: 10),
+              SettingsButton(
+                'Retry original opening balance',
+                primary: true,
+                onPressed: _busy ? null : _post,
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _amount,
-            enabled: !_busy && _storageAvailable,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'Opening amount (₹)'),
-          ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton(
-              onPressed: _busy || !_storageAvailable ? null : _post,
-              child: const Text('Post opening balance'),
+        ] else
+          SettingsGrid([
+            SettingsCell(
+              SettingsSelect(
+                label: 'Balance type',
+                value: _type,
+                options: [
+                  for (final entry in _typeLabels.entries)
+                    (entry.key, entry.value),
+                ],
+                onChanged: _busy
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _type = value;
+                          _overdraft = false;
+                        });
+                        if (value == 'bank') _loadBanks();
+                      },
+              ),
             ),
-          ),
-        ],
+            if (needsParty)
+              SettingsCell(
+                _pseudoField(
+                  'Party',
+                  _party?.party ?? 'Choose a party',
+                  _busy ? null : _pickParty,
+                  Icons.arrow_drop_down,
+                ),
+              ),
+            if (_type == 'bank') ...[
+              SettingsCell(
+                SettingsSelect(
+                  label: 'Bank account',
+                  value: _bank,
+                  options: [
+                    for (final bank in _banks)
+                      (booksText(bank['id']), booksText(bank['name'])),
+                  ],
+                  onChanged: _busy ? null : (value) => setState(() => _bank = value),
+                ),
+              ),
+              SettingsCell(
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  dense: true,
+                  value: _overdraft,
+                  title: const Text('Overdraft (credit balance)'),
+                  onChanged: _busy
+                      ? null
+                      : (value) => setState(() => _overdraft = value ?? false),
+                ),
+              ),
+            ],
+            SettingsCell(
+              _pseudoField(
+                'As of date',
+                booksDate(_date),
+                _busy ? null : _pickDate,
+                Icons.calendar_today_outlined,
+              ),
+            ),
+            SettingsCell(
+              SettingsTextField(
+                label: 'Amount',
+                controller: _amount,
+                enabled: !_busy && _storageAvailable,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+              ),
+            ),
+            SettingsCell(
+              SettingsButton(
+                _busy ? 'Posting…' : 'Post opening balance',
+                primary: true,
+                onPressed: _busy || !_storageAvailable ? null : _post,
+              ),
+              full: true,
+            ),
+          ]),
       ],
     );
   }

@@ -16,6 +16,16 @@ abstract interface class PosGateway {
   Future<void> clearPending(PosPendingSale sale);
 }
 
+/// Optional gateway capabilities the web POS also uses; fakes may omit them.
+abstract interface class PosPartyGateway {
+  Future<List<PosParty>> parties();
+}
+
+abstract interface class PosLocationGateway {
+  /// Shelf id to name, from the company's inventory setup.
+  Future<Map<String, String>> locations();
+}
+
 class PosFailure implements Exception {
   const PosFailure(
     this.message, {
@@ -39,7 +49,10 @@ class PosController extends ChangeNotifier {
     required this.stateCode,
     required this.businessDate,
     this.quoteDelay = const Duration(milliseconds: 220),
-  });
+    this.unregistered = false,
+    PosHeldStore? heldStore,
+  }) : placeOfSupply = stateCode,
+       held = heldStore ?? PosHeldStore();
 
   final PosGateway gateway;
   final Set<String> features;
@@ -48,12 +61,16 @@ class PosController extends ChangeNotifier {
   final String stateCode;
   final String Function() businessDate;
   final Duration quoteDelay;
+  final bool unregistered;
+  final PosHeldStore held;
 
   final List<PosLine> cart = [];
   List<PosProduct> products = [];
   List<PosBank> banks = [];
   List<PosReceipt> receipts = [];
   Map<String, String> stock = {};
+  List<PosParty> parties = [];
+  Map<String, String> locationNames = {};
 
   PosQuote? quote;
   PosPendingSale? pending;
@@ -63,6 +80,10 @@ class PosController extends ChangeNotifier {
   String bankText = '';
   String bankId = '';
   String customer = '';
+  String billingAddress = '';
+  String billingGstin = '';
+  String billingPhone = '';
+  String placeOfSupply;
   bool bankConfirmed = false;
   bool inclusive = false;
   bool round = false;
@@ -99,12 +120,17 @@ class PosController extends ChangeNotifier {
       PosPayment.evaluate(quote?.paise ?? 0, tender, cashText, bankText);
   bool get needsBank => tender != PosTender.cash;
 
+  /// The server needs a two-digit state code unless the company is unregistered.
+  bool get billingValid =>
+      unregistered || RegExp(r'^[0-9]{2}$').hasMatch(placeOfSupply);
+
   bool get ready =>
       canWrite &&
       pendingAvailable &&
       !posting &&
       (pending != null ||
           (quote != null &&
+              billingValid &&
               payment.valid &&
               (!needsBank || (bankId.isNotEmpty && bankConfirmed))));
 
@@ -115,8 +141,35 @@ class PosController extends ChangeNotifier {
   String _message(Object problem, String fallback) =>
       problem is PosFailure ? problem.message : fallback;
 
-  Future<void> initialize() =>
-      Future.wait([recoverPending(), loadProducts(), loadStock(), loadBanks()]);
+  Future<void> initialize() => Future.wait([
+    recoverPending(),
+    loadProducts(),
+    loadStock(),
+    loadBanks(),
+    loadCounterSetup(),
+  ]);
+
+  /// Customer suggestions and shelf names. Both are conveniences, so a
+  /// failure leaves them empty instead of blocking the counter.
+  Future<void> loadCounterSetup() async {
+    final source = gateway;
+    try {
+      if (source is PosLocationGateway) {
+        locationNames = await (source as PosLocationGateway).locations();
+        _emit();
+      }
+    } catch (_) {
+      locationNames = {};
+    }
+    try {
+      if (source is PosPartyGateway && canWrite) {
+        parties = await (source as PosPartyGateway).parties();
+        _emit();
+      }
+    } catch (_) {
+      parties = [];
+    }
+  }
 
   Future<void> recoverPending() async {
     checkingPending = true;
@@ -209,18 +262,23 @@ class PosController extends ChangeNotifier {
 
   bool scan(String value) {
     if (!editable) return false;
-    final barcode = value.trim();
-    if (barcode.isEmpty) return false;
-    final matches = products
-        .where((product) => product.barcode == barcode)
-        .toList();
+    final code = value.trim();
+    if (code.isEmpty) return false;
+    var matches = products.where((product) => product.barcode == code).toList();
+    if (matches.isEmpty) {
+      matches = products
+          .where(
+            (product) => product.name.trim().toLowerCase() == code.toLowerCase(),
+          )
+          .toList();
+    }
     if (matches.length == 1) {
       add(matches.single);
       return true;
     }
     status = matches.isEmpty
-        ? 'No exact barcode match. Choose a product from the results.'
-        : 'This barcode matches more than one product. Choose the correct product.';
+        ? 'No exact barcode or name match. Select a product below.'
+        : 'Multiple products match. Select the correct product below.';
     _emit();
     return false;
   }
@@ -272,9 +330,35 @@ class PosController extends ChangeNotifier {
     _reviseQuote();
   }
 
-  void changeBilling({String? customer, bool? inclusive, bool? round}) {
+  void changeBilling({
+    String? customer,
+    bool? inclusive,
+    bool? round,
+    String? address,
+    String? gstin,
+    String? phone,
+    String? place,
+  }) {
     if (!editable) return;
-    if (customer != null) this.customer = customer;
+    if (customer != null) {
+      this.customer = customer;
+      // Typing an existing customer's exact name fills their billing details,
+      // and any other name clears them (as the web POS does).
+      final name = customer.trim().toLowerCase();
+      final party = parties
+          .where((row) => row.name.toLowerCase() == name)
+          .firstOrNull;
+      billingAddress = party?.address ?? '';
+      billingGstin = party?.gstin ?? '';
+      billingPhone = party?.phone ?? '';
+      placeOfSupply = billingGstin.length >= 2
+          ? billingGstin.substring(0, 2)
+          : stateCode;
+    }
+    if (address != null) billingAddress = address;
+    if (gstin != null) billingGstin = gstin.toUpperCase();
+    if (phone != null) billingPhone = phone;
+    if (place != null) placeOfSupply = place;
     if (inclusive != null) this.inclusive = inclusive;
     if (round != null) this.round = round;
     _reviseQuote();
@@ -316,7 +400,11 @@ class PosController extends ChangeNotifier {
         for (final line in cart)
           line.toJson(regularTax: regularTax, inclusive: inclusive),
       ],
-      'place_of_supply': stateCode,
+      'place_of_supply': placeOfSupply,
+      if (billingAddress.trim().isNotEmpty)
+        'party_address': billingAddress.trim(),
+      if (billingGstin.trim().isNotEmpty) 'party_gstin': billingGstin.trim(),
+      if (billingPhone.trim().isNotEmpty) 'party_phone': billingPhone.trim(),
       'round_total': round,
       if (strictStock) 'require_available_stock': true,
     },
@@ -393,6 +481,75 @@ class PosController extends ChangeNotifier {
 
   void refreshQuote() => _reviseQuote(immediate: true);
 
+  // ---- Held sales, clear sale and dismissing the receipt banner ----
+
+  bool get canHold =>
+      editable && cart.isNotEmpty && held.sales.length < PosHeldStore.limit;
+
+  void _resetSale() {
+    cart.clear();
+    cashText = bankText = '';
+    bankConfirmed = false;
+    customer = '';
+    billingAddress = billingGstin = billingPhone = '';
+    placeOfSupply = stateCode;
+    tender = PosTender.cash;
+    inclusive = round = false;
+    _reviseQuote();
+  }
+
+  void clearSale() {
+    if (!editable) return;
+    _resetSale();
+  }
+
+  void holdSale() {
+    if (!canHold) return;
+    held.sales.add(
+      PosHeldSale(
+        lines: [for (final line in cart) line.copy()],
+        customer: customer,
+        address: billingAddress,
+        gstin: billingGstin,
+        phone: billingPhone,
+        place: placeOfSupply,
+        tender: tender,
+        bankId: bankId,
+        inclusive: inclusive,
+        round: round,
+      ),
+    );
+    _resetSale();
+  }
+
+  void recallSale(PosHeldSale saved) {
+    if (!editable || cart.isNotEmpty || !held.sales.remove(saved)) return;
+    completed = null;
+    cart.addAll(saved.lines);
+    customer = saved.customer;
+    billingAddress = saved.address;
+    billingGstin = saved.gstin;
+    billingPhone = saved.phone;
+    placeOfSupply = saved.place;
+    tender = saved.tender;
+    if (banks.any((bank) => bank.id == saved.bankId)) bankId = saved.bankId;
+    inclusive = saved.inclusive;
+    round = saved.round;
+    cashText = bankText = '';
+    _reviseQuote();
+  }
+
+  void discardHeld(PosHeldSale saved) {
+    if (!editable) return;
+    held.sales.remove(saved);
+    _emit();
+  }
+
+  void dismissCompleted() {
+    completed = null;
+    _emit();
+  }
+
   Future<void> submit() async {
     if (!ready) return;
     final current = quote;
@@ -425,6 +582,8 @@ class PosController extends ChangeNotifier {
       cart.clear();
       quote = null;
       customer = cashText = bankText = '';
+      billingAddress = billingGstin = billingPhone = '';
+      placeOfSupply = stateCode;
       tender = PosTender.cash;
       bankConfirmed = false;
       inclusive = round = false;

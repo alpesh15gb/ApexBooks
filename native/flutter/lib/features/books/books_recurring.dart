@@ -9,6 +9,13 @@ import 'books_entry_draft.dart';
 import 'books_entry_picker.dart';
 import 'books_entry_posting.dart';
 
+class _Recurring {
+  const _Recurring(this.templates, this.due, this.asOf);
+  final List<BooksJson> templates;
+  final List<BooksJson> due;
+  final String asOf;
+}
+
 class BooksRecurring extends StatefulWidget {
   const BooksRecurring({
     required this.posting,
@@ -32,7 +39,7 @@ class BooksRecurring extends StatefulWidget {
 }
 
 class _BooksRecurringState extends State<BooksRecurring> {
-  late Future<List<BooksJson>> _future;
+  late Future<_Recurring> _future;
   String? _message;
   final _search = TextEditingController();
 
@@ -44,11 +51,29 @@ class _BooksRecurringState extends State<BooksRecurring> {
     _future = _load();
   }
 
-  Future<List<BooksJson>> _load() async => booksRows(
-    booksObject(
-      await posting.workspace.api.get('${posting.root}/recurring-templates'),
-    )['templates'],
-  );
+  Future<_Recurring> _load() async {
+    final api = posting.workspace.api;
+    final library = booksObject(
+      await api.get('${posting.root}/recurring-templates'),
+    );
+    // The library stays usable when only the due worklist cannot be loaded.
+    var worklist = <String, dynamic>{};
+    try {
+      worklist = booksObject(
+        await api.get('${posting.root}/recurring-templates/due'),
+      );
+    } catch (_) {}
+    final asOf = booksText(worklist['business_date'])
+        .ifEmpty(booksText(worklist['as_of']))
+        .ifEmpty(businessDate());
+    return _Recurring(
+      booksRows(library['templates']),
+      worklist['rows'] is List
+          ? booksRows(worklist['rows'])
+          : const <BooksJson>[],
+      asOf,
+    );
+  }
 
   @override
   void dispose() {
@@ -126,7 +151,7 @@ class _BooksRecurringState extends State<BooksRecurring> {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Create scheduled draft?'),
+        title: const Text('Create one scheduled draft'),
         content: Text(
           '${booksKindLabel(booksText(schedule['draft_kind']))} for ${booksText(schedule['party_name'])} dated $day. The draft opens for review.',
         ),
@@ -154,12 +179,14 @@ class _BooksRecurringState extends State<BooksRecurring> {
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<List<BooksJson>>(
+  Widget build(BuildContext context) => FutureBuilder<_Recurring>(
     future: _future,
     builder: (context, snapshot) {
       final canWrite = posting.workspace.company.canWrite;
       final loaded = snapshot.connectionState == ConnectionState.done;
-      final rows = snapshot.data ?? const <BooksJson>[];
+      final rows = snapshot.data?.templates ?? const <BooksJson>[];
+      final dueRows = snapshot.data?.due ?? const <BooksJson>[];
+      final asOf = snapshot.data?.asOf ?? businessDate();
       final visible = rows
           .where(
             (row) => '${row['name']} ${row['party_name'] ?? ''}'
@@ -172,18 +199,18 @@ class _BooksRecurringState extends State<BooksRecurring> {
         children: [
           if (widget.showBack)
             Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: posting.busy ? null : widget.onBack,
-              icon: const Icon(Icons.arrow_back, size: 18),
-              label: const Text('Back to transactions'),
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 40),
-                foregroundColor: Apex.link,
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: posting.busy ? null : widget.onBack,
+                icon: const Icon(Icons.arrow_back, size: 18),
+                label: const Text('Back to transactions'),
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(0, 40),
+                  foregroundColor: Apex.link,
+                ),
               ),
             ),
-          ),
           const SizedBox(height: 8),
           const Text(
             'PLANNED, NEVER AUTO-POSTED',
@@ -238,7 +265,31 @@ class _BooksRecurringState extends State<BooksRecurring> {
               'Could not load recurring schedules.',
               style: TextStyle(color: Apex.red),
             )
-          else
+          else ...[
+            ApexPanel(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ApexPanelHeading(
+                    'Due for review',
+                    note:
+                        'Earliest ungenerated occurrence per active template · through $asOf · India business date (IST)',
+                    trailing: Text('${dueRows.length} due', style: Apex.strong),
+                  ),
+                  const SizedBox(height: 14),
+                  if (dueRows.isEmpty)
+                    const ApexEmptyState(
+                      icon: Icons.calendar_today_outlined,
+                      title: 'No drafts due today',
+                      note: 'Active schedules will appear here when their next date arrives. Paused schedules never generate drafts.',
+                    )
+                  else
+                    for (final row in dueRows) _dueRow(row),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
             ApexPanel(
               padding: const EdgeInsets.all(18),
               child: Column(
@@ -274,10 +325,71 @@ class _BooksRecurringState extends State<BooksRecurring> {
                 ],
               ),
             ),
+          ],
         ],
       );
     },
   );
+
+  Widget _dueRow(BooksJson row) {
+    final overdue = int.tryParse(booksText(row['overdue_days'])) ?? 0;
+    final canWrite = posting.workspace.company.canWrite;
+    final info = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      spacing: 3,
+      children: [
+        Text(booksText(row['name']), style: Apex.strong),
+        Text(
+          '${booksText(row['party_name']).ifEmpty('Party not selected')} · ${booksKindLabel(booksText(row['draft_kind']))}',
+          style: Apex.note,
+        ),
+      ],
+    );
+    final when = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      spacing: 3,
+      children: [
+        Text(booksText(row['next_due']), style: Apex.strong),
+        Text(
+          overdue > 0 ? '$overdue days overdue' : 'Due today',
+          style: Apex.note,
+        ),
+      ],
+    );
+    final action = canWrite
+        ? FilledButton.icon(
+            onPressed: posting.canStart ? () => _generate(row) : null,
+            icon: const Icon(Icons.arrow_forward, size: 15),
+            iconAlignment: IconAlignment.end,
+            label: const Text('Create draft & review'),
+          )
+        : const Text('Read-only');
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Apex.tint,
+        border: Border.all(color: Apex.line),
+        borderRadius: BorderRadius.circular(Apex.radiusPanel),
+      ),
+      child: LayoutBuilder(
+        builder: (context, box) => box.maxWidth >= 640
+            ? Row(
+                spacing: 16,
+                children: [
+                  Expanded(flex: 3, child: info),
+                  Expanded(flex: 2, child: when),
+                  action,
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                spacing: 10,
+                children: [info, when, action],
+              ),
+      ),
+    );
+  }
 
   Widget _schedule(BooksJson schedule) {
     final active = schedule['is_active'] == true;
@@ -469,7 +581,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
             initialValue: _name,
             maxLength: 120,
             onChanged: (value) => setState(() => _name = value),
-            decoration: const InputDecoration(labelText: 'Schedule name'),
+            decoration: const InputDecoration(labelText: 'Template name'),
           ),
           if (_editing) ...[
             SwitchListTile(
@@ -487,7 +599,9 @@ class _ScheduleFormState extends State<_ScheduleForm> {
                   setState(() => _replacement = selected);
                 }
               },
-              child: const Text('Refresh source draft'),
+              child: const Text(
+                'Refresh future inputs from a different reviewed draft (optional)',
+              ),
             ),
           ] else ...[
             const SizedBox(height: 8),
@@ -496,7 +610,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
             DropdownButtonFormField<String>(
               initialValue: _frequency,
               isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Frequency'),
+              decoration: const InputDecoration(labelText: 'Repeat'),
               items: const [
                 DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
                 DropdownMenuItem(value: 'monthly', child: Text('Monthly')),
@@ -508,7 +622,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
             DropdownButtonFormField<int>(
               initialValue: _interval,
               isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Repeat every'),
+              decoration: const InputDecoration(labelText: 'Every'),
               items: [
                 for (var interval = 1; interval <= 12; interval++)
                   DropdownMenuItem(
@@ -523,7 +637,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
             const SizedBox(height: 8),
             OutlinedButton(
               onPressed: () => _date(start: true),
-              child: Text('Start $_start'),
+              child: Text('First occurrence $_start'),
             ),
             OutlinedButton(
               onPressed: () => _date(start: false),
@@ -547,7 +661,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
       ),
       FilledButton(
         onPressed: _valid ? _finish : null,
-        child: const Text('Save schedule'),
+        child: Text(_editing ? 'Save changes' : 'Save template'),
       ),
     ],
   );

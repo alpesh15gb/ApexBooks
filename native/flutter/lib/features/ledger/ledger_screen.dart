@@ -22,6 +22,7 @@ class LedgerScreen extends StatefulWidget {
 
 class _LedgerScreenState extends State<LedgerScreen> {
   late Future<_LedgerData> _data;
+  _LedgerData? _last;
   final _through = TextEditingController(text: businessDate());
   int _limit = 30;
   String? _source;
@@ -87,15 +88,10 @@ class _LedgerScreenState extends State<LedgerScreen> {
     }
   }
 
-  Future<void> _addAccount() async {
-    final created = await showDialog<bool>(
-      context: context,
-      builder: (context) => _AccountEditor(workspace: widget.workspace),
-    );
-    if (created == true && mounted) {
-      _reload();
-      await widget.workspace.refresh();
-    }
+  Future<void> _changed() async {
+    if (!mounted) return;
+    _reload();
+    await widget.workspace.refresh();
   }
 
   @override
@@ -115,22 +111,27 @@ class _LedgerScreenState extends State<LedgerScreen> {
     return FutureBuilder<_LedgerData>(
       future: _data,
       builder: (context, snapshot) {
-        final data = snapshot.data;
+        // Keep showing the last data while a reload runs so half-typed forms are not discarded.
+        if (snapshot.data != null) _last = snapshot.data;
+        final data = _last;
         final loading = snapshot.connectionState != ConnectionState.done;
         return ApexPage(
           maxWidth: 1240,
           children: [
-            ApexRegisterHeading(
-              'Ledger',
+            BankHeading(
+              eyebrow: 'ACCOUNTING FOUNDATION',
+              title: 'Ledger',
               subtitle: canWrite
                   ? 'Create accounts and record balanced manual journal entries.'
                   : 'Read-only access: review accounts, journals and trial balance.',
-              actions: [
-                OutlinedButton(
-                  onPressed: loading ? null : _reload,
-                  child: const Text('Refresh journal history'),
-                ),
-              ],
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton(
+                onPressed: loading ? null : _reload,
+                child: const Text('Refresh journal history'),
+              ),
             ),
             const SizedBox(height: 18),
             const BankNote(
@@ -148,7 +149,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            if (loading) const LinearProgressIndicator(),
+            SizedBox(height: 4, child: loading ? const LinearProgressIndicator() : null),
             if (!loading && data == null)
               BankNote(
                 tone: BankTone.error,
@@ -162,6 +163,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
               ),
             if (data != null) ...[
               LayoutBuilder(
+                key: const ValueKey('ledger-forms'),
                 builder: (context, limits) {
                   final accounts = _accountsPanel(data, canWrite);
                   if (!canWrite) return accounts;
@@ -198,10 +200,11 @@ class _LedgerScreenState extends State<LedgerScreen> {
     note: canWrite
         ? 'Add the accounts you need for manual entries.'
         : 'Accounts used by your company’s posted transactions.',
-    trailing: canWrite
-        ? FilledButton(onPressed: _addAccount, child: const Text('Add account'))
-        : null,
     children: [
+      if (canWrite) ...[
+        _AccountForm(workspace: widget.workspace, onAdded: _changed),
+        const SizedBox(height: 18),
+      ],
       if (data.accounts.isEmpty)
         const Text('No accounts added yet.', style: Apex.lead)
       else
@@ -231,13 +234,10 @@ class _LedgerScreenState extends State<LedgerScreen> {
     note:
         'Each entry has an equal debit and credit. Use linked documents for party balances and tracked inventory.',
     children: [
-      Align(
-        alignment: Alignment.centerLeft,
-        child: FilledButton.icon(
-          onPressed: data.accounts.length < 2 ? null : () => _edit(data.accounts),
-          icon: const Icon(Icons.add, size: 18),
-          label: const Text('New journal'),
-        ),
+      InlineJournalForm(
+        workspace: widget.workspace,
+        accounts: data.accounts,
+        onPosted: _changed,
       ),
     ],
   );
@@ -282,7 +282,12 @@ class _LedgerScreenState extends State<LedgerScreen> {
     final sourceId = source is Json
         ? booksText(source['id'])
         : booksText(journal['source_record_id']);
-    final memo = booksText(journal['memo']);
+    // Same tidy-up as the web (journalMemo.js): drop internal record ids and a memo that only repeats the kind.
+    final rawMemo = booksText(journal['memo'])
+        .replaceAll(RegExp(r'\s*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'), '')
+        .trim();
+    final kindText = source is Json ? booksText(source['kind']).replaceAll('_', ' ') : '';
+    final memo = rawMemo == kindText ? '' : rawMemo;
     final status = journal['reversed_by'] != null
         ? ' · Reversed'
         : journal['reversal_of'] != null
@@ -305,7 +310,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
           Text(label, style: Apex.strong),
         if (source is Json) ...[
           Text(booksText(source['kind']).replaceAll('_', ' ') + (source['cancelled'] == true ? ' · Cancelled' : ''), style: Apex.note),
-          Text('Journal reference: ${booksText(journal['reference'])}', style: Apex.small),
+          _JournalReference(booksText(journal['reference'])),
         ],
         Text('${booksText(journal['date'])}${memo.isEmpty ? '' : ' · $memo'}$status', style: Apex.note),
         if (canReverse)
@@ -342,21 +347,18 @@ class _LedgerScreenState extends State<LedgerScreen> {
       title: 'Trial balance',
       note: 'All posted journal balances through the selected date.',
       flush: true,
+      trailing: BankFilterField(
+        label: 'Through',
+        controller: _through,
+        hint: 'YYYY-MM-DD',
+        maxLength: 10,
+        date: true,
+        width: 170,
+        onChanged: (value) {
+          if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value.trim())) _reload();
+        },
+      ),
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(22, 0, 22, 16),
-          child: Wrap(
-            spacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.end,
-            children: [
-              BankFilterField(label: 'Through', controller: _through, hint: 'YYYY-MM-DD', maxLength: 10),
-              SizedBox(
-                height: 40,
-                child: OutlinedButton(onPressed: _reload, child: const Text('Load')),
-              ),
-            ],
-          ),
-        ),
         if (balance == null)
           const ApexEmptyState(
             icon: Icons.balance_outlined,
@@ -410,15 +412,55 @@ class _LedgerScreenState extends State<LedgerScreen> {
   }
 }
 
-class _AccountEditor extends StatefulWidget {
-  const _AccountEditor({required this.workspace});
-  final WorkspaceContext workspace;
+/// "Journal reference" disclosure under a source document, like the web `<details>`.
+class _JournalReference extends StatefulWidget {
+  const _JournalReference(this.reference);
+  final String reference;
 
   @override
-  State<_AccountEditor> createState() => _AccountEditorState();
+  State<_JournalReference> createState() => _JournalReferenceState();
 }
 
-class _AccountEditorState extends State<_AccountEditor> {
+class _JournalReferenceState extends State<_JournalReference> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      InkWell(
+        onTap: () => setState(() => _open = !_open),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_open ? Icons.arrow_drop_down : Icons.arrow_right, size: 18, color: Apex.muted),
+              const Text('Journal reference', style: Apex.small),
+            ],
+          ),
+        ),
+      ),
+      if (_open)
+        Padding(
+          padding: const EdgeInsets.only(left: 18),
+          child: Text(widget.reference, style: Apex.small),
+        ),
+    ],
+  );
+}
+
+/// "Add account" form shown inline in the Chart of accounts panel, as on the web.
+class _AccountForm extends StatefulWidget {
+  const _AccountForm({required this.workspace, required this.onAdded});
+  final WorkspaceContext workspace;
+  final Future<void> Function() onAdded;
+
+  @override
+  State<_AccountForm> createState() => _AccountFormState();
+}
+
+class _AccountFormState extends State<_AccountForm> {
   final _name = TextEditingController();
   final _code = TextEditingController();
   String _category = 'asset';
@@ -426,6 +468,7 @@ class _AccountEditorState extends State<_AccountEditor> {
   bool _busy = false;
 
   Future<void> _save() async {
+    if (_busy) return;
     final name = _name.text.trim();
     final code = _code.text.trim();
     if (name.isEmpty || !RegExp(r'^[a-zA-Z0-9_-]{1,32}$').hasMatch(code)) {
@@ -438,21 +481,55 @@ class _AccountEditorState extends State<_AccountEditor> {
       _busy = true;
       _error = null;
     });
+    final workspace = widget.workspace;
+    var added = false;
+    String? failure;
     try {
-      final workspace = widget.workspace;
       await workspace.api.post(
         '${workspace.path}/accounts',
         body: {'name': name, 'code': code, 'category': _category},
       );
-      if (mounted) Navigator.pop(context, true);
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _error = error is ApexApiException
-            ? error.message
-            : 'Couldn’t save the account.';
-      });
+      added = true;
+    } on ApexApiException catch (error) {
+      if (error.uncertain && await _exists(code, name)) {
+        added = true;
+      } else {
+        failure = error.uncertain
+            ? 'The account could not be confirmed. Check the chart of accounts before trying again.'
+            : error.message;
+      }
+    } catch (_) {
+      failure = 'Couldn’t save the account.';
+    }
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _error = failure;
+      if (added) {
+        _name.clear();
+        _code.clear();
+        _category = 'asset';
+      }
+    });
+    if (added) await widget.onAdded();
+  }
+
+  Future<bool> _exists(String code, String name) async {
+    try {
+      final rows = booksRows(
+        await widget.workspace.api.get(
+          '${widget.workspace.path}/accounts',
+          query: {'code': code},
+        ),
+      );
+      return rows.any(
+        (row) =>
+            row['code'] == code &&
+            row['name'] == name &&
+            row['category'] == _category,
+      );
+    } catch (_) {
+      return false;
     }
   }
 
@@ -464,55 +541,34 @@ class _AccountEditorState extends State<_AccountEditor> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Add account', style: Apex.sectionTitle),
-    scrollable: true,
-    content: SizedBox(
-      width: 440,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _code,
-            enabled: !_busy,
-            maxLength: 32,
-            decoration: const InputDecoration(labelText: 'Account code', hintText: 'e.g. 100'),
-          ),
-          TextField(
-            controller: _name,
-            enabled: !_busy,
-            maxLength: 120,
-            decoration: const InputDecoration(labelText: 'Account name', hintText: 'e.g. Cash'),
-          ),
-          DropdownButtonFormField<String>(
-            initialValue: _category,
-            decoration: const InputDecoration(labelText: 'Category'),
-            items: [
-              for (final type in const [
-                'Asset',
-                'Liability',
-                'Equity',
-                'Income',
-                'Expense',
-              ])
-                DropdownMenuItem(value: type.toLowerCase(), child: Text(type)),
-            ],
-            onChanged: _busy
-                ? null
-                : (value) => setState(() => _category = value!),
-          ),
-          if (_error != null) BankNote(tone: BankTone.error, live: true, child: Text(_error!)),
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      BankFormRow(
+        breakpoint: 360,
+        [
+          BankFilterField(label: 'Account code', controller: _code, width: null, hint: 'e.g. 100', maxLength: 32, enabled: !_busy),
+          BankFilterField(label: 'Account name', controller: _name, width: null, hint: 'e.g. Cash', maxLength: 120, enabled: !_busy),
         ],
       ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: _busy ? null : () => Navigator.pop(context),
-        child: const Text('Cancel'),
+      const SizedBox(height: 14),
+      BankSelectField<String>(
+        label: 'Category',
+        value: _category,
+        items: [
+          for (final type in const ['Asset', 'Liability', 'Equity', 'Income', 'Expense'])
+            (type.toLowerCase(), type),
+        ],
+        onChanged: _busy ? null : (value) => setState(() => _category = value ?? 'asset'),
       ),
+      if (_error != null) ...[
+        const SizedBox(height: 14),
+        BankNote(tone: BankTone.error, live: true, child: Text(_error!)),
+      ],
+      const SizedBox(height: 14),
       FilledButton(
         onPressed: _busy ? null : _save,
-        child: Text(_busy ? 'Saving…' : 'Save account'),
+        child: Text(_busy ? 'Saving…' : 'Add account'),
       ),
     ],
   );

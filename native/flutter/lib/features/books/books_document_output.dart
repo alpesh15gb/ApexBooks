@@ -5,7 +5,10 @@ import 'package:material_ui/material_ui.dart';
 import '../../core/apex_files.dart';
 import '../../core/pdf_output.dart';
 import '../../core/workspace.dart';
+import '../masters/overdue_reminders.dart' show openWhatsApp, whatsappUrl;
 import 'books_data.dart';
+import 'books_entry_draft.dart' show BooksTextFallback;
+import 'detail_share.dart';
 
 typedef BooksSaveFile = Future<bool> Function(
   String name,
@@ -39,6 +42,7 @@ class BooksDocumentOutput extends StatefulWidget {
     required this.record,
     this.saveFile = saveApexFile,
     this.printer = const PlatformPdfOutput(),
+    this.opener = openWhatsApp,
     super.key,
   });
 
@@ -46,6 +50,7 @@ class BooksDocumentOutput extends StatefulWidget {
   final BooksRecord record;
   final BooksSaveFile saveFile;
   final PdfOutput printer;
+  final Future<bool> Function(String url, String message) opener;
 
   @override
   State<BooksDocumentOutput> createState() => _BooksDocumentOutputState();
@@ -54,6 +59,40 @@ class BooksDocumentOutput extends StatefulWidget {
 class _BooksDocumentOutputState extends State<BooksDocumentOutput> {
   bool _busy = false;
   String? _message;
+
+  Future<void> _share({required bool reminder}) async {
+    if (_busy) return;
+    final record = widget.record;
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    var upi = '';
+    try {
+      final branding = await widget.workspace.api.get(
+        '${widget.workspace.path}/document-branding',
+      );
+      if (branding is Map) upi = booksText(branding['upi_id']);
+    } catch (_) {
+      // The message still works without a UPI ID.
+    }
+    final company = widget.workspace.company.name;
+    final text = reminder
+        ? detailReminderMessage(record, company, upi, businessDate())
+        : detailDocumentMessage(record, company, upi);
+    final phone = booksText(record.data['party_phone']).ifEmpty(
+      booksText(record.data['phone']),
+    );
+    final opened = await widget.opener(whatsappUrl(phone, text), text);
+    if (mounted) {
+      setState(() {
+        _busy = false;
+        _message = opened
+            ? 'WhatsApp opened with the message filled in.'
+            : 'Message copied. Paste it into WhatsApp to send.';
+      });
+    }
+  }
 
   Future<void> _deliver({required bool print}) async {
     if (_busy || !canOutputBooksDocument(widget.record)) return;
@@ -106,13 +145,25 @@ class _BooksDocumentOutputState extends State<BooksDocumentOutput> {
                 OutlinedButton.icon(
                   onPressed: _busy ? null : () => _deliver(print: false),
                   icon: const Icon(Icons.download_outlined),
-                  label: const Text('Save PDF'),
+                  label: const Text('Download PDF'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _busy ? null : () => _deliver(print: true),
                   icon: const Icon(Icons.print_outlined),
                   label: const Text('Print document'),
                 ),
+                if (detailCanShare(widget.record))
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : () => _share(reminder: false),
+                    icon: const Icon(Icons.chat_outlined),
+                    label: const Text('Share on WhatsApp'),
+                  ),
+                if (detailCanRemind(widget.record))
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : () => _share(reminder: true),
+                    icon: const Icon(Icons.notifications_active_outlined),
+                    label: const Text('Send reminder'),
+                  ),
               ],
             ),
             if (_busy)

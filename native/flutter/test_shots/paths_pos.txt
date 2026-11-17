@@ -1,0 +1,4 @@
+# POS screen: register overview and book stock (the app calls /pos-register and /pos/stock)
+/api/companies/{cid}/pos-register
+/api/companies/{cid}/pos/stock
+/api/companies/{cid}/inventory-setup

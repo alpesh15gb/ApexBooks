@@ -520,9 +520,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Sales invoice'));
       await tester.pumpAndSettle();
-      await _field(tester, 'Customer name', 'Corner Shop');
-      await _field(tester, 'Description', 'Counter cable');
-      await _field(tester, 'Unit rate (₹)', '125.50');
+      await _field(tester, 'Customer / description', 'Corner Shop');
+      await _field(tester, 'Item / service 1', 'Counter cable');
+      await _field(tester, 'Rate ₹', '125.50');
       await tester.tap(find.text('Review entry'));
       await tester.pumpAndSettle();
       expect(find.text('Calculated by Apex Books'), findsOneWidget);
@@ -609,10 +609,10 @@ void main() {
       await tester.tap(find.text('Sales invoice'));
       await tester.pumpAndSettle();
 
-      final description = _findField('Description');
-      final quantity = _findField('Quantity');
-      final rate = _findField('Unit rate (₹)');
-      final discount = _findField('Discount (%)');
+      final description = _findKey('line-0-description');
+      final quantity = _findKey('line-0-quantity');
+      final rate = _findKey('line-0-rate');
+      final discount = _findKey('line-0-discount_percent');
       expect(tester.getTopLeft(description).dy, tester.getTopLeft(quantity).dy);
       expect(tester.getTopLeft(rate).dy, tester.getTopLeft(discount).dy);
       expect(
@@ -620,13 +620,13 @@ void main() {
         lessThan(tester.getTopLeft(rate).dx),
       );
       expect(
-        tester.getTopLeft(_findField('Customer name')).dx,
-        lessThan(tester.getTopLeft(_findField('Reference')).dx),
+        tester.getTopLeft(_findField('Customer / description')).dx,
+        lessThan(tester.getTopLeft(_findField('Reference number')).dx),
       );
-      await _field(tester, 'Customer name', 'Corner Shop');
-      await _field(tester, 'Description', 'Counter installation');
-      await _field(tester, 'Quantity', '2');
-      await _field(tester, 'Unit rate (₹)', '60');
+      await _field(tester, 'Customer / description', 'Corner Shop');
+      await _fieldKey(tester, 'line-0-description', 'Counter installation');
+      await _fieldKey(tester, 'line-0-quantity', '2');
+      await _fieldKey(tester, 'line-0-rate', '60');
 
       await tester.pumpWidget(render(2));
       await tester.pumpAndSettle();
@@ -763,4 +763,17 @@ class _Api implements ApexApi, ApexWriteApi {
   @override
   Future<Uint8List> download(String path, {Map<String, String>? query}) =>
       throw UnimplementedError();
+}
+
+Finder _findKey(String key) => find.byKey(ValueKey(key));
+
+Future<void> _fieldKey(WidgetTester tester, String key, String value) async {
+  final field = _findKey(key);
+  await tester.scrollUntilVisible(
+    field,
+    100,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.enterText(field, value);
+  await tester.pumpAndSettle();
 }

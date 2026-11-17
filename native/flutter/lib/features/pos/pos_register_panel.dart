@@ -1,428 +1,574 @@
 import 'package:material_ui/material_ui.dart';
 
-import '../../core/workspace.dart';
 import '../../ui/apex_theme.dart';
 import '../../ui/apex_widgets.dart';
+import 'pos_controller.dart';
 import 'pos_models.dart';
 import 'pos_register_controller.dart';
 import 'pos_register_models.dart';
 import 'pos_widgets.dart';
 
+typedef PosMovementsLoader = Future<List<PosJson>> Function(String registerId);
+
+/// Register tab, laid out like the web `PosRegisterSession`: status heading,
+/// tender totals, cash activity, and the open / cash movement / close forms
+/// shown inline.
 class PosRegisterPanel extends StatefulWidget {
   const PosRegisterPanel({
     required this.register,
     required this.checkoutBusy,
+    this.loadMovements,
     super.key,
   });
 
   final PosRegisterController register;
   final bool checkoutBusy;
+  final PosMovementsLoader? loadMovements;
 
   @override
   State<PosRegisterPanel> createState() => _PosRegisterPanelState();
 }
 
 class _PosRegisterPanelState extends State<PosRegisterPanel> {
+  final _opening = TextEditingController();
   final _amount = TextEditingController();
   final _reason = TextEditingController();
-  RegisterOperation? _form;
+  final _counted = TextEditingController();
+  final _closeReason = TextEditingController();
   String _direction = 'in';
+  RegisterOperation? _lastAction;
   PosRegisterController get register => widget.register;
   bool get writable => register.writable && !widget.checkoutBusy;
 
   @override
   void dispose() {
+    _opening.dispose();
     _amount.dispose();
     _reason.dispose();
+    _counted.dispose();
+    _closeReason.dispose();
     super.dispose();
   }
 
-  void _select(RegisterOperation? action) {
-    setState(() {
-      _amount.clear();
-      _reason.clear();
-      _form = action;
-    });
+  void _run(RegisterOperation action, Future<void> Function() send) {
+    _lastAction = action;
+    send();
   }
 
   @override
   Widget build(BuildContext context) {
     final active = register.active;
     final overview = register.overview;
-    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _section([
-          Wrap(
-            spacing: 12,
-            runSpacing: 10,
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.start,
-            children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 760),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 12,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        const Text(
-                          'Register session',
-                          style: TextStyle(
-                            fontFamily: Apex.display,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -.5,
-                            color: Apex.ink,
-                          ),
-                        ),
-                        if (overview != null)
-                          ApexStatusBadge(
-                            active == null ? 'Closed' : 'Open',
-                            tone: active == null
-                                ? ApexBadgeTone.neutral
-                                : ApexBadgeTone.posted,
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'One shared drawer for this company. POS sales and linked refunds posted while it is open enter this session.',
-                      style: TextStyle(
-                        fontSize: 13,
-                        height: 1.5,
-                        color: PosColors.muted,
+        PosPanel(
+          spacing: 14,
+          children: [
+            _heading(overview != null, active != null),
+            if (register.refreshing || register.busy)
+              const LinearProgressIndicator(),
+            if (register.loadError case final error?) _error(error),
+            if (register.message case final message?)
+              register.message!.endsWith('recorded.')
+                  ? PosInfoBox(message)
+                  : _error(message),
+            if (register.recoveryError case final error?) ...[
+              _error(error),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton(
+                  onPressed: register.recover,
+                  child: const Text('Check saved activity'),
+                ),
+              ),
+            ],
+            if (register.pending case final pending?)
+              PosInfoBox(
+                switch (pending.action) {
+                  RegisterOperation.open =>
+                    'Confirm the original opening before opening another register.',
+                  RegisterOperation.movement =>
+                    'Confirm the original cash movement before recording it again.',
+                  RegisterOperation.close => 'Confirm the original closing count before closing the register again.',
+                },
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton(
+                      onPressed: register.canWrite && !register.busy
+                          ? register.retry
+                          : null,
+                      child: Text(
+                        'Retry ${switch (pending.action) {
+                          RegisterOperation.open => 'open register',
+                          RegisterOperation.movement => 'record cash movement',
+                          RegisterOperation.close => 'close register',
+                        }}',
                       ),
                     ),
-                  ],
+                  ),
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: register.busy || register.refreshing
-                    ? null
-                    : register.refresh,
-                icon: const Icon(Icons.refresh, size: 16),
-                label: const Text('Refresh register'),
+            if (!register.canWrite)
+              const Text(
+                'View-only access to register activity.',
+                style: TextStyle(fontSize: 13, color: PosColors.muted),
               ),
+            if (widget.checkoutBusy && register.canWrite)
+              const Text(
+                'Resolve the saved checkout or return before changing the register.',
+                style: TextStyle(fontSize: 13, color: PosColors.muted),
+              ),
+            if (overview == null && register.loadError == null)
+              const Text('Loading register…'),
+            if (overview != null && active == null) ...[
+              if (register.canWrite && register.pending == null) _openForm(),
             ],
-          ),
-          if (register.refreshing || register.busy)
-            const LinearProgressIndicator(),
-          if (register.message case final message?) _notice(message),
-          if (register.loadError case final error?) _notice(error),
-          if (register.recoveryError case final error?) ...[
-            _notice(error),
-            OutlinedButton(
-              onPressed: register.recover,
-              child: const Text('Check saved activity'),
-            ),
+            if (active != null) ..._activeSession(active),
+            if (overview != null && overview.closed.isNotEmpty)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6, bottom: 4),
+                    child: Text(
+                      'Recent closes',
+                      style: TextStyle(
+                        fontFamily: Apex.display,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: Apex.ink,
+                      ),
+                    ),
+                  ),
+                  for (final closed in overview.closed)
+                    _ClosedRegister(
+                      key: ValueKey(closed.id),
+                      session: closed,
+                      loadMovements: widget.loadMovements,
+                    ),
+                ],
+              ),
           ],
-          if (register.pending case final pending?) ...[
-            _notice(switch (pending.action) {
-              RegisterOperation.open =>
-                'Confirm the original opening before opening another register.',
-              RegisterOperation.movement =>
-                'Confirm the original cash movement before recording it again.',
-              RegisterOperation.close => 'Confirm the original closing count before closing the register again.',
-            }),
-            FilledButton.icon(
-              onPressed: register.canWrite && !register.busy
-                  ? register.retry
-                  : null,
-              icon: const Icon(Icons.replay),
-              label: const Text('Retry original action'),
-            ),
-          ],
-          if (!register.canWrite)
-            _notice('View-only access to register activity.'),
-          if (widget.checkoutBusy && register.canWrite)
-            _notice(
-              'Resolve the saved checkout or return before changing the register.',
-            ),
-          if (overview != null && active == null) ...[
-            Text(
-              'No register session is open',
-              style: theme.textTheme.titleMedium,
-            ),
-            if (register.canWrite && register.pending == null) _openForm(),
-          ],
-          if (active != null) ...[
-            _activeSummary(active),
-            if (register.canWrite && register.pending == null)
-              _activeActions(active),
-          ],
-        ]),
-        if (overview != null && overview.closed.isNotEmpty) ...[
-          const SizedBox(height: 14),
-          _section([
-            const PosPanelHeading('Recent closes'),
-            for (final closed in overview.closed) _closedSummary(closed),
-          ]),
-        ],
+        ),
       ],
     );
   }
 
-  Widget _section(List<Widget> children) =>
-      PosPanel(spacing: 12, children: children);
-
-  Widget _notice(String message) =>
-      Semantics(liveRegion: true, child: Text(message));
-
-  Widget _openForm() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      _moneyField('Opening float (₹)'),
-      const SizedBox(height: 12),
-      FilledButton(
-        onPressed: writable && register.validateOpen(_amount.text) == null
-            ? () => register.open(_amount.text)
-            : null,
-        child: const Text('Open register'),
-      ),
-    ],
-  );
-
-  Widget _activeSummary(PosRegisterSession active) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          'Register open · ${active.date}',
-          style: theme.textTheme.titleMedium,
-        ),
-        const SizedBox(height: 10),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: PosColors.wash,
-            border: Border.all(color: PosColors.totalBorder),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Expected cash',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: PosColors.totalText,
-                  ),
-                ),
-                Text(
-                  registerMoneyText(active.expected),
-                  style: const TextStyle(
-                    fontFamily: Apex.display,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -.7,
-                    color: PosColors.totalText,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        _total('Opening cash', active.opening),
-        _total('Cash sales', active.total('cash_sales')),
-        _total('Cash refunds', active.total('cash_refunds')),
-        _total('Cash added', active.total('cash_in')),
-        _total('Cash removed', active.total('cash_out')),
-        _total('Bank / UPI / card sales', active.total('bank_sales')),
-        if (active.movementRows.isNotEmpty)
-          ExpansionTile(
-            title: const Text('Drawer movements'),
-            tilePadding: EdgeInsets.zero,
-            children: [
-              for (final movement in active.movementRows)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(posText(posObject(movement['data'])['reason'])),
-                  subtitle: Text(
-                    posObject(movement['data'])['direction'] == 'in'
-                        ? 'Cash in'
-                        : 'Cash out',
-                  ),
-                  trailing: Text(
-                    registerMoneyText(registerPaise(movement['amount'])),
-                  ),
-                ),
-            ],
-          ),
-      ],
-    );
-  }
-
-  Widget _total(String title, BigInt value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: Text(title)),
-        const SizedBox(width: 8),
-        Flexible(
-          child: Text(registerMoneyText(value), textAlign: TextAlign.end),
-        ),
-      ],
+  Widget _error(String message) => Semantics(
+    liveRegion: true,
+    child: Text(
+      message,
+      style: TextStyle(color: Theme.of(context).colorScheme.error),
     ),
   );
 
-  Widget _activeActions(PosRegisterSession active) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget _heading(bool loaded, bool open) => Wrap(
+    spacing: 12,
+    runSpacing: 10,
+    alignment: WrapAlignment.spaceBetween,
+    crossAxisAlignment: WrapCrossAlignment.start,
     children: [
-      if (_form == null)
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            OutlinedButton(
-              onPressed: writable
-                  ? () => _select(RegisterOperation.movement)
-                  : null,
-              child: const Text('Record cash movement'),
+            Wrap(
+              spacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text(
+                  'Register session',
+                  style: TextStyle(
+                    fontFamily: Apex.display,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -.5,
+                    color: Apex.ink,
+                  ),
+                ),
+                if (loaded)
+                  ApexStatusBadge(
+                    open ? 'Open' : 'Closed',
+                    tone: open ? ApexBadgeTone.posted : ApexBadgeTone.neutral,
+                  ),
+              ],
             ),
-            FilledButton.tonal(
-              onPressed: writable
-                  ? () => _select(RegisterOperation.close)
-                  : null,
-              child: const Text('Count & close register'),
+            const SizedBox(height: 6),
+            const Text(
+              'One shared drawer for this company. POS sales and linked refunds posted while it is open enter this session.',
+              style: TextStyle(fontSize: 13, height: 1.5, color: PosColors.muted),
             ),
           ],
         ),
-      if (_form == RegisterOperation.movement) _movement(active),
-      if (_form == RegisterOperation.close) _close(active),
-    ],
-  );
-
-  Widget _movement(PosRegisterSession active) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      Text(
-        'Record cash movement',
-        style: Theme.of(context).textTheme.titleMedium,
       ),
-      const SizedBox(height: 10),
-      DropdownButtonFormField<String>(
-        initialValue: _direction,
-        onChanged: writable
-            ? (value) => setState(() => _direction = value ?? 'in')
-            : null,
-        decoration: const InputDecoration(labelText: 'Direction'),
-        items: const [
-          DropdownMenuItem(value: 'in', child: Text('Cash in')),
-          DropdownMenuItem(value: 'out', child: Text('Cash out')),
-        ],
-      ),
-      const SizedBox(height: 10),
-      _moneyField('Cash movement amount (₹)'),
-      const SizedBox(height: 10),
-      _reasonField(required: true),
-      _formActions(
-        'Post cash movement',
-        writable &&
-                register.validateMovement(_amount.text, _reason.text) == null
-            ? () => register.move(
-                active.id,
-                _direction,
-                _amount.text,
-                _reason.text,
-              )
-            : null,
+      OutlinedButton.icon(
+        onPressed: register.busy || register.refreshing
+            ? null
+            : register.refresh,
+        icon: const Icon(Icons.refresh, size: 16),
+        label: const Text('Refresh register'),
       ),
     ],
   );
 
-  Widget _close(PosRegisterSession active) {
-    final amount = parsePosMoney(_amount.text);
-    final difference = amount == null
-        ? null
-        : BigInt.from(amount) - active.expected;
-    final mismatch = difference != null && difference != BigInt.zero;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text('Close register', style: Theme.of(context).textTheme.titleMedium),
-        _total('Expected cash', active.expected),
-        const SizedBox(height: 8),
-        _moneyField('Counted cash (₹)'),
-        if (difference != null) _total('Cash difference', difference),
-        const SizedBox(height: 8),
-        _reasonField(required: mismatch),
-        _formActions(
-          'Post closing count',
-          writable &&
-                  register.validateClose(
-                        _amount.text,
-                        _reason.text,
-                        active.snapshot,
-                      ) ==
-                      null
-              ? () => register.close(
-                  active.id,
-                  _amount.text,
-                  _reason.text,
-                  active.snapshot,
-                )
-              : null,
-        ),
-      ],
-    );
-  }
-
-  Widget _moneyField(String label) => TextField(
-    controller: _amount,
+  Widget _moneyField(
+    TextEditingController controller,
+    String label, {
+    String? hint,
+  }) => TextField(
+    controller: controller,
     enabled: writable,
+    maxLength: 16,
     keyboardType: const TextInputType.numberWithOptions(decimal: true),
     onChanged: (_) => setState(() {}),
-    decoration: InputDecoration(labelText: label),
+    decoration: InputDecoration(
+      labelText: label,
+      hintText: hint,
+      counterText: '',
+    ),
   );
 
-  Widget _reasonField({required bool required}) => TextField(
-    controller: _reason,
+  Widget _textField(
+    TextEditingController controller,
+    String label, {
+    bool required = false,
+  }) => TextField(
+    controller: controller,
     enabled: writable,
     maxLength: 200,
     onChanged: (_) => setState(() {}),
     decoration: InputDecoration(
-      labelText: required ? 'Reason (required)' : 'Reason (optional)',
+      labelText: required ? '$label *' : label,
+      counterText: '',
     ),
   );
 
-  Widget _formActions(String submitLabel, VoidCallback? submit) => Padding(
-    padding: const EdgeInsets.only(top: 8),
-    child: Wrap(
-      spacing: 8,
-      runSpacing: 8,
+  Widget _openForm() => PosFieldset(
+    legend: null,
+    children: [
+      PosFieldRow([
+        _moneyField(_opening, 'Opening float (₹)'),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton(
+            onPressed: writable && register.validateOpen(_opening.text) == null
+                ? () => _run(
+                    RegisterOperation.open,
+                    () => register.open(_opening.text),
+                  )
+                : null,
+            child: Text(
+              register.busy && _lastAction == RegisterOperation.open
+                  ? 'Opening…'
+                  : 'Open register',
+            ),
+          ),
+        ),
+      ]),
+    ],
+  );
+
+  List<Widget> _activeSession(PosRegisterSession active) {
+    final data = active.data;
+    final totals = active.totals;
+    int count(String field) => int.tryParse(posText(totals[field])) ?? 0;
+    String plural(int value, String one, String many) =>
+        '$value ${value == 1 ? one : many}';
+    return [
+      Text(
+        'Opened ${posDateTime(posText(data['created_at']))} by ${posText(data['opened_by'])} with ${registerMoneyText(active.opening)}',
+        style: const TextStyle(fontSize: 14, color: Apex.ink),
+      ),
+      PosResultsBox(registerTenderTotals(totals)),
+      Text(
+        '${plural(count('sales_count'), 'sale', 'sales')} · ${count('refund_count')} linked ${count('refund_count') == 1 ? 'refund' : 'refunds'} · ${count('movement_count')} cash ${count('movement_count') == 1 ? 'movement' : 'movements'}',
+        style: const TextStyle(fontSize: 14, color: Apex.ink),
+      ),
+      PosDisclosure(
+        title: 'Cash activity',
+        children: [
+          PosCashActivity(
+            movements: active.movementRows,
+            count: count('movement_count'),
+          ),
+        ],
+      ),
+      if (register.canWrite && register.pending == null) ...[
+        _movementForm(active),
+        _closeForm(active),
+      ],
+    ];
+  }
+
+  Widget _movementForm(PosRegisterSession active) => PosFieldset(
+    legend: 'Record cash movement',
+    children: [
+      PosFieldRow([
+        DropdownButtonFormField<String>(
+          initialValue: _direction,
+          onChanged: writable
+              ? (value) => setState(() => _direction = value ?? 'in')
+              : null,
+          decoration: const InputDecoration(labelText: 'Movement'),
+          items: const [
+            DropdownMenuItem(value: 'in', child: Text('Add cash')),
+            DropdownMenuItem(value: 'out', child: Text('Remove cash')),
+          ],
+        ),
+        _moneyField(_amount, 'Amount (₹)'),
+      ]),
+      _textField(_reason, 'Reason'),
+      const Text(
+        'Record drawer movements here and enter any accounting transaction separately.',
+        style: TextStyle(fontSize: 13, color: PosColors.muted),
+      ),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton(
+          onPressed:
+              writable &&
+                  register.validateMovement(_amount.text, _reason.text) == null
+              ? () => _run(
+                  RegisterOperation.movement,
+                  () => register.move(
+                    active.id,
+                    _direction,
+                    _amount.text,
+                    _reason.text,
+                  ),
+                )
+              : null,
+          child: Text(
+            register.busy && _lastAction == RegisterOperation.movement
+                ? 'Recording…'
+                : 'Record cash movement',
+          ),
+        ),
+      ),
+    ],
+  );
+
+  Widget _closeForm(PosRegisterSession active) {
+    final amount = parseDrawerPaise(_counted.text);
+    final difference = amount == null ? null : amount - active.expected;
+    final mismatch = difference != null && difference != BigInt.zero;
+    return PosFieldset(
+      legend: 'Close register',
       children: [
-        FilledButton(onPressed: submit, child: Text(submitLabel)),
-        TextButton(
-          onPressed: register.busy ? null : () => _select(null),
-          child: const Text('Cancel'),
+        PosFieldRow([
+          _moneyField(_counted, 'Counted cash (₹)'),
+          _textField(
+            _closeReason,
+            'Reason for any difference',
+            required: mismatch,
+          ),
+        ]),
+        if (difference != null)
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              difference == BigInt.zero
+                  ? 'Cash count matches.'
+                  : 'Cash ${difference.isNegative ? 'short' : 'over'} by ${registerMoneyText(difference.abs())}.',
+              style: const TextStyle(fontSize: 14, color: Apex.ink),
+            ),
+          ),
+        const Text(
+          "Closing saves the count and locks edits and cancellations for the session's sales.",
+          style: TextStyle(fontSize: 13, color: PosColors.muted),
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton(
+            onPressed:
+                writable &&
+                    register.validateClose(
+                          _counted.text,
+                          _closeReason.text,
+                          active.snapshot,
+                        ) ==
+                        null
+                ? () => _run(
+                    RegisterOperation.close,
+                    () => register.close(
+                      active.id,
+                      _counted.text,
+                      _closeReason.text,
+                      active.snapshot,
+                    ),
+                  )
+                : null,
+            child: Text(
+              register.busy && _lastAction == RegisterOperation.close
+                  ? 'Closing…'
+                  : 'Close register',
+            ),
+          ),
         ),
       ],
-    ),
-  );
+    );
+  }
+}
 
-  Widget _closedSummary(PosRegisterSession closed) {
-    final timestamp = DateTime.tryParse(posText(closed.data['closed_at']));
-    final day = timestamp == null ? closed.date : businessDate(timestamp);
-    return ExpansionTile(
-      tilePadding: EdgeInsets.zero,
-      title: Text('Closed $day'),
-      subtitle: Text('Counted ${registerMoneyText(closed.counted)}'),
+BigInt? parseDrawerPaise(String value) {
+  final cents = parsePosMoney(value);
+  return cents == null ? null : BigInt.from(cents);
+}
+
+/// The six figures of the web `TenderTotals` block.
+List<(String, String)> registerTenderTotals(PosJson totals) {
+  BigInt amount(String field) =>
+      totals[field] == null ? BigInt.zero : registerPaise(totals[field]);
+  return [
+    ('Expected cash', registerMoneyText(amount('expected_cash'))),
+    ('Cash sales', registerMoneyText(amount('cash_sales'))),
+    ('Cash refunds', registerMoneyText(amount('cash_refunds'))),
+    (
+      'Bank / UPI / card net',
+      registerMoneyText(amount('bank_sales') - amount('bank_refunds')),
+    ),
+    ('Other cash added', registerMoneyText(amount('cash_in'))),
+    ('Other cash removed', registerMoneyText(amount('cash_out'))),
+  ];
+}
+
+/// Cash additions and drops, as listed under "Cash activity".
+class PosCashActivity extends StatelessWidget {
+  const PosCashActivity({
+    required this.movements,
+    required this.count,
+    super.key,
+  });
+
+  final List<PosJson> movements;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    if (movements.isEmpty) return const Text('No cash additions or drops.');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _total('Expected cash', closed.expected),
-        _total('Counted cash', closed.counted),
-        _total('Cash difference', closed.variance),
-        if (closed.reason.isNotEmpty)
-          Align(alignment: Alignment.centerLeft, child: Text(closed.reason)),
+        if (count > movements.length)
+          Text(
+            'Showing the latest ${movements.length} of $count movements.',
+            style: const TextStyle(fontSize: 13, color: PosColors.muted),
+          ),
+        for (final row in movements)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${posObject(row['data'])['direction'] == 'in' ? 'Added' : 'Removed'} ${registerMoneyText(registerPaise(row['amount']))}',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Apex.ink,
+                  ),
+                ),
+                Text(
+                  '${posText(posObject(row['data'])['reason'])} · ${posText(posObject(row['data'])['actor'])} · ${posDateTime(posText(posObject(row['data'])['created_at']))}',
+                  style: const TextStyle(fontSize: 12.8, color: PosColors.muted),
+                ),
+              ],
+            ),
+          ),
       ],
+    );
+  }
+}
+
+class _ClosedRegister extends StatefulWidget {
+  const _ClosedRegister({
+    required this.session,
+    required this.loadMovements,
+    super.key,
+  });
+
+  final PosRegisterSession session;
+  final PosMovementsLoader? loadMovements;
+
+  @override
+  State<_ClosedRegister> createState() => _ClosedRegisterState();
+}
+
+class _ClosedRegisterState extends State<_ClosedRegister> {
+  List<PosJson>? _movements;
+  String? _error;
+  bool _loading = false;
+
+  Future<void> _load() async {
+    final loader = widget.loadMovements;
+    if (loader == null) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final rows = await loader(widget.session.id);
+      if (mounted) setState(() => _movements = rows);
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _error = error is PosFailure
+              ? error.message
+              : 'Could not load cash activity.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final closed = widget.session;
+    final data = closed.data;
+    final count = int.tryParse(posText(closed.totals['movement_count'])) ?? 0;
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Apex.line)),
+      ),
+      child: PosDisclosure(
+        title:
+            '${posDateTime(posText(data['closed_at']))} · Counted ${registerMoneyText(closed.counted)} · Variance ${registerMoneyText(closed.variance)}',
+        children: [
+          Text(
+            'Opened by ${posText(data['opened_by'])} with ${registerMoneyText(closed.opening)} · Closed by ${posText(data['closed_by'])}',
+          ),
+          if (closed.reason.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(closed.reason),
+          ],
+          const SizedBox(height: 8),
+          PosResultsBox(registerTenderTotals(closed.totals)),
+          const SizedBox(height: 8),
+          if (_movements case final rows?)
+            PosCashActivity(movements: rows, count: count)
+          else if (widget.loadMovements != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton(
+                onPressed: _loading ? null : _load,
+                child: Text(_loading ? 'Loading…' : 'View cash activity'),
+              ),
+            ),
+          if (_error case final error?)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                error,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

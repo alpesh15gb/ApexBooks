@@ -10,7 +10,12 @@ import 'pos_return_controller.dart';
 import 'pos_return_models.dart';
 
 class WorkspacePosGateway
-    implements PosGateway, PosRegisterGateway, PosReturnGateway {
+    implements
+        PosGateway,
+        PosRegisterGateway,
+        PosReturnGateway,
+        PosPartyGateway,
+        PosLocationGateway {
   WorkspacePosGateway(this.workspace);
 
   final WorkspaceContext workspace;
@@ -77,6 +82,76 @@ class WorkspacePosGateway
       (left, right) =>
           left.name.toLowerCase().compareTo(right.name.toLowerCase()),
     );
+  });
+
+  /// Active customers for the billing suggestions (GET records?kind=party).
+  @override
+  Future<List<PosParty>> parties() => _call(() async {
+    final parties = <PosParty>[];
+    var offset = 0;
+    while (true) {
+      final page = await _records('party', offset, 500);
+      for (final row in page.map(posObject)) {
+        final data = row['data'];
+        if (data is Map<String, dynamic> && data['is_active'] == false) {
+          continue;
+        }
+        if (posText(row['name']).isNotEmpty && data is Map<String, dynamic>) {
+          parties.add(PosParty.fromJson(row));
+        }
+      }
+      if (page.length < 500) break;
+      offset += page.length;
+    }
+    return parties;
+  });
+
+  /// Shelf names from GET inventory-setup, the call the web POS makes.
+  @override
+  Future<Map<String, String>> locations() => _call(() async {
+    if (!workspace.features.contains('inventory_setup')) return {};
+    final setup = posObject(
+      await workspace.api.get('${workspace.path}/inventory-setup'),
+    );
+    return {
+      for (final row in posList(setup['locations']).whereType<PosJson>())
+        if (row['id'] is String && row['name'] is String)
+          row['id'] as String: row['name'] as String,
+    };
+  });
+
+  /// The register session with its cash activity (GET pos-register/{id}).
+  Future<List<PosJson>> registerMovements(String registerId) => _call(() async {
+    final response = posObject(
+      await workspace.api.get(
+        '${workspace.path}/pos-register/${Uri.encodeComponent(registerId)}',
+      ),
+    );
+    return posList(response['movements']).map(posObject).toList();
+  });
+
+  /// Every POS sale, credit note and customer refund, for the daily totals
+  /// (the web reads these from its company records).
+  Future<List<PosJson>> reconciliationRecords() => _call(() async {
+    final rows = <PosJson>[];
+    for (final kind in const ['pos', 'credit_note', 'customer_refund']) {
+      var offset = 0;
+      while (true) {
+        final page = await _records(kind, offset, 500);
+        rows.addAll(page.map(posObject));
+        if (page.length < 500) break;
+        offset += page.length;
+      }
+    }
+    return rows;
+  });
+
+  /// The default receipt PDF, for "Download receipt" and credit notes.
+  Future<ApexPdf> documentPdf(String id, String name) => _call(() async {
+    final bytes = await workspace.api.download(
+      '${workspace.path}/documents/${Uri.encodeComponent(id)}.pdf',
+    );
+    return ApexPdf(bytes: bytes, name: name);
   });
 
   @override

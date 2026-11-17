@@ -1,4 +1,4 @@
-import 'dart:ui' show PathMetric;
+import 'dart:ui' show FontFeature, PathMetric;
 
 import 'package:material_ui/material_ui.dart';
 
@@ -366,5 +366,223 @@ InputDecoration posFieldDecoration({
     enabledBorder: border(PosColors.scanBorder),
     focusedBorder: border(PosColors.green, 1.5),
     border: border(PosColors.scanBorder),
+  );
+}
+
+/// Bordered box of label/value pairs ("Expected cash", "Cash sales"…), the
+/// web `pos-reconciliation-results` block.
+class PosResultsBox extends StatelessWidget {
+  const PosResultsBox(this.items, {super.key});
+
+  final List<(String, String)> items;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      border: Border.all(color: Apex.line),
+      borderRadius: BorderRadius.circular(7),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Wrap(
+        spacing: 28,
+        runSpacing: 12,
+        children: [
+          for (final (label, value) in items)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 12.8, color: PosColors.muted),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Apex.ink,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Collapsible block styled like the web `<details>` summaries.
+class PosDisclosure extends StatelessWidget {
+  const PosDisclosure({
+    required this.title,
+    required this.children,
+    this.detail,
+    this.initiallyExpanded = false,
+    this.boxed = false,
+    this.onExpansionChanged,
+    super.key,
+  });
+
+  final String title;
+  final String? detail;
+  final bool initiallyExpanded;
+  final bool boxed;
+  final ValueChanged<bool>? onExpansionChanged;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final tile = Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        initiallyExpanded: initiallyExpanded,
+        backgroundColor: Colors.transparent,
+        collapsedBackgroundColor: Colors.transparent,
+        shape: const Border(),
+        collapsedShape: const Border(),
+        onExpansionChanged: onExpansionChanged,
+        tilePadding: EdgeInsets.symmetric(horizontal: boxed ? 18 : 0),
+        childrenPadding: EdgeInsets.fromLTRB(
+          boxed ? 18 : 0,
+          0,
+          boxed ? 18 : 0,
+          boxed ? 16 : 8,
+        ),
+        expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+        expandedAlignment: Alignment.centerLeft,
+        minTileHeight: 44,
+        title: Text.rich(
+          TextSpan(
+            text: title,
+            style: TextStyle(
+              fontSize: boxed ? 15 : 13,
+              fontWeight: FontWeight.w700,
+              color: boxed ? Apex.ink : const Color(0xff36594b),
+            ),
+            children: [
+              if (detail != null)
+                TextSpan(
+                  text: '  $detail',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w500,
+                    color: PosColors.muted,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        children: children,
+      ),
+    );
+    if (!boxed) return tile;
+    return ApexPanel(
+      borderColor: PosColors.rule,
+      child: Material(type: MaterialType.transparency, child: tile),
+    );
+  }
+}
+
+/// Field group with a bold legend, the web `<fieldset>` inside a form.
+class PosFieldset extends StatelessWidget {
+  const PosFieldset({required this.legend, required this.children, super.key});
+
+  final String? legend;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      if (legend != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(
+            legend!,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: Apex.ink,
+            ),
+          ),
+        ),
+      for (var index = 0; index < children.length; index++) ...[
+        if (index > 0) const SizedBox(height: 12),
+        children[index],
+      ],
+    ],
+  );
+}
+
+/// Two fields side by side on wide layouts, stacked on phones.
+class PosFieldRow extends StatelessWidget {
+  const PosFieldRow(this.children, {super.key});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, limits) {
+      if (limits.maxWidth < 420 || children.length == 1) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var index = 0; index < children.length; index++) ...[
+              if (index > 0) const SizedBox(height: 12),
+              children[index],
+            ],
+          ],
+        );
+      }
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var index = 0; index < children.length; index++) ...[
+            if (index > 0) const SizedBox(width: 12),
+            Expanded(child: children[index]),
+          ],
+        ],
+      );
+    },
+  );
+}
+
+/// The "info-box" paragraph: pale green box for status text.
+class PosInfoBox extends StatelessWidget {
+  const PosInfoBox(this.message, {this.error = false, this.child, super.key});
+
+  final String message;
+  final bool error;
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: BoxDecoration(
+      color: error ? const Color(0xfffdf1ee) : PosColors.wash,
+      border: Border.all(
+        color: error ? const Color(0xffe9bdb3) : PosColors.totalBorder,
+      ),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Semantics(
+          liveRegion: true,
+          child: Text(
+            message,
+            style: TextStyle(
+              fontSize: 13,
+              color: error ? const Color(0xff9b2d1a) : PosColors.totalText,
+            ),
+          ),
+        ),
+        ?child,
+      ],
+    ),
   );
 }

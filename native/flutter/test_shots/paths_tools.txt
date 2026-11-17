@@ -1,0 +1,3 @@
+# Tools area: recurring drafts, stock reorder/receiving, ecommerce
+/api/companies/{cid}/reports/reorder
+/api/companies/{cid}/commerce/connections

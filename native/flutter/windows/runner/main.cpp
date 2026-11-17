@@ -25,8 +25,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
-  Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
+  // Restored size when the user un-maximizes; the window opens maximized like other desktop books apps.
+  Win32Window::Point origin(40, 30);
+  Win32Window::Size size(1360, 860);
   if (!window.Create(L"Apex Books", origin, size)) {
     return EXIT_FAILURE;
   }

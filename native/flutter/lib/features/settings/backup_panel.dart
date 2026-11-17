@@ -19,6 +19,7 @@ class BackupPanel extends StatefulWidget {
     required this.workspace,
     required this.session,
     this.restoreAnchor,
+    this.exportAnchor,
     super.key,
   });
   final WorkspaceContext workspace;
@@ -26,6 +27,9 @@ class BackupPanel extends StatefulWidget {
 
   /// Lets the settings jump link scroll to the restore block.
   final GlobalKey? restoreAnchor;
+
+  /// Lets the "Export data" jump link scroll to the export block.
+  final GlobalKey? exportAnchor;
 
   @override
   State<BackupPanel> createState() => _BackupPanelState();
@@ -443,7 +447,11 @@ class _BackupPanelState extends State<BackupPanel> {
       children: [
         if (_owner) ...[
           SettingsBlock(
-            title: 'Export company data',
+            anchor: widget.exportAnchor,
+            title: 'Company data export',
+            note: _complete
+                ? 'Download this company’s records, journal entries, bank statement lines and settings as JSON, or one consistent ZIP snapshot that also holds every retained receipt, including archived evidence. Keep the file private. Restore it below as a separate company.'
+                : 'Download this company’s records, journal entries, bank statement lines and settings as JSON. Keep the file private. Use Backup and restore below to restore an export as a separate company.',
             children: [
               TextField(
                 controller: _exportPassword,
@@ -498,8 +506,23 @@ class _BackupPanelState extends State<BackupPanel> {
         ],
         SettingsBlock(
           anchor: widget.restoreAnchor,
-          title: 'Restore into a new company',
-          children: [
+          title: _complete && _owner
+              ? 'Complete backup and restore'
+              : 'Backup and restore',
+          note:
+              'Restore creates a separate company; it never replaces the current books. Passwords are used only on this device and never sent to the API. Login credentials and team invitations are not restored.',
+            children: [
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: Text(
+                'Restore into a new company',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xff365364),
+                ),
+              ),
+            ),
             TextField(
               controller: _name,
               enabled: !_busy && _uploadId == null,

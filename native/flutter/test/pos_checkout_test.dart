@@ -5,6 +5,65 @@ import 'package:apex_books/features/pos/pos_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('hold, resume, discard and clear keep sales apart and in memory', () async {
+    final controller = _counter(_CounterApi());
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    controller.changeBilling(customer: 'Asha');
+    controller.scan('00123');
+    await _tick();
+    expect(controller.canHold, isTrue);
+    controller.holdSale();
+    expect(controller.cart, isEmpty);
+    expect(controller.customer, isEmpty);
+    expect(controller.held.sales, hasLength(1));
+
+    controller.scan('00123');
+    await _tick();
+    controller.recallSale(controller.held.sales.single);
+    expect(controller.held.sales, hasLength(1), reason: 'cart is not empty');
+    controller.clearSale();
+    expect(controller.cart, isEmpty);
+
+    final saved = controller.held.sales.single;
+    controller.recallSale(saved);
+    expect(controller.held.sales, isEmpty);
+    expect(controller.customer, 'Asha');
+    expect(controller.cart.single.product.barcode, '00123');
+    controller.holdSale();
+    controller.discardHeld(controller.held.sales.single);
+    expect(controller.held.sales, isEmpty);
+  });
+
+  test('billing details travel in the sale body only when entered', () async {
+    final api = _CounterApi();
+    final controller = _counter(api);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    controller.scan('00123');
+    await _tick();
+    controller.changeBilling(
+      address: '12 Mill Road',
+      gstin: '27abcde1234f1z5',
+      phone: '98200',
+      place: '27',
+    );
+    controller.changePayment(cashText: '125');
+    await _tick();
+    await controller.submit();
+    final data = api.posted.single.body['data'] as Map<String, dynamic>;
+    expect(data['party_address'], '12 Mill Road');
+    expect(data['party_gstin'], '27ABCDE1234F1Z5');
+    expect(data['party_phone'], '98200');
+    expect(data['place_of_supply'], '27');
+  });
+
+  test('empty cash tendered means the exact amount', () {
+    final payment = PosPayment.evaluate(12500, PosTender.cash, '', '');
+    expect(payment.valid, isTrue);
+    expect(payment.change, 0);
+  });
+
   test('barcode is exact and monetary calculations use paise', () async {
     final api = _CounterApi();
     final controller = _counter(api);

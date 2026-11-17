@@ -201,3 +201,74 @@ String inventoryOperationName(String kind) => switch (kind) {
   'adjustment' => 'Stock adjustment',
   _ => 'Stock count',
 };
+
+/// A table for use inside dialogs, where [ApexTable]'s LayoutBuilder cannot be measured.
+/// Shows [card] rows instead of columns when the screen is narrower than [breakpoint].
+class InventoryDialogTable extends StatelessWidget {
+  const InventoryDialogTable({
+    required this.headers,
+    required this.flex,
+    required this.cell,
+    required this.rowCount,
+    required this.card,
+    this.breakpoint = 720,
+    super.key,
+  });
+
+  final List<String> headers;
+  final List<double> flex;
+  final int rowCount;
+  final Widget Function(int row, int column) cell;
+  final Widget Function(int row) card;
+  final double breakpoint;
+
+  @override
+  Widget build(BuildContext context) {
+    final narrow = MediaQuery.sizeOf(context).width < breakpoint;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Apex.line),
+        borderRadius: BorderRadius.circular(Apex.radiusControl),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (!narrow)
+            Container(
+              color: Apex.tableHead,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                spacing: 12,
+                children: [
+                  for (final (i, title) in headers.indexed)
+                    Expanded(
+                      flex: (flex[i] * 100).round(),
+                      child: Text(title.toUpperCase(), style: Apex.tableHeader),
+                    ),
+                ],
+              ),
+            ),
+          for (var row = 0; row < rowCount; row++) ...[
+            if (row > 0 || !narrow) const Divider(height: 1, color: Apex.lineSoft),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: narrow
+                  ? card(row)
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      spacing: 12,
+                      children: [
+                        for (var column = 0; column < headers.length; column++)
+                          Expanded(
+                            flex: (flex[column] * 100).round(),
+                            child: cell(row, column),
+                          ),
+                      ],
+                    ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}

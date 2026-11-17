@@ -3,7 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../ui/apex_theme.dart';
 import '../../ui/apex_widgets.dart';
 import 'books_data.dart';
-import 'books_entry_draft.dart' show booksDecimal, booksParsePaise;
+import 'books_entry_draft.dart' show BooksTextFallback, booksDecimal, booksParsePaise;
 
 class BooksRecordDetail extends StatefulWidget {
   const BooksRecordDetail({
@@ -86,6 +86,66 @@ class _BooksRecordDetailState extends State<BooksRecordDetail> {
               },
             );
           },
+        ),
+      ),
+    );
+  }
+
+  /// Stored amounts, like the web's "Document totals" section. Nothing is estimated.
+  Widget _documentTotals(BooksRecord row) {
+    final data = row.data;
+    bool known(String key) => booksParsePaise(data[key]) != null;
+    final ready = const ['taxable', 'cgst', 'sgst', 'igst', 'round_off'].every(known);
+    if (!ready) {
+      return const ApexPanel(
+        child: Padding(
+          padding: EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            spacing: 6,
+            children: [
+              Text('Document totals', style: Apex.panelTitle),
+              Text(
+                'Stored subtotal and tax breakdown are unavailable for this record. The document total above is retained; no tax breakdown has been estimated.',
+                style: Apex.note,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    bool nonZero(String key) =>
+        (booksParsePaise(data[key]) ?? BigInt.zero) != BigInt.zero;
+    final rows = <(String, Object?)>[
+      ('Subtotal after discounts', data['taxable']),
+      for (final key in ['cgst', 'sgst', 'igst'])
+        if (nonZero(key))
+          (key == 'sgst' ? 'SGST / UTGST' : key.toUpperCase(), data[key]),
+      if (known('supplier_tax') && nonZero('supplier_tax'))
+        ('Supplier tax (unclassified)', data['supplier_tax']),
+      if (nonZero('round_off')) ('Round off', data['round_off']),
+      ('Document total', row.json['amount']),
+    ];
+    return ApexPanel(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          spacing: 8,
+          children: [
+            const Text('Document totals', style: Apex.panelTitle),
+            for (final (label, value) in rows)
+              Row(
+                children: [
+                  Expanded(child: Text(label, style: Apex.note)),
+                  Text(booksMoney(value), style: Apex.strong),
+                ],
+              ),
+            const Text(
+              'Stored document amounts. Line and document discounts shown above are already included in the subtotal. These figures do not establish GST eligibility or filing status.',
+              style: Apex.note,
+            ),
+          ],
         ),
       ),
     );
@@ -246,6 +306,21 @@ class _BooksRecordDetailState extends State<BooksRecordDetail> {
           ),
         ),
       ),
+      if (row.json['cancelled'] == true)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Apex.tint,
+              border: Border.all(color: Apex.line),
+              borderRadius: BorderRadius.circular(Apex.radiusPanel),
+            ),
+            child: Text(
+              'Cancelled. ${booksText(data['cancelled'] is Map ? (data['cancelled'] as Map)['reason'] : null).ifEmpty('No reason recorded')}. The number ${row.number} stays in your records; its ledger, stock and balance effects were reversed.',
+            ),
+          ),
+        ),
       if (widget.actions case final actions?)
         Padding(padding: const EdgeInsets.only(top: 8), child: actions(row)),
       if (lines.isNotEmpty) ...[
@@ -296,19 +371,50 @@ class _BooksRecordDetailState extends State<BooksRecordDetail> {
           ),
         ),
       ],
+      if (lines.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        _documentTotals(row),
+      ],
+      const SizedBox(height: 16),
+      const Text('Payment & document trail', style: Apex.panelTitle),
+      const SizedBox(height: 6),
+      for (final entry in trail) _TrailLink(entry: entry, onOpen: widget.onOpen),
+      if (trail.isEmpty && allocations.isEmpty)
+        const Text(
+          'No linked payment or conversion appears in this record.',
+          style: Apex.note,
+        ),
+      const SizedBox(height: 6),
+      const Text(
+        'Recording a payment, settling an invoice and matching a bank statement are separate steps. Downloading or printing never posts another transaction.',
+        style: Apex.note,
+      ),
       if (notes.isNotEmpty) ...[
         const SizedBox(height: 16),
         const Text('Notes', style: Apex.panelTitle),
         const SizedBox(height: 6),
         Text(notes, style: Apex.lead.copyWith(color: Apex.inkSoft)),
       ],
-      if (trail.isNotEmpty) ...[
-        const SizedBox(height: 16),
-        const Text('Payment & document trail', style: Apex.panelTitle),
-        const SizedBox(height: 6),
-        for (final entry in trail)
-          _TrailLink(entry: entry, onOpen: widget.onOpen),
-      ],
+      const SizedBox(height: 20),
+      Container(
+        padding: const EdgeInsets.only(top: 12),
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: Apex.line)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.check_circle_outline, size: 16, color: Apex.greenText),
+            const SizedBox(width: 6),
+            const Expanded(
+              child: Text('Your original record stays in history', style: Apex.note),
+            ),
+            OutlinedButton(
+              onPressed: widget.onBack,
+              child: const Text('Back to register'),
+            ),
+          ],
+        ),
+      ),
       if (allocations.isNotEmpty && trail.isEmpty) ...[
         const SizedBox(height: 16),
         const Text('Payment allocations', style: Apex.panelTitle),
