@@ -117,6 +117,63 @@ void main() {
     },
   );
 
+  testWidgets('editing a draft from the register list loads its item lines', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final line = {
+      'description': 'Installation Service',
+      'quantity': 2,
+      'rate': '500',
+      'gst_rate': 0,
+    };
+    final compact = BooksRecord({
+      ..._record('quote', 'estimate', {'lines': <Json>[]}).json,
+      'number': 'EST-7',
+      'posted': false,
+    });
+    final full = BooksRecord({
+      ...compact.json,
+      'data': {
+        'lines': [line],
+      },
+    });
+    final loaded = <String>[];
+    final api = _Api(
+      read: (path, query) {
+        final id = path.split('/').last;
+        if (id == 'records') {
+          expect(query?['compact'], 'true');
+          return [compact.json];
+        }
+        loaded.add(id);
+        return full.json;
+      },
+      write: (method, path, body, key) async => throw UnimplementedError(),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BooksRegister(
+            workspace: _workspace(api, _MemoryPending()),
+            kind: 'estimate',
+            title: 'Estimates',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('More actions for EST-7'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit draft'));
+    await tester.pumpAndSettle();
+    expect(loaded, ['quote']);
+    expect(find.text('Installation Service'), findsOneWidget);
+    expect(find.text('500'), findsOneWidget);
+  });
+
   test('detail amendments preserve posted identity and omit financial inputs for receipts, payouts and notes', () {
     for (final kind in [
       'payment_in',

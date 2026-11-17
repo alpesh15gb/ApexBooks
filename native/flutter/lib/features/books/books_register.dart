@@ -53,6 +53,7 @@ class _BooksRegisterState extends State<BooksRegister> {
   bool _recurring = false;
   BooksRecord? _recurringSource;
   String? _notice;
+  bool _loadingSource = false;
   String? _editorNotice;
   int _detailRevision = 0;
   String _kind = '';
@@ -239,6 +240,54 @@ class _BooksRegisterState extends State<BooksRegister> {
   }
 
   void _start(BooksEntryIntent intent) {
+    if (!_posting.canStart || !widget.active || _loadingSource) return;
+    final source = intent.source;
+    // Register rows are compact and omit item lines; edits, conversions and
+    // returns need the full document, like the web app loads before editing.
+    if (source != null && _compactSource(source)) {
+      unawaited(_startWithFullSource(intent, source));
+      return;
+    }
+    _openEditor(intent);
+  }
+
+  static bool _compactSource(BooksRecord source) {
+    final lines = source.data['lines'];
+    return lines is List &&
+        lines.isEmpty &&
+        !booksPaymentKinds.contains(source.kind);
+  }
+
+  Future<void> _startWithFullSource(
+    BooksEntryIntent intent,
+    BooksRecord source,
+  ) async {
+    final posting = _posting;
+    setState(() => _loadingSource = true);
+    try {
+      final full = await _data.record(source.id);
+      if (!mounted || !widget.active || !identical(posting, _posting)) return;
+      _loadingSource = false;
+      _openEditor(
+        BooksEntryIntent(
+          intent.kind,
+          source: full,
+          operation: intent.operation,
+          convert: intent.convert,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(
+        () => _notice =
+            'Could not load ${source.label}. Check the connection and try again.',
+      );
+    } finally {
+      if (mounted && _loadingSource) setState(() => _loadingSource = false);
+    }
+  }
+
+  void _openEditor(BooksEntryIntent intent) {
     if (!_posting.canStart || !widget.active) return;
     setState(() {
       _editor = BooksEntryDraft(intent, widget.workspace.company);
