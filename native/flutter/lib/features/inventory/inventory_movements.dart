@@ -7,6 +7,7 @@ import '../../ui/apex_register.dart';
 import '../../ui/apex_theme.dart';
 import '../../ui/apex_widgets.dart';
 import 'inventory_models.dart';
+import 'inventory_rules.dart';
 import 'inventory_widgets.dart';
 import 'inventory_posting.dart';
 
@@ -134,11 +135,12 @@ class _InventoryMovementsPageState extends State<InventoryMovementsPage> {
   String _kind(Object? kind) => switch (kind) {
     'stock_opening' => 'Opening stock',
     'stock_adjustment' => 'Stock adjustment',
-    'purchase_bill' => 'Supplier bill',
+    'purchase_bill' => 'Purchase bill',
     'debit_note' => 'Purchase return',
     'sales_invoice' => 'Sales invoice',
-    'credit_note' || 'stock_return' => 'Sales return',
-    'pos' => 'POS sale',
+    'credit_note' => 'Sales return',
+    'stock_return' => 'Stock return',
+    'pos' => 'POS receipt',
     _ => inventoryText(kind).replaceAll('_', ' '),
   };
 
@@ -154,7 +156,7 @@ class _InventoryMovementsPageState extends State<InventoryMovementsPage> {
           children: [
             ApexRegisterHeading(
               inventoryText(widget.item['name']),
-              subtitle: 'Signed stock quantities, newest first',
+              subtitle: 'Quantity change and cost change, newest first',
               actions: [
                 OutlinedButton(
                   onPressed: () => _pick(true),
@@ -181,7 +183,7 @@ class _InventoryMovementsPageState extends State<InventoryMovementsPage> {
                   if (!_loading && _error == null && rows.isEmpty)
                     const ApexEmptyState(
                       icon: Icons.history,
-                      title: 'No stock movements in this date range.',
+                      title: 'No movements during this period.',
                     ),
                   for (final (index, row) in rows.indexed) ...[
                     if (index > 0)
@@ -209,7 +211,10 @@ class _InventoryMovementsPageState extends State<InventoryMovementsPage> {
   }
 
   Widget _movement(InventoryJson row) {
-    final quantity = inventoryQuantity(row['quantity']);
+    final quantity = inventoryMovementQuantity(
+      row['quantity'],
+      inventoryObject(widget.item['data'])['unit'],
+    );
     final negative = quantity.startsWith('-');
     return InkWell(
       onTap: () => _open(inventoryText(row['record_id'])),
@@ -222,20 +227,19 @@ class _InventoryMovementsPageState extends State<InventoryMovementsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${_kind(row['kind'])} ${inventoryText(row['number'])}'
-                        .trim(),
+                    '${_kind(row['kind'])}${inventoryText(row['number']).isEmpty ? '' : ' · ${inventoryText(row['number'])}'}',
                     style: Apex.strong,
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    '${row['date']} · ${row['cost_value'] == null ? 'Cost unavailable' : inventoryAmount(row['cost_value'])}',
+                    '${row['date']} · Cost change ${inventoryMovementCost(row['cost_value'])}',
                     style: Apex.note,
                   ),
                 ],
               ),
             ),
             Text(
-              negative ? quantity : '+$quantity',
+              quantity,
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
