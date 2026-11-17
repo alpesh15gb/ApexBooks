@@ -305,7 +305,8 @@ void _newEntryTests() {
       BooksEntryIntent('credit_note', source: invoice),
       company,
     );
-    draft.addSourceLine(draft.sourceLines.single);
+    // The remaining quantity is filled in, as on the web.
+    expect(draft.lines.single.get('quantity'), '2');
     draft.lines.single.set('quantity', '3');
     expect(
       draft.issue(),

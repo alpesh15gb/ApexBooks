@@ -266,7 +266,16 @@ class _BooksReportsState extends State<BooksReports> {
           ? (_ordinary?.end ?? _today())
           : _range.end;
       range = _dayRange(end);
-    } else if (current == null || current.gstReturn || current.asOfOnly) {
+    } else if (current != null && current.asOfOnly) {
+      // The web app keeps one date range: an as-of pick becomes the range end.
+      final base = _ordinary ?? _financialYear();
+      final end = _range.end;
+      final start = base.start.isAfter(end)
+          ? DateTime(end.month >= 4 ? end.year : end.year - 1, 4, 1)
+          : base.start;
+      range = DateTimeRange(start: start, end: end);
+      _customPeriod = range != base;
+    } else if (current == null || current.gstReturn) {
       range = _ordinary ?? _financialYear();
       _customPeriod = false;
     }

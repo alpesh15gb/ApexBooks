@@ -1193,6 +1193,16 @@ class _BooksEntryEditorState extends State<BooksEntryEditor> {
                     label: Text(
                       '${booksText(line['description'])} · ${booksText(line['remaining_return_quantity'] ?? line['quantity'])} available',
                     ),
+                  )
+                else if (line.containsKey('remaining_return_quantity') &&
+                    booksText(line['remaining_return_quantity']).isEmpty)
+                  // Capacity the server could not verify: say why, as the web app does.
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      '${booksText(line['description'])} · ${booksText(line['return_capacity_reason']).isNotEmpty ? booksText(line['return_capacity_reason']) : 'Remaining quantity is unavailable; review prior returns before entering a quantity.'}',
+                      style: Apex.small,
+                    ),
                   ),
             ] else
               Align(

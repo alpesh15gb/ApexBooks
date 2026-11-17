@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../ui/apex_theme.dart';
 import '../../ui/apex_widgets.dart';
 import 'books_data.dart';
+import 'register_query.dart' show registerSettlement;
 import 'books_entry_draft.dart' show BooksTextFallback, booksDecimal, booksParsePaise;
 
 class BooksRecordDetail extends StatefulWidget {
@@ -238,6 +239,9 @@ class _BooksRecordDetailState extends State<BooksRecordDetail> {
                 style: Apex.eyebrow.copyWith(color: Apex.greenText),
               ),
             _Status(status: row.status),
+            if (registerSettlement(row) case final settlement
+                when settlement.isNotEmpty)
+              Text(settlement, style: Apex.small),
           ],
         ),
         Semantics(
@@ -383,6 +387,25 @@ class _BooksRecordDetailState extends State<BooksRecordDetail> {
       if (lines.isNotEmpty) ...[
         const SizedBox(height: 16),
         _documentTotals(row),
+      ],
+      if (row.kind == 'purchase_bill' &&
+          booksText(data['purchase_order_id']).isNotEmpty) ...[
+        const SizedBox(height: 16),
+        const Text('Purchase order', style: Apex.panelTitle),
+        const SizedBox(height: 6),
+        const Text(
+          'This bill records goods received against a purchase order.',
+          style: Apex.note,
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: () => widget.onOpen(booksText(data['purchase_order_id'])),
+            icon: const Icon(Icons.arrow_forward, size: 16),
+            label: const Text('View source order'),
+          ),
+        ),
       ],
       const SizedBox(height: 16),
       const Text('Payment & document trail', style: Apex.panelTitle),

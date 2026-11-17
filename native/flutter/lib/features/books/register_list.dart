@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../ui/apex_register.dart';
 import '../../ui/apex_theme.dart';
 import '../../ui/apex_widgets.dart';
+import '../../core/workspace.dart' show businessDate;
 import 'books_data.dart';
 import 'books_document_output.dart';
 import 'register_query.dart';
@@ -285,7 +286,7 @@ class BooksRegisterList extends StatelessWidget {
       final current = DateTime.tryParse(from ? query.from : query.to);
       final first = from ? DateTime(2000) : DateTime.tryParse(query.from);
       final last = from ? DateTime.tryParse(query.to) : DateTime(2100);
-      final initial = current ?? DateTime.now();
+      final initial = current ?? DateTime.parse(businessDate());
       final picked = await showDatePicker(
         context: context,
         initialDate: initial,

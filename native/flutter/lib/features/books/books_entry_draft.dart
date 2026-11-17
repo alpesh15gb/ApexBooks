@@ -418,6 +418,26 @@ class BooksEntryDraft {
     }
     if (get('date').compareTo(source.date) < 0) set('date', source.date);
     lines.clear();
+    // Like the web app, start with every line that still has a verified
+    // returnable quantity, at that full quantity; the user trims from there.
+    if (source.json['return_capacity_lines'] is List) {
+      for (final original in sourceLines) {
+        final remaining = booksText(original['remaining_return_quantity']);
+        if (booksReturnStartingQuantity(original) == null ||
+            remaining.isEmpty ||
+            lines.length >= 100) {
+          continue;
+        }
+        addSourceLine(original);
+        final line = lines.last;
+        line.set('quantity', remaining);
+        if (remaining == booksText(original['quantity']) &&
+            booksText(original['discount_amount']).isNotEmpty) {
+          // Returning the whole line keeps its own fixed discount.
+          line.set('discount_amount', booksText(original['discount_amount']));
+        }
+      }
+    }
   }
 
   List<BooksJson> get sourceLines {
