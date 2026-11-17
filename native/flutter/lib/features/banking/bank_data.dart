@@ -1,6 +1,7 @@
 import '../../core/workspace.dart';
 import '../inventory/inventory_models.dart';
-import '../shared/csv_rows.dart';
+
+export 'bank_statement_csv.dart';
 
 BigInt? signedMoney(String value) {
   final text = value.trim();
@@ -61,47 +62,4 @@ BigInt? bankMovement(Json record, String bank) {
     return -amount;
   }
   return null;
-}
-
-List<Json> statementEntries(String csv) {
-  final rows = csvRows(csv, maxDataRows: 5000);
-  final headers = rows.first.values
-      .map((entry) => entry.toLowerCase())
-      .toList();
-  final date = headers.indexOf('date');
-  final description = headers.indexOf('description');
-  final amount = headers.indexOf('amount');
-  final reference = headers.indexOf('reference');
-  if (date < 0 ||
-      description < 0 ||
-      amount < 0 ||
-      headers.toSet().length != headers.length) {
-    throw const FormatException(
-      'Use Date, Description, Amount and an optional Reference column.',
-    );
-  }
-  final lines = <Json>[];
-  for (final entry in rows.skip(1)) {
-    final row = entry.values;
-    if (row.length != headers.length ||
-        validBankDate(row[date]) == null ||
-        row[description].isEmpty ||
-        row[description].length > 500 ||
-        (reference >= 0 && row[reference].length > 120)) {
-      throw FormatException(
-        'Check the date and statement details on CSV row ${entry.line}.',
-      );
-    }
-    final cents = signedMoney(row[amount]);
-    if (cents == null || cents == BigInt.zero) {
-      throw FormatException('Enter a nonzero amount on CSV row ${entry.line}.');
-    }
-    lines.add({
-      'date': row[date],
-      'description': row[description],
-      'amount': decimalMoney(cents),
-      if (reference >= 0) 'reference': row[reference],
-    });
-  }
-  return lines;
 }

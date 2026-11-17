@@ -16,6 +16,13 @@ const transferDirections = {
   'bank_to_bank': 'Transfer between banks',
 };
 
+/// Default record name per direction, as in the web app's cash transfer form.
+String transferDefaultName(String direction) => switch (direction) {
+  'cash_to_bank' => 'Cash deposit',
+  'bank_to_bank' => 'Bank transfer',
+  _ => 'Cash withdrawal',
+};
+
 const _directionLabels = {
   'cash_to_bank': 'Cash to bank',
   'bank_to_cash': 'Bank to cash',
@@ -34,6 +41,8 @@ class _TransferFormState extends State<TransferForm> {
   final _date = TextEditingController(text: businessDate());
   final _amount = TextEditingController();
   final _notes = TextEditingController();
+  final _name = TextEditingController(text: transferDefaultName('cash_to_bank'));
+  bool _nameEdited = false;
   late String _from = widget.bank;
   String? _to;
   String _direction = 'cash_to_bank';
@@ -45,6 +54,7 @@ class _TransferFormState extends State<TransferForm> {
     _date.dispose();
     _amount.dispose();
     _notes.dispose();
+    _name.dispose();
     super.dispose();
   }
 
@@ -67,11 +77,16 @@ class _TransferFormState extends State<TransferForm> {
       setState(() => _error = 'Choose a different destination bank.');
       return;
     }
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Enter a description for this transfer.');
+      return;
+    }
     final notes = _notes.text.trim();
     setState(
       () => _reviewed = {
         'kind': 'bank_transfer',
-        'name': transferDirections[_direction],
+        'name': name,
         'date': date,
         'amount': decimalMoney(amount),
         'data': {
@@ -101,7 +116,10 @@ class _TransferFormState extends State<TransferForm> {
               child: Text(_directionLabels[direction.key]!),
             ),
         ],
-        onChanged: (value) => _edit(() => _direction = value!),
+        onChanged: (value) => _edit(() {
+          _direction = value!;
+          if (!_nameEdited) _name.text = transferDefaultName(value);
+        }),
       ),
       BankChoice(
         label: 'Bank account',
@@ -123,6 +141,12 @@ class _TransferFormState extends State<TransferForm> {
           ],
           onChanged: (value) => _edit(() => _to = value),
         ),
+      BankField(
+        label: 'Description',
+        controller: _name,
+        maxLength: 120,
+        onChanged: (_) => _edit(() => _nameEdited = true),
+      ),
       BankField(
         label: 'Date (YYYY-MM-DD)',
         controller: _date,
@@ -342,6 +366,44 @@ class _StatementImportFormState extends State<StatementImportForm> {
   Json? _body;
   Json? _preview;
   String? _error;
+  List<List<String>> _table = const [];
+  int _header = 0;
+  Map<String, int?> _mapping = {};
+  bool _dmy = true;
+  List<Json>? _lines;
+  String? _parseError;
+
+  /// Re-reads the CSV text; [detect] also re-detects the header and columns.
+  void _reparse({bool detect = false}) {
+    _body = null;
+    _preview = null;
+    _error = null;
+    try {
+      if (detect) {
+        _table = statementTable(_csv.text);
+        _header = detectStatementHeader(_table);
+        _mapping = detectStatementMapping(
+          _header < _table.length ? _table[_header] : const [],
+        );
+      }
+      _lines = _table.isEmpty
+          ? null
+          : buildStatementLines(
+              _table,
+              header: _header,
+              mapping: _mapping,
+              dmy: _dmy,
+            );
+      _parseError = null;
+    } on FormatException catch (failure) {
+      if (detect) {
+        _table = const [];
+        _mapping = {};
+      }
+      _lines = null;
+      _parseError = failure.message;
+    }
+  }
 
   Future<void> _pick() async {
     setState(() {
@@ -354,8 +416,7 @@ class _StatementImportFormState extends State<StatementImportForm> {
       final contents = utf8.decode(file.bytes);
       setState(() {
         _csv.text = contents;
-        _body = null;
-        _preview = null;
+        _reparse(detect: true);
       });
     } catch (failure) {
       if (mounted) setState(() => _error = inventoryError(failure));
@@ -370,6 +431,84 @@ class _StatementImportFormState extends State<StatementImportForm> {
     super.dispose();
   }
 
+  List<Widget> _mappingFields() {
+    final headers = _header < _table.length ? _table[_header] : <String>[];
+    final lines = _lines;
+    return [
+      DropdownButtonFormField<int>(
+        key: ValueKey('header-$_header-${_table.length}'),
+        initialValue: _header,
+        isExpanded: true,
+        decoration: const InputDecoration(labelText: 'Header row'),
+        items: [
+          for (var i = 0; i < _table.length && i < 20; i++)
+            DropdownMenuItem(
+              value: i,
+              child: Text(
+                '${i + 1}: ${_table[i].join(' · ')}',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+        onChanged: _busy
+            ? null
+            : (value) => setState(() {
+                _header = value!;
+                _mapping = detectStatementMapping(_table[_header]);
+                _reparse();
+              }),
+      ),
+      DropdownButtonFormField<bool>(
+        key: ValueKey('dmy-$_dmy'),
+        initialValue: _dmy,
+        isExpanded: true,
+        decoration: const InputDecoration(labelText: 'Date format'),
+        items: const [
+          DropdownMenuItem(value: true, child: Text('DD/MM/YYYY (India)')),
+          DropdownMenuItem(value: false, child: Text('MM/DD/YYYY')),
+        ],
+        onChanged: _busy
+            ? null
+            : (value) => setState(() {
+                _dmy = value!;
+                _reparse();
+              }),
+      ),
+      for (final field in statementFields)
+        DropdownButtonFormField<int?>(
+          key: ValueKey('map-$field-${_mapping[field]}-$_header'),
+          initialValue: _mapping[field],
+          isExpanded: true,
+          decoration: InputDecoration(
+            labelText: '${field[0].toUpperCase()}${field.substring(1)} column',
+          ),
+          items: [
+            const DropdownMenuItem<int?>(value: null, child: Text('Not mapped')),
+            for (var i = 0; i < headers.length; i++)
+              DropdownMenuItem<int?>(
+                value: i,
+                child: Text('${i + 1} · ${headers[i]}', overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged: _busy
+              ? null
+              : (value) => setState(() {
+                  _mapping = {..._mapping, field: value};
+                  _reparse();
+                }),
+        ),
+      if (lines != null) ...[
+        for (final line in lines.take(5))
+          Text(
+            '${line['date']} · ${line['description']} · ${line['amount']}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        Text('Showing ${lines.length < 5 ? lines.length : 5} of ${lines.length} rows.'),
+      ],
+    ];
+  }
+
   Future<void> _review() async {
     setState(() {
       _busy = true;
@@ -377,10 +516,13 @@ class _StatementImportFormState extends State<StatementImportForm> {
       _error = null;
     });
     try {
-      final body = {
-        'bank_account_id': widget.bank,
-        'lines': statementEntries(_csv.text),
-      };
+      final lines = _lines;
+      if (lines == null) {
+        throw FormatException(
+          _parseError ?? 'Choose a statement CSV to import.',
+        );
+      }
+      final body = {'bank_account_id': widget.bank, 'lines': lines};
       final outcome = await widget.preview({...body, 'dry_run': true});
       if (!mounted) return;
       setState(() {
@@ -411,7 +553,7 @@ class _StatementImportFormState extends State<StatementImportForm> {
           ),
         ),
         const Text(
-          'Paste CSV with Date, Description and Amount columns. Include Reference if available. Use YYYY-MM-DD dates, positive deposits and negative withdrawals.',
+          'Choose or paste your bank CSV. Columns such as Narration, Txn Date, Withdrawal Amt and Deposit Amt are recognised, and you can correct the mapping below. Debit is paid and credit is received; a single amount column uses positive for received and negative for paid.',
         ),
         BankField(
           label: 'Statement CSV',
@@ -419,12 +561,14 @@ class _StatementImportFormState extends State<StatementImportForm> {
           maxLength: 1000000,
           lines: 6,
           enabled: !_busy,
-          onChanged: (_) => setState(() {
-            _body = null;
-            _preview = null;
-            _error = null;
-          }),
+          onChanged: (_) => setState(() => _reparse(detect: true)),
         ),
+        if (_table.isNotEmpty) ..._mappingFields(),
+        if (_parseError != null && _csv.text.trim().isNotEmpty)
+          Text(
+            _parseError!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
         if (_preview != null)
           Text(
             '${_preview!['added']} new · ${_preview!['duplicates']} already imported',
