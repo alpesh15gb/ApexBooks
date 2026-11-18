@@ -19,7 +19,8 @@ from purchase_returns import candidates
 ZERO = Decimal(0)
 CONTROLS = {'SYS-AR': ('receivable', 1), 'SYS-AP': ('payable', -1),
             'SYS-CUST-CREDIT': ('customer_credit', -1), 'SYS-SUPP-CREDIT': ('supplier_credit', 1),
-            'SYS-CUST-ADV': ('customer_advance_net_tax', -1), 'SYS-SUPP-ADV': ('supplier_advance', 1)}
+            'SYS-CUST-ADV': ('customer_advance_net_tax', -1), 'SYS-SUPP-ADV': ('supplier_advance', 1),
+            'SYS-UNALLOC-RCPT': ('unallocated_receipts', -1)}
 TABLES = ('records', 'accounts', 'journals', 'journal_lines', 'record_postings', 'payment_allocations', 'stock_movements')
 LIMITATIONS = [
     'Reads only this supplied snapshot; provenance and completeness outside the file are not verified.',
@@ -157,6 +158,7 @@ def audit(payload, as_of=None, snapshot_sha256=None):
         effect = {}
         if kind in ('sales_invoice','opening_receivable'): effect['receivable'] = amount
         elif kind in ('purchase_bill','opening_payable'): effect['payable'] = amount
+        elif kind == 'payment_in' and data.get('receipt_purpose') == 'unallocated': expected['unallocated_receipts'] += amount
         elif kind in ('payment_in','credit_note'): effect['receivable'] = -amount + (number(data.get('unallocated_credit',0)) if kind == 'credit_note' else ZERO)
         elif kind in ('payment_out','debit_note'): effect['payable'] = -amount + (number(data.get('unallocated_credit',0)) if kind == 'debit_note' else ZERO)
         elif kind in ('advance_application','credit_application'): effect['receivable' if data.get('payment_kind') == 'payment_in' else 'payable'] = -amount

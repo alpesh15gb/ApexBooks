@@ -4,6 +4,7 @@ import DocumentAmounts from './DocumentAmounts.jsx';
 import StockRecordSummary from './StockRecordSummary.jsx';
 import DocumentAttachments from './DocumentAttachments.jsx';
 import PurchaseOrderReceiving from './PurchaseOrderReceiving.jsx';
+import ReceiptCorrection from './ReceiptCorrection.jsx';
 import { hasPendingPostings } from './postingRegistry.js';
 import { ArrowRight, BellRing, CheckCircle2, Clock3, Download, FileText, MessageCircle, Pencil, Printer, X } from 'lucide-react';
 import { canRemind, documentMessage, partyPhone, reminderMessage, whatsappUrl } from './whatsappShare.js';
@@ -20,6 +21,7 @@ export default function TransactionDetail({ record, records, company, labels, lo
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState('');
   const [receiving, setReceiving] = useState(null);
+  const [correcting, setCorrecting] = useState(false);
   const cancellation = useRef(false);
   const locked = attachmentLocked || cancelBusy;
   async function confirmCancel() {
@@ -52,12 +54,15 @@ export default function TransactionDetail({ record, records, company, labels, lo
   const orderReceiving = receiving && receiving.order_id === record.id ? receiving : null;
   const receivingStatus = orderReceiving?.status;
   const lockedOrder = purchaseReceiving && (record.data?.purchase_order_receiving_started || !!orderReceiving?.receipts.length);
-  const status = cancelled ? 'Cancelled' : quantityOnly ? 'Quantity recorded' : record.converted_to ? 'Converted' :
+  const status = cancelled ? record.data?.receipt_correction_superseded ? 'Superseded' : 'Cancelled' : quantityOnly ? 'Quantity recorded' : record.converted_to ? 'Converted' :
     receivingStatus === 'received' ? 'Fully received' : receivingStatus === 'partial' ? 'Partially received' :
     draft ? 'Open draft' : record.posted ? 'Posted' : 'Unposted';
   const actions = relatedRecordActions(record, writable);
   const cancellable = (record.pos_refund_cancellable || ['sales_invoice','purchase_bill','pos','expense','credit_note','debit_note','payment_in','payment_out','bank_transfer'].includes(record.kind)) && record.posted && !cancelled && !!onCancelDocument && features.includes('document_cancellation');
-  const editable = !cancelled && (['sales_invoice','purchase_bill','pos','expense','credit_note','debit_note','payment_in','payment_out','bank_transfer'].includes(record.kind) || draft);
+  const editable = !cancelled && !record.data?.receipt_correction_id && record.data?.receipt_purpose !== 'unallocated' &&
+    (['sales_invoice','purchase_bill','pos','expense','credit_note','debit_note','payment_in','payment_out','bank_transfer'].includes(record.kind) || draft);
+  const correctable = writable && record.posted && !cancelled && features.includes('receipt_allocation_corrections') &&
+    (record.kind === 'payment_in' || record.kind === 'advance_application' && record.data?.payment_kind === 'payment_in');
   const pdf = ['sales_invoice','purchase_bill','pos','expense','credit_note','debit_note','payment_in','payment_out','customer_refund','supplier_refund','advance_refund'].includes(record.kind) || draft;
   const lines = record.data?.lines || [];
   const links = [
@@ -73,6 +78,8 @@ export default function TransactionDetail({ record, records, company, labels, lo
   const hasBalance = invoice && record.posted && !cancelled;
   const balanceKnown = record.outstanding !== undefined && record.outstanding !== null && Number.isFinite(Number(record.outstanding));
   const available = record.data?.is_advance ? record.advance_remaining : ['credit_note', 'debit_note'].includes(record.kind) ? record.credit_remaining : undefined;
+  if (correcting) return <ReceiptCorrection record={record} company={company} api={api}
+    close={() => setCorrecting(false)} refresh={onRefresh} done={onClose}/>;
   return <div className="overlay detail-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="modal transaction-detail" role="dialog" aria-modal="true" aria-labelledby="transaction-detail-title">
       <header className="detail-heading">
@@ -93,6 +100,8 @@ export default function TransactionDetail({ record, records, company, labels, lo
         {loading && <p className="info-box" role="status">Refreshing transaction details…</p>}
         {error && <div className="error banner" role="alert">{error}<button className="link" onClick={onRetry}>Try again</button></div>}
         <div className="detail-action-bar">
+          {correctable && <button className="button secondary" disabled={loading || !!error || locked || cancelOpen}
+            onClick={guarded(() => setCorrecting(true))}>Correct allocation</button>}
           {actions.map((action, index) => <button key={action.kind} className={`button ${index === 0 && action.kind.startsWith('payment') ? 'primary' : 'secondary'}`} disabled={loading || !!error || locked} onClick={() => onRelated(record, action.kind)}>{action.label}<ArrowRight size={15} /></button>)}
           {['estimate', 'proforma'].includes(record.kind) && !record.converted_to && !cancelled && writable && <button className="button secondary" disabled={loading || !!error || locked} onClick={() => onConvert(record, 'sales_order')}>Create sales order<ArrowRight size={15} /></button>}
           {draft && (!purchaseReceiving || receivingStatus === 'unavailable') && !record.converted_to && !cancelled && writable && <button className="button primary" disabled={loading || !!error || locked || lockedOrder} onClick={() => onConvert(record)}>Convert to {record.kind === 'purchase_order' ? 'bill' : 'invoice'}<ArrowRight size={15} /></button>}
@@ -103,7 +112,8 @@ export default function TransactionDetail({ record, records, company, labels, lo
           {canRemind(record) && <button className="button secondary whatsapp" disabled={loading || locked} onClick={() => openWhatsApp(true)}><BellRing size={15} />Send reminder</button>}
           {writable && editable && !record.converted_to && !lockedOrder && <button className="button secondary" disabled={loading || !!error || locked} onClick={() => onEdit(record)}><Pencil size={15} />Edit details</button>}
         </div>
-        {cancelled && <div className="info-box cancelled-note" role="status"><strong>Cancelled.</strong> {record.data?.cancelled?.reason || 'No reason recorded'}. The number {record.number} stays in your records; its ledger, stock and balance effects were reversed.</div>}
+        {cancelled && <div className="info-box cancelled-note" role="status"><strong>{status}.</strong> {record.data?.cancelled?.reason || 'No reason recorded'}.
+          {status === 'Cancelled' && ` The number ${record.number} stays in your records; its ledger, stock and balance effects were reversed.`}</div>}
         {cancelOpen && <section className="cancel-panel" role="alertdialog" aria-labelledby="cancel-title">
           <h3 id="cancel-title">Cancel {record.number}?</h3>
           <p>This reverses its ledger entry{['sales_invoice','purchase_bill','pos','credit_note','debit_note'].includes(record.kind) ? ', returns its stock' : ''} and frees any balance it used. The number is kept and the action is recorded in the activity log. It cannot be undone; create a new document if you need to redo it.</p>

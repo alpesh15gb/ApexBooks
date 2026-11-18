@@ -56,7 +56,8 @@ def install(app,m):
         source=session.scalar(select(m.Record).where(m.Record.company_id==company_id,m.Record.id==advance_id))
         if not source or source.kind not in {'payment_in','payment_out'} or not source.data.get('is_advance') or not session.scalar(select(m.RecordPosting.id).where(m.RecordPosting.company_id==company_id,m.RecordPosting.record_id==source.id)):raise HTTPException(404,'Posted advance not found')
         if body.date<source.date:raise HTTPException(422,'Refund cannot predate the advance')
-        used=sum((row.amount for row in session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind.in_(['advance_application','advance_refund']))) if row.data.get('advance_id')==source.id),Decimal('0'))
+        from advance_tax import active_settlements
+        used=sum((row.amount for row in active_settlements(m,company_id,session,source_ids=[source.id])),Decimal('0'))
         amount=m.money(body.amount)
         if amount<=0 or amount>source.amount-used:raise HTTPException(422,'Refund exceeds the available advance')
         base,taxes,data=release(m,company_id,source,amount,used,session)

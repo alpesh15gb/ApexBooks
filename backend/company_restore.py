@@ -176,7 +176,8 @@ def validate(payload):
         if payment['kind'] in {'payment_in','payment_out'}:
             allowed_targets=allowed_targets | {'opening_receivable' if direction=='payment_in' else 'opening_payable'}
         if payment['kind'] not in {'payment_in','payment_out','credit_note','debit_note','advance_application','credit_application'} or document['kind'] not in allowed_targets:raise ValueError('Allocation type or direction mismatch')
-        if payment['data'].get('is_advance'):raise ValueError('Advance receipt cannot directly allocate a document')
+        if payment['data'].get('is_advance') or payment['data'].get('receipt_purpose') == 'unallocated':
+            raise ValueError('An advance or unallocated receipt cannot directly allocate a document')
         if indexes['records'][pid]['name'].strip().casefold()!=indexes['records'][did]['name'].strip().casefold():raise ValueError('Allocation party mismatch')
         if indexes['records'][pid]['date']<indexes['records'][did]['date'] and not verified_historical_allocation(indexes['records'][pid],indexes['records'][did],amount):raise ValueError('Allocation predates document without verified source lineage')
         links.add((pid,did));allocated[did]+=amount;payment_totals[pid]+=amount

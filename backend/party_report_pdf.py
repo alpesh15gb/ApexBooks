@@ -19,6 +19,7 @@ pdfmetrics.registerFont(TTFont('ApexReportBold',str(FONT_DIR/'DejaVuSans-Bold.tt
 
 TYPES={'sales_invoice':'Sales invoice','purchase_bill':'Purchase bill','payment_in':'Receipt','payment_out':'Payment',
        'credit_note':'Credit note','debit_note':'Debit note','opening_receivable':'Opening receivable','opening_payable':'Opening payable',
+       'customer_advance_receipt':'Customer advance receipt','unallocated_customer_receipt':'Unallocated customer receipt',
        'advance_application':'Advance applied','credit_application':'Credit applied','customer_refund':'Customer refund','supplier_refund':'Supplier refund'}
 
 def render(company_name, report):
@@ -47,6 +48,9 @@ def render(company_name, report):
         table.setStyle(TableStyle(base_style+[('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#f5f8f5')])]))
         story.append(table)
     else:story.append(cell('No posted transactions in this period. Opening and closing balances are shown above.'))
+    if report.get('correction_history'):
+        story += [Spacer(1,12), cell('Correction history', title)]
+        story.extend(cell(f"{pretty(row['date'])} · {row['party']} · {row['number']} · {row['details']}") for row in report['correction_history'])
     story += [Spacer(1,12),cell('Receivable and payable columns are running balances for the selected scope. Document amounts are shown separately. This statement follows the report\'s party-name matching and posted-entry rules; it is not a statutory return.')]
     if report.get('ordering_note'):story.append(cell(report['ordering_note']))
     def footer(canvas,doc):

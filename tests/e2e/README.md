@@ -30,6 +30,10 @@ discounts, payment at invoice entry, split collection, customer/supplier returns
 cancellation, expense, PDF output and exact final stock/cash/profit/balance checks.
 Only customer, supplier and item masters are seeded through the API.
 
+Use `--receipt-correction` for the Keystone browser fixture. It corrects both
+DCB credits through Payment in, retries after a lost posting response, and
+checks the resulting invoice, DCB BANK reconciliation and party statement PDFs.
+
 Include `--accessibility` for keyboard focus, announcements, accessible trees,
 reduced motion and narrow layouts. With `APEX_ZOOM_BROWSER_CHANNEL=chrome`, this
 also checks actual 200% and 400% browser zoom using disposable profiles in the

@@ -40,7 +40,7 @@ const api = async (path) => {
   return response.json();
 };
 
-export default function Reports({ companyId, records, showStockHistory = false, onOpenRecord }) {
+export default function Reports({ companyId, records, showStockHistory = false, showReceiptCorrections = false, onOpenRecord }) {
   const financialYear = businessFinancialYear();
   const [from, setFrom] = useState(`${financialYear}-04-01`);
   const [to, setTo] = useState(today());
@@ -49,6 +49,7 @@ export default function Reports({ companyId, records, showStockHistory = false, 
   const [period, setPeriod] = useState("year");
   const [stockHistory, setStockHistory] = useState(null);
   const [partySelection, setPartySelection] = useState({ companyId, name: "" });
+  const [includeCorrections, setIncludeCorrections] = useState(false);
   const selectedParty = partySelection.companyId === companyId ? partySelection.name : "";
   const setParty = (name) => setPartySelection({ companyId, name });
   const [ordinaryDates, setOrdinaryDates] = useState(null);
@@ -99,7 +100,8 @@ export default function Reports({ companyId, records, showStockHistory = false, 
     : view;
   const query = ["ageing", "credits", "advances"].includes(view)
     ? `as_of=${encodeURIComponent(to)}&party=${encodeURIComponent(party)}`
-    : `from_date=${encodeURIComponent(from)}&to_date=${encodeURIComponent(to)}${view === "parties" ? `&party=${encodeURIComponent(party)}` : ""}${endpoint === "register" ? `&group=${view}` : ""}`;
+    : `from_date=${encodeURIComponent(from)}&to_date=${encodeURIComponent(to)}${view === "parties" ? `&party=${encodeURIComponent(party)}` : ""}${endpoint === "register" ? `&group=${view}` : ""}`
+      + (view === "parties" && showReceiptCorrections && includeCorrections ? "&include_corrections=true" : "");
   const requestKey = `${companyId}|${view}|${query}`;
   const asOf = ["ageing", "credits", "advances"].includes(view);
   const invalidRange = !to || (!asOf && (!from || from > to));
@@ -313,6 +315,10 @@ export default function Reports({ companyId, records, showStockHistory = false, 
             </select>
           </label>
         )}
+        {view === "parties" && showReceiptCorrections && <label>
+          <input type="checkbox" checked={includeCorrections} onChange={event => setIncludeCorrections(event.target.checked)}/>
+          Include correction history
+        </label>}
       </div>
       {invalidRange && (
         <div className="error banner" role="alert">
@@ -600,6 +606,11 @@ export default function Reports({ companyId, records, showStockHistory = false, 
             Party names are matched by text. Posted opening balances and settlements are included;
             activity before the selected start date forms the opening balance.
           </div>
+          {data.correction_history?.length > 0 && <section className="panel" aria-label="Correction history">
+            <h3>Correction history</h3>
+            <ul>{data.correction_history.map(row =>
+              <li key={row.id}>{row.date} · {row.party} · {row.number} · {row.details}</li>)}</ul>
+          </section>}
         </>
       )}
       {data && view === "ageing" && Array.isArray(data.rows) && (

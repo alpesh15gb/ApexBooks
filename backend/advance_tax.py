@@ -8,6 +8,15 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 KEYS=('cgst','sgst','igst')
+
+def active_settlements(m, company_id, session, *, source_ids=None):
+    posted = select(m.RecordPosting.record_id).where(m.RecordPosting.company_id == company_id)
+    query = select(m.Record).where(m.Record.company_id == company_id, m.Record.id.in_(posted),
+                                   m.Record.kind.in_(['advance_application', 'advance_refund']))
+    if source_ids is not None:
+        query = query.where(m.Record.data['advance_id'].as_string().in_(source_ids))
+    return session.scalars(query)
+
 def prepare(m,data,company,mode,kind,amount):
     data={**data,'tax_mode':mode}
     if kind!='payment_in' or mode!='regular':return data
@@ -36,12 +45,14 @@ def release(m,company_id,source,amount,used,session,target=None):
     original={key:Decimal(str(source.data.get('advance_tax',{}).get(key,0))) for key in KEYS}
     taxes={key:Decimal('0') for key in KEYS}
     if any(original.values()):
-        settlements=list(session.scalars(select(m.Record).where(m.Record.company_id==company_id,m.Record.kind.in_(['advance_application','advance_refund']))))
+        settlements=list(active_settlements(m, company_id, session))
         released={key:sum((Decimal(str(row.data.get('advance_tax_released',{}).get(key,0))) for row in settlements if row.data.get('advance_id')==source.id),Decimal('0')) for key in KEYS}
         total=sum(original.values());cumulative=total if used+amount==source.amount else m.money(total*(used+amount)/source.amount)
         desired_cgst=m.money(cumulative*original['cgst']/total);desired_igst=m.money(cumulative*original['igst']/total)
         desired={'cgst':desired_cgst,'igst':desired_igst,'sgst':cumulative-desired_cgst-desired_igst}
-        taxes={key:desired[key]-released[key] for key in KEYS}
+        # Unlinking an earlier partial application can leave a rounding cent
+        # on a later active settlement. Carry it forward until the totals catch up.
+        taxes={key:max(Decimal('0'),desired[key]-released[key]) for key in KEYS}
         if target:
             if target.data.get('tax_mode')!='regular' or target.data.get('place_of_supply')!=source.data.get('place_of_supply'):raise HTTPException(422,'A taxed service advance must match the invoice tax profile and place of supply')
             if not any(Decimal(str(line.get('gst_rate',0)))==Decimal(str(source.data['advance_gst_rate'])) for line in target.data.get('lines',[])):raise HTTPException(422,'The invoice GST rate must match the service advance')

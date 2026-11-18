@@ -84,6 +84,7 @@ export default function RecordEditor({
     else close();
   };
   const [advance, setAdvance] = useState(!!(edit && source?.data?.is_advance));
+  const [unallocated, setUnallocated] = useState(false);
   const [paymentRows, setPaymentRows] = useState([
     ...(edit && !source?.data?.is_advance
       ? source?.allocations ||
@@ -161,6 +162,7 @@ export default function RecordEditor({
         company.state_code,
       advance_supply: "",
       advance_gst_rate: "18",
+      utr: initial?.data?.utr || "",
       amount: edit ? String(initial?.amount || "") : isPayment && relatedSource ? String(relatedSource.outstanding || "") : "",
       tender_amount: initial?.data?.tender_amount || "",
       bank_amount: initial?.data?.bank_amount || "",
@@ -569,8 +571,11 @@ export default function RecordEditor({
                 party_phone: form.party_phone || undefined,
                 ...(isPayment
                   ? {
-                      is_advance: advance,
-                      allocations: advance ? [] : paymentRows,
+                      is_advance: advance && !unallocated,
+                      allocations: advance || unallocated ? [] : paymentRows,
+                      ...(unallocated ? { receipt_purpose: "unallocated" } : {}),
+                      ...(kind === "payment_in" && form.payment_account === "bank" && form.utr
+                        ? { utr: form.utr } : {}),
                     }
                   : {}),
                 payment_account: form.payment_account,
@@ -764,7 +769,13 @@ export default function RecordEditor({
                   </label>
                 </>
               )}
-              {isPayment && (
+              {kind === "payment_in" && !edit && supported("receipt_allocation_corrections") && (
+                <label className="full"><input type="checkbox" checked={unallocated}
+                  onChange={event => { setUnallocated(event.target.checked); setAdvance(false); }}/>
+                  {" "}Hold as an unallocated customer receipt
+                </label>
+              )}
+              {isPayment && !unallocated && (
                 <PaymentAllocations
                   advance={advance}
                   onAdvance={setAdvance}
@@ -991,6 +1002,10 @@ export default function RecordEditor({
                 </select>
               </label>
             )}
+          {kind === "payment_in" && form.payment_account === "bank" && supported("receipt_allocation_corrections") && (
+            <label className="full">Bank UTR<input name="utr" maxLength={120} value={form.utr}
+              readOnly={edit} onChange={change}/></label>
+          )}
           {doc && (
             <section className="document-bottom full">
               <div className="document-extras">

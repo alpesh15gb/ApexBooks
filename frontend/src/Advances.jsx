@@ -19,6 +19,7 @@ export default function Advances({
   api,
   refresh,
   canWrite,
+  onOpen,
 }) {
   const [banks, setBanks] = useState([]);
   React.useEffect(() => {
@@ -79,7 +80,7 @@ export default function Advances({
   const advance = advances.find((row) => row.id === selected);
   const applications = records.filter(
     (row) =>
-      ["advance_application", "advance_refund"].includes(row.kind) &&
+      row.posted && ["advance_application", "advance_refund"].includes(row.kind) &&
       row.data?.advance_id === selected,
   );
   const targets = records.filter(
@@ -185,6 +186,7 @@ export default function Advances({
         Advance payment
         <select
           className="form-select"
+          aria-label="Advance payment"
           disabled={busy || pending || balanceRefresh.busy}
           value={selected}
           onChange={(event) => {
@@ -206,6 +208,7 @@ export default function Advances({
           {advance && <p>
             Original {money(advance.amount)} · Available{" "}
             {money(advance.advance_remaining)}
+            {onOpen && <> · <button className="link" onClick={() => onOpen(advance)}>View receipt</button></>}
           </p>}
           {applications.map((row) => (
             <p key={row.id}>
@@ -214,6 +217,7 @@ export default function Advances({
                 ?.number ||
                 (row.kind === "advance_refund" ? "Refund" : "Document")}{" "}
               · {money(row.amount)}
+              {onOpen && <> · <button className="link" onClick={() => onOpen(row)}>{row.number}</button></>}
             </p>
           ))}
           {canWrite && (pending || Number(advance?.advance_remaining) > 0) && (

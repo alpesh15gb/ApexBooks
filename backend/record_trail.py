@@ -5,7 +5,7 @@ from sqlalchemy import select, or_
 
 def cancelled_allocations(record):
     if record.kind not in {'payment_in','payment_out'} or not record.data.get('cancelled'):return {}
-    rows=record.data.get('allocations')
+    rows=record.data.get('receipt_correction_allocations', record.data.get('allocations'))
     if not isinstance(rows,list):return {}
     result={}
     try:

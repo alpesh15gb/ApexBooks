@@ -560,6 +560,7 @@ SYSTEM_ACCOUNTS = {
     'supplier_credits': ('SYS-SUPP-CREDIT', 'Supplier credit balances', 'asset'),
     'rounding': ('SYS-ROUND', 'Transaction rounding', 'expense'),
     'customer_advances': ('SYS-CUST-ADV', 'Customer advances', 'liability'),
+    'unallocated_receipts': ('SYS-UNALLOC-RCPT', 'Unallocated Customer Receipts', 'liability'),
     'supplier_advances': ('SYS-SUPP-ADV', 'Supplier advances', 'asset'),
     'sales': ('SYS-SALES', 'Sales income', 'income'),
     'purchases': ('SYS-PURCHASE', 'Purchases and cost', 'expense'),
@@ -695,7 +696,12 @@ def posting_lines(kind, amount, data, tax_mode):
     elif kind == 'payment_in':
         add(payment_key(data), debit=amount)
         advance_tax={key:Decimal(str(data.get('advance_tax',{}).get(key,0))) for key in tax} if data.get('is_advance') else {key:Decimal('0') for key in tax}
-        add('customer_advances' if data.get('is_advance') else 'receivable', credit=amount-sum(advance_tax.values()))
+        destination = 'receivable'
+        if data.get('is_advance'):
+            destination = 'customer_advances'
+        elif data.get('receipt_purpose') == 'unallocated':
+            destination = 'unallocated_receipts'
+        add(destination, credit=amount-sum(advance_tax.values()))
         for key,value in advance_tax.items():add('output_'+key,credit=value)
     elif kind == 'payment_out':
         add('supplier_advances' if data.get('is_advance') else 'payable', debit=amount); add(payment_key(data), credit=amount)
@@ -1413,7 +1419,10 @@ def apply_advance_in_transaction(company_id, advance_id, body, request, user, se
     previous = session.scalar(select(IdempotencyKey).where(IdempotencyKey.company_id == company_id, IdempotencyKey.key == key))
     if previous:
         if previous.request_hash != fingerprint: raise HTTPException(409, 'Idempotency key was used for a different request')
-        return {**obj(session.get(Record, previous.record_id)), 'posted': True}
+        existing = session.get(Record, previous.record_id)
+        posted = session.scalar(select(RecordPosting.id).where(
+            RecordPosting.company_id == company_id, RecordPosting.record_id == existing.id))
+        return {**obj(existing), 'posted': bool(posted)}
     require_open_period(company_id, body.date, session)
     source = session.scalar(select(Record).where(Record.company_id == company_id, Record.id == advance_id))
     if not source or source.kind not in {'payment_in', 'payment_out'} or not source.data.get('is_advance'):
@@ -1428,12 +1437,13 @@ def apply_advance_in_transaction(company_id, advance_id, body, request, user, se
     if source.name.strip().casefold() != target.name.strip().casefold(): raise HTTPException(422, 'Party must match the advance')
     if body.date < max(source.date, target.date): raise HTTPException(422, 'Application date cannot precede the advance or document')
     amount = money(body.amount)
-    used = sum((r.amount for r in session.scalars(select(Record).where(Record.company_id == company_id, Record.kind.in_(['advance_application','advance_refund']))) if r.data.get('advance_id') == source.id), Decimal('0'))
+    from advance_tax import active_settlements
+    used = sum((r.amount for r in active_settlements(sys.modules[__name__], company_id, session, source_ids=[source.id])), Decimal('0'))
     if amount <= 0 or amount > source.amount - used: raise HTTPException(422, 'Amount exceeds the available advance')
     if amount > target.amount - applied_total(company_id, target.id, session): raise HTTPException(422, 'Amount exceeds the outstanding document balance')
     advance_base,advance_taxes,advance_data=release_advance_tax(sys.modules[__name__],company_id,source,amount,used,session,target)
     application = Record(company_id=company_id, kind='advance_application', name=source.name, date=body.date, amount=amount,
-        data={**advance_data,'applied_to':target.id})
+        data={**advance_data,'applied_to':target.id,'created_at':datetime.now(timezone.utc).isoformat()})
     session.add(application); session.flush()
     application.number = 'ADV-' + application.id[:8].upper()
     journal = Journal(company_id=company_id, date=body.date, reference='AUTO:' + application.id, memo='Advance application ' + application.number, created_by=user.id)
@@ -1723,7 +1733,7 @@ def client_record_data(data):
                 'pos_return', 'pos_register_session_id', 'quantity_only'}
     from purchase_receiving import OWNED_FIELDS
     return {key: value for key, value in data.items()
-            if key not in reserved and key not in OWNED_FIELDS and not key.startswith(('vyapar_', 'commerce_'))}
+            if key not in reserved and key not in OWNED_FIELDS and not key.startswith(('vyapar_', 'commerce_', 'receipt_correction'))}
 
 
 def validate_outward_document_number(kind, tax_mode, number):
@@ -1857,6 +1867,18 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
             raise HTTPException(409, 'Source document has already been converted')
     target = None
     allocations = []
+    unallocated_receipt = body.kind == 'payment_in' and data.get('receipt_purpose') == 'unallocated'
+    if 'receipt_purpose' in data and not unallocated_receipt:
+        raise HTTPException(422, 'Invalid receipt purpose')
+    if unallocated_receipt:
+        if data.get('is_advance') or data.get('allocations') or data.get('applied_to'):
+            raise HTTPException(422, 'An unallocated receipt cannot have an advance or invoice allocation')
+        for key in ('advance_supply', 'advance_gst_rate', 'place_of_supply'):
+            data.pop(key, None)
+    if 'utr' in data and body.kind == 'payment_in':
+        if not isinstance(data['utr'], str) or len(data['utr'].strip()) > 120:
+            raise HTTPException(422, 'Enter a bank UTR of at most 120 characters')
+        data['utr'] = data['utr'].strip()
     if data.get('is_advance'):
         if data['is_advance'] is not True or body.kind not in {'payment_in', 'payment_out'}:
             raise HTTPException(422, 'Advance is supported only for receipts and payouts')
@@ -1894,7 +1916,7 @@ def save_record(company_id, body, request, user, session, *, commit=True, histor
         offset = min(amount, max(Decimal('0'), target.amount - settled)) if target.kind!='pos' else Decimal('0')
         data = {**data, 'unallocated_credit': str(amount-offset)}
         if offset: allocations.append((target, offset))
-    elif body.kind in APPLICATION_KINDS and not data.get('is_advance'):
+    elif body.kind in APPLICATION_KINDS and not data.get('is_advance') and not unallocated_receipt:
         requested = data.get('allocations') if body.kind in {'payment_in', 'payment_out'} else None
         if requested is None: requested = [{'document_id': data.get('applied_to'), 'amount': str(amount)}]
         if not isinstance(requested, list) or not 1 <= len(requested) <= 100:
@@ -2247,7 +2269,7 @@ def create_journal(company_id: str, body: JournalInput, user: User = Depends(cur
             LedgerAccount.id.in_(account_ids), LedgerAccount.code == SYSTEM_ACCOUNTS['inventory'][0])):
         raise HTTPException(422, 'Tracked inventory is updated by linked stock documents only')
     party_controls = {SYSTEM_ACCOUNTS[key][0] for key in ('receivable', 'payable',
-        'customer_credits', 'supplier_credits', 'customer_advances', 'supplier_advances')}
+        'customer_credits', 'supplier_credits', 'customer_advances', 'supplier_advances', 'unallocated_receipts')}
     if session.scalar(select(LedgerAccount.id).where(LedgerAccount.company_id == company_id,
             LedgerAccount.id.in_(account_ids), LedgerAccount.code.in_(party_controls))):
         raise HTTPException(422, 'Party control accounts are updated by linked party documents only; use invoices, payments, credits or party opening balances')
@@ -2388,7 +2410,7 @@ def financial_report(company_id: str, from_date: DateType, to_date: DateType, us
             'balance_difference': str(assets - liabilities - equity - cumulative_income + cumulative_expense)}
 
 @app.get('/api/companies/{company_id}/reports/parties')
-def party_report(company_id: str, from_date: DateType, to_date: DateType, party: str = Query(default='', max_length=120), user: User = Depends(current_user), session: Session = Depends(db)):
+def party_report(company_id: str, from_date: DateType, to_date: DateType, party: str = Query(default='', max_length=120), user: User = Depends(current_user), session: Session = Depends(db), include_corrections: bool = False):
     company_for(company_id, user, session)
     if from_date > to_date: raise HTTPException(422, 'Start date must be before end date')
     postings = select(RecordPosting.record_id).where(RecordPosting.company_id == company_id)
@@ -2400,9 +2422,17 @@ def party_report(company_id: str, from_date: DateType, to_date: DateType, party:
     receivable = payable = Decimal('0')
     opening_receivable = opening_payable = Decimal('0')
     rows = []
+    customer_receipts = Decimal('0')
     for r in records:
-        if r.data.get('is_advance'): continue
-        if r.kind in {'sales_invoice','opening_receivable'}: receivable += r.amount
+        kind = r.kind
+        if r.kind == 'payment_in' and r.date >= from_date:
+            customer_receipts += r.amount
+        if r.data.get('is_advance'):
+            if r.kind != 'payment_in': continue
+            kind = 'customer_advance_receipt'
+        elif r.kind == 'payment_in' and r.data.get('receipt_purpose') == 'unallocated':
+            kind = 'unallocated_customer_receipt'
+        elif r.kind in {'sales_invoice','opening_receivable'}: receivable += r.amount
         elif r.kind in {'credit_note', 'payment_in'}: receivable -= r.amount - (Decimal(str(r.data.get('unallocated_credit',0))) if r.kind in {'credit_note','debit_note'} else Decimal('0'))
         elif r.kind in {'purchase_bill','opening_payable'}: payable += r.amount
         elif r.kind in {'advance_application','credit_application'} and r.data.get('payment_kind') == 'payment_in': receivable -= r.amount
@@ -2411,11 +2441,14 @@ def party_report(company_id: str, from_date: DateType, to_date: DateType, party:
         if r.date < from_date:
             opening_receivable, opening_payable = receivable, payable
         else:
-            rows.append({'date': r.date.isoformat(), 'party': r.name, 'kind': r.kind, 'number': r.number,
+            rows.append({'date': r.date.isoformat(), 'party': r.name, 'kind': kind, 'number': r.number,
                          'amount': str(r.amount), 'receivable': str(receivable), 'payable': str(payable), 'posting_timestamp': posting_timestamp(r)})
+    from party_statements import correction_history
+    history = correction_history(sys.modules[__name__], company_id, selected, from_date, to_date, session) if include_corrections else []
     return {'from_date': from_date.isoformat(), 'to_date': to_date.isoformat(), 'party': party.strip(),
             'opening_receivable': str(opening_receivable), 'opening_payable': str(opening_payable),
-            'closing_receivable': str(receivable), 'closing_payable': str(payable), 'rows': rows, 'ordering_note': ORDERING_NOTE}
+            'closing_receivable': str(receivable), 'closing_payable': str(payable), 'rows': rows, 'ordering_note': ORDERING_NOTE,
+            'customer_receipts': str(customer_receipts), 'correction_history': history}
 
 @app.get('/api/companies/{company_id}/reports/advances')
 def advances_report(company_id: str, as_of: DateType, user: User = Depends(current_user), session: Session = Depends(db)):
@@ -2674,13 +2707,16 @@ def export_financial(company_id: str, fmt: str, from_date: DateType, to_date: Da
     return export_table(company.name, f"Financial report {from_date} to {to_date}", ['Code', 'Account', 'Category', 'Period', 'Closing'], rows, fmt, 'financial-report')
 
 @app.get('/api/companies/{company_id}/reports/parties.{fmt}')
-def export_parties(company_id: str, fmt: str, from_date: DateType, to_date: DateType, party: str = Query(default='', max_length=120), user: User = Depends(current_user), session: Session = Depends(db)):
+def export_parties(company_id: str, fmt: str, from_date: DateType, to_date: DateType, party: str = Query(default='', max_length=120), user: User = Depends(current_user), session: Session = Depends(db), include_corrections: bool = False):
     company = company_for(company_id, user, session)
-    data = party_report(company_id, from_date, to_date, party, user, session)
+    data = party_report(company_id, from_date, to_date, party, user, session, include_corrections)
     if fmt == 'pdf':
         from party_report_pdf import render
         return Response(render(company.name, data), media_type='application/pdf', headers={'Content-Disposition':'attachment; filename="party-statement.pdf"'})
     rows = [[r[key] for key in ('date', 'party', 'kind', 'number', 'amount', 'receivable', 'payable')] for r in data['rows']]
+    if data['correction_history']:
+        rows.append(['', 'Correction history', '', '', '', '', ''])
+        rows.extend([r['date'], r['party'], r['details'], r['number'], '', '', ''] for r in data['correction_history'])
     return export_table(company.name, f"Party statement {from_date} to {to_date}", ['Date', 'Party', 'Type', 'Number', 'Amount', 'Receivable', 'Payable'], rows, fmt, 'party-statement', notes=[data['ordering_note']])
 
 @app.get('/api/companies/{company_id}/reports/ageing.{fmt}')
@@ -3528,6 +3564,9 @@ install_document_edits(app, sys.modules[__name__])
 
 from cancellation import install as install_cancellation
 install_cancellation(app, sys.modules[__name__])
+
+from receipt_corrections import install as install_receipt_corrections
+install_receipt_corrections(app, sys.modules[__name__])
 
 from pay_at_invoice import install as install_pay_at_invoice
 install_pay_at_invoice(app, sys.modules[__name__])

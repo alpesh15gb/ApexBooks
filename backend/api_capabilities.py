@@ -5,7 +5,7 @@ def install(app,m):
     @app.get('/api/capabilities')
     def capabilities():
         features=list(BASE_FEATURES)
-        features.extend(('stock_counts', 'stock_movement_history', 'pos_register_sessions', 'purchase_order_receiving', 'pos_stock_summary', 'password_reveal', 'inventory_setup'))
+        features.extend(('stock_counts', 'stock_movement_history', 'pos_register_sessions', 'purchase_order_receiving', 'pos_stock_summary', 'password_reveal', 'inventory_setup', 'receipt_allocation_corrections'))
         if hasattr(m.Company,'book_label'):features.append('company_book_labels')
         limits={}
         if getattr(app.state,'document_attachments_ready',False) and getattr(app.state,'chunked_backups_ready',False):

@@ -1327,7 +1327,8 @@ function App() {
           ) : page === "day_book" ? (
             <DayBook key={companyId} companyId={companyId} records={records} api={api} labels={labels} onOpen={beginDetail} />
           ) : page === "reports" ? (
-            <ReportsV2 companyId={companyId} records={records} showStockHistory={supported("stock_movement_history")} onOpenRecord={beginDetail} />
+            <ReportsV2 companyId={companyId} records={records} showStockHistory={supported("stock_movement_history")}
+              showReceiptCorrections={supported("receipt_allocation_corrections")} onOpenRecord={beginDetail} />
           ) : page === "dashboard" ? (
             <BusinessOverview
               features={features}
@@ -1681,6 +1682,7 @@ function App() {
                         companyId={companyId}
                         kind={page}
                         records={records}
+                        onOpen={beginDetail}
                         onParty={setActiveParty}
                         api={api}
                         refresh={refreshPostedRecords}
@@ -1887,7 +1889,7 @@ function App() {
           )}
         </div>
       </main>
-      {detail && <TransactionDetail api={api} features={features} record={detail} records={records} company={company} labels={labels}
+      {detail && <TransactionDetail key={detail.id} api={api} features={features} record={detail} records={records} company={company} labels={labels}
         loading={detailLoading} error={detailError} onClose={closeDetail} onRetry={() => beginDetail(detail)}
         onEdit={beginEdit} onRelated={beginRelated} onConvert={beginConversion} onPdf={downloadDocument} onOpen={beginDetail} onCancelDocument={cancelDocument} onRefresh={refreshPostedRecords} onManageCredits={record => navigateWorkspace(record.kind === "debit_note" ? "payment_out" : "payment_in", "", "all", true, true)} />}
       {remindOverdue && company && <OverdueReminders records={records} company={company} onClose={() => setRemindOverdue(false)} />}
@@ -1901,6 +1903,7 @@ function App() {
           Modal={Modal}
           close={() => setActiveParty(null)}
           onPdf={downloadDocument}
+          onOpen={(row) => { setActiveParty(null); beginDetail(row); }}
           onEdit={
             ["owner", "editor"].includes(company?.role)
               ? (row) => {
@@ -2736,7 +2739,7 @@ function PaymentAllocationSummary({ record, records }) {
 }
 function RecordActions({ r, onEdit, onPdf, onConvert, onRelated, onReceive }) {
   const editable =
-    onEdit &&
+    onEdit && !r.cancelled && !r.data?.receipt_correction_id && r.data?.receipt_purpose !== "unallocated" &&
     (["party", "item"].includes(r.kind) ||
       ([
         "estimate",
@@ -2811,7 +2814,7 @@ function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, onReceive, 
   if (!["party", "item"].includes(r.kind)) {
     const invoice = ["sales_invoice", "purchase_bill", "pos"].includes(r.kind);
     const balance = Number(r.outstanding || 0);
-    const status = r.cancelled ? "Cancelled" : r.converted_to
+    const status = r.cancelled ? (r.data?.receipt_correction_superseded ? "Superseded" : "Cancelled") : r.converted_to
       ? "Converted"
       : r.kind === "purchase_order" && r.data?.purchase_order_receiving_started
         ? "Receiving started"
@@ -2861,7 +2864,7 @@ function RecordRow({ r, onPdf, onConvert, onEdit, onRelated, onOpen, onReceive, 
         </td>
         <td data-label="Status">
           <span
-            className={`status-badge ${status === "Cancelled" ? "cancelled" : status === "Posted" || status === "Settled" || status === "Converted" ? "posted" : "draft"}`}
+            className={`status-badge ${r.cancelled ? "cancelled" : status === "Posted" || status === "Settled" || status === "Converted" ? "posted" : "draft"}`}
           >
             {status}
           </span>
