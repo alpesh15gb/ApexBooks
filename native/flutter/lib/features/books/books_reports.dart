@@ -398,6 +398,7 @@ class _BooksReportsState extends State<BooksReports> {
         key: ValueKey((_data.companyId, id, widget.revision)),
         data: _data,
         id: id,
+        workspace: widget.workspace,
         onOpen: _open,
         onBack: _back,
         backLabel: _details.length == 1 ? 'Back to report' : 'Previous record',

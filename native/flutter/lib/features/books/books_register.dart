@@ -364,6 +364,8 @@ class _BooksRegisterState extends State<BooksRegister> {
   List<RegisterRowAction> _rowActions(BooksRecord row) {
     if (!_posting.canStart || row.json['cancelled'] == true) return const [];
     final rowPosted = row.json['posted'] == true;
+    final receiptManaged = row.data['receipt_correction_id'] != null ||
+        row.data['receipt_purpose'] == 'unallocated';
     final editableDraft =
         booksDraftKinds.contains(row.kind) &&
         booksText(row.json['converted_to']).isEmpty &&
@@ -484,6 +486,7 @@ class _BooksRegisterState extends State<BooksRegister> {
           ),
         ),
       if (widget.workspace.api is ApexWriteApi &&
+          !receiptManaged &&
           (editableDraft ||
               (rowPosted &&
                   (const {
@@ -508,6 +511,7 @@ class _BooksRegisterState extends State<BooksRegister> {
           ),
         ),
       if (widget.workspace.api is ApexWriteApi &&
+          !receiptManaged &&
           supportsBooksDetailAmendment(row))
         RegisterRowAction(
           label: 'Edit details',
@@ -682,6 +686,7 @@ class _BooksRegisterState extends State<BooksRegister> {
         key: ValueKey((_data.companyId, id, widget.revision, _detailRevision)),
         data: _data,
         id: id,
+        workspace: widget.workspace,
         onBack: () => setState(() => _details.removeLast()),
         onOpen: _open,
         backLabel: _details.length == 1 ? 'Transactions' : 'Previous record',

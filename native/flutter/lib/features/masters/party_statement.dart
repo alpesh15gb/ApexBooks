@@ -7,6 +7,7 @@ import '../../ui/apex_theme.dart';
 import '../../ui/apex_widgets.dart';
 import '../books/books_data.dart';
 import '../books/books_detail.dart';
+import '../books/receipt_correction.dart';
 import '../inventory/inventory_models.dart';
 import '../inventory/inventory_posting.dart';
 import 'credit_status.dart';
@@ -72,6 +73,7 @@ class _PartyStatementPageState extends State<PartyStatementPage> {
   late String _from;
   late Future<_Loaded> _loaded;
   bool _exporting = false;
+  bool _includeCorrections = false;
 
   @override
   void initState() {
@@ -88,6 +90,10 @@ class _PartyStatementPageState extends State<PartyStatementPage> {
 
   String get _root => '${widget.workspace.path}/parties/${Uri.encodeComponent(inventoryText(widget.party['id']))}';
   Map<String, String> get _range => {'from_date': _from, 'to_date': _to};
+  Map<String, String> get _ledgerRange => {
+    ..._range,
+    if (_includeCorrections) 'include_corrections': 'true',
+  };
   bool get _canWrite => widget.workspace.company.canWrite;
 
   Future<_Loaded> _fetch() async {
@@ -95,7 +101,7 @@ class _PartyStatementPageState extends State<PartyStatementPage> {
     final range = _range;
     final results = await Future.wait([
       api.get('$_root/statement', query: range),
-      api.get('$_root/ledger', query: range),
+      api.get('$_root/ledger', query: _ledgerRange),
     ]);
     return _Loaded(inventoryObject(results[0]), inventoryObject(results[1]));
   }
@@ -131,7 +137,7 @@ class _PartyStatementPageState extends State<PartyStatementPage> {
     setState(() => _exporting = true);
     try {
       final filename = 'party-statement.$format';
-      final bytes = await widget.workspace.api.download('$_root/statement.$format', query: _range);
+      final bytes = await widget.workspace.api.download('$_root/statement.$format', query: _ledgerRange);
       final mime = format == 'pdf'
           ? 'application/pdf'
           : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -157,15 +163,16 @@ class _PartyStatementPageState extends State<PartyStatementPage> {
     }
   }
 
-  void _open(String id) {
+  Future<void> _open(String id) async {
     if (id.isEmpty) return;
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (context) => Scaffold(
           body: SafeArea(
             child: BooksRecordDetail(
               data: BooksData(widget.workspace.company.id, widget.workspace.api.get),
               id: id,
+              workspace: widget.workspace,
               onBack: () => Navigator.of(context).pop(),
               onOpen: _open,
               backLabel: 'Return to party statement',
@@ -174,6 +181,7 @@ class _PartyStatementPageState extends State<PartyStatementPage> {
         ),
       ),
     );
+    if (mounted) _reload();
   }
 
   Widget _text(String text, {bool bold = false, bool end = false, Color? color}) => Text(
@@ -268,7 +276,7 @@ class _PartyStatementPageState extends State<PartyStatementPage> {
       for (final row in rows)
         [
           ledgerDate(inventoryText(row['date'])),
-          inventoryText(row['particulars']),
+          [row['particulars'], row['details']].map(inventoryText).where((value) => value.isNotEmpty).join(' · '),
           inventoryText(row['voucher_type']),
           inventoryText(row['voucher_number']),
           ledgerAmount(row['debit']),
@@ -344,7 +352,9 @@ class _PartyStatementPageState extends State<PartyStatementPage> {
     Widget actions(Json row) => Wrap(
       spacing: 10,
       children: [
-        if (_canWrite && row['editable'] == true) ApexLink('Open', onTap: () => _open(inventoryText(row['id']))),
+        if (_canWrite && (row['editable'] == true ||
+            row['posted'] == true && const {'payment_in', 'advance_application'}.contains(row['kind'])))
+          ApexLink('Open', onTap: () => _open(inventoryText(row['id']))),
         if (_pdfKinds.contains(inventoryText(row['kind']))) ApexLink('PDF', onTap: () => _pdf(row)),
       ],
     );
@@ -405,6 +415,7 @@ class _PartyStatementPageState extends State<PartyStatementPage> {
     final statement = loaded.statement;
     final ledger = loaded.ledger;
     final closing = inventoryObject(ledger['closing']);
+    final history = inventoryRows(ledger['correction_history'] ?? []);
     return [
       if (widget.workspace.features.contains('party_credit_limits')) ...[
         CreditStatus(workspace: widget.workspace, partyId: inventoryText(widget.party['id']), asOf: _to),
@@ -425,6 +436,8 @@ class _PartyStatementPageState extends State<PartyStatementPage> {
         style: const TextStyle(fontSize: 14, color: Apex.muted),
       ),
       const SizedBox(height: 4),
+      if (ledger['has_held_receipts'] == true)
+        Text('Customer receipts received ${booksMoney(inventoryObject(ledger['totals'])['receipts'])}'),
       _details('Balance components', _balanceComponents(inventoryObject(statement['balances']))),
       const Divider(height: 1, color: Apex.line),
       const SizedBox(height: 14),
@@ -442,6 +455,12 @@ class _PartyStatementPageState extends State<PartyStatementPage> {
       ],
       const SizedBox(height: 14),
       _ledgerTable(ledger),
+      for (final row in history)
+        ListTile(
+          title: Text(inventoryText(row['details'])),
+          subtitle: Text('${ledgerDate(inventoryText(row['date']))} · ${row['number']}'),
+          onTap: () => _open(inventoryText(row['id'])),
+        ),
       const SizedBox(height: 10),
       _details('Documents, drafts and estimates', _documents(inventoryRows(statement['transactions']))),
     ];
@@ -523,6 +542,16 @@ class _PartyStatementPageState extends State<PartyStatementPage> {
                         },
                       ),
                       const SizedBox(height: 16),
+                      if (widget.workspace.features.contains(receiptCorrectionsFeature))
+                        CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Include correction history'),
+                          value: _includeCorrections,
+                          onChanged: _exporting ? null : (value) {
+                            _includeCorrections = value == true;
+                            _reload();
+                          },
+                        ),
                       if (state.connectionState != ConnectionState.done)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 20),

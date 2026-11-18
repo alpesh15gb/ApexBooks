@@ -1,8 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../../core/workspace.dart';
 import '../../ui/apex_theme.dart';
 import '../../ui/apex_widgets.dart';
 import 'books_data.dart';
+import 'receipt_correction.dart';
 import 'register_query.dart' show registerSettlement;
 import 'books_entry_draft.dart' show BooksTextFallback, booksDecimal, booksParsePaise;
 
@@ -14,6 +16,7 @@ class BooksRecordDetail extends StatefulWidget {
     required this.onOpen,
     required this.backLabel,
     this.actions,
+    this.workspace,
     super.key,
   });
 
@@ -23,6 +26,7 @@ class BooksRecordDetail extends StatefulWidget {
   final ValueChanged<String> onOpen;
   final String backLabel;
   final Widget Function(BooksRecord record)? actions;
+  final WorkspaceContext? workspace;
 
   @override
   State<BooksRecordDetail> createState() => _BooksRecordDetailState();
@@ -38,6 +42,25 @@ class _BooksRecordDetailState extends State<BooksRecordDetail> {
   }
 
   void _retry() => setState(() => _future = widget.data.record(widget.id));
+
+  Future<void> _correct(WorkspaceContext workspace, BooksRecord record) async {
+    final posted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ReceiptCorrectionDialog(workspace: workspace, record: record),
+    );
+    if (!mounted || posted != true) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(const SnackBar(content: Text('Receipt allocation corrected.')));
+    _retry();
+    try {
+      await workspace.refresh();
+    } catch (_) {
+      if (mounted) {
+        messenger.showSnackBar(const SnackBar(content: Text('Correction posted. Reload the workspace to refresh balances.')));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -336,6 +359,14 @@ class _BooksRecordDetailState extends State<BooksRecordDetail> {
         ),
       if (widget.actions case final actions?)
         Padding(padding: const EdgeInsets.only(top: 8), child: actions(row)),
+      if (widget.workspace case final workspace? when canCorrectReceipt(workspace, row))
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton(
+            onPressed: () => _correct(workspace, row),
+            child: const Text('Correct allocation'),
+          ),
+        ),
       if (lines.isNotEmpty) ...[
         const SizedBox(height: 16),
         ApexPanel(
