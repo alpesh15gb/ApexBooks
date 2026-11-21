@@ -25,7 +25,7 @@ def run():
     with tempfile.TemporaryDirectory(prefix="apex-android-http-") as directory:
         work = Path(directory)
         removed = {"DATABASE_URL", "JWT_SECRET", "OPENAI_API_KEY", "OMNIROUTE_API_KEY",
-                   "OMNIROUTE", "OCR_BASE_URL", "OCR_ALLOW_INSECURE_HTTP", "COMMERCE_ENCRYPTION_KEY",
+                   "OMNIROUTE", "OCR_BASE_URL", "COMMERCE_ENCRYPTION_KEY",
                    "COMMERCE_ALLOWED_HOSTS", "CRON_SECRET", "APEX_TEST_DATABASE_URL"}
         env = {k: v for k, v in os.environ.items() if k.upper() not in removed}
         env.update(DATABASE_URL="sqlite:///" + (work / "isolated.db").as_posix(),

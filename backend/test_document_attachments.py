@@ -100,7 +100,7 @@ class AttachmentTest(unittest.TestCase):
         def fail(*args,**kwargs):
             if len(args)>3 and args[3]=='attachment.added':raise RuntimeError('Synthetic failure before commit')
             return audit(*args,**kwargs)
-        with TestClient(main.app,raise_server_exceptions=False) as peer,patch.object(main,'audit',fail):
+        with TestClient(main.app,raise_server_exceptions=False) as peer,patch('book_services.audit',fail):
             failed=self.upload(peer,h,b,row,key=key)
         self.assertEqual(failed.status_code,500)
         state=c.get(b+'/records/'+row['id']+'/attachments',headers=h).json();self.assertEqual(state['attachments'],[]);self.assertEqual(state['storage']['used_bytes'],0)

@@ -264,15 +264,12 @@ class PackagingRecipeTests(unittest.TestCase):
             self.assertNotIn('UNEXPECTED_BUILD',result.stdout+result.stderr)
 
 class OcrPreflightTests(unittest.TestCase):
-    def test_policy_matches_api_default_and_explicit_operator_override(self):
+    def test_policy_matches_api_transport_rules(self):
         values = {'OCR_BASE_URL': 'http://192.0.2.1:8088/v1', 'OMNIROUTE_API_KEY': 'synthetic-only'}
         with self.assertRaisesRegex(RuntimeError, 'HTTPS outside loopback'): m.verify_ocr_configuration(values)
-        m.verify_ocr_configuration({**values, 'OCR_ALLOW_INSECURE_HTTP': '1'})
-        for flag in ('true', 'yes', '0'):
-            with self.assertRaises(RuntimeError): m.verify_ocr_configuration({**values, 'OCR_ALLOW_INSECURE_HTTP': flag})
         m.verify_ocr_configuration({'OPENAI_API_KEY':'synthetic-only'})
         with self.assertRaisesRegex(RuntimeError, 'provider key'): m.verify_ocr_configuration({})
-        with self.assertRaisesRegex(RuntimeError, 'invalid'): m.verify_ocr_configuration({**values, 'OCR_BASE_URL':'https://private@example.invalid/v1', 'OCR_ALLOW_INSECURE_HTTP':'1'})
+        with self.assertRaisesRegex(RuntimeError, 'invalid'): m.verify_ocr_configuration({**values, 'OCR_BASE_URL':'https://private@example.invalid/v1'})
 
     def test_compose_template_documents_the_actual_provenance_variables(self):
         root = Path(__file__).resolve().parents[2]

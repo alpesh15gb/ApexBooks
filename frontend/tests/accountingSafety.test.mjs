@@ -1,7 +1,15 @@
+const componentPaths = {
+  BankWorkspace: 'src/features/banking/BankWorkspace.jsx',
+  CommerceMoneyForm: 'src/features/commerce/CommerceMoneyForm.jsx',
+  CommerceWorkspace: 'src/features/commerce/CommerceWorkspace.jsx',
+  ReorderWorkspace: 'src/features/masters/ReorderWorkspace.jsx',
+  DayBook: 'src/features/reports/DayBook.jsx',
+  Reports: 'src/features/reports/Reports.jsx',
+};
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm} from 'node:fs/promises';import {resolve} from 'node:path';import {pathToFileURL} from 'node:url';import {build} from 'esbuild';import {JSDOM} from 'jsdom';import React,{act} from 'react';
 const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});Object.assign(globalThis,{window:dom.window,document:dom.window.document,localStorage:dom.window.localStorage,IS_REACT_ACT_ENVIRONMENT:true});window.scrollTo=()=>{};
 const {createRoot}=await import('react-dom/client');const tmp=await mkdtemp(resolve('node_modules/.accounting-safety-'));const components={};
-for(const name of ['BankWorkspace','CommerceWorkspace','CommerceMoneyForm','Reports','ReorderWorkspace','DayBook']){const outfile=resolve(tmp,name+'.mjs');await build({entryPoints:['src/'+name+'.jsx'],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','lucide-react']});components[name]=(await import(pathToFileURL(outfile))).default;}
+for(const name of ['BankWorkspace','CommerceWorkspace','CommerceMoneyForm','Reports','ReorderWorkspace','DayBook']){const outfile=resolve(tmp,name+'.mjs');await build({entryPoints:[componentPaths[name]],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','lucide-react']});components[name]=(await import(pathToFileURL(outfile))).default;}
 const response=data=>({ok:true,json:async()=>data});const label=text=>[...document.querySelectorAll('label')].find(x=>x.textContent.trim().startsWith(text));
 async function change(node,value){const proto=node.tagName==='SELECT'?window.HTMLSelectElement.prototype:window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(node,value);await act(async()=>node.dispatchEvent(new window.Event(node.tagName==='SELECT'?'change':'input',{bubbles:true})));}
 const submit=form=>form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));

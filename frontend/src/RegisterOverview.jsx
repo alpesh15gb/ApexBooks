@@ -1,6 +1,6 @@
 import { businessDate } from "./businessDate.js";
 import React from "react";
-import FinancialFigure from "./FinancialFigure.jsx";
+import FinancialFigure from "./components/ui/FinancialFigure.jsx";
 import { CheckCheck, Clock3, FileText, Wallet } from "lucide-react";
 const money = (value) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(

@@ -6,6 +6,7 @@ import {
   Menu,
   Plus,
   Search,
+  RefreshCw,
   UsersRound,
   Package,
   ShoppingBag,
@@ -23,6 +24,8 @@ export default function WorkspaceHeader({
   onOpenRecord,
   onCreate,
   onMenu,
+  onRefresh,
+  refreshing,
   menuOpen = false,
   onCreateMenuChange,
 }) {
@@ -31,6 +34,8 @@ export default function WorkspaceHeader({
     [create, setCreate] = useState(false),
     [active, setActive] = useState(0),
     [help, setHelp] = useState(false);
+  const searchTrigger = useRef(null);
+  useEffect(() => { if (open) input.current?.focus(); }, [open]);
   const actions = useRef({});
   actions.current = { onNavigate, onCreate };
   const input = useRef(null),
@@ -65,6 +70,7 @@ export default function WorkspaceHeader({
         setOpen(false);
         setCreate(false);
         setHelp(false);
+        if (searchBox.current?.contains(document.activeElement) && searchTrigger.current?.offsetWidth) searchTrigger.current.focus();
       }
       // Alt+N new invoice, Alt+R payment, Alt+D day book … never while an editor or dialog is open.
       const shortcut = shortcutFor(e, blocked);
@@ -160,7 +166,9 @@ export default function WorkspaceHeader({
         <ChevronRight size={13} />
         <strong>{labels[page] || "Overview"}</strong>
       </div>
-      <div className="workspace-search" ref={searchBox} onBlur={event => {
+      <button className="icon-button mobile-search-toggle" ref={searchTrigger} aria-label="Open workspace search"
+        aria-expanded={open} aria-controls="workspace-search" onClick={() => setOpen(true)}><Search size={20} /></button>
+      <div id="workspace-search" className={`workspace-search ${open ? 'search-open' : ''}`} ref={searchBox} onBlur={event => {
         if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
       }}>
         <Search size={17} />
@@ -212,6 +220,9 @@ export default function WorkspaceHeader({
         ) : (
           <kbd>Ctrl K</kbd>
         )}
+        <button className="mobile-search-close" aria-label="Close workspace search" onClick={() => {
+          setOpen(false); searchTrigger.current?.focus();
+        }}><X size={17} /></button>
         {open && (
           <div
             className="workspace-search-results"
@@ -318,25 +329,15 @@ export default function WorkspaceHeader({
             </div>
           )}
         </div>
+        {onRefresh && <button type="button" className="icon-button" aria-label="Refresh company data" title="Refresh company data"
+          disabled={refreshing} onClick={onRefresh}><RefreshCw size={16} /></button>}
         <button
           className="workspace-profile"
           onClick={() => onNavigate("settings")}
-          aria-label="Open company settings"
+          aria-label={`Open settings · ${company?.role || "Account"}`}
         >
-          <span className="avatar">
-            {company?.name?.[0]?.toUpperCase() || "A"}
-          </span>
-          <span>
-            <strong>{company?.name || "Your company"}</strong>
-            <small>
-              {company?.role || "Company"} ·{" "}
-              {company?.tax_mode === "regular"
-                ? "GST registered"
-                : company?.tax_mode === "composition"
-                  ? "Composition"
-                  : "Non-GST"}
-            </small>
-          </span>
+          <span className="avatar"><UsersRound size={17} /></span>
+          <span><strong>My account</strong><small>{company?.role || "Account settings"}</small></span>
           <ChevronDown size={13} />
         </button>
       </div>

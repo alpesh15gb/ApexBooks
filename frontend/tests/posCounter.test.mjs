@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { counterTender, matchCounterProduct } from '../src/posCounter.js';
+import { counterTender, matchCounterProduct } from '../src/features/commerce/posCounter.js';
 
 test('scans use exact barcodes and preserve leading zeroes', () => {
   const product = { name: 'Cable', data: { barcode: '001234' } };

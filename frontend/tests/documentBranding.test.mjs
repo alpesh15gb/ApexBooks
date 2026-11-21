@@ -13,7 +13,7 @@ Object.assign(globalThis, { window: dom.window, document: dom.window.document, l
 const { createRoot } = await import('react-dom/client');
 const temporary = await mkdtemp(resolve('node_modules/.branding-tests-'));
 const outfile = resolve(temporary, 'branding.mjs');
-await build({ entryPoints: ['src/DocumentBranding.jsx'], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'lucide-react'], plugins: [{ name: 'registry', setup(build) { build.onResolve({ filter: /postingRegistry\.js$/ }, () => ({ path: pathToFileURL(resolve('src/postingRegistry.js')).href, external: true })); } }] });
+await build({ entryPoints: ['src/features/documents/DocumentBranding.jsx'], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'lucide-react'], plugins: [{ name: 'registry', setup(build) { build.onResolve({ filter: /postingRegistry\.js$/ }, () => ({ path: pathToFileURL(resolve('src/postingRegistry.js')).href, external: true })); } }] });
 const Branding = (await import(pathToFileURL(outfile))).default;
 const response = data => ({ ok: true, json: async () => data });
 const submit = () => document.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));

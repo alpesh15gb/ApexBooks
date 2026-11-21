@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { hasPendingPostings } from "./postingRegistry.js";
 
+export function WorkspaceSkeleton({ label }) {
+  return <section className="workspace-skeleton" role="status" aria-label={`Loading ${label}`} aria-busy="true" data-workspace-load="loading">
+    <div className="skeleton-heading" /><div className="skeleton-cards"><i /><i /><i /></div>
+    <div className="skeleton-table"><i /><i /><i /><i /></div>
+  </section>;
+}
+
 /**
  * Fetch a feature only when it is opened, and cache it for later visits.
  * Loading happens outside the rendered feature: a failed chunk cannot replace
@@ -51,7 +58,7 @@ export function deferWorkspace(importFeature, label) {
       </div>
       {reloadMessage && <p role="status">{reloadMessage}</p>}
     </section>;
-    return <section className="panel settings-panel" role="status" aria-busy="true" data-workspace-load="loading"><p>Loading {label.toLowerCase()}…</p></section>;
+    return <WorkspaceSkeleton label={label.toLowerCase()} />;
   }
   DeferredWorkspace.displayName = `Deferred${label.replace(/\W/g, "")}`;
   return DeferredWorkspace;

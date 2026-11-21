@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   addLocations, addMake, addModel, draftChanged, draftFromSetup, effectiveCatalog, fitmentLabel, itemSearchText, itemSummary,
   locationNames, rangeNames, removeMake, removeModel, restoreMake, setupPayload, yearsLabel,
-} from '../src/inventorySetup.js';
+} from '../src/features/masters/inventorySetup.js';
 
 const defaults = [
   { make: 'Maruti Suzuki', type: 'car', models: ['800', 'Alto', 'Swift'] },

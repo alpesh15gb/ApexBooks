@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BACKUP_CHUNK_BYTES, MAX_WEB_ARCHIVE_BYTES, sha256Bytes, validateBackupManifest, downloadBackupChunks, uploadBackupChunks, readBackupChunkResponse } from '../src/backupChunks.js';
+import { BACKUP_CHUNK_BYTES, MAX_WEB_ARCHIVE_BYTES, sha256Bytes, validateBackupManifest, downloadBackupChunks, uploadBackupChunks, readBackupChunkResponse } from '../src/features/settings/backupChunks.js';
 async function fixture() {
  const bytes=Uint8Array.from({length:BACKUP_CHUNK_BYTES*2+23},(_,index)=>index%251),file=new Blob([bytes]);
  const manifest={byte_count:bytes.length,sha256:await sha256Bytes(bytes),chunk_size:BACKUP_CHUNK_BYTES,chunk_count:3};

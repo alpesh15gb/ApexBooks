@@ -61,6 +61,7 @@ function Metric({ label, value, note, icon: Icon, tone = "green", hidden = false
 }
 
 function SalesChart({ records, start, end }) {
+  const [activeMonth, setActiveMonth] = useState(null);
   const chartRef = useRef(null),
     [chartWidth, setChartWidth] = useState(640);
   useEffect(() => {
@@ -105,7 +106,8 @@ function SalesChart({ records, start, end }) {
   const y = (n) => 159 - ((n - min) / span) * 128,
     base = y(0),
     space = (chartWidth - 66) / Math.max(series.length, 1),
-    bw = Math.min(21, space * 0.27);
+    bw = Math.min(26, space * 0.33);
+  const selected = series.find(row => row.key === activeMonth);
   return (
     <>
       <div className="insight-legend">
@@ -127,10 +129,13 @@ function SalesChart({ records, start, end }) {
             <p>Posted sales and purchases will appear here.</p>
           </div>
         ) : (
-          <div className="overview-chart">
+          <div className="overview-chart" onPointerLeave={() => setActiveMonth(null)}>
+            {selected && <div className="chart-tooltip" aria-hidden="true"><strong>{selected.label}</strong>
+              <span>Sales {money(selected.sales)}</span><span>Purchases {money(selected.purchases)}</span>
+              <span>Net {money(selected.sales - selected.purchases)}</span></div>}
             <svg
               viewBox={`0 0 ${chartWidth} 200`}
-              role="img"
+              role="group"
               aria-label="Monthly net sales and purchases from posted documents"
             >
               <title>
@@ -165,11 +170,11 @@ function SalesChart({ records, start, end }) {
                 stroke="#bac1cd"
               />
               {series.map((row, index) => (
-                <g key={row.key}>
-                  <title>
-                    {row.label}: sales {money(row.sales)}, purchases{" "}
-                    {money(row.purchases)}
-                  </title>
+                <g key={row.key} tabIndex={0} role="group"
+                  aria-label={`${row.label}: Sales ${money(row.sales)}, Purchases ${money(row.purchases)}, Net ${money(row.sales - row.purchases)}`}
+                  onPointerEnter={() => setActiveMonth(row.key)} onFocus={() => setActiveMonth(row.key)}
+                  onBlur={() => setActiveMonth(null)} onKeyDown={e => { if (e.key === "Escape") setActiveMonth(null); }}>
+                  <rect x={53 + index * space} y="24" width={space} height="166" fill="transparent" />
                   <rect
                     x={53 + index * space + space / 2 - bw - 3}
                     y={Math.min(base, y(row.sales))}
@@ -212,6 +217,7 @@ function SalesChart({ records, start, end }) {
                 <th>Month</th>
                 <th>Net sales</th>
                 <th>Net purchases</th>
+                <th>Net</th>
               </tr>
             </thead>
             <tbody>
@@ -220,6 +226,7 @@ function SalesChart({ records, start, end }) {
                   <td>{row.label}</td>
                   <td>{money(row.sales)}</td>
                   <td>{money(row.purchases)}</td>
+                  <td>{money(row.sales - row.purchases)}</td>
                 </tr>
               ))}
             </tbody>
@@ -268,14 +275,15 @@ export default function BusinessOverview({ company, records, api, onNavigate, on
   const txName = { sales_invoice: "Sales invoice", purchase_bill: "Purchase bill", payment_in: "Payment received", payment_out: "Payment made", expense: "Expense", estimate: "Estimate", sales_order: "Sales order", proforma: "Proforma invoice", credit_note: "Credit note", debit_note: "Debit note", pos: "POS sale", purchase_order: "Purchase order", bank_transfer: "Bank transfer" };
   return <div className="business-overview">
     <div className="overview-heading">
-      <div><h1>Business overview</h1><p>{company?.name || "Your business"}</p></div>
+      <h1>Business overview</h1>
       <div className="overview-heading-actions">
         <button ref={privacyButton} type="button" className="button secondary privacy-toggle" aria-pressed={hidden}
           onClick={() => { if (hidden) setRevealing(true); else { writeAmountsHidden(true); setHidden(true); } }}>
           {hidden ? <Eye size={17} /> : <EyeOff size={17} />}<span className="privacy-label">{hidden ? "Show amounts" : "Hide amounts"}</span></button>
-        <button className="button primary" disabled={!canWrite || !recordsReady} onClick={() => onCreate("sales_invoice")}><Plus size={17} />New invoice</button>
+        <button className="button secondary" disabled={!canWrite || !recordsReady} onClick={() => onCreate("sales_invoice")}><Plus size={17} />New invoice</button>
       </div>
     </div>
+    {recordsReady && <SetupChecklist key={company?.id} company={company} records={records} onCreate={onCreate} onNavigate={onNavigate} api={api} />}
     <div className="overview-work-grid">
       <section className="overview-counter" aria-label="Storefront">
         <span className="overview-counter-symbol"><ScanLine size={24} aria-hidden="true" /></span>
@@ -322,7 +330,6 @@ export default function BusinessOverview({ company, records, api, onNavigate, on
       </tbody></table>{!activity.length && <div className="chart-empty"><FileText size={28} /><strong>{recordsReady ? "Your books start here" : "Loading transactions…"}</strong><p>{recordsReady ? "Create your first invoice or add a purchase bill." : "Your latest activity will appear here."}</p></div>}</div>
     </section>
     </div>
-    {recordsReady && <SetupChecklist company={company} records={records} onCreate={onCreate} onNavigate={onNavigate} api={api} />}
     {revealing && <RevealAmountsDialog api={api} onClose={() => setRevealing(false)}
       onRevealed={() => { writeAmountsHidden(false); setHidden(false); setRevealing(false); requestAnimationFrame(() => privacyButton.current?.focus()); }} />}
   </div>;

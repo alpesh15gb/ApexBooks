@@ -11,7 +11,7 @@ const dom = new JSDOM('<div id="root"></div>',{url:'http://localhost/'});
 Object.assign(globalThis,{window:dom.window,document:dom.window.document,localStorage:dom.window.localStorage,IS_REACT_ACT_ENVIRONMENT:true});
 const {createRoot}=await import('react-dom/client');
 const temporary = await mkdtemp(resolve('node_modules/.import-safety-'));
-await build({entryPoints:['src/MasterImport.jsx','src/StatementImportPreview.jsx','src/BackupRestore.jsx'],outdir:temporary,bundle:true,platform:'node',format:'esm',outExtension:{'.js':'.mjs'},external:['react','react-dom','lucide-react']});
+await build({entryPoints:['src/features/masters/MasterImport.jsx','src/features/banking/StatementImportPreview.jsx','src/features/settings/BackupRestore.jsx'],entryNames:'[name]',outdir:temporary,bundle:true,platform:'node',format:'esm',outExtension:{'.js':'.mjs'},external:['react','react-dom','lucide-react']});
 const MasterImport=(await import(pathToFileURL(resolve(temporary,'MasterImport.mjs')))).default;
 const StatementImport=(await import(pathToFileURL(resolve(temporary,'StatementImportPreview.mjs')))).default;
 const BackupRestore=(await import(pathToFileURL(resolve(temporary,'BackupRestore.mjs')))).default;

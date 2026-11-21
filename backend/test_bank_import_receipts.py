@@ -41,7 +41,7 @@ class BankImportReceiptsTest(unittest.TestCase):
         self.assertEqual(self.post({**self.body(),'dry_run':True}).status_code,200)
     def test_atomic_failure_after_flush(self):
         def interrupted(session,*args,**kwargs):session.flush();raise RuntimeError('Synthetic interrupt')
-        with patch('main.audit',side_effect=interrupted):
+        with patch('routers.banking.audit',side_effect=interrupted):
             with self.assertRaisesRegex(RuntimeError,'Synthetic interrupt'):self.post()
         self.assertEqual(self.lookup().status_code,404);self.assertEqual(self.client.get(self.base+'/bank-statement',headers=self.h).json(),[])
         self.assertEqual(self.post().status_code,200)

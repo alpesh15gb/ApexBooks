@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
-import DateRangeFilter from "./DateRangeFilter.jsx";
+import DateRangeFilter from "./components/ui/DateRangeFilter.jsx";
 
 export default function RegisterControls({
   value,

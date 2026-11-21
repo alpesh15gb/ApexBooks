@@ -12,7 +12,7 @@ Object.assign(globalThis, { window: dom.window, document: dom.window.document, l
 const { createRoot } = await import('react-dom/client');
 const temporary = await mkdtemp(resolve('node_modules/.period-lock-tests-'));
 const outfile = resolve(temporary, 'lock.mjs');
-await build({ entryPoints: ['src/PeriodLock.jsx'], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'lucide-react'] });
+await build({ entryPoints: ['src/features/settings/PeriodLock.jsx'], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'lucide-react'] });
 const PeriodLock = (await import(pathToFileURL(outfile))).default;
 const button = label => [...document.querySelectorAll('button')].find(node => node.textContent === label);
 async function setDate(value) {

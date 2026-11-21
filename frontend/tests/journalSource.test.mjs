@@ -7,7 +7,7 @@ import {build} from 'esbuild';
 import {JSDOM} from 'jsdom';
 import React,{act} from 'react';
 const temp=await mkdtemp(resolve('node_modules/.journal-source-'));
-await build({entryPoints:['src/JournalSource.jsx'],outfile:resolve(temp,'component.mjs'),bundle:true,platform:'node',format:'esm',external:['react']});
+await build({entryPoints:['src/features/reports/JournalSource.jsx'],outfile:resolve(temp,'component.mjs'),bundle:true,platform:'node',format:'esm',external:['react']});
 const Component=(await import(pathToFileURL(resolve(temp,'component.mjs')))).default;
 const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});
 Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});

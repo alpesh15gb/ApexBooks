@@ -74,7 +74,7 @@ def run():
         work = Path(directory)
         env = {key: value for key, value in os.environ.items() if key.upper() not in {
             'DATABASE_URL', 'JWT_SECRET', 'OPENAI_API_KEY', 'OMNIROUTE_API_KEY',
-            'OMNIROUTE', 'OCR_BASE_URL', 'OCR_ALLOW_INSECURE_HTTP',
+            'OMNIROUTE', 'OCR_BASE_URL',
             'COMMERCE_ENCRYPTION_KEY', 'COMMERCE_ALLOWED_HOSTS', 'CRON_SECRET',
             'APEX_TEST_DATABASE_URL', 'APEX_BUILD_SHA', 'VITE_BUILD_SHA',
             'APEX_BROWSER_CHANNEL', 'APEX_BROWSER_ENGINE', 'APEX_BROWSER_EXECUTABLE', 'APEX_E2E_ARTIFACTS',

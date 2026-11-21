@@ -1,3 +1,10 @@
+const componentPaths = {
+  PriceHistory: 'src/features/documents/PriceHistory.jsx',
+  RecordEditor: 'src/features/documents/RecordEditor.jsx',
+  MasterForm: 'src/features/masters/MasterForm.jsx',
+  ReorderWorkspace: 'src/features/masters/ReorderWorkspace.jsx',
+  DayBook: 'src/features/reports/DayBook.jsx',
+};
 import { CORE_ENHANCEMENTS } from '../src/capabilities.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,7 +18,7 @@ const temp = await mkdtemp(resolve('node_modules/.everyday-tests-'));
 const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' });
 Object.assign(globalThis, { window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage, IS_REACT_ACT_ENVIRONMENT: true });
 const { createRoot } = await import('react-dom/client');
-async function component(name) { const outfile = resolve(temp, `${name}.mjs`); await build({ entryPoints: [`src/${name}.jsx`], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'lucide-react'] }); return (await import(pathToFileURL(outfile))).default; }
+async function component(name) { const outfile = resolve(temp, `${name}.mjs`); await build({ entryPoints: [componentPaths[name]], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'lucide-react'] }); return (await import(pathToFileURL(outfile))).default; }
 const Reorder = await component('ReorderWorkspace'), Prices = await component('PriceHistory'), Editor = await component('RecordEditor'), Master = await component('MasterForm');
 const button = text => [...document.querySelectorAll('button')].find(button => button.textContent.includes(text));
 const Modal = ({children}) => React.createElement('section', null, children);

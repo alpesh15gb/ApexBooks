@@ -149,7 +149,7 @@ class AccessIntegrityTest(unittest.TestCase):
 
     def test_write_role_is_checked_after_company_lock(self):
         from unittest.mock import Mock,patch
-        import main
+        import accounting as main
         events=[];session=Mock();session.execute.side_effect=lambda statement: events.append('lock') or Mock()
         with patch.object(main,'company_for',return_value=object()),patch.object(main,'require_write',side_effect=lambda *args: events.append('authorize')):
             main.lock_company('synthetic',object(),session)

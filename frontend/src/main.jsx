@@ -1,7 +1,7 @@
 import {refreshRestoredCompany} from './restoreNavigation.js';
 import {setActiveCompanyAccess,allowCompanyRecovery,blockCompanyAccess,captureCompanyAccess} from './companyAccess.js';
-import JournalSource from './JournalSource.jsx';
-import { tidyJournalMemo } from './journalMemo.js';
+import JournalSource from './features/reports/JournalSource.jsx';
+import { tidyJournalMemo } from './features/reports/journalMemo.js';
 import SessionBoundary from './SessionBoundary.jsx';
 import {acceptLocalSession, requireCurrentSession, captureSession} from './sessionScope.js';
 import { companyRequestRecovery } from "./companyRequestRecovery.js";
@@ -11,34 +11,34 @@ import { CORE_ENHANCEMENTS, capabilityFeatures, supportsFeature, routeFeature, c
 import { hasPendingPostings, postingNavigationMessage, registerPostingRequest, memoryPostingRecoveryMessage } from "./postingRegistry.js";
 import { apiErrorMessage } from "./apiErrors.js";
 import { fetchCompanyRecords } from "./companyRecords.js";
-import TransactionDetail from "./TransactionDetail.jsx";
-import { relatedRecordActions, settlementLabel } from "./recordLifecycle.js";
+import TransactionDetail from "./features/documents/TransactionDetail.jsx";
+import { relatedRecordActions, settlementLabel } from "./features/documents/recordLifecycle.js";
 import { createRequestScope } from "./requestScope.js";
 import RegisterControls from "./RegisterControls.jsx";
 import { compareRegisterRecords } from "./registerOrder.js";
 import { deferWorkspace } from "./DeferredWorkspace.jsx";
-const SettingsWorkspace = deferWorkspace(() => import("./SettingsWorkspace.jsx"), "Settings");
-const CommerceWorkspace = deferWorkspace(() => import("./CommerceWorkspace.jsx"), "Ecommerce");
+const SettingsWorkspace = deferWorkspace(() => import("./features/settings/SettingsWorkspace.jsx"), "Settings");
+const CommerceWorkspace = deferWorkspace(() => import("./features/commerce/CommerceWorkspace.jsx"), "Ecommerce");
 import RegisterOverview from "./RegisterOverview.jsx";
 import BusinessOverview from "./BusinessOverview.jsx";
 import WorkspaceHeader from "./WorkspaceHeader.jsx";
-import PartyStatement from "./PartyStatement.jsx";
+const PartyStatement = deferWorkspace(() => import("./features/reports/PartyStatement.jsx"), "Party statement");
 import { WorkspaceBoundary, DialogFocus } from "./WorkspaceBoundary.jsx";
 import { RecoveryCodes, RecoverAccount } from "./RecoveryAccess.jsx";
-const PosWorkspace = deferWorkspace(() => import("./PosWorkspace.jsx"), "Point of sale");
-import { OpeningBalances, CreditSettlements } from "./AccountingWorkflows.jsx";
-import { isActiveMaster } from "./masterLifecycle.js";
-import { reorderDraft } from "./reorderDraft.js";
-const RecurringWorkspace = deferWorkspace(() => import("./RecurringWorkspace.jsx"), "Recurring drafts");
-const ReorderWorkspace = deferWorkspace(() => import("./ReorderWorkspace.jsx"), "Low stock & reorder");
-import RecordEditor from "./RecordEditor.jsx";
-const BackupRestore = deferWorkspace(() => import("./BackupRestore.jsx"), "Backup and restore");
-import ActionMenu from "./ActionMenu.jsx";
+const PosWorkspace = deferWorkspace(() => import("./features/commerce/PosWorkspace.jsx"), "Point of sale");
+import { OpeningBalances, CreditSettlements } from "./features/banking/AccountingWorkflows.jsx";
+import { isActiveMaster } from "./features/masters/masterLifecycle.js";
+import { reorderDraft } from "./features/masters/reorderDraft.js";
+const RecurringWorkspace = deferWorkspace(() => import("./features/documents/RecurringWorkspace.jsx"), "Recurring drafts");
+const ReorderWorkspace = deferWorkspace(() => import("./features/masters/ReorderWorkspace.jsx"), "Low stock & reorder");
+import RecordEditor from "./features/documents/RecordEditor.jsx";
+const BackupRestore = deferWorkspace(() => import("./features/settings/BackupRestore.jsx"), "Backup and restore");
+import ActionMenu from "./components/ui/ActionMenu.jsx";
 import WorkspaceSidebar from "./WorkspaceSidebar.jsx";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-const InventorySetupSettings = deferWorkspace(() => import("./InventorySetupSettings.jsx"), "Stock & modules");
-const CompleteBackup = deferWorkspace(() => import("./CompleteBackup.jsx"), "Complete backup tools");
+const InventorySetupSettings = deferWorkspace(() => import("./features/masters/InventorySetupSettings.jsx"), "Stock & modules");
+const CompleteBackup = deferWorkspace(() => import("./features/settings/CompleteBackup.jsx"), "Complete backup tools");
 import { createRoot } from "react-dom/client";
 import {
   CalendarDays,
@@ -84,27 +84,27 @@ import "./pos-counter.css";
 import "./purchase-receiving.css";
 import "./touch-polish.css";
 import "./workspace-refresh.css";
-const ReportsV2 = deferWorkspace(() => import("./Reports.jsx"), "Reports");
-const DayBook = deferWorkspace(() => import("./DayBook.jsx"), "Day book");
-import OverdueReminders, { overdueCount } from "./OverdueReminders.jsx";
-const MasterImport = deferWorkspace(() => import("./MasterImport.jsx"), "CSV import");
-const VyaparImport = deferWorkspace(() => import("./VyaparImport.jsx"), "Vyapar import");
-const DocumentBranding = deferWorkspace(() => import("./DocumentBranding.jsx"), "Document branding");
-import MasterForm from "./MasterForm.jsx";
-import OpeningStock from "./OpeningStock.jsx";
-import StockAdjustment from "./StockAdjustment.jsx";
-const CompanyDataExport = deferWorkspace(() => import("./CompanyDataExport.jsx"), "Company export");
-import CompanyDetailsEditor from "./CompanyDetailsEditor.jsx";
-const AuditLog = deferWorkspace(() => import("./AuditLog.jsx"), "Activity log");
-const PeriodLock = deferWorkspace(() => import("./PeriodLock.jsx"), "Accounting period lock");
-const AccountSecurity = deferWorkspace(() => import("./AccountSecurity.jsx"), "Account security");
-const BankWorkspace = deferWorkspace(() => import("./BankWorkspace.jsx"), "Cash & bank");
-import PaymentAllocations from "./PaymentAllocations.jsx";
-import Advances from "./Advances.jsx";
+const ReportsV2 = deferWorkspace(() => import("./features/reports/Reports.jsx"), "Reports");
+const DayBook = deferWorkspace(() => import("./features/reports/DayBook.jsx"), "Day book");
+import OverdueReminders, { overdueCount } from "./features/documents/OverdueReminders.jsx";
+const MasterImport = deferWorkspace(() => import("./features/masters/MasterImport.jsx"), "CSV import");
+const VyaparImport = deferWorkspace(() => import("./features/settings/VyaparImport.jsx"), "Vyapar import");
+const DocumentBranding = deferWorkspace(() => import("./features/documents/DocumentBranding.jsx"), "Document branding");
+import MasterForm from "./features/masters/MasterForm.jsx";
+const OpeningStock = deferWorkspace(() => import("./features/masters/OpeningStock.jsx"), "Opening stock");
+import StockAdjustment from "./features/masters/StockAdjustment.jsx";
+const CompanyDataExport = deferWorkspace(() => import("./features/settings/CompanyDataExport.jsx"), "Company export");
+const CompanyDetailsEditor = deferWorkspace(() => import("./features/settings/CompanyDetailsEditor.jsx"), "Company details");
+const AuditLog = deferWorkspace(() => import("./features/settings/AuditLog.jsx"), "Activity log");
+const PeriodLock = deferWorkspace(() => import("./features/settings/PeriodLock.jsx"), "Accounting period lock");
+const AccountSecurity = deferWorkspace(() => import("./features/settings/AccountSecurity.jsx"), "Account security");
+const BankWorkspace = deferWorkspace(() => import("./features/banking/BankWorkspace.jsx"), "Cash & bank");
+import PaymentAllocations from "./features/banking/PaymentAllocations.jsx";
+const Advances = deferWorkspace(() => import("./features/banking/Advances.jsx"), "Advances");
 import { downloadBlob } from "./downloadBlob.js";
-import { InventorySetupContext, itemSearchText } from "./inventorySetup.js";
-import { useInventorySetupValue } from "./InventorySetupProvider.jsx";
-import ItemMeta from "./ItemMeta.jsx";
+import { InventorySetupContext, itemSearchText } from "./features/masters/inventorySetup.js";
+import { useInventorySetupValue } from "./features/masters/InventorySetupProvider.jsx";
+import ItemMeta from "./features/masters/ItemMeta.jsx";
 
 const sections = [
   { label: "Dashboard", icon: LayoutDashboard, key: "dashboard" },
@@ -890,7 +890,7 @@ function App() {
     if (!isCurrent()) return;
     setModal("");
   }
-  async function saveStockAdjustment(body, key, countMode = false) {
+  async function saveStockAdjustment(body, key, countMode = false, keepEditor = false) {
     if (accessLost || !["owner", "editor"].includes(company?.role)) throw new Error("Posting stock requires owner or editor access. Your draft is preserved.");
     const isCurrent = workspaceScope.current.capture();
     const saved = await api(`/companies/${companyId}/stock/${countMode ? "counts" : "adjustments"}`, {
@@ -901,7 +901,7 @@ function App() {
     if (!isCurrent()) return;
     await loadRecords();
     if (!isCurrent()) return;
-    if (!countMode) setModal("");
+    if (!countMode && !keepEditor) setModal("");
     return saved;
   }
   function closeRecord(refreshed) {
@@ -1282,11 +1282,17 @@ function App() {
           }}
           onCreate={createWorkspace}
           onMenu={() => setMenu(true)}
+          onRefresh={companyId ? () => loadRecords() : undefined}
+          refreshing={recordsLoading}
           menuOpen={menu}
           onCreateMenuChange={setCreateOpen}
         />
-        <div className="content" id="workspace-content" tabIndex={-1}>
-          {companyId && <div className="workspace-sync-line" role="status">{company?.book_label?.trim() && <strong className="workspace-book-label" title={`Book label: ${company.book_label}`}>{company.book_label}</strong>}<span className={recordsLoading ? "sync-active" : "sync-idle"} /><span>{recordsLoading ? recordsReady ? "Refreshing company data…" : `Loading company data${recordsProgress ? ` · ${recordsProgress.toLocaleString()} records` : "…"}` : recordsLoadError ? "Refresh needed" : recordsReady ? "Company data loaded" : "Connecting to your company…"}</span><button className="link" disabled={recordsLoading} onClick={() => loadRecords()}>Refresh</button></div>}
+        <div className="content" id="workspace-content" aria-busy={!recordsReady || recordsLoading} tabIndex={-1}>
+          {company?.book_label?.trim().toLowerCase() === "demo books" && <span className="demo-pill">Demo mode</span>}
+          {companyId && (recordsLoading || recordsLoadError) && <div className="workspace-sync-line" role="status">
+            {recordsLoading ? (recordsProgress ? `Loading company data · ${recordsProgress.toLocaleString()} records` : "Loading company data…") :
+              <button className="link" onClick={() => loadRecords()}>Retry company refresh</button>}
+          </div>}
           {capabilities && CORE_ENHANCEMENTS.some(feature => !supported(feature)) && <details className="info-box"><summary>Some newer tools are unavailable on the connected API</summary><p>{capabilities.reason || "Update the API to enable all supported workflows."} Existing core workspaces remain available. Unsupported settings are not submitted.</p><button className="button secondary" onClick={() => setCapabilityRevision(value => value + 1)}>Check API support again</button></details>}
           {error && (
             <div className="error banner" role="alert">
@@ -1955,6 +1961,7 @@ function App() {
             draftSeed={draftSeed}
             edit={!!editingDraft}
             close={closeRecord}
+            saveStockAdjustment={saveStockAdjustment}
             save={saveRecord}
           />
         ))}

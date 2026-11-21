@@ -91,7 +91,7 @@ with sync_playwright() as p:
         page.get_by_role('button', name='Hide password', exact=True).click()
         expect(password).to_have_attribute('type', 'password')
         page.get_by_role('button', name='Sign in', exact=True).click()
-        expect(page.get_by_role('status').filter(has_text='Company data loaded')).to_be_visible()
+        expect(page.locator('#workspace-content[aria-busy=false]')).to_be_visible()
         expect(page.locator('.overview-metric').first).to_contain_text('9,87,65,432.10')
         for width in (320, 390, 768, 1024, 1440, 1920):
             page.set_viewport_size({'width': width, 'height': 1000})
@@ -197,7 +197,7 @@ with sync_playwright() as p:
         })
         page.reload(wait_until='domcontentloaded')
         page.get_by_role('combobox', name='Choose company', exact=True).select_option(gst_company['id'])
-        expect(page.get_by_role('status').filter(has_text='Company data loaded')).to_be_visible()
+        expect(page.locator('#workspace-content[aria-busy=false]')).to_be_visible()
         for width in (320, 390, 768, 1024, 1440):
             page.set_viewport_size({'width': width, 'height': 1000})
             page.get_by_role('button', name='Create', exact=True).click()

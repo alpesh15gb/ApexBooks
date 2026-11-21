@@ -7,7 +7,7 @@ import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { businessDate } from '../src/businessDate.js';
-import { formatRegisterMoney, parseRegisterMoney, posCloseCsv, reconcilePosCash, summarizePosDay } from '../src/posRegisterSummary.js';
+import { formatRegisterMoney, parseRegisterMoney, posCloseCsv, reconcilePosCash, summarizePosDay } from '../src/features/commerce/posRegisterSummary.js';
 
 const date = '2026-11-15';
 const yesterday = '2026-11-14';
@@ -82,7 +82,7 @@ test('CSV preserves decimal amounts and protects user-controlled text from sprea
 const temporary = await mkdtemp(resolve('node_modules/.pos-summary-test-'));
 const entry = resolve(temporary, 'PosRegisterSummary.mjs');
 await build({
-  entryPoints: ['src/PosRegisterSummary.jsx'],
+  entryPoints: ['src/features/commerce/PosRegisterSummary.jsx'],
   outfile: entry,
   bundle: true,
   platform: 'node',

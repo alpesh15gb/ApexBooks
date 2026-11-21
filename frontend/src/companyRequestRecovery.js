@@ -1,4 +1,4 @@
-import { masterImportActor } from "./masterImportRecovery.js";
+import { masterImportActor } from "./features/masters/masterImportRecovery.js";
 
 const uuid = /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
 

@@ -7,7 +7,7 @@ import {build} from 'esbuild';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 const temporary=await mkdtemp(resolve('node_modules/.transaction-detail-test-'));
-await build({entryPoints:['src/TransactionDetail.jsx'],outfile:resolve(temporary,'component.mjs'),bundle:true,platform:'node',format:'esm',loader:{'.css':'empty'},external:['react','react-dom','lucide-react']});
+await build({entryPoints:['src/features/documents/TransactionDetail.jsx'],outfile:resolve(temporary,'component.mjs'),bundle:true,platform:'node',format:'esm',loader:{'.css':'empty'},external:['react','react-dom','lucide-react']});
 const Detail=(await import(pathToFileURL(resolve(temporary,'component.mjs')))).default;
 after(()=>rm(temporary,{recursive:true,force:true}));
 test('read-only detail explains fixed and percentage discounts without changing totals',()=>{

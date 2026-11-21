@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {lineDiscountMode,serializeLineDiscount,changeLineDiscount} from '../src/lineDiscount.js';
+import {lineDiscountMode,serializeLineDiscount,changeLineDiscount} from '../src/features/documents/lineDiscount.js';
 test('fixed input including zero is distinct from calculated discount and preserves other commercial fields',()=>{
  for(const amount of ['10','0']){
   const line={quantity:'1',rate:'100',discount_amount:amount,discount_percent:'0',discount:'10',price_includes_tax:true,gst_rate:'18'};

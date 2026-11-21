@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateReceiptFile,validateReceiptSignature,verifiedReceiptDownload,receiptDigest,safeReceiptFilename,MAX_RECEIPT_BYTES} from '../src/attachmentFiles.js';
+import {validateReceiptFile,validateReceiptSignature,verifiedReceiptDownload,receiptDigest,safeReceiptFilename,MAX_RECEIPT_BYTES} from '../src/features/documents/attachmentFiles.js';
 const bytes=new TextEncoder().encode('%PDF-1.4\nsynthetic\n%%EOF');
 test('receipt prevalidation rejects size, type and path before file reads',()=>{
  for(const file of [{size:MAX_RECEIPT_BYTES+1,name:'a.pdf',type:'application/pdf'},{size:0,name:'a.pdf',type:'application/pdf'},{size:1,name:'a.svg',type:'image/svg+xml'},{size:1,name:'../a.pdf',type:'application/pdf'}])assert.throws(()=>validateReceiptFile(file));

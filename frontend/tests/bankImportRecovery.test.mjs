@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm} from 'node:fs/promises';import {resolve} from 'node:path';import {pathToFileURL} from 'node:url';import {build} from 'esbuild';import {JSDOM} from 'jsdom';import React,{act} from 'react';
-import {bankImportStore} from '../src/bankImportRecovery.js';
+import {bankImportStore} from '../src/features/banking/bankImportRecovery.js';
 const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});Object.assign(globalThis,{window:dom.window,document:dom.window.document,localStorage:dom.window.localStorage,sessionStorage:dom.window.sessionStorage,IS_REACT_ACT_ENVIRONMENT:true});localStorage.token='header.'+btoa(JSON.stringify({sub:'synthetic-actor'}))+'.signature';
-const {createRoot}=await import('react-dom/client');const temp=await mkdtemp(resolve('node_modules/.bank-recovery-'));const file=resolve(temp,'bank.mjs');await build({entryPoints:['src/StatementImportPreview.jsx'],outfile:file,bundle:true,platform:'node',format:'esm',external:['react']});const Bank=(await import(pathToFileURL(file))).default;
+const {createRoot}=await import('react-dom/client');const temp=await mkdtemp(resolve('node_modules/.bank-recovery-'));const file=resolve(temp,'bank.mjs');await build({entryPoints:['src/features/banking/StatementImportPreview.jsx'],outfile:file,bundle:true,platform:'node',format:'esm',external:['react']});const Bank=(await import(pathToFileURL(file))).default;
 const csv=(description='Private receipt')=>{const bytes=new TextEncoder().encode(`date,description,amount\n2026-11-12,${description},100\n`);return{name:'bank.csv',size:bytes.length,arrayBuffer:async()=>bytes.buffer};};
 const find=text=>[...document.querySelectorAll('button')].find(b=>b.textContent===text);
 async function settle(){for(let i=0;i<100 && [...document.querySelectorAll('button')].some(b=>/Importing…|Validating…/.test(b.textContent));i++)await act(async()=>new Promise(r=>setTimeout(r,2)));}

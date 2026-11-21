@@ -19,7 +19,7 @@ with httpx.Client(base_url=BASE, timeout=30, trust_env=False) as client, sync_pl
     page.get_by_label('Email address', exact=True).fill(fixture['credentials']['email'])
     page.get_by_label('Password', exact=True).fill(fixture['credentials']['password'])
     page.get_by_role('button', name='Sign in', exact=True).click()
-    expect(page.get_by_role('status').filter(has_text='Company data loaded')).to_be_visible()
+    expect(page.locator('#workspace-content[aria-busy=false]')).to_be_visible()
     page.get_by_role('button', name='Sales', exact=True).click()
     page.get_by_role('button', name='Payment in', exact=True).click()
     page.get_by_label('Advance payment', exact=True).select_option(fixture['hosting']['id'])

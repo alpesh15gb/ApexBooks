@@ -45,7 +45,7 @@ backend/main.py rejects the bundled development JWT fallback and short secrets f
 
 ## OCR transport remediation
 
-Non-loopback OCR endpoints require HTTPS by default. For the explicitly requested existing HTTP provider, the server operator may set `OCR_ALLOW_INSECURE_HTTP=1`; all other values keep the secure default. This opt-in accepts that provider credentials and invoice bytes travel without transport encryption. It does not downgrade HTTPS, weaken certificate checks, automatically choose a fallback URL, or expose keys to clients. URL user-info, query strings, fragments and malformed endpoints remain rejected. Mock-only API regressions cover rejection before outbound calls without opt-in and the exact configured endpoint with explicit opt-in. VPS preflight applies the same validator. No live OCR configuration was read or changed and no invoice or key was sent during verification.
+OCR requires HTTPS outside literal loopback. The API and VPS preflight enforce the same transport policy. Inside Docker, loopback refers to the API container itself.
 
 ## Final local verification
 

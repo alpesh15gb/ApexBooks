@@ -9,7 +9,7 @@ import {createRoot} from 'react-dom/client';
 import {JSDOM} from 'jsdom';
 
 const temporary = await mkdtemp(resolve('node_modules/.workflow-clarity-'));
-await build({entryPoints:['src/OpeningStock.jsx','src/MasterForm.jsx','src/ReportLibrary.jsx','src/DocumentWorkbench.jsx'],outdir:temporary,bundle:true,jsx:'automatic',platform:'node',format:'esm',outExtension:{'.js':'.mjs'},external:['react','react-dom','lucide-react']});
+await build({entryPoints:['src/features/masters/OpeningStock.jsx','src/features/masters/MasterForm.jsx','src/features/reports/ReportLibrary.jsx','src/features/documents/DocumentWorkbench.jsx'],entryNames:'[name]',outdir:temporary,bundle:true,jsx:'automatic',platform:'node',format:'esm',outExtension:{'.js':'.mjs'},external:['react','react-dom','lucide-react']});
 const MasterForm = (await import(pathToFileURL(resolve(temporary,'MasterForm.mjs')))).default;
 const OpeningStock = (await import(pathToFileURL(resolve(temporary,'OpeningStock.mjs')))).default;
 const ReportLibrary = (await import(pathToFileURL(resolve(temporary,'ReportLibrary.mjs')))).default;

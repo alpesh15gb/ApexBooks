@@ -11,7 +11,7 @@ const temporary=await mkdtemp(resolve('node_modules/.recurring-tests-'));
 const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost/'});
 Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});
 window.confirm=()=>true;
-const outfile=resolve(temporary,'component.mjs');await build({entryPoints:['src/RecurringWorkspace.jsx'],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','lucide-react']});
+const outfile=resolve(temporary,'component.mjs');await build({entryPoints:['src/features/documents/RecurringWorkspace.jsx'],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','lucide-react']});
 const Recurring=(await import(pathToFileURL(outfile))).default;
 const template={id:'t1',name:'Monthly review',version:0,draft_kind:'sales_order',party_name:'Synthetic',start_date:'2026-01-31',frequency:'monthly',interval:1,is_active:true,next_due:'2026-11-02',generated_count:0};
 const Modal=({children})=>React.createElement('section',{role:'dialog'},children);

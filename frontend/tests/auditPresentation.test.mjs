@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm,readFile} from 'node:fs/promises';import {resolve} from 'node:path';import {pathToFileURL} from 'node:url';import {build} from 'esbuild';import {JSDOM} from 'jsdom';import React,{act} from 'react';
 const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});Object.assign(globalThis,{window:dom.window,document:dom.window.document,localStorage:dom.window.localStorage,IS_REACT_ACT_ENVIRONMENT:true});
-const {createRoot}=await import('react-dom/client');const temp=await mkdtemp(resolve('node_modules/.audit-ui-'));await build({entryPoints:['src/AuditLog.jsx'],outfile:resolve(temp,'audit.mjs'),bundle:true,format:'esm',platform:'node',jsx:'automatic',external:['react']});const Audit=(await import(pathToFileURL(resolve(temp,'audit.mjs')))).default;
+const {createRoot}=await import('react-dom/client');const temp=await mkdtemp(resolve('node_modules/.audit-ui-'));await build({entryPoints:['src/features/settings/AuditLog.jsx'],outfile:resolve(temp,'audit.mjs'),bundle:true,format:'esm',platform:'node',jsx:'automatic',external:['react']});const Audit=(await import(pathToFileURL(resolve(temp,'audit.mjs')))).default;
 const row=(id='allocation')=>({id,occurred_at:'2026-04-01T10:00:00Z',action:'bank_statement.allocated',actor:'owner@example.invalid',entity_type:'bank_match_allocation',entity_id:id,details:{}});
 const response=data=>({ok:true,status:200,json:async()=>data});
 test('audit presents readable labels and retains exact technical identifiers and references',async()=>{
@@ -13,7 +13,7 @@ for(const transition of ['company','role'])test(`audit rejects late responses af
  await act(async()=>pending[1](response([row('current')])));await act(async()=>pending[0](response([row('stale')])));assert.match(document.querySelector('tbody').textContent,/current/);assert.doesNotMatch(document.querySelector('tbody').textContent,/stale/);await act(async()=>root.unmount());
 });
 test('backup acknowledgement has bounded checkbox sizing and wrapped associated text',async()=>{
- const css=await readFile('src/style.css','utf8'),source=await readFile('src/CompleteBackup.jsx','utf8');const proof=new JSDOM(`<style>${css}</style><section class="complete-backup member-settings"><label class="backup-acknowledgement"><input type="checkbox"><span>Private financial information</span></label></section>`);
+ const css=await readFile('src/style.css','utf8'),source=await readFile('src/features/settings/CompleteBackup.jsx','utf8');const proof=new JSDOM(`<style>${css}</style><section class="complete-backup member-settings"><label class="backup-acknowledgement"><input type="checkbox"><span>Private financial information</span></label></section>`);
  const label=proof.window.document.querySelector('label'),input=label.querySelector('input');assert.equal(proof.window.getComputedStyle(label).display,'flex');assert.equal(proof.window.getComputedStyle(input).width,'18px');assert.equal(proof.window.getComputedStyle(input).height,'18px');assert.match(source,/className="backup-acknowledgement"/);assert.match(source,/<span>I understand an unencrypted ZIP/);proof.window.close();
 });
 test.after(async()=>{dom.window.close();await rm(temp,{recursive:true,force:true});});

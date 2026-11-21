@@ -14,7 +14,7 @@ test('actual App clears open viewer detail on revoked refresh and does not resur
   const file=resolve(temp,'app.mjs');await build({entryPoints:['src/main.jsx'],outfile:file,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-dom/client','lucide-react'],loader:{'.css':'empty'}});await act(async()=>{await import(pathToFileURL(file));});
   const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='INV-SYN');assert.ok(button);
   await act(async()=>button.click());assert.ok(document.querySelector('.transaction-detail'));
-  revoked=true;await act(async()=>document.querySelector('.workspace-sync-line button').click());
+  revoked=true;await act(async()=>document.querySelector('[aria-label="Refresh company data"]').click());
   assert.equal(document.querySelector('.transaction-detail'),null);assert.ok(document.querySelector('[data-company-locked="true"]').hidden);assert.equal(posts,0);
   revoked=false;await act(async()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Refresh company access').click());
   assert.equal(document.querySelector('[data-company-locked]').hidden,false);assert.equal(document.querySelector('.transaction-detail'),null);assert.equal(posts,0);

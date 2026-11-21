@@ -75,7 +75,7 @@ def register_company(page):
     expect(dialog).to_be_hidden()
     # The desktop "Books loaded" badge is intentionally hidden on mobile.
     # Assert the responsive workspace status that both layouts expose instead.
-    expect(page.get_by_role('status').filter(has_text='Company data loaded')).to_be_visible()
+    expect(page.locator('#workspace-content[aria-busy=false]')).to_be_visible()
     progress('synthetic account and company ready')
 
 

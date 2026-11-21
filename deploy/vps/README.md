@@ -6,7 +6,7 @@ Only the `apexbooks-vps` Compose project is started. Web/API publish on 127.0.0.
 
 Private `server.env` is transferred separately and kept at `/opt/apexbooks-vps/shared/server.env` with mode 600. It contains a new VPS JWT session key, so users sign in on the new domains. Existing accounts/data are shared; Vercel stays available with its own sessions. Add the existing OmniRoute key privately before deployment; preflight refuses a missing OCR key. Do not regenerate the commerce encryption key or replace the database URL with an empty database.
 
-OCR preflight now checks the same endpoint rules as the API. HTTPS is the default outside literal loopback. An existing operator-approved HTTP OmniRoute service can be used by explicitly setting `OCR_ALLOW_INSECURE_HTTP=1` together with its `OCR_BASE_URL`, `OCR_MODEL` and private key in `server.env`. Only the exact value `1` enables this compatibility option. It sends credentials and invoice bytes without transport encryption; prefer HTTPS or a deliberate server-local route. This option never downgrades an HTTPS URL, changes certificate checks, follows a fallback endpoint, or sends keys to a browser. A loopback URL inside Docker refers to the API container itself, not the VPS host.
+OCR requires HTTPS outside literal loopback. The API and VPS preflight enforce the same transport policy. Inside Docker, loopback refers to the API container itself.
 
 ## Explicit release packaging (no deployment implied)
 

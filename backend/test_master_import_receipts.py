@@ -42,7 +42,7 @@ class MasterImportReceiptsTest(unittest.TestCase):
         def interrupted(session, *args, **kwargs):
             session.flush()  # Persist pending rows inside the transaction before failure.
             raise RuntimeError('synthetic interruption')
-        with patch('main.audit',side_effect=interrupted):
+        with patch('routers.masters.audit',side_effect=interrupted):
             with self.assertRaisesRegex(RuntimeError,'synthetic interruption'):self.post()
         self.assertEqual(self.lookup().status_code,404);self.assertEqual(self.client.get(self.base+'/records',headers=self.h).json(),[])
         self.assertEqual(self.post().status_code,200)

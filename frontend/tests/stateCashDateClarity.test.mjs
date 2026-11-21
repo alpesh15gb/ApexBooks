@@ -1,3 +1,8 @@
+const componentPaths = {
+  DateRangeFilter: 'src/components/ui/DateRangeFilter.jsx',
+  StateCodeSelect: 'src/components/ui/StateCodeSelect.jsx',
+  NegativeCashNotice: 'src/features/banking/NegativeCashNotice.jsx',
+};
 import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm,readFile} from 'node:fs/promises';
@@ -9,7 +14,7 @@ import React,{act} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {stateCodes} from '../src/stateCodes.js';
 const temp=await mkdtemp(resolve('node_modules/.workflow-clarity-'));
-for(const name of ['StateCodeSelect','NegativeCashNotice','DateRangeFilter'])await build({entryPoints:[`src/${name}.jsx`],outfile:resolve(temp,name+'.mjs'),bundle:true,platform:'node',format:'esm',external:['react','lucide-react']});
+for(const name of ['StateCodeSelect','NegativeCashNotice','DateRangeFilter'])await build({entryPoints:[componentPaths[name]],outfile:resolve(temp,name+'.mjs'),bundle:true,platform:'node',format:'esm',external:['react','lucide-react']});
 const load=async name=>(await import(pathToFileURL(resolve(temp,name+'.mjs')))).default;
 const Select=await load('StateCodeSelect'),Notice=await load('NegativeCashNotice'),Dates=await load('DateRangeFilter');
 const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});

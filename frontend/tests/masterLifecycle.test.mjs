@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { availableMasters, isActiveMaster, partyShippingAddress, shippingForPartySelection } from '../src/masterLifecycle.js';
+import { availableMasters, isActiveMaster, partyShippingAddress, shippingForPartySelection } from '../src/features/masters/masterLifecycle.js';
 test('legacy active masters remain selectable; archived identities are retained only for historical editing', () => {
  const rows=[{id:'active',kind:'party'},{id:'archived',kind:'party',data:{is_active:false}},{id:'item',kind:'item',data:{is_active:false}}];
  assert.equal(isActiveMaster(rows[0]),true);

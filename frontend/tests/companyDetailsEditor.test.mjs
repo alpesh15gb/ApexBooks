@@ -13,7 +13,7 @@ Object.assign(globalThis, { window: dom.window, document: dom.window.document, l
 const { createRoot } = await import('react-dom/client');
 const temporary = await mkdtemp(resolve('node_modules/.company-editor-tests-'));
 const outfile = resolve(temporary, 'editor.mjs');
-await build({ entryPoints: ['src/CompanyDetailsEditor.jsx'], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'lucide-react'], plugins: [{ name: 'registry', setup(build) { build.onResolve({ filter: /postingRegistry\.js$/ }, () => ({ path: pathToFileURL(resolve('src/postingRegistry.js')).href, external: true })); } }] });
+await build({ entryPoints: ['src/features/settings/CompanyDetailsEditor.jsx'], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'lucide-react'], plugins: [{ name: 'registry', setup(build) { build.onResolve({ filter: /postingRegistry\.js$/ }, () => ({ path: pathToFileURL(resolve('src/postingRegistry.js')).href, external: true })); } }] });
 const Editor = (await import(pathToFileURL(outfile))).default;
 const company = { id: 'first', name: 'Synthetic company', tax_mode: 'unregistered', role: 'owner', state_code: '27' };
 const submit = () => document.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));

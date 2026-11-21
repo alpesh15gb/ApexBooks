@@ -11,7 +11,7 @@ Before any migration or cutover, record privately:
 - Intended frontend/API origins, provider/project/environment, exact deployed source where recoverable, and current Alembic revision/schema.
 - Every API, background worker, preview and installed client that can write to the target database. Stop or isolate incompatible writers during the coordinated upgrade; changing one web origin alone is insufficient.
 - Approved immutable 1.5 source revision, built image IDs/artifact hashes and matching API/web/native build metadata. Missing metadata must stay `unknown`, not be guessed.
-- Explicit strong JWT configuration, correct existing accounting/commerce encryption identity, reviewed OCR transport and required nonsecret feature configuration. HTTPS is the default; retaining an approved HTTP provider requires the explicit server-only `OCR_ALLOW_INSECURE_HTTP=1` opt-in and accepts unencrypted provider credentials/document bytes. Do not print environment files, use credentials in command arguments or regenerate encryption keys as an incidental upgrade step.
+- Explicit strong JWT configuration, correct existing accounting/commerce encryption identity, reviewed OCR transport and required nonsecret feature configuration. OCR requires HTTPS outside literal loopback. Do not print environment files or regenerate encryption keys during upgrade.
 
 The 1.5 native Release API origin is `https://api.apexbooks.in`. A Vercel-preview-only rollout does not exercise that native destination. Capability negotiation fails closed for optional new features when connected to an older API; it is not a server upgrade mechanism.
 

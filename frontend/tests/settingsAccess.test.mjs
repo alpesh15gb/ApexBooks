@@ -12,7 +12,7 @@ const {createRoot}=await import('react-dom/client');
 const tmp=await mkdtemp(resolve('node_modules/.settings-access-'));
 const source=await readFile('src/main.jsx','utf8');
 await build({stdin:{contents:`import {useState,useRef,useEffect} from 'react';import {createRequestScope} from './requestScope.js';const api=(...args)=>globalThis.memberApi(...args);export default ${source.slice(source.indexOf('function Members('),source.indexOf('function Ledger('))}`,resolveDir:resolve('src'),loader:'jsx'},outfile:resolve(tmp,'members.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react']});
-await build({entryPoints:['src/SettingsWorkspace.jsx'],outfile:resolve(tmp,'settings.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','lucide-react']});
+await build({entryPoints:['src/features/settings/SettingsWorkspace.jsx'],outfile:resolve(tmp,'settings.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','lucide-react']});
 const Members=(await import(pathToFileURL(resolve(tmp,'members.mjs')))).default;
 const Settings=(await import(pathToFileURL(resolve(tmp,'settings.mjs')))).default;
 const button=text=>[...document.querySelectorAll('button')].find(b=>b.textContent===text);

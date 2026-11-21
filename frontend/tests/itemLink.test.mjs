@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { linkCatalogueItem, OCR_LINE } from "../src/itemLink.js";
+import { linkCatalogueItem, OCR_LINE } from "../src/features/documents/itemLink.js";
 
 const item = { id: "stock-qa", data: { hsn: "8517", unit: "NOS", purchase_rate: "50", sale_rate: "100", gst_rate: "5" } };
 

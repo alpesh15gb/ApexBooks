@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseMasterCsv} from '../src/masterCsv.js';
+import {parseMasterCsv} from '../src/features/masters/masterCsv.js';
 for (const ending of ['\n','\r\n','\r']) test(`CSV accepts line ending ${JSON.stringify(ending)}`,()=>{
  assert.deepEqual(parseMasterCsv(`name,phone${ending}Buyer,00123${ending}`,'party'),[{name:'Buyer',phone:'00123'}]);
 });

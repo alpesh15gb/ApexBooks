@@ -8,7 +8,7 @@ for(const kind of ['receipt','backup','final-save'])test(`session ownership duri
  const bytes=new TextEncoder().encode('%PDF-1.4\nsynthetic\n%%EOF'),digest=await oldDigest.call(crypto.subtle,'SHA-256',bytes),hash=[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
  const row={id:'receipt',filename:'receipt.pdf',size_bytes:bytes.length,sha256:hash};
  try{
-  const outfile=resolve(temp,'scope.mjs');await build({stdin:{contents:"export * from './src/sessionScope.js'; export * from './src/attachmentFiles.js'; export * from './src/backupChunks.js'; export {default as Attachments} from './src/DocumentAttachments.jsx';",resolveDir:process.cwd()},outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-dom/client','lucide-react'],loader:{'.css':'empty'}});
+  const outfile=resolve(temp,'scope.mjs');await build({stdin:{contents:"export * from './src/sessionScope.js'; export * from './src/features/documents/attachmentFiles.js'; export * from './src/features/settings/backupChunks.js'; export {default as Attachments} from './src/features/documents/DocumentAttachments.jsx';",resolveDir:process.cwd()},outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-dom/client','lucide-react'],loader:{'.css':'empty'}});
   const scope=await import(pathToFileURL(outfile));
   if(kind!=='final-save'){
    let entered;const reading=new Promise(r=>entered=r);const pending=new Promise(r=>finish=r);

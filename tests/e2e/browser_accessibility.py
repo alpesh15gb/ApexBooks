@@ -44,7 +44,7 @@ def sign_in(page):
     page.get_by_label('Email address', exact=True).fill(credentials['email'])
     page.get_by_label('Password', exact=True).fill(credentials['password'])
     page.get_by_role('button', name='Sign in', exact=True).press('Enter')
-    expect(page.get_by_role('status').filter(has_text='Company data loaded')).to_be_visible()
+    expect(page.locator('#workspace-content[aria-busy=false]')).to_be_visible()
 
 
 def navigate(page, name):

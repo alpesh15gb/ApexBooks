@@ -72,7 +72,7 @@ class BackupTransportTest(unittest.TestCase):
         # Until the lead freezes main's prior checkpoint, the internal snapshot
         # adapter points at its unchanged financial exporter for this prototype.
         snapshot=getattr(main,'company_data_export_payload',main.company_data_export)
-        with patch.object(main,'company_data_export_payload',snapshot,create=True):
+        with patch('book_services.company_data_export_payload',snapshot,create=True):
             response=c.post(b+'/backup-exports',headers={**h,'Idempotency-Key':key},json={})
         self.assertEqual(response.status_code,200,response.text);job=response.json();self.assertGreater(job['chunk_count'],1)
         path=b+'/backup-exports/'+job['export_id'];parts=[]
@@ -85,7 +85,7 @@ class BackupTransportTest(unittest.TestCase):
             self.assertEqual(archive.read(payload['attachments'][0]['entry']),content)
         count=len(payload['records']);c.post(b+'/records',headers=h,json={'kind':'party','name':'Created after snapshot'}).raise_for_status()
         self.assertEqual(c.get(path+'/chunks/0',headers=h).content,parts[0])
-        with patch.object(main,'company_data_export_payload',snapshot,create=True):
+        with patch('book_services.company_data_export_payload',snapshot,create=True):
             repeated=c.post(b+'/backup-exports',headers={**h,'Idempotency-Key':key},json={})
         self.assertEqual(repeated.status_code,200,repeated.text);self.assertEqual(repeated.json()['sha256'],job['sha256'])
         self.assertEqual(len(payload['records']),count)

@@ -8,7 +8,7 @@ import {JSDOM} from 'jsdom';
 import React,{act} from 'react';
 import {createRoot} from 'react-dom/client';
 const temp=await mkdtemp(resolve('node_modules/.attachments-tests-'));
-await build({entryPoints:['src/DocumentAttachments.jsx'],outfile:resolve(temp,'component.mjs'),bundle:true,platform:'node',format:'esm',loader:{'.css':'empty'},external:['react','react-dom']});
+await build({entryPoints:['src/features/documents/DocumentAttachments.jsx'],outfile:resolve(temp,'component.mjs'),bundle:true,platform:'node',format:'esm',loader:{'.css':'empty'},external:['react','react-dom']});
 const Component=(await import(pathToFileURL(resolve(temp,'component.mjs')))).default;
 const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});
 Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});

@@ -11,7 +11,7 @@ const temporary = await mkdtemp(resolve('node_modules/.credit-tests-'));
 const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' });
 Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});
 const outfile=resolve(temporary,'component.mjs');
-await build({entryPoints:['src/CreditStatus.jsx'],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom']});
+await build({entryPoints:['src/features/documents/CreditStatus.jsx'],outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom']});
 const CreditStatus=(await import(pathToFileURL(outfile))).default;
 const wait=()=>new Promise(resolve=>setTimeout(resolve,340));
 const response=(exposure,limit='100')=>({as_of:'2026-11-02',credit_limit:limit,current_exposure:exposure,projected_exposure:exposure,remaining_credit:limit==null?null:'0',exceeded:limit!=null&&Number(exposure)>Number(limit),receivable:exposure,customer_credit:'0',customer_advance:'0'});

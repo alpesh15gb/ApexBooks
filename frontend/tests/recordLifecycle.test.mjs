@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { relatedRecordActions, settlementLabel } from '../src/recordLifecycle.js';
+import { relatedRecordActions, settlementLabel } from '../src/features/documents/recordLifecycle.js';
 
 test('posted open invoices expose settlement and linked return actions', () => {
   assert.deepEqual(relatedRecordActions({ kind: 'sales_invoice', posted: true, outstanding: '20' }, true).map(a => a.kind), ['payment_in', 'credit_note']);

@@ -96,8 +96,7 @@ def verify_ocr_configuration(values):
     policy = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(policy)
     try:
-        endpoint = policy.validate_ocr_base_url(values.get('OCR_BASE_URL', 'https://api.openai.com/v1'),
-                                               allow_insecure_http=values.get('OCR_ALLOW_INSECURE_HTTP') == '1')
+        endpoint = policy.validate_ocr_base_url(values.get('OCR_BASE_URL', 'https://api.openai.com/v1'))
     except ValueError as error:
         raise RuntimeError(str(error)) from None
     external = endpoint != 'https://api.openai.com/v1'

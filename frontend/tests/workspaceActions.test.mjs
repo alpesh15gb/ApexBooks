@@ -40,11 +40,11 @@ async function workspace(role, verify, additional = [], capabilities = CORE_ENHA
     await build({ entryPoints: ['src/main.jsx'], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'react-dom/client', 'lucide-react'], loader: { '.css': 'empty' } });
     await act(async () => { await import(pathToFileURL(outfile)); });
     const click = async text => {
-      let button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text);
+      let button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text || b.getAttribute('aria-label') === text);
       if (!button && ['Sales invoices', 'Estimates', 'Sales orders', 'Proforma invoices', 'Payment in', 'Credit notes', 'POS'].includes(text)) {
         const sales = [...document.querySelectorAll('.nav-item')].find(b => b.textContent.trim() === 'Sales');
         await act(async () => sales.click());
-        button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text);
+        button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text || b.getAttribute('aria-label') === text);
       }
       assert.ok(button, `Button ${text}`); await act(async () => button.click());
     };
@@ -196,7 +196,7 @@ test('initial company history does not duplicate the dashboard report requests',
     assert.equal(requests.filter(path => path.includes('/reports/summary?')).length, 1);
     const first = requests.find(path => path.includes('/records?'));
     assert.match(first, /limit=500/);
-    await click('Refresh');
+    await click('Refresh company data');
     assert.equal(requests.filter(path => path.includes('/reports/summary?')).length, 2);
     assert.equal(requests.filter(path => path.includes('/records?')).length, 2);
     assert.match(document.body.textContent, /temporarily unavailable/, 'Terminal report error is not an endless loading placeholder');

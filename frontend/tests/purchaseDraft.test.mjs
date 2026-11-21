@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { purchaseDraftForm } from "../src/purchaseDraft.js";
+import { purchaseDraftForm } from "../src/features/documents/purchaseDraft.js";
 
 test("scanning a different supplier clears old identity, addresses and discounts", () => {
   const old = {

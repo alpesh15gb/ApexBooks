@@ -70,7 +70,7 @@ with sync_playwright() as playwright:
 
     def save(form, label, total=None):
         if total is not None:
-            expect(form.locator('.document-grand-total')).to_contain_text(total)
+            expect(form.locator('.editor-footer-total')).to_contain_text(total)
         with page.expect_response(lambda response: response.request.method == 'POST' and response.url in {
             BASE + root + '/records', BASE + root + '/records/with-payment',
         }) as response_info:
@@ -87,7 +87,7 @@ with sync_playwright() as playwright:
         page.get_by_label('Email address',exact=True).fill(credentials['email'])
         page.get_by_label('Password',exact=True).fill(credentials['password'])
         page.get_by_role('button',name='Sign in',exact=True).click()
-        expect(page.get_by_role('status').filter(has_text='Company data loaded')).to_be_visible()
+        expect(page.locator('#workspace-content[aria-busy=false]')).to_be_visible()
         form=create('Estimate','New estimate')
         form.get_by_label('Customer / description',exact=True).fill(fixture['name'])
         for i,line in enumerate(fixture['data']['lines'],1):

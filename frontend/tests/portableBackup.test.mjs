@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pbkdf2Sync, createCipheriv, createDecipheriv } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
-import { encryptPortableBackup, readPortableBackup, MAX_BACKUP_PLAINTEXT_BYTES, MAX_ENCRYPTED_BACKUP_BYTES } from '../src/portableBackup.js';
+import { encryptPortableBackup, readPortableBackup, MAX_BACKUP_PLAINTEXT_BYTES, MAX_ENCRYPTED_BACKUP_BYTES } from '../src/features/settings/portableBackup.js';
 const password = 'Synthetic-password-only';
 const json = new TextEncoder().encode('{"format":"apex-company-backup","version":7}');
 function independentEnvelope(content) {

@@ -83,7 +83,7 @@ with sync_playwright() as playwright:
 
     def save(form, label, total=None):
         if total is not None:
-            expect(form.locator('.document-grand-total')).to_contain_text(total)
+            expect(form.locator('.editor-footer-total')).to_contain_text(total)
         with page.expect_response(lambda response: response.request.method == 'POST' and response.url in {
             BASE + root + '/records', BASE + root + '/records/with-payment',
         }) as response_info:
@@ -121,7 +121,7 @@ with sync_playwright() as playwright:
         page.get_by_label('Email address', exact=True).fill(credentials['email'])
         page.get_by_label('Password', exact=True).fill(credentials['password'])
         page.get_by_role('button', name='Sign in', exact=True).click()
-        expect(page.get_by_role('status').filter(has_text='Company data loaded')).to_be_visible()
+        expect(page.locator('#workspace-content[aria-busy=false]')).to_be_visible()
 
         form = create('Purchase bill', 'New purchase bill')
         form.get_by_label('Supplier / description', exact=True).fill('Electrical supplier')
@@ -129,9 +129,48 @@ with sync_playwright() as playwright:
         bill = save(form, 'Save bill', '1,180.00')
         check('Purchase total and GST preview match saved bill', bill['amount'], '1180')
 
+        navigate('Dashboard')
+        month = page.locator('.overview-chart g[aria-label*="Purchases ₹1,180.00"]')
+        month.hover()
+        tooltip = page.locator('.chart-tooltip')
+        expect(tooltip).to_contain_text('Sales ₹0.00')
+        expect(tooltip).to_contain_text('Purchases ₹1,180.00')
+        expect(tooltip).to_contain_text('Net -₹1,180.00')
+        month.focus()
+        month.press('Escape')
+        expect(tooltip).to_be_hidden()
+        page.set_viewport_size({'width': 390, 'height': 844})
+        search = page.get_by_role('combobox', name='Search workspace')
+        expect(search).to_be_hidden()
+        page.get_by_role('button', name='Open workspace search').click()
+        expect(search).to_be_focused()
+        search.fill(goods['name'])
+        expect(page.get_by_role('option').filter(has_text=goods['name']).first).to_be_visible()
+        search.press('Escape')
+        expect(search).to_be_hidden()
+        page.set_viewport_size({'width': 1440, 'height': 1000})
+
         form = create('Sales invoice', 'New sales invoice')
+        expect(form.locator('.editor-footer-total')).to_contain_text('₹0.00')
+        expect(form.get_by_label('Item 1 rate')).to_have_attribute('placeholder', '0.00')
+        for offset, label in [(0, 'Due on receipt'), (7, '+7d'), (15, '+15d'), (30, '+30d')]:
+            form.get_by_role('button', name=label, exact=True).click()
+            due = (datetime.fromisoformat(day) + timedelta(days=offset)).date().isoformat()
+            expect(form.get_by_label('Due date', exact=True)).to_have_value(due)
+        quantity = form.get_by_label('Item 1 quantity').bounding_box()
+        unit = form.get_by_label('Item 1 unit').bounding_box()
+        assert abs(quantity['y'] - unit['y']) < 2 and unit['x'] >= quantity['x'] + quantity['width']
         form.get_by_label('Customer / description', exact=True).fill('Harbour customer')
         fill_line(form, 1, goods['name'], 3, 236)
+        yesterday = (datetime.fromisoformat(day) - timedelta(days=1)).date().isoformat()
+        form.locator('input[name=date]').fill(yesterday)
+        form.get_by_role('button', name='Save invoice', exact=True).click()
+        form.get_by_role('button', name='Open stock reconciliation').click()
+        reconciliation = page.get_by_role('dialog', name='Stock adjustment', exact=True)
+        expect(reconciliation).to_be_visible()
+        reconciliation.get_by_role('button', name='Close', exact=True).click()
+        expect(form.get_by_label('Item 1 quantity')).to_have_value('3')
+        form.locator('input[name=date]').fill(day)
         form.locator('.line-more summary').first.click()
         form.get_by_label('Rate includes GST', exact=True).first.check()
         form.get_by_label('Item 1 discount percent', exact=True).fill('10')

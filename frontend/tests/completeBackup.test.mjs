@@ -6,9 +6,9 @@ import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {JSDOM} from 'jsdom';
 import React,{act} from 'react';
-import {sha256Bytes} from '../src/backupChunks.js';
+import {sha256Bytes} from '../src/features/settings/backupChunks.js';
 const temp=await mkdtemp(resolve('node_modules/.complete-backup-tests-'));
-await build({entryPoints:['src/CompleteBackup.jsx'],outfile:resolve(temp,'component.mjs'),bundle:true,platform:'node',format:'esm',external:['react','react-dom','lucide-react']});
+await build({entryPoints:['src/features/settings/CompleteBackup.jsx'],outfile:resolve(temp,'component.mjs'),bundle:true,platform:'node',format:'esm',external:['react','react-dom','lucide-react']});
 const Component=(await import(pathToFileURL(resolve(temp,'component.mjs')))).default;
 const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});
 Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});
@@ -96,7 +96,7 @@ test('stopping a chunk transfer never previews or commits; retained upload remai
  await act(async()=>root.unmount());
 });
 test('encrypted restore decrypts locally and sends original plaintext checksum, never password',async()=>{
- const {encryptPortableBackup}=await import('../src/portableBackup.js');const secret='Synthetic-private-password';
+ const {encryptPortableBackup}=await import('../src/features/settings/portableBackup.js');const secret='Synthetic-private-password';
  const encrypted=await encryptPortableBackup(zip,secret), calls=[];
  const root=await mount(async(path,options)=>{calls.push({path,...options});if(path==='/backups/uploads')return job;if(path.endsWith('/chunks/0'))return{size_bytes:zip.length,sha256:hash};if(path.endsWith('/preview'))return preview;assert.fail(path);});
  await type('Backup password',secret);await type('New company name','Destination books');await choose(encrypted);

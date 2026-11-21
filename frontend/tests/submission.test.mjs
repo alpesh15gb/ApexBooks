@@ -1,3 +1,10 @@
+const componentPaths = {
+  RecordEditor: 'src/features/documents/RecordEditor.jsx',
+  Advances: 'src/features/banking/Advances.jsx',
+  CashTransfer: 'src/features/banking/CashTransfer.jsx',
+  PosWorkspace: 'src/features/commerce/PosWorkspace.jsx',
+  StockAdjustment: 'src/features/masters/StockAdjustment.jsx',
+};
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -16,7 +23,7 @@ const { createRoot } = await import('react-dom/client');
 const company = { id: 'synthetic-company', name: 'Synthetic', tax_mode: 'unregistered', state_code: '27', role: 'owner' };
 async function component(name) {
   const outfile = resolve(temporary, `${name}.mjs`);
-  await build({ entryPoints: [`src/${name}.jsx`], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'lucide-react'] });
+  await build({ entryPoints: [componentPaths[name]], outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', external: ['react', 'react-dom', 'lucide-react'] });
   return (await import(pathToFileURL(outfile))).default;
 }
 const RecordEditor = await component('RecordEditor');
