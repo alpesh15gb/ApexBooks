@@ -36,6 +36,14 @@ class _ReportLibraryState extends State<ReportLibrary> {
     builder: (context, limits) {
       final phone = limits.maxWidth < 700;
       final searching = _search.text.trim().isNotEmpty;
+      final showShortcuts =
+          !searching &&
+          _category == 'all' &&
+          [
+            BooksReport.statements,
+            BooksReport.ageing,
+            BooksReport.stock,
+          ].any(widget.available);
       final matches = [
         for (final group in reportGroups)
           if (_category == 'all' || _category == group.title)
@@ -53,32 +61,9 @@ class _ReportLibraryState extends State<ReportLibrary> {
       return ApexPage(
         maxWidth: 1540,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 6,
-                height: 6,
-                decoration: const BoxDecoration(
-                  color: Apex.green,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 7),
-              const Text(
-                'YOUR BUSINESS, IN VIEW',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1,
-                  color: Apex.label,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
           ApexRegisterHeading(
             'Reports',
-            subtitle: 'Start with a business question, or find a report below.',
+            subtitle: 'Find a report by name or category.',
             actions: [
               DecoratedBox(
                 decoration: BoxDecoration(
@@ -96,8 +81,8 @@ class _ReportLibraryState extends State<ReportLibrary> {
             ],
           ),
           const SizedBox(height: 24),
-          if (!searching && _category == 'all') ...[
-            _shortcuts(phone),
+          if (showShortcuts && !phone) ...[
+            _shortcuts(),
             const SizedBox(height: 24),
           ],
           Align(
@@ -131,12 +116,16 @@ class _ReportLibraryState extends State<ReportLibrary> {
               child: Semantics(
                 liveRegion: true,
                 child: Text(
-                  '$total matching reports',
+                  '$total matching ${total == 1 ? 'report' : 'reports'}',
                   style: const TextStyle(fontSize: 13, color: Apex.muted),
                 ),
               ),
             ),
           const SizedBox(height: 20),
+          if (showShortcuts && phone) ...[
+            _shortcuts(compact: true),
+            const SizedBox(height: 20),
+          ],
           if (matches.isEmpty)
             ApexPanel(
               child: ApexEmptyState(
@@ -159,7 +148,7 @@ class _ReportLibraryState extends State<ReportLibrary> {
     },
   );
 
-  Widget _shortcuts(bool narrow) {
+  Widget _shortcuts({bool compact = false}) {
     final cards = [
       (
         BooksReport.statements,
@@ -224,15 +213,26 @@ class _ReportLibraryState extends State<ReportLibrary> {
         ),
       ),
     );
-    if (narrow) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final (i, data) in cards.indexed) ...[
-            if (i > 0) const SizedBox(height: 12),
-            card(data),
-          ],
-        ],
+    if (compact) {
+      return ApexPanel(
+        padding: EdgeInsets.zero,
+        child: Material(
+          type: MaterialType.transparency,
+          child: Column(
+            children: [
+              for (final (i, data) in cards.indexed) ...[
+                if (i > 0) const Divider(height: 1, color: Apex.line),
+                ListTile(
+                  leading: Icon(data.$4, size: 20, color: Apex.green),
+                  title: Text(data.$2, style: Apex.strong),
+                  subtitle: Text(data.$3),
+                  trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+                  onTap: () => widget.onSelect(data.$1),
+                ),
+              ],
+            ],
+          ),
+        ),
       );
     }
     return IntrinsicHeight(

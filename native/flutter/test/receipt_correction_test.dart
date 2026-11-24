@@ -52,10 +52,30 @@ class _Api implements ApexApi {
     ],
   };
 
+  static const november = {
+    'id': 'november',
+    'date': '2026-11-03',
+    'bank': 'DCB BANK',
+    'utr': 'UTR-NOV',
+    'amount': '43542',
+    'booked': '25842',
+    'unallocated': '17700',
+    'receipts': [
+      {
+        'id': 'ram',
+        'number': 'RAM-1178',
+        'purpose': 'goods',
+        'amount': '25842',
+        'direct': [],
+        'settlements': [],
+      },
+    ],
+  };
+
   @override
   Future<Object?> get(String path, {Map<String, String>? query}) async => {
     'anchor_credit_id': 'october',
-    'credits': [original],
+    'credits': [original, november],
     'invoices': [],
   };
 
@@ -103,6 +123,8 @@ void main() {
   testWidgets(
     'previews an advance unlink and retries the same posting after reopening',
     (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       final api = _Api();
       final pending = _Pending();
       final workspace = WorkspaceContext(
@@ -143,8 +165,32 @@ void main() {
       );
       expect(tester.widget<CheckboxListTile>(unlink).value, isTrue);
       final reason = find.byType(TextFormField);
-      await tester.ensureVisible(reason);
+      expect(reason.hitTestable(), findsOneWidget);
+      await tester.tap(find.text('Preview correction'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter a correction reason'), findsOneWidget);
+      expect(api.posts, isEmpty);
       await tester.enterText(reason, 'Keystone confirmed bank credit');
+
+      await tester.tap(find.text('Add another bank credit'));
+      await tester.pumpAndSettle();
+      final search = find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.labelText == 'Search bank credits',
+      );
+      await tester.enterText(search, 'missing credit');
+      await tester.pumpAndSettle();
+      expect(find.text('No matching bank credits'), findsOneWidget);
+      await tester.enterText(search, 'ram-1178');
+      await tester.pumpAndSettle();
+      expect(find.text('UTR UTR-NOV · RAM-1178'), findsOneWidget);
+      await tester.tap(find.text('UTR UTR-NOV · RAM-1178'));
+      await tester.pumpAndSettle();
+      final remove = find.text('Remove credit');
+      await tester.ensureVisible(remove);
+      await tester.tap(remove);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Preview correction'));
       await tester.pumpAndSettle();
       expect(find.textContaining('Unallocated ₹48,499.00'), findsOneWidget);

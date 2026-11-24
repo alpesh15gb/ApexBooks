@@ -131,61 +131,118 @@ class BooksRegisterList extends StatelessWidget {
       (start + registerPageSize).clamp(0, visible.length),
     );
     final count = visible.length;
+    final intro = <Widget>[
+      ApexRegisterHeading(
+        title,
+        subtitle: registerSubtitles[kind],
+        actions: _headingActions(),
+      ),
+      const SizedBox(height: 16),
+      if (stats.isNotEmpty) ...[
+        ApexStatGrid([
+          for (final stat in stats)
+            ApexStatCard(
+              label: stat.label,
+              value: stat.value,
+              icon: stat.icon,
+              compact: true,
+            ),
+        ], wideBreakpoint: 740),
+        const SizedBox(height: 12),
+      ],
+      ApexFilterTabs<String>(
+        label: 'Transaction status',
+        tabs: tabs,
+        selected: tab,
+        onSelected: (value) => onQuery(query.copyWith(tab: value)),
+      ),
+      const SizedBox(height: 8),
+    ];
+    final searchField = ApexSearchField(
+      controller: search,
+      hint: 'Search party or reference',
+      width: 320,
+      onChanged: (_) => onSearch(),
+    );
+    final countLabel =
+        '$count ${count == 1 ? 'record' : 'records'} in this view';
+    final results = _body(context, shown, count, current, pages);
+    if (kind == 'sales_invoice' || kind == 'payment_in') {
+      return ApexPage(
+        beforeHeader: intro,
+        pinnedHeader: ApexPanel(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: ApexSearchField(
+                      controller: search,
+                      hint: 'Search party or reference',
+                      width: null,
+                      onChanged: (_) => onSearch(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => onExpandFilters(!expandedFilters),
+                    icon: const Icon(Icons.tune_rounded, size: 16),
+                    label: Text(expandedFilters ? 'Hide filters' : 'Filters'),
+                  ),
+                ],
+              ),
+              if (expandedFilters) ...[
+                const SizedBox(height: 8),
+                _filters(context, toolbar: true),
+              ],
+            ],
+          ),
+        ),
+        children: [
+          ApexPanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 9),
+                  child: Text(countLabel, style: Apex.note),
+                ),
+                results,
+              ],
+            ),
+          ),
+        ],
+      );
+    }
     return ApexPage(
       children: [
-        ApexRegisterHeading(
-          title,
-          subtitle: registerSubtitles[kind],
-          actions: _headingActions(),
-        ),
-        const SizedBox(height: 22),
-        if (stats.isNotEmpty) ...[
-          ApexStatGrid([
-            for (final stat in stats)
-              ApexStatCard(
-                label: stat.label,
-                value: stat.value,
-                icon: stat.icon,
-              ),
-          ]),
-          const SizedBox(height: 18),
-        ],
-        ApexFilterTabs<String>(
-          label: 'Transaction status',
-          tabs: tabs,
-          selected: tab,
-          onSelected: (value) => onQuery(query.copyWith(tab: value)),
-        ),
-        const SizedBox(height: 18),
+        ...intro,
         ApexRegisterPanel(
           title: 'Transactions',
-          subtitle: '$count ${count == 1 ? 'record' : 'records'} in this view',
-          search: ApexSearchField(
-            controller: search,
-            hint: 'Search party or reference',
-            width: 320,
-            onChanged: (_) => onSearch(),
-          ),
+          subtitle: countLabel,
+          search: searchField,
           filters: _filters(context),
-          child: _body(context, shown, count, current, pages),
+          child: results,
         ),
       ],
     );
   }
 
-  Widget _filters(BuildContext context) => LayoutBuilder(
+  Widget _filters(
+    BuildContext context, {
+    bool toolbar = false,
+  }) => LayoutBuilder(
     builder: (context, limits) {
       final phone = limits.maxWidth < 700;
-      final names =
-          {
-            for (final r in allRecords)
-              if (r.party.isNotEmpty) r.party,
-            if (query.party.isNotEmpty) query.party,
-          }.toList()..sort(
-            (a, b) => a.toLowerCase().compareTo(b.toLowerCase()),
-          );
+      final names = {
+        for (final r in allRecords)
+          if (r.party.isNotEmpty) r.party,
+        if (query.party.isNotEmpty) query.party,
+      }.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
       final active = query.hasFilters;
-      final expanded = !phone || expandedFilters;
+      final expanded = toolbar || !phone || expandedFilters;
       final period = ApexFilterSelect<String>(
         label: 'Period',
         value: query.period,
@@ -210,7 +267,7 @@ class BooksRegisterList extends StatelessWidget {
         },
       );
       final reset = TextButton.icon(
-        onPressed: active ? onReset : null,
+        onPressed: onReset,
         icon: const Icon(Icons.tune_rounded, size: 16),
         label: const Text('Reset filters'),
       );
@@ -230,7 +287,7 @@ class BooksRegisterList extends StatelessWidget {
             ),
           period,
           if (query.period == 'custom') ..._customDates(context),
-          if (phone)
+          if (phone && !toolbar)
             TextButton.icon(
               onPressed: () => onExpandFilters(!expandedFilters),
               icon: const Icon(Icons.tune_rounded, size: 16),
@@ -255,7 +312,7 @@ class BooksRegisterList extends StatelessWidget {
             ApexFilterSelect<String>(
               label: 'Party',
               value: query.party,
-              width: 200,
+              width: phone ? 200 : 180,
               items: [
                 ('', 'All parties'),
                 for (final name in names) (name, name),
@@ -266,7 +323,7 @@ class BooksRegisterList extends StatelessWidget {
             ApexFilterSelect<String>(
               label: 'Sort by',
               value: query.sort,
-              width: 200,
+              width: phone ? 200 : 180,
               items: const [
                 ('newest', 'Date · newest first'),
                 ('oldest', 'Date · oldest first'),
@@ -275,7 +332,7 @@ class BooksRegisterList extends StatelessWidget {
               ],
               onChanged: (value) => onQuery(query.copyWith(sort: value)),
             ),
-          if (!phone || active || expandedFilters) reset,
+          if (active) reset,
         ],
       );
     },
@@ -290,8 +347,12 @@ class BooksRegisterList extends StatelessWidget {
       final picked = await showDatePicker(
         context: context,
         initialDate: initial,
-        firstDate: first == null || first.isAfter(initial) ? DateTime(2000) : first,
-        lastDate: last == null || last.isBefore(initial) ? DateTime(2100) : last,
+        firstDate: first == null || first.isAfter(initial)
+            ? DateTime(2000)
+            : first,
+        lastDate: last == null || last.isBefore(initial)
+            ? DateTime(2100)
+            : last,
       );
       if (picked == null) return;
       final day = booksDate(picked);
@@ -407,7 +468,9 @@ class BooksRegisterList extends StatelessWidget {
       final filtered = query.hasFilters;
       return ApexEmptyState(
         icon: Icons.description_outlined,
-        title: filtered ? 'No matching records' : 'No transactions in this view',
+        title: filtered
+            ? 'No matching records'
+            : 'No transactions in this view',
         note: filtered
             ? 'Change the search or filters to find your records.'
             : canWrite
@@ -432,22 +495,27 @@ class BooksRegisterList extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ApexTable(
-          cardBreakpoint: 1060,
-          columns: const [
-            ApexColumn('Date', width: 112),
-            ApexColumn('Document / party', flex: 2),
-            ApexColumn('Status', width: 140),
-            ApexColumn('Amount', width: 120, alignEnd: true),
-            ApexColumn('Balance', width: 120, alignEnd: true),
-            ApexColumn('Actions', width: 260, alignEnd: true),
+          cardBreakpoint: 760,
+          rowVerticalPadding: 9,
+          columnPadding: 8,
+          columns: [
+            ApexColumn(
+              kind == 'sales_invoice' ? 'Issued / due' : 'Date',
+              width: 110,
+            ),
+            const ApexColumn('Document / party', flex: 2),
+            const ApexColumn('Status', width: 90),
+            const ApexColumn('Amount', width: 108, alignEnd: true),
+            const ApexColumn('Balance', width: 108, alignEnd: true),
+            const ApexColumn('Actions', width: 222, alignEnd: true),
           ],
           rowCount: shown.length,
           onRowTap: (row) => onOpen(shown[row].id),
           cell: (row, column) {
             final r = shown[row];
             return switch (column) {
-              0 => Text(_rowDate(r.date), style: _muted),
-              1 => _reference(r, byId),
+              0 => _dates(r),
+              1 => _reference(r, byId, showDue: false),
               2 => _status(r),
               3 => Text(_rowMoney(r.json['amount']), style: _amount),
               4 => _balance(r),
@@ -460,11 +528,16 @@ class BooksRegisterList extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _reference(r, byId),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(child: _labelled('Date', Text(_rowDate(r.date), style: _muted))),
+                    Expanded(
+                      child: _labelled(
+                        'Date',
+                        Text(_rowDate(r.date), style: _muted),
+                      ),
+                    ),
                     Expanded(child: _labelled('Status', _status(r))),
                   ],
                 ),
@@ -481,7 +554,7 @@ class BooksRegisterList extends StatelessWidget {
                     Expanded(child: _labelled('Balance', _balance(r))),
                   ],
                 ),
-                const Divider(color: Apex.lineSoft, height: 22),
+                const Divider(color: Apex.lineSoft, height: 12),
                 Align(
                   alignment: Alignment.centerLeft,
                   child: _actions(context, r),
@@ -511,9 +584,7 @@ class BooksRegisterList extends StatelessWidget {
           runSpacing: 8,
           children: [
             Text(
-              loading
-                  ? 'Loading transactions…'
-                  : '$first–$last of $count',
+              loading ? 'Loading transactions…' : '$first–$last of $count',
               style: Apex.small,
             ),
             if (pages > 1)
@@ -566,7 +637,22 @@ class BooksRegisterList extends StatelessWidget {
     ],
   );
 
-  Widget _reference(BooksRecord r, Map<String, BooksRecord> byId) {
+  Widget _dates(BooksRecord r) {
+    final due = booksText(r.data['due_date']);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(_rowDate(r.date), style: _muted),
+        if (due.isNotEmpty) Text('Due ${_rowDate(due)}', style: Apex.small),
+      ],
+    );
+  }
+
+  Widget _reference(
+    BooksRecord r,
+    Map<String, BooksRecord> byId, {
+    bool showDue = true,
+  }) {
     final destination = byId[booksText(r.json['converted_to'])];
     final due = booksText(r.data['due_date']);
     final allocations = r.data['allocations'] is List
@@ -580,6 +666,7 @@ class BooksRegisterList extends StatelessWidget {
         ApexLink(
           r.number.isEmpty ? 'No reference' : r.number,
           strong: true,
+          maxLines: 2,
           onTap: () => onOpen(r.id),
         ),
         if (r.party.isNotEmpty) ...[
@@ -619,10 +706,10 @@ class BooksRegisterList extends StatelessWidget {
             padding: const EdgeInsets.only(left: 2, top: 3),
             child: Text(booksKindLabel(r.kind), style: Apex.small),
           ),
-        if (due.isNotEmpty)
+        if (showDue && due.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(left: 2, top: 3),
-            child: Text('Due $due', style: Apex.small),
+            child: Text('Due ${_rowDate(due)}', style: Apex.small),
           ),
         if (allocations > 0)
           Padding(
@@ -646,7 +733,10 @@ class BooksRegisterList extends StatelessWidget {
 
   Widget _status(BooksRecord r) {
     final status = registerStatusLabel(r);
-    final settlement = registerSettlement(r);
+    final settlement =
+        registerInvoiceKinds.contains(r.kind) && registerOverdue(r, today)
+        ? 'Overdue'
+        : registerSettlement(r);
     final tone = status == 'Cancelled'
         ? ApexBadgeTone.cancelled
         : status == 'Posted' || status == 'Converted'
@@ -701,7 +791,8 @@ class BooksRegisterList extends StatelessWidget {
                 foregroundColor: Apex.link,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 minimumSize: const Size(0, 36),
-                textStyle: const TextStyle(fontFamily: Apex.body, 
+                textStyle: const TextStyle(
+                  fontFamily: Apex.body,
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),

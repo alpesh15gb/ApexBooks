@@ -135,6 +135,11 @@ bool registerActive(BooksRecord r) =>
 bool registerUnposted(BooksRecord r) =>
     r.json['posted'] == false && !_flag(r.json['cancelled']);
 
+bool registerUnallocated(BooksRecord r) =>
+    r.kind == 'payment_in' &&
+    registerPosted(r) &&
+    r.data['receipt_purpose'] == 'unallocated';
+
 bool registerOverdue(BooksRecord r, String today) {
   final due = booksText(r.data['due_date']);
   return registerOpen(r) && due.isNotEmpty && due.compareTo(today) < 0;
@@ -168,6 +173,7 @@ bool registerTabMatches(
     'converted' => registerConverted(r),
     'posted' => registerPosted(r),
     'unposted' => registerUnposted(r),
+    'unallocated' => registerUnallocated(r),
     'cancelled' => _flag(r.json['cancelled']),
     _ => true,
   };
@@ -312,6 +318,8 @@ List<(String, String, int)> registerTabs(
       ('all', 'All', rows.length),
       ('posted', 'Posted', rows.where(registerPosted).length),
       ('unposted', 'Unposted', rows.where(registerUnposted).length),
+      if (kind == 'payment_in')
+        ('unallocated', 'Unallocated', rows.where(registerUnallocated).length),
       ('cancelled', 'Cancelled', cancelled),
     ];
   }

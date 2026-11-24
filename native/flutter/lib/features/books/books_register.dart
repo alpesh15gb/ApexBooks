@@ -25,6 +25,8 @@ class BooksRegister extends StatefulWidget {
     this.kind = '',
     this.title = 'Transactions',
     this.recurringRequest = 0,
+    this.filterRequest = 0,
+    this.requestedTab = 'all',
     super.key,
   });
 
@@ -39,6 +41,8 @@ class BooksRegister extends StatefulWidget {
 
   /// Changes when the navigation asks for recurring drafts.
   final int recurringRequest;
+  final int filterRequest;
+  final String requestedTab;
 
   @override
   State<BooksRegister> createState() => _BooksRegisterState();
@@ -76,6 +80,7 @@ class _BooksRegisterState extends State<BooksRegister> {
   void initState() {
     super.initState();
     _kind = widget.kind;
+    _query = BooksRegisterQuery(tab: widget.requestedTab);
     _recurring = widget.recurringRequest != 0;
     _posting = BooksPosting(widget.workspace)..addListener(_checkEntryRequest);
     if (widget.active) unawaited(_posting.recover());
@@ -103,10 +108,14 @@ class _BooksRegisterState extends State<BooksRegister> {
       if (widget.active) unawaited(_posting.recover());
       _reload();
     } else if (oldWidget.kind != widget.kind ||
+        oldWidget.filterRequest != widget.filterRequest ||
         oldWidget.recurringRequest != widget.recurringRequest) {
       // A different page in the navigation: show its list, not the last open record.
       _kind = widget.kind;
       _resetView();
+      if (oldWidget.filterRequest != widget.filterRequest) {
+        _query = BooksRegisterQuery(tab: widget.requestedTab);
+      }
       _details.clear();
       _recurring = widget.recurringRequest != 0;
       _recurringSource = null;

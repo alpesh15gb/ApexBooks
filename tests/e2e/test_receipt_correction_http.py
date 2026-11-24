@@ -43,6 +43,8 @@ class ReceiptCorrectionTest(unittest.TestCase):
         old_credits = {row['date']: row for row in context['credits']}
         self.assertEqual(D(old_credits[OCT]['unallocated']), 30799)
         self.assertEqual(D(old_credits[NOV]['booked']), 25842)
+        self.assertEqual(self.get('/bank-reconciliation/unmatched', as_of=OCT), {})
+        self.assertEqual(self.get('/bank-reconciliation/unmatched', as_of=NOV), {bank_id: 1})
         original_gst = self.get('/gst-returns/gstr1', **PERIOD)
         self.assertEqual(len([row for row in original_gst['rows'] if 'AT /' in row['section']]), 2)
         preview = self.send('preview', self.plan).raise_for_status().json()
@@ -59,6 +61,7 @@ class ReceiptCorrectionTest(unittest.TestCase):
         self.assertEqual(self.send('post', {**body, 'reason': 'Changed reason'}, key).status_code, 409)
         rec = self.get('/bank-reconciliation', bank_account_id=bank_id)
         self.assertEqual((D(rec['ledger_movement']), D(rec['statement_movement']), rec['matched']), (92041, 92041, 2))
+        self.assertEqual(self.get('/bank-reconciliation/unmatched', as_of=NOV), {})
         self.assertEqual(D(self.get('/bank-reconciliation', bank_account_id=bank_id, as_of=OCT)['ledger_movement']), 48499)
         lines = self.get('/bank-statement', bank_account_id=bank_id)
         self.assertEqual({r['reference']: (D(r['amount']), D(r['matched_amount'])) for r in lines},

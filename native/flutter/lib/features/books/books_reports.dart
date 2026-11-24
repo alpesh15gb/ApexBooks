@@ -21,6 +21,7 @@ class BooksReports extends StatefulWidget {
     this.revision = 0,
     this.report,
     this.reportRequest = 0,
+    this.requestedRange,
     super.key,
   });
 
@@ -31,6 +32,7 @@ class BooksReports extends StatefulWidget {
   /// Report to open when the navigation asks for one (for example Day book); null shows the library.
   final BooksReport? report;
   final int reportRequest;
+  final DateTimeRange? requestedRange;
 
   @override
   State<BooksReports> createState() => _BooksReportsState();
@@ -60,7 +62,11 @@ class _BooksReportsState extends State<BooksReports> {
     _range = _financialYear();
     if (widget.active) _loadInfo();
     if (widget.report case final report?) {
-      _read(report, _initialRange(report), notify: false);
+      _read(
+        report,
+        widget.requestedRange ?? _initialRange(report),
+        notify: false,
+      );
     }
   }
 
@@ -79,12 +85,19 @@ class _BooksReportsState extends State<BooksReports> {
       _quarterly = false;
       _ordinary = null;
       _range = _financialYear();
-    } else if (oldWidget.reportRequest != widget.reportRequest &&
-        (oldWidget.report != widget.report || widget.report != _selected)) {
+    } else if (widget.active &&
+        oldWidget.reportRequest != widget.reportRequest &&
+        (widget.requestedRange != null ||
+            oldWidget.report != widget.report ||
+            widget.report != _selected)) {
       _details.clear();
       if (widget.report case final report?) {
         _appliedParty = '';
-        _read(report, _initialRange(report), notify: false);
+        _read(
+          report,
+          widget.requestedRange ?? _initialRange(report),
+          notify: false,
+        );
       } else {
         _selected = null;
         _future = null;

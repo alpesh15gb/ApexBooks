@@ -501,6 +501,29 @@ def reconciliation_review_obj(review: BankReconciliationReview):
             'created_at': review.created_at.isoformat()}
 
 
+@router.get('/api/companies/{company_id}/bank-reconciliation/unmatched')
+def unmatched_bank_accounts(company_id: str, as_of: DateType, user: User = Depends(current_user), session: Session = Depends(db)):
+    company_for(company_id, user, session)
+    allocations = (
+        select(BankMatchAllocation.statement_line_id, func.sum(BankMatchAllocation.amount).label('amount'))
+        .where(BankMatchAllocation.company_id == company_id)
+        .group_by(BankMatchAllocation.statement_line_id)
+        .subquery()
+    )
+    accounts = (
+        select(BankStatementLine.bank_account_id, func.count())
+        .outerjoin(allocations, allocations.c.statement_line_id == BankStatementLine.id)
+        .where(
+            BankStatementLine.company_id == company_id,
+            BankStatementLine.date <= as_of,
+            BankStatementLine.matched_record_id.is_(None),
+            func.round(func.coalesce(allocations.c.amount, 0), 2) != func.abs(BankStatementLine.amount),
+        )
+        .group_by(BankStatementLine.bank_account_id)
+    )
+    return {bank or 'default': count for bank, count in session.execute(accounts)}
+
+
 @router.get('/api/companies/{company_id}/bank-reconciliation/reviews')
 def bank_reconciliation_reviews(company_id: str, bank_account_id: str = 'default', user: User = Depends(current_user), session: Session = Depends(db)):
     company_for(company_id, user, session)

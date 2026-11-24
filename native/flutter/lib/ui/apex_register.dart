@@ -52,11 +52,12 @@ class ApexRegisterHeading extends StatelessWidget {
 
 /// One summary figure above a register: icon tile, small label, bold value.
 class ApexStatCard extends StatelessWidget {
-  const ApexStatCard({required this.label, required this.value, required this.icon, super.key});
+  const ApexStatCard({required this.label, required this.value, required this.icon, this.compact = false, super.key});
 
   final String label;
   final String value;
   final IconData icon;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -65,25 +66,29 @@ class ApexStatCard extends StatelessWidget {
     child: ExcludeSemantics(
       child: ApexPanel(
         radius: 10,
-        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+        padding: compact
+            ? const EdgeInsets.symmetric(horizontal: 14, vertical: 12)
+            : const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
         child: Row(
           children: [
-            ApexIconTile(icon, background: const Color(0xffe9f4ee), foreground: const Color(0xff23674d), size: 36),
-            const SizedBox(width: 13),
+            if (!compact) ...[
+              ApexIconTile(icon, background: const Color(0xffe9f4ee), foreground: const Color(0xff23674d), size: 36),
+              const SizedBox(width: 13),
+            ],
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Apex.muted)),
+                  Text(label, style: const TextStyle(fontSize: 12, color: Apex.muted)),
                   const SizedBox(height: 6),
                   FittedBox(
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerLeft,
                     child: Text(
                       value,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: Apex.display,
-                        fontSize: 25,
+                        fontSize: compact ? 22 : 25,
                         fontWeight: FontWeight.w800,
                         letterSpacing: -.6,
                         color: Color(0xff27313d),
@@ -102,17 +107,33 @@ class ApexStatCard extends StatelessWidget {
 
 /// Row of stat cards that wraps to two columns on narrow screens.
 class ApexStatGrid extends StatelessWidget {
-  const ApexStatGrid(this.cards, {super.key});
+  const ApexStatGrid(this.cards, {this.wideBreakpoint = 900, super.key});
   final List<Widget> cards;
+  final double wideBreakpoint;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
+  Widget build(BuildContext context) => cards.isEmpty ? const SizedBox.shrink() : LayoutBuilder(
     builder: (context, limits) {
       // Two per row on phones, like the web register (one only on very narrow screens).
-      final columns = limits.maxWidth >= 900 ? cards.length : limits.maxWidth >= 300 ? 2 : 1;
+      final columns = limits.maxWidth >= wideBreakpoint ? cards.length : limits.maxWidth >= 300 ? 2 : 1;
       const gap = 16.0;
       final width = (limits.maxWidth - gap * (columns - 1)) / columns;
-      return Wrap(spacing: gap, runSpacing: 12, children: [for (final card in cards) SizedBox(width: width, child: card)]);
+      return Column(
+        spacing: 12,
+        children: [
+          for (var start = 0; start < cards.length; start += columns)
+            IntrinsicHeight(
+              child: Row(
+                spacing: gap,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final card in cards.skip(start).take(columns))
+                    SizedBox(width: width, child: card),
+                ],
+              ),
+            ),
+        ],
+      );
     },
   );
 }
@@ -130,17 +151,13 @@ class ApexFilterTabs<T> extends StatelessWidget {
   Widget build(BuildContext context) => Semantics(
     label: label,
     container: true,
-    child: SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final (value, text, count) in tabs)
-            Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: _FilterTab(text: text, count: count, selected: value == selected, onTap: () => onSelected(value)),
-            ),
-        ],
-      ),
+    child: Wrap(
+      spacing: 4,
+      runSpacing: 4,
+      children: [
+        for (final (value, text, count) in tabs)
+          _FilterTab(text: text, count: count, selected: value == selected, onTap: () => onSelected(value)),
+      ],
     ),
   );
 }
@@ -159,6 +176,7 @@ class _FilterTab extends StatelessWidget {
     selected: selected,
     label: '$text, $count',
     excludeSemantics: true,
+    onTap: onTap,
     child: Material(
       color: selected ? const Color(0xffe3f2e9) : Colors.transparent,
       shape: RoundedRectangleBorder(
@@ -169,7 +187,7 @@ class _FilterTab extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(Apex.radiusChip),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 13),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 13),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -363,6 +381,8 @@ class ApexTable extends StatelessWidget {
     this.onRowTap,
     this.card,
     this.cardBreakpoint = 720,
+    this.rowVerticalPadding = 17,
+    this.columnPadding = 12,
     super.key,
   });
 
@@ -372,6 +392,8 @@ class ApexTable extends StatelessWidget {
   final ValueChanged<int>? onRowTap;
   final Widget Function(int row)? card;
   final double cardBreakpoint;
+  final double rowVerticalPadding;
+  final double columnPadding;
 
   Widget _sized(ApexColumn column, Widget child) =>
       column.width != null ? SizedBox(width: column.width, child: child) : Expanded(flex: (column.flex * 100).round(), child: child);
@@ -406,7 +428,7 @@ class ApexTable extends StatelessWidget {
                     _sized(
                       column,
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding: EdgeInsets.symmetric(horizontal: columnPadding),
                         child: Text(
                           column.title.toUpperCase(),
                           textAlign: column.alignEnd ? TextAlign.right : TextAlign.left,
@@ -423,14 +445,14 @@ class ApexTable extends StatelessWidget {
             InkWell(
               onTap: onRowTap == null ? null : () => onRowTap!(row),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 17),
+                padding: EdgeInsets.symmetric(horizontal: 10, vertical: rowVerticalPadding),
                 child: Row(
                   children: [
                     for (final (index, column) in columns.indexed)
                       _sized(
                         column,
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          padding: EdgeInsets.symmetric(horizontal: columnPadding),
                           child: Align(
                             alignment: column.alignEnd ? Alignment.centerRight : Alignment.centerLeft,
                             child: cell(row, index),
@@ -501,11 +523,12 @@ class ApexRowIconButton extends StatelessWidget {
 
 /// Blue text link, like the web app's document numbers and party names.
 class ApexLink extends StatelessWidget {
-  const ApexLink(this.text, {required this.onTap, this.strong = false, super.key});
+  const ApexLink(this.text, {required this.onTap, this.strong = false, this.maxLines = 1, super.key});
 
   final String text;
   final VoidCallback? onTap;
   final bool strong;
+  final int maxLines;
 
   @override
   Widget build(BuildContext context) => InkWell(
@@ -515,7 +538,7 @@ class ApexLink extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
       child: Text(
         text,
-        maxLines: 1,
+        maxLines: maxLines,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(fontSize: 13, fontWeight: strong ? FontWeight.w700 : FontWeight.w500, color: Apex.link),
       ),
@@ -525,24 +548,63 @@ class ApexLink extends StatelessWidget {
 
 /// Standard page frame: scrolls, centres content up to the web app's width, uses its gutters.
 class ApexPage extends StatelessWidget {
-  const ApexPage({required this.children, this.maxWidth = 1540, super.key});
+  const ApexPage({
+    required this.children,
+    this.maxWidth = 1540,
+    this.beforeHeader = const [],
+    this.pinnedHeader,
+    super.key,
+  });
 
   final List<Widget> children;
   final double maxWidth;
+  final List<Widget> beforeHeader;
+  final Widget? pinnedHeader;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, limits) {
       final phone = limits.maxWidth < 700;
       final gutter = phone ? 16.0 : 28.0;
+      Widget pageWidth(Widget child) => Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: child,
+        ),
+      );
+      Widget stack(List<Widget> widgets) => pageWidth(
+        Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: widgets),
+      );
+      if (pinnedHeader case final header?) {
+        return CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(gutter, phone ? 20 : 30, gutter, 0),
+                child: stack(beforeHeader),
+              ),
+            ),
+            PinnedHeaderSliver(
+              child: ColoredBox(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: gutter, vertical: 6),
+                  child: pageWidth(header),
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 40),
+                child: stack(children),
+              ),
+            ),
+          ],
+        );
+      }
       return SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(gutter, phone ? 20 : 30, gutter, 40),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxWidth),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
-          ),
-        ),
+        child: stack(children),
       );
     },
   );

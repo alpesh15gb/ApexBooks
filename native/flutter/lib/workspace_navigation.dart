@@ -173,6 +173,7 @@ class _WorkspaceSidebar extends StatefulWidget {
     required this.company,
     required this.addCompany,
     required this.signOut,
+    this.openMenu,
   });
 
   final bool expanded;
@@ -183,12 +184,15 @@ class _WorkspaceSidebar extends StatefulWidget {
   final Widget company;
   final VoidCallback addCompany;
   final VoidCallback signOut;
+  final VoidCallback? openMenu;
 
   @override
   State<_WorkspaceSidebar> createState() => _WorkspaceSidebarState();
 }
 
 class _WorkspaceSidebarState extends State<_WorkspaceSidebar> {
+  final _menuScroll = ScrollController();
+
   late final Set<String> _open = {
     if (_salesRoutes.contains(widget.active)) 'Sales',
     if (_purchaseRoutes.contains(widget.active)) 'Purchases',
@@ -209,6 +213,12 @@ class _WorkspaceSidebarState extends State<_WorkspaceSidebar> {
   }
 
   bool get _expanded => widget.expanded;
+
+  @override
+  void dispose() {
+    _menuScroll.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => Material(
@@ -266,6 +276,21 @@ class _WorkspaceSidebarState extends State<_WorkspaceSidebar> {
                 ],
               ),
             ),
+            if (widget.openMenu case final openMenu?)
+              TextButton(
+                onPressed: openMenu,
+                style: TextButton.styleFrom(
+                  foregroundColor: Apex.sidebarText,
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                ),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.menu_rounded, size: 20),
+                    Text('Menu', style: TextStyle(fontSize: 11)),
+                  ],
+                ),
+              ),
             const SizedBox(height: 10),
             // The menu scrolls on its own so the account actions below stay reachable on short windows.
             Expanded(
@@ -273,27 +298,39 @@ class _WorkspaceSidebarState extends State<_WorkspaceSidebar> {
                 label: 'Workspace navigation',
                 container: true,
                 explicitChildNodes: true,
-                child: ListView(
-                  padding: EdgeInsets.fromLTRB(_expanded ? 12 : 7, 8, _expanded ? 12 : 7, 12),
-                  children: [
-                    for (final (index, (title, entries)) in _navigation.indexed) ...[
-                      if (index > 0) SizedBox(height: _expanded ? 14 : 8),
-                      if (_expanded)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(13, 0, 10, 8),
-                          child: ExcludeSemantics(
-                            child: Text(title.toUpperCase(), style: Apex.eyebrow),
-                          ),
-                        )
-                      else if (index > 0)
-                        const Divider(color: Apex.sidebarBorder, indent: 8, endIndent: 8, height: 1),
-                      for (final entry in entries)
-                        if (entry is _Route)
-                          _row(entry)
-                        else if (entry case (final String name, final IconData icon, final List<_Route> routes))
-                          ..._group(name, icon, routes),
-                    ],
-                  ],
+                child: RawScrollbar(
+                  controller: _menuScroll,
+                  thumbVisibility: true,
+                  interactive: true,
+                  thickness: 5,
+                  radius: const Radius.circular(4),
+                  thumbColor: Apex.sidebarText.withValues(alpha: .55),
+                  child: ScrollConfiguration(
+                    behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+                    child: ListView(
+                      controller: _menuScroll,
+                      padding: EdgeInsets.fromLTRB(_expanded ? 12 : 7, 8, _expanded ? 12 : 7, 12),
+                      children: [
+                        for (final (index, (title, entries)) in _navigation.indexed) ...[
+                          if (index > 0) SizedBox(height: _expanded ? 14 : 8),
+                          if (_expanded)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(13, 0, 10, 8),
+                              child: ExcludeSemantics(
+                                child: Text(title.toUpperCase(), style: Apex.eyebrow),
+                              ),
+                            )
+                          else if (index > 0)
+                            const Divider(color: Apex.sidebarBorder, indent: 8, endIndent: 8, height: 1),
+                          for (final entry in entries)
+                            if (entry is _Route)
+                              _row(entry)
+                            else if (entry case (final String name, final IconData icon, final List<_Route> routes))
+                              ..._group(name, icon, routes),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -463,6 +500,7 @@ class _WorkspaceHeader extends StatelessWidget {
     required this.findWorkspace,
     required this.showShortcut,
     required this.compact,
+    required this.showBreadcrumb,
   });
 
   final _Route active;
@@ -470,10 +508,11 @@ class _WorkspaceHeader extends StatelessWidget {
   final VoidCallback findWorkspace;
   final bool showShortcut;
   final bool compact;
+  final bool showBreadcrumb;
 
   @override
   Widget build(BuildContext context) {
-    final trail = ['Apex Books', ?active.section];
+    final trail = [if (showBreadcrumb) ...['Apex Books', ?active.section]];
     return DecoratedBox(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -507,7 +546,8 @@ class _WorkspaceHeader extends StatelessWidget {
                             child: Icon(Icons.chevron_right_rounded, size: 15, color: Apex.crumb),
                           ),
                         ],
-                        Flexible(
+                          Flexible(
+                            flex: 2,
                           child: Text(
                             active.label,
                             maxLines: 1,

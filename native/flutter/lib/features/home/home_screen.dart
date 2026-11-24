@@ -4,8 +4,11 @@ import 'dart:math' as math;
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/workspace.dart';
+import '../../ui/apex_register.dart';
 import '../../ui/apex_theme.dart';
 import '../../ui/apex_widgets.dart';
+import '../books/books_data.dart';
+import '../books/register_query.dart';
 
 /// Dashboard periods, as offered by the web app.
 enum _Period {
@@ -84,10 +87,10 @@ class HomeScreen extends StatefulWidget {
     required this.workspace,
     required this.revision,
     required this.openCheckout,
-    required this.openStock,
-    required this.openBooks,
-    required this.openReports,
     required this.openPage,
+    required this.openReport,
+    required this.openRegister,
+    required this.openBank,
     required this.newEntry,
     required this.verifyPassword,
     super.key,
@@ -96,9 +99,9 @@ class HomeScreen extends StatefulWidget {
   final WorkspaceContext workspace;
   final int revision;
   final VoidCallback openCheckout;
-  final VoidCallback openStock;
-  final VoidCallback openBooks;
-  final VoidCallback openReports;
+  final void Function(BooksReport report, DateTimeRange range) openReport;
+  final void Function(String kind, String tab) openRegister;
+  final ValueChanged<String?> openBank;
 
   /// Opens a workspace page by its web key, such as 'purchase_order' or 'day_book'.
   final ValueChanged<String> openPage;
@@ -119,10 +122,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Json? _summary;
   Json? _financial;
   List<Json>? _banks;
+  Json? _unmatched;
   List<_Entry>? _records;
   String? _error;
   int _generation = 0;
   int _recordsGeneration = 0;
+  bool _recordsFailed = false;
   bool _chartData = false;
 
   bool get _hidden => _hiddenCompanies.contains(widget.workspace.company.id);
@@ -177,6 +182,17 @@ class _HomeScreenState extends State<HomeScreen> {
       _financial = results[1] as Json?;
       _banks = (results[2] as List<dynamic>?)?.whereType<Json>().toList();
     });
+    try {
+      final counts = await workspace.api.get(
+        '${workspace.path}/bank-reconciliation/unmatched',
+        query: {'as_of': to},
+      );
+      if (mounted && generation == _generation) {
+        setState(() => _unmatched = counts is Json ? counts : null);
+      }
+    } catch (_) {
+      if (mounted && generation == _generation) setState(() => _unmatched = null);
+    }
   }
 
   /// Every record, newest first, for the chart, work queue and recent activity.
@@ -186,7 +202,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final rows = <String, Json>{};
     try {
       const pageSize = 500;
-      for (var offset = 0; offset < 10000; offset += pageSize) {
+      for (var offset = 0; ; offset += pageSize) {
         final page = await workspace.api.get(
           '${workspace.path}/records',
           query: {'compact': 'true', 'limit': '$pageSize', 'offset': '$offset'},
@@ -199,10 +215,16 @@ class _HomeScreenState extends State<HomeScreen> {
         if (list.length < pageSize || rows.length == before) break;
       }
       if (!mounted || generation != _recordsGeneration) return;
-      setState(() => _records = rows.values.map(_Entry.new).toList()..sort(_Entry.newestFirst));
+      setState(() {
+        _records = rows.values.map(_Entry.new).toList()..sort(_Entry.newestFirst);
+        _recordsFailed = false;
+      });
     } catch (_) {
       if (!mounted || generation != _recordsGeneration) return;
-      setState(() => _records = const []);
+      setState(() {
+        _records = null;
+        _recordsFailed = true;
+      });
     }
   }
 
@@ -251,37 +273,47 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: Icon(_hidden ? Icons.visibility_outlined : Icons.visibility_off_outlined, size: 17),
                       label: Text(_hidden ? 'Show amounts' : 'Hide amounts'),
                     ),
-                    FilledButton.icon(
-                      onPressed: canWrite ? () => widget.newEntry!('sales_invoice') : null,
-                      icon: const Icon(Icons.add, size: 17),
-                      label: const Text('New invoice'),
-                    ),
                   ],
                 ),
-                const SizedBox(height: 24),
-                _pair(
-                  wide: width >= 900,
-                  flex: (4, 5),
-                  height: 233,
-                  first: _Counter(open: widget.openCheckout),
-                  second: _QuickActions(
-                    actions: [
-                      _Task(Icons.inventory_2_outlined, 'Manage stock', 'Products and inventory', widget.openStock),
-                      _Task(Icons.shopping_bag_outlined, 'Receive stock', 'Find a purchase order', () => widget.openPage('purchase_order')),
-                      _Task(Icons.south_west_rounded, 'Record a receipt', 'Customer payment', canWrite ? () => widget.newEntry!('payment_in') : null),
-                      _Task(Icons.account_balance_wallet_outlined, 'Record an expense', 'Business spending', canWrite ? () => widget.newEntry!('expense') : null),
-                    ],
-                    columns: width >= 1100 || (width >= 520 && width < 900) ? 2 : 1,
-                  ),
-                ),
-                const SizedBox(height: 26),
+                const SizedBox(height: 18),
                 _financialHeading(start, end, phone),
                 const SizedBox(height: 12),
                 if (_error != null) ...[
                   _ErrorBanner(message: _error!, retry: _load),
                   const SizedBox(height: 12),
                 ],
-                _metrics(columns: wide ? 4 : 2, end: end, taxMode: company.taxMode),
+                _metrics(start, end, company.taxMode),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    if (canWrite) ...[
+                      FilledButton.icon(
+                        onPressed: () => widget.newEntry!('sales_invoice'),
+                        icon: const Icon(Icons.add, size: 17),
+                        label: const Text('New invoice'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => widget.newEntry!('payment_in'),
+                        icon: const Icon(Icons.south_west_rounded, size: 17),
+                        label: const Text('Record receipt'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => widget.newEntry!('expense'),
+                        icon: const Icon(Icons.account_balance_wallet_outlined, size: 17),
+                        label: const Text('Record expense'),
+                      ),
+                    ],
+                    OutlinedButton.icon(
+                      onPressed: widget.openCheckout,
+                      icon: const Icon(Icons.point_of_sale_outlined, size: 17),
+                      label: const Text('Open checkout'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _workQueue(records),
                 const SizedBox(height: 16),
                 _pair(
                   wide: wide,
@@ -295,10 +327,22 @@ class _HomeScreenState extends State<HomeScreen> {
                           ApexPanelHeading(
                             'Sales & purchases',
                             note: 'Your trading activity for the selected period.',
-                            trailing: const _Tag('Net of returns'),
+                            trailing: TextButton(
+                              onPressed: () => widget.openReport(
+                                BooksReport.statements,
+                                _range(start, end),
+                              ),
+                              child: const Text('Profit & loss'),
+                            ),
                           ),
                           const SizedBox(height: 18),
-                          if (!ready)
+                          if (_recordsFailed)
+                            TextButton.icon(
+                              onPressed: _loadRecords,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Retry loading transactions'),
+                            )
+                          else if (!ready)
                             const _ChartMessage(icon: Icons.hourglass_empty_rounded, title: 'Loading transactions…')
                           else if (_hidden)
                             const _ChartMessage(
@@ -316,16 +360,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                  second: _bankCard(end),
+                  second: _bankCard(),
                 ),
                 const SizedBox(height: 16),
-                _pair(
-                  wide: wide,
-                  flex: (3, 7),
-                  stretch: false,
-                  first: _workQueue(records),
-                  second: _recent(records, phone),
-                ),
+                _recent(records, phone),
                 if (ready) ...[
                   const SizedBox(height: 18),
                   _SetupGuide(workspace: widget.workspace, records: records, newEntry: widget.newEntry, openPage: widget.openPage),
@@ -344,23 +382,11 @@ class _HomeScreenState extends State<HomeScreen> {
     required (int, int) flex,
     required Widget first,
     required Widget second,
-    double? height,
-    bool stretch = true,
   }) {
     if (!wide) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [first, const SizedBox(height: 14), second],
-      );
-    }
-    if (!stretch) {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(flex: flex.$1, child: first),
-          const SizedBox(width: 14),
-          Expanded(flex: flex.$2, child: second),
-        ],
       );
     }
     final row = Row(
@@ -371,8 +397,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Expanded(flex: flex.$2, child: second),
       ],
     );
-    final matched = IntrinsicHeight(child: row);
-    return height == null ? matched : ConstrainedBox(constraints: BoxConstraints(minHeight: height), child: matched);
+    return IntrinsicHeight(child: row);
   }
 
   Widget _financialHeading(String start, String end, bool phone) {
@@ -396,49 +421,70 @@ class _HomeScreenState extends State<HomeScreen> {
         : Row(crossAxisAlignment: CrossAxisAlignment.end, children: [Expanded(child: heading), picker]);
   }
 
-  Widget _metrics({required int columns, required String end, required String taxMode}) {
-    final summary = _summary;
-    final cards = [
+  DateTimeRange _range(String from, String to) =>
+      DateTimeRange(start: DateTime.parse(from), end: DateTime.parse(to));
+
+  List<Json>? get _cashAccounts {
+    final financial = _financial;
+    final banks = _banks;
+    if (financial == null || banks == null) return null;
+    final codes = {
+      'SYS-CASH',
+      'SYS-BANK',
+      for (final bank in banks) bank['ledger_code'],
+    };
+    return [
+      for (final account
+          in (financial['accounts'] as List? ?? const []).whereType<Json>())
+        if (codes.contains(account['code'])) account,
+    ];
+  }
+
+  Widget _metrics(String start, String end, String taxMode) {
+    final accounts = _cashAccounts;
+    final total = accounts?.fold<num>(
+      0,
+      (sum, account) => sum + (apexNumber(account['closing_balance']) ?? 0),
+    );
+    final asOf = 'As of ${apexDate(end)}';
+    void openAgeing() =>
+        widget.openReport(BooksReport.ageing, _range(end, end));
+    return ApexStatGrid([
       _Metric(
-        label: 'Net sales',
-        value: _show(apexNumber(summary?['sales'])),
-        note: taxMode == 'regular' ? 'Including GST, after credit notes' : 'Sales after credit notes',
-        icon: Icons.trending_up_rounded,
+        label: 'Cash & bank',
+        value: _show(total),
+        note: asOf,
+        icon: Icons.account_balance_outlined,
         tone: _MetricTone.green,
-      ),
-      _Metric(
-        label: 'Net profit',
-        value: _show(apexNumber(_financial?['net_profit'])),
-        note: 'Income less costs and expenses',
-        icon: Icons.insert_chart_outlined_rounded,
-        tone: _MetricTone.blue,
+        open: () => widget.openBank(null),
       ),
       _Metric(
         label: 'To collect',
-        value: _show(apexNumber(summary?['receivables'])),
-        note: 'Outstanding as of ${apexDate(end)}',
+        value: _show(apexNumber(_summary?['receivables'])),
+        note: asOf,
         icon: Icons.south_west_rounded,
         tone: _MetricTone.amber,
+        open: openAgeing,
       ),
       _Metric(
         label: 'To pay',
-        value: _show(apexNumber(summary?['payables'])),
-        note: 'Outstanding as of ${apexDate(end)}',
+        value: _show(apexNumber(_summary?['payables'])),
+        note: asOf,
         icon: Icons.account_balance_wallet_outlined,
         tone: _MetricTone.purple,
+        open: openAgeing,
       ),
-    ];
-    return LayoutBuilder(
-      builder: (context, limits) {
-        const gap = 14.0;
-        final cardWidth = (limits.maxWidth - gap * (columns - 1)) / columns;
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: [for (final card in cards) SizedBox(width: cardWidth, child: card)],
-        );
-      },
-    );
+      _Metric(
+        label: 'Net sales',
+        value: _show(apexNumber(_summary?['sales'])),
+        note: taxMode == 'regular'
+            ? 'Selected period · incl. GST'
+            : 'Selected period',
+        icon: Icons.trending_up_rounded,
+        tone: _MetricTone.blue,
+        open: () => widget.openReport(BooksReport.sales, _range(start, end)),
+      ),
+    ], wideBreakpoint: 720);
   }
 
   List<_Month> _series(List<_Entry> records, String start, String end) {
@@ -469,20 +515,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return months;
   }
 
-  Widget _bankCard(String end) {
+  Widget _bankCard() {
     const text = Color(0xff16392a);
     const soft = Color(0xff3e614e);
-    final financial = _financial;
-    final banks = _banks;
-    final ready = financial != null && banks != null;
-    final codes = {for (final bank in banks ?? const <Json>[]) '${bank['ledger_code']}'};
-    final accounts = ready
-        ? [
-            for (final account in (financial['accounts'] as List? ?? const []).whereType<Json>())
-              if (account['code'] == 'SYS-CASH' || account['code'] == 'SYS-BANK' || codes.contains('${account['code']}')) account,
-          ]
-        : const <Json>[];
-    final total = accounts.fold<num>(0, (sum, account) => sum + (apexNumber(account['closing_balance']) ?? 0));
+    final accounts = _cashAccounts ?? const <Json>[];
+    final ready = _cashAccounts != null;
     return ApexPanel(
       color: const Color(0xfff0f7f3),
       borderColor: const Color(0xffd4e4da),
@@ -492,24 +529,13 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             ApexPanelHeading(
-              'Cash & bank',
-              note: 'Book balance · ${apexDate(end)}',
+              'Cash movement',
+              note: 'Selected period · excludes account transfers',
               titleColor: text,
               noteColor: soft,
               trailing: const Icon(Icons.account_balance_outlined, size: 20, color: Color(0xff286349)),
             ),
-            const SizedBox(height: 22),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                ready ? _show(total) : '—',
-                style: const TextStyle(fontFamily: Apex.display, fontSize: 35, fontWeight: FontWeight.w600, color: text),
-              ),
-            ),
             const SizedBox(height: 16),
-            const Divider(color: Color(0xffcbded1)),
-            const SizedBox(height: 14),
             Row(
               children: [
                 for (final (icon, label, key) in const [
@@ -537,8 +563,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
               ],
             ),
-            const SizedBox(height: 10),
-            const Text('For the selected period · excludes account transfers', style: TextStyle(fontSize: 10, color: soft)),
             const SizedBox(height: 12),
             const Divider(color: Color(0xffcbded1)),
             if (accounts.isEmpty)
@@ -575,7 +599,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
             const Divider(color: Color(0xffcbded1)),
             InkWell(
-              onTap: () => widget.openPage('bank_account'),
+              onTap: () => widget.openBank(null),
               child: const Padding(
                 padding: EdgeInsets.symmetric(vertical: 10),
                 child: Row(
@@ -595,69 +619,105 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _workQueue(List<_Entry>? records) {
+    final entries = records?.map((row) => BooksRecord(row.json));
     final today = businessDate();
-    final active = (records ?? const <_Entry>[]).where((row) => !row.cancelled);
-    final overdue = active.where(
-      (row) => row.kind == 'sales_invoice' && row.posted && row.outstanding > 0 && '${row.data['due_date'] ?? ''}'.isNotEmpty && '${row.data['due_date']}'.compareTo(today) < 0,
+    final overdue = entries?.where(
+      (row) => row.kind == 'sales_invoice' && registerOverdue(row, today),
     );
-    final bills = active.where((row) => row.kind == 'purchase_bill' && row.posted && row.outstanding > 0);
-    final quotes = active.where((row) => row.kind == 'estimate' && !row.converted);
+    final held = entries?.where(registerUnallocated);
+    num? sum(Iterable<BooksRecord>? rows, String key) => rows?.fold<num>(
+      0,
+      (total, row) => total + (apexNumber(row.json[key]) ?? 0),
+    );
+    final banks = [
+      for (final bank in _banks ?? const <Json>[])
+        if ((_unmatched?['${bank['id']}'] as num? ?? 0) > 0) bank,
+    ];
     return ApexPanel(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(23, 22, 23, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const ApexPanelHeading(
-              'Needs attention',
-              note: 'Open work across all dates.',
-              trailing: Icon(Icons.schedule_rounded, size: 19, color: Apex.muted),
+      padding: const EdgeInsets.fromLTRB(16, 13, 16, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const ApexPanelHeading('Needs attention'),
+          const SizedBox(height: 5),
+          _queueRow(
+            'Overdue invoices',
+            overdue?.length,
+            sum(overdue, 'outstanding'),
+            () => widget.openRegister('sales_invoice', 'overdue'),
+          ),
+          const Divider(height: 1, color: Apex.lineSoft),
+          _queueRow(
+            'Unallocated receipts',
+            held?.length,
+            sum(held, 'amount'),
+            () => widget.openRegister('payment_in', 'unallocated'),
+          ),
+          if (banks.isEmpty) ...[
+            const Divider(height: 1, color: Apex.lineSoft),
+            _queueRow(
+              'Unmatched bank lines',
+              _unmatched == null || _banks == null ? null : 0,
+              null,
+              () => widget.openBank(null),
             ),
-            const SizedBox(height: 16),
-            for (final (index, (count, label, page)) in [
-              (overdue.length, 'Overdue invoices', 'sales_invoice'),
-              (bills.length, 'Unpaid bills', 'purchase_bill'),
-              (quotes.length, 'Open estimates', 'estimate'),
-            ].indexed) ...[
-              if (index > 0) const Divider(color: Apex.lineSoft),
-              InkWell(
-                onTap: records == null ? null : () => widget.openPage(page),
-                borderRadius: BorderRadius.circular(6),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 9),
-                  child: Row(
-                    children: [
-                      Container(
-                        constraints: const BoxConstraints(minWidth: 29),
-                        height: 26,
-                        alignment: Alignment.center,
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        decoration: BoxDecoration(
-                          color: count > 0 ? const Color(0xfffff3d8) : const Color(0xfff1f4f8),
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: Text(
-                          records == null ? '—' : '$count',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: count > 0 ? const Color(0xff855700) : const Color(0xff647186),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 11),
-                      Expanded(child: Text(label, style: const TextStyle(fontSize: 12, color: Color(0xff424c59)))),
-                      const Icon(Icons.chevron_right_rounded, size: 18, color: Apex.muted),
-                    ],
-                  ),
-                ),
-              ),
-            ],
           ],
-        ),
+          for (final bank in banks) ...[
+            const Divider(height: 1, color: Apex.lineSoft),
+            _queueRow(
+              'Unmatched bank lines · ${bank['name']}',
+              (_unmatched!['${bank['id']}'] as num).toInt(),
+              null,
+              () => widget.openBank('${bank['id']}'),
+            ),
+          ],
+        ],
       ),
     );
   }
+
+  Widget _queueRow(
+    String label,
+    int? count,
+    num? amount,
+    VoidCallback open,
+  ) => Material(
+    type: MaterialType.transparency,
+    child: InkWell(
+      onTap: open,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 9),
+        child: Row(
+          children: [
+            Container(
+              constraints: const BoxConstraints(minWidth: 28),
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              decoration: BoxDecoration(
+                color: (count ?? 0) > 0 ? const Color(0xfffff3d8) : Apex.tint,
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: Text(count == null ? '—' : '$count', style: Apex.small),
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: Text(label, style: Apex.strong)),
+            if (amount != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Text(_show(amount), style: Apex.small),
+              ),
+            const SizedBox(width: 8),
+            const Icon(
+              Icons.chevron_right_rounded,
+              size: 18,
+              color: Apex.muted,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 
   Widget _recent(List<_Entry>? records, bool phone) {
     final rows = (records ?? const <_Entry>[]).where((row) => !row.isMaster).take(6).toList();
@@ -739,13 +799,21 @@ class _Month {
 enum _MetricTone { green, blue, amber, purple }
 
 class _Metric extends StatelessWidget {
-  const _Metric({required this.label, required this.value, required this.note, required this.icon, required this.tone});
+  const _Metric({
+    required this.label,
+    required this.value,
+    required this.note,
+    required this.icon,
+    required this.tone,
+    required this.open,
+  });
 
   final String label;
   final String value;
   final String note;
   final IconData icon;
   final _MetricTone tone;
+  final VoidCallback open;
 
   @override
   Widget build(BuildContext context) {
@@ -758,201 +826,71 @@ class _Metric extends StatelessWidget {
     };
     return Semantics(
       container: true,
-      label: '$label, $value',
+      button: true,
+      onTap: open,
+      label: '$label, $value, $note',
       child: ExcludeSemantics(
         child: ApexPanel(
           color: green ? Apex.mintSoft : Colors.white,
           borderColor: green ? Apex.mintLine : Apex.line,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              onTap: open,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(13, 11, 13, 11),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(
-                      child: Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Color(0xff42554b))),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            label,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xff42554b),
+                            ),
+                          ),
+                        ),
+                        ApexIconTile(
+                          icon,
+                          background: iconBackground,
+                          foreground: iconColor,
+                          size: 28,
+                          iconSize: 16,
+                          circle: true,
+                        ),
+                      ],
                     ),
-                    ApexIconTile(icon, background: iconBackground, foreground: iconColor, size: 28, iconSize: 16, circle: true),
+                    const SizedBox(height: 7),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        value,
+                        style: Apex.money.copyWith(
+                          color: green ? Apex.greenDark : Apex.ink,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      note,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11, color: Apex.muted),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 10),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(value, style: Apex.money.copyWith(color: green ? Apex.greenDark : Apex.ink)),
-                ),
-                const SizedBox(height: 8),
-                Text(note, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Apex.muted)),
-              ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
-}
-
-class _Counter extends StatelessWidget {
-  const _Counter({required this.open});
-  final VoidCallback open;
-
-  @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(15),
-    child: DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xff14352b), Color(0xff205542)],
-          begin: Alignment(-1, -.6),
-          end: Alignment(1, .6),
-        ),
-        border: Border.all(color: const Color(0xff234f3e)),
-        borderRadius: BorderRadius.circular(15),
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            right: -40,
-            top: -70,
-            child: IgnorePointer(
-              child: Container(
-                width: 280,
-                height: 280,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0x14ffffff), width: 30),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: const Color(0x13ffffff),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0x52a8d3ba)),
-                  ),
-                  child: const Icon(Icons.qr_code_scanner_rounded, size: 22, color: Color(0xffdcf7e7)),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Point of sale',
-                  style: TextStyle(fontFamily: Apex.display, color: Colors.white, fontSize: 32, fontWeight: FontWeight.w700, letterSpacing: -1.1),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Take a payment, find a receipt, or review the register.',
-                  style: TextStyle(color: Color(0xffd8ede1), fontSize: 14, height: 1.5),
-                ),
-                const SizedBox(height: 15),
-                FilledButton.icon(
-                  onPressed: open,
-                  iconAlignment: IconAlignment.end,
-                  style: FilledButton.styleFrom(
-                    foregroundColor: const Color(0xff164831),
-                    backgroundColor: const Color(0xffe3f5e9),
-                    minimumSize: const Size(0, 42),
-                  ),
-                  icon: const Icon(Icons.north_east_rounded, size: 16),
-                  label: const Text('Open checkout'),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-class _Task {
-  const _Task(this.icon, this.title, this.note, this.onTap);
-  final IconData icon;
-  final String title;
-  final String note;
-  final VoidCallback? onTap;
-}
-
-class _QuickActions extends StatelessWidget {
-  const _QuickActions({required this.actions, required this.columns});
-
-  final List<_Task> actions;
-  final int columns;
-
-  @override
-  Widget build(BuildContext context) => ApexPanel(
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(21, 22, 21, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text('Quick actions', style: Apex.sectionTitle),
-          const SizedBox(height: 22),
-          // Rows of tiles without a LayoutBuilder, so the card can match the checkout card's height.
-          for (var start = 0; start < actions.length; start += columns) ...[
-            if (start > 0) const SizedBox(height: 10),
-            Row(
-              children: [
-                for (var index = start; index < start + columns; index++) ...[
-                  if (index > start) const SizedBox(width: 10),
-                  Expanded(child: index < actions.length ? _TaskTile(actions[index]) : const SizedBox()),
-                ],
-              ],
-            ),
-          ],
-        ],
-      ),
-    ),
-  );
-}
-
-class _TaskTile extends StatelessWidget {
-  const _TaskTile(this.task);
-  final _Task task;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: Apex.tint,
-    shape: RoundedRectangleBorder(
-      side: const BorderSide(color: Color(0xffdee8e2)),
-      borderRadius: BorderRadius.circular(9),
-    ),
-    child: InkWell(
-      onTap: task.onTap,
-      borderRadius: BorderRadius.circular(9),
-      child: Opacity(
-        opacity: task.onTap == null ? .55 : 1,
-        child: Padding(
-          padding: const EdgeInsets.all(11),
-          child: Row(
-            children: [
-              ApexIconTile(task.icon),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(task.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: Apex.strong),
-                    const SizedBox(height: 3),
-                    Text(task.note, maxLines: 1, overflow: TextOverflow.ellipsis, style: Apex.small),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right_rounded, size: 18, color: Apex.muted),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
 }
 
 class _PeriodPicker extends StatelessWidget {
@@ -988,24 +926,6 @@ class _PeriodPicker extends StatelessWidget {
           const Icon(Icons.expand_more_rounded, size: 17, color: Color(0xff424c59)),
         ],
       ),
-    ),
-  );
-}
-
-class _Tag extends StatelessWidget {
-  const _Tag(this.label);
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: const Color(0xfff2f5f8),
-      borderRadius: BorderRadius.circular(7),
-      border: Border.all(color: const Color(0xffe3e9ef)),
-    ),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      child: Text(label, style: const TextStyle(fontSize: 12, color: Color(0xff556379))),
     ),
   );
 }

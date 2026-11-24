@@ -33,12 +33,13 @@ class ReceiptCorrectionDialog extends StatefulWidget {
 
 class _ReceiptCorrectionDialogState extends State<ReceiptCorrectionDialog> {
   final _form = GlobalKey<FormState>();
+  final _reasonField = GlobalKey<FormFieldState<String>>();
   final _reason = TextEditingController();
+  final _reasonFocus = FocusNode();
   final _plans = <String, BooksJson>{};
   BooksJson? _data;
   BooksJson? _preview;
   BooksJson? _pending;
-  String? _addCredit;
   String? _error;
   bool _busy = true;
 
@@ -57,6 +58,7 @@ class _ReceiptCorrectionDialogState extends State<ReceiptCorrectionDialog> {
   @override
   void dispose() {
     _reason.dispose();
+    _reasonFocus.dispose();
     super.dispose();
   }
 
@@ -119,7 +121,14 @@ class _ReceiptCorrectionDialogState extends State<ReceiptCorrectionDialog> {
   };
 
   Future<void> _review() async {
-    if (_busy || _form.currentState?.validate() != true) return;
+    if (_busy) return;
+    if (_form.currentState?.validate() != true) {
+      if (_reasonField.currentState?.hasError == true) {
+        await Scrollable.ensureVisible(_reasonField.currentContext!);
+        if (mounted) _reasonFocus.requestFocus();
+      }
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -194,6 +203,102 @@ class _ReceiptCorrectionDialogState extends State<ReceiptCorrectionDialog> {
     booksMoney(credit['amount']),
     credit['description'],
   ].map(booksText).where((text) => text.isNotEmpty).join(' · ');
+
+  String _creditReferences(BooksJson credit) => [
+    if (booksText(credit['utr']).isNotEmpty) 'UTR ${credit['utr']}',
+    for (final receipt in booksRows(credit['receipts']))
+      if (booksText(receipt['number']).isNotEmpty) booksText(receipt['number']),
+  ].join(' · ');
+
+  Future<void> _pickCredit(List<BooksJson> candidates) async {
+    var search = '';
+    final ordered = [...candidates]
+      ..sort((a, b) => booksText(b['date']).compareTo(booksText(a['date'])));
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) {
+          final terms = search.trim().toLowerCase().split(RegExp(r'\s+'));
+          final matches = ordered.where((credit) {
+            final searchable =
+                '${_creditLabel(credit)} ${_creditReferences(credit)} ${credit['amount']}'
+                    .toLowerCase();
+            return terms.every(searchable.contains);
+          }).toList();
+          return Dialog(
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 16,
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560, maxHeight: 520),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Add bank credit',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      decoration: const InputDecoration(
+                        labelText: 'Search bank credits',
+                        hintText: 'UTR, receipt, date or amount',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                      onChanged: (value) => update(() => search = value),
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: matches.isEmpty
+                          ? Center(
+                              child: Semantics(
+                                liveRegion: true,
+                                child: const Text('No matching bank credits'),
+                              ),
+                            )
+                          : ListView.separated(
+                              itemCount: matches.length,
+                              separatorBuilder: (_, _) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final credit = matches[index];
+                                final references = _creditReferences(credit);
+                                return ListTile(
+                                  title: Text(
+                                    "${credit['date']} · ${credit['bank']} · ${booksMoney(credit['amount'])}",
+                                  ),
+                                  subtitle: references.isEmpty
+                                      ? null
+                                      : Text(references),
+                                  onTap: () =>
+                                      Navigator.of(context)
+                                          .pop(booksText(credit['id'])),
+                                );
+                              },
+                            ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Back to correction'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    if (mounted && selected != null) {
+      setState(() => _plans[selected] = _plan(selected));
+    }
+  }
 
   Widget _select(
     String label,
@@ -443,44 +548,151 @@ class _ReceiptCorrectionDialogState extends State<ReceiptCorrectionDialog> {
     );
   }
 
-  List<Widget> _reviewResults(BooksJson preview) => [
-    for (final (label, key) in const [
-      ('Before', 'before'),
-      ('Proposed', 'after'),
-    ]) ...[
-      Text(label, style: Theme.of(context).textTheme.titleMedium),
-      for (final credit in booksRows(preview[key])) ...[
-        Text(_creditLabel(credit)),
-        Text(
-          'Booked ${booksMoney(credit['booked'])} · Unallocated ${booksMoney(credit['unallocated'])}',
+  List<Widget> _reviewResults(BooksJson preview) {
+    final before = {
+      for (final credit in booksRows(preview['before'])) credit['id']: credit,
+    };
+    final after = {
+      for (final credit in booksRows(preview['after'])) credit['id']: credit,
+    };
+    final beforeInvoices = {
+      for (final row in booksRows(preview['invoices_before']))
+        row['id'] ?? row['number']: row,
+    };
+    final afterInvoices = {
+      for (final row in booksRows(preview['invoices_after']))
+        row['id'] ?? row['number']: row,
+    };
+    final sideBySide = MediaQuery.sizeOf(context).width >= 740;
+    final heading = Theme.of(context).textTheme.titleMedium;
+    return [
+      for (final id in {...before.keys, ...after.keys})
+        _comparisonPanel(
+          title: _creditLabel((before[id] ?? after[id])!),
+          sideBySide: sideBySide,
+          before: _creditSummary(before[id]),
+          after: _creditSummary(after[id]),
         ),
-        for (final receipt in booksRows(credit['receipts'])) _receipt(receipt),
-        const Divider(),
+      if (beforeInvoices.isNotEmpty || afterInvoices.isNotEmpty) ...[
+        Text('Invoice balances', style: heading),
+        for (final id in {...beforeInvoices.keys, ...afterInvoices.keys})
+          _comparisonPanel(
+            title: booksText(
+              (beforeInvoices[id] ?? afterInvoices[id])?['number'],
+            ),
+            sideBySide: sideBySide,
+            before: [
+              Text(
+                'Outstanding ${booksMoney(beforeInvoices[id]?['outstanding'])}',
+              ),
+            ],
+            after: [
+              Text(
+                'Outstanding ${booksMoney(afterInvoices[id]?['outstanding'])}',
+              ),
+            ],
+          ),
       ],
-    ],
-    for (final (label, key) in const [
-      ('Outstanding before', 'invoices_before'),
-      ('Outstanding after', 'invoices_after'),
-    ])
-      for (final invoice in booksRows(preview[key]))
-        Text(
-          "${invoice['number']} · $label ${booksMoney(invoice['outstanding'])}",
+    ];
+  }
+
+  List<Widget> _creditSummary(BooksJson? credit) {
+    if (credit == null) return const [Text('No receipt for this credit')];
+    final amount = double.tryParse(booksText(credit['amount']));
+    final booked = double.tryParse(booksText(credit['booked']));
+    final unbooked = amount == null || booked == null ? 0 : amount - booked;
+    return [
+      Text('Booked ${booksMoney(credit['booked'])}'),
+      Text('Unallocated ${booksMoney(credit['unallocated'])}'),
+      if (unbooked >= .005) Text('Unbooked ${booksMoney(unbooked)}'),
+      for (final receipt in booksRows(credit['receipts'])) ...[
+        const Divider(),
+        _receipt(receipt),
+      ],
+    ];
+  }
+
+  Widget _comparisonPanel({
+    required String title,
+    required bool sideBySide,
+    required List<Widget> before,
+    required List<Widget> after,
+  }) {
+    final theme = Theme.of(context);
+    Widget side(String label, List<Widget> details, Color background) =>
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              spacing: 4,
+              children: [
+                Text(label, style: theme.textTheme.titleSmall),
+                ...details,
+              ],
+            ),
+          ),
+        );
+    final current = side(
+      'Before',
+      before,
+      theme.colorScheme.surfaceContainerLow,
+    );
+    final proposed = side(
+      'Proposed',
+      after,
+      theme.colorScheme.primaryContainer.withValues(alpha: .22),
+    );
+    return Card.outlined(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          spacing: 8,
+          children: [
+            Text(title, style: theme.textTheme.titleSmall),
+            if (sideBySide)
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  spacing: 10,
+                  children: [
+                    Expanded(child: current),
+                    Expanded(child: proposed),
+                  ],
+                ),
+              )
+            else ...[
+              current,
+              proposed,
+            ],
+          ],
         ),
-  ];
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final preview = _preview;
     final candidates = [
       for (final credit in _credits)
-        if (!_plans.containsKey(credit['id']))
-          (booksText(credit['id']), _creditLabel(credit)),
+        if (!_plans.containsKey(credit['id'])) credit,
     ];
     return PopScope(
       canPop: !_busy,
       child: AlertDialog(
+        key: ValueKey(preview != null),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         scrollable: true,
-        title: const Text('Correct allocation'),
+        title: Text(
+          preview == null ? 'Correct allocation' : 'Review correction',
+        ),
         content: SizedBox(
           width: 720,
           child: Column(
@@ -505,28 +717,10 @@ class _ReceiptCorrectionDialogState extends State<ReceiptCorrectionDialog> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     spacing: 8,
                     children: [
-                      for (final credit in _credits)
-                        if (_plans.containsKey(credit['id'])) _credit(credit),
-                      if (candidates.isNotEmpty) ...[
-                        _select(
-                          'Another bank credit or receipt',
-                          _addCredit,
-                          candidates,
-                          (value) => setState(() => _addCredit = value),
-                          required: false,
-                        ),
-                        OutlinedButton(
-                          onPressed: _busy || _addCredit == null
-                              ? null
-                              : () => setState(() {
-                                  _plans[_addCredit!] = _plan(_addCredit!);
-                                  _addCredit = null;
-                                }),
-                          child: const Text('Add credit'),
-                        ),
-                      ],
                       TextFormField(
+                        key: _reasonField,
                         controller: _reason,
+                        focusNode: _reasonFocus,
                         enabled: !_busy,
                         maxLength: 200,
                         decoration: const InputDecoration(
@@ -536,6 +730,16 @@ class _ReceiptCorrectionDialogState extends State<ReceiptCorrectionDialog> {
                             ? 'Enter a correction reason'
                             : null,
                       ),
+                      if (candidates.isNotEmpty)
+                        OutlinedButton.icon(
+                          onPressed: _busy
+                              ? null
+                              : () => _pickCredit(candidates),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add another bank credit'),
+                        ),
+                      for (final credit in _credits)
+                        if (_plans.containsKey(credit['id'])) _credit(credit),
                     ],
                   ),
                 ),
@@ -555,7 +759,9 @@ class _ReceiptCorrectionDialogState extends State<ReceiptCorrectionDialog> {
                       _preview = null;
                       _error = null;
                     }),
-              child: const Text('Edit correction'),
+              child: Text(
+                MediaQuery.sizeOf(context).width < 440 ? 'Edit' : 'Edit correction',
+              ),
             ),
           if (preview != null || _pending != null)
             FilledButton(

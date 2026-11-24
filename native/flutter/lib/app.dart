@@ -574,15 +574,42 @@ class _WorkspaceState extends State<_Workspace> {
   final _visited = {_Destination.home};
   int _entryRequest = 0;
   int _routeRequest = 0;
+  int _filterRequest = 0;
+  String _requestedTab = 'all';
+  int _bankRequest = 0;
+  String? _requestedBank;
+  BooksReport? _dashboardReport;
+  DateTimeRange? _dashboardRange;
   bool _searchOpen = false;
 
-  void _open(_Route route) {
+  void _open(
+    _Route route, {
+    String? tab,
+    String? unmatchedBank,
+    BooksReport? report,
+    DateTimeRange? range,
+  }) {
     _scaffold.currentState?.closeDrawer();
-    if (_active == route) return;
+    if (_active == route && tab == null && unmatchedBank == null &&
+        report == null && _dashboardReport == null) {
+      return;
+    }
     setState(() {
       _active = route;
       _routeRequest++;
       _visited.add(route.destination);
+      if (tab != null) {
+        _requestedTab = tab;
+        _filterRequest++;
+      }
+      if (unmatchedBank != null) {
+        _requestedBank = unmatchedBank;
+        _bankRequest++;
+      }
+      if (route.destination == _Destination.reports) {
+        _dashboardReport = report;
+        _dashboardRange = range;
+      }
     });
   }
 
@@ -638,10 +665,10 @@ class _WorkspaceState extends State<_Workspace> {
           workspace: workspace,
           revision: widget.session.revision,
           openCheckout: () => _open(_Route.pos),
-          openStock: () => _open(_Route.items),
-          openBooks: () => _open(_Route.allTransactions),
-          openReports: () => _open(_Route.reports),
           openPage: (key) => _open(_routeForKey(key)),
+          openRegister: (kind, tab) => _open(_routeForKey(kind), tab: tab),
+          openBank: (bank) => _open(_Route.bank, unmatchedBank: bank),
+          openReport: (report, range) => _open(_Route.reports, report: report, range: range),
           newEntry: workspace.company.canWrite ? _newTransaction : null,
           verifyPassword: widget.session.verifyPassword,
         );
@@ -667,6 +694,8 @@ class _WorkspaceState extends State<_Workspace> {
           kind: route.kind ?? '',
           title: route.kind == null ? 'Transactions' : route.label,
           recurringRequest: route.opensRecurring ? _routeRequest : 0,
+          filterRequest: _filterRequest,
+          requestedTab: _requestedTab,
         );
       case _Destination.reports:
         final route = _routeFor(destination, _Route.reports);
@@ -674,7 +703,8 @@ class _WorkspaceState extends State<_Workspace> {
           workspace: workspace,
           active: active,
           revision: widget.session.revision,
-          report: route.report,
+          report: route.report ?? _dashboardReport,
+          requestedRange: route.report == null ? _dashboardRange : null,
           reportRequest: _routeRequest,
         );
       case _Destination.masters:
@@ -689,6 +719,8 @@ class _WorkspaceState extends State<_Workspace> {
           workspace: workspace,
           active: active,
           revision: widget.session.revision,
+          bankRequest: _bankRequest,
+          requestedBank: _requestedBank,
         );
       case _Destination.ledger:
         return LedgerScreen(
@@ -716,23 +748,25 @@ class _WorkspaceState extends State<_Workspace> {
         final desktop = limits.maxWidth >= 780 && limits.maxHeight >= 440;
         final expanded = limits.maxWidth >= 1080;
         final smallPhone = limits.maxWidth < 360;
-        Widget sidebar({required bool expanded}) => _WorkspaceSidebar(
-          expanded: expanded,
-          active: _active,
-          select: _open,
-          newTransaction: workspace.company.canWrite
-              ? () => _newTransaction()
-              : null,
-          findWorkspace: _findWorkspace,
-          company: _CompanyMenu(
-            session: session,
-            company: workspace.company,
-            style: _CompanyMenuStyle.sidebar,
-            maxWidth: 232,
-          ),
-          addCompany: _addCompany,
-          signOut: session.signOut,
-        );
+        Widget sidebar({required bool expanded, VoidCallback? openMenu}) =>
+            _WorkspaceSidebar(
+              expanded: expanded,
+              openMenu: openMenu,
+              active: _active,
+              select: _open,
+              newTransaction: workspace.company.canWrite
+                  ? () => _newTransaction()
+                  : null,
+              findWorkspace: _findWorkspace,
+              company: _CompanyMenu(
+                session: session,
+                company: workspace.company,
+                style: _CompanyMenuStyle.sidebar,
+                maxWidth: 232,
+              ),
+              addCompany: _addCompany,
+              signOut: session.signOut,
+            );
         final phoneIndex = _phoneTabs.indexOf(_active);
         return CallbackShortcuts(
           bindings: {
@@ -746,7 +780,7 @@ class _WorkspaceState extends State<_Workspace> {
             autofocus: true,
             child: Scaffold(
               key: _scaffold,
-              drawer: desktop
+              drawer: desktop && expanded
                   ? null
                   : Drawer(
                       width: 280,
@@ -829,7 +863,13 @@ class _WorkspaceState extends State<_Workspace> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (desktop) sidebar(expanded: expanded),
+                    if (desktop)
+                      sidebar(
+                        expanded: expanded,
+                        openMenu: expanded
+                            ? null
+                            : () => _scaffold.currentState?.openDrawer(),
+                      ),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -838,6 +878,7 @@ class _WorkspaceState extends State<_Workspace> {
                             _WorkspaceHeader(
                               active: _active,
                               compact: !expanded,
+                              showBreadcrumb: limits.maxWidth >= 1200,
                               findWorkspace: _findWorkspace,
                               showShortcut: expanded,
                               profile: _CompanyMenu(

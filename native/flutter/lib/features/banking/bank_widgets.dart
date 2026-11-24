@@ -41,12 +41,13 @@ class BankNote extends StatelessWidget {
 
 /// Summary card: small caps label, large figure, optional caption and icon.
 class BankMetric extends StatelessWidget {
-  const BankMetric({required this.label, required this.value, this.caption, this.icon, super.key});
+  const BankMetric({required this.label, required this.value, this.caption, this.icon, this.highlight = false, super.key});
 
   final String label;
   final String value;
   final String? caption;
   final IconData? icon;
+  final bool highlight;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -55,6 +56,8 @@ class BankMetric extends StatelessWidget {
     child: ExcludeSemantics(
       child: ApexPanel(
         radius: 10,
+        color: highlight ? const Color(0xfffff8eb) : Apex.card,
+        borderColor: highlight ? const Color(0xffead4aa) : Apex.line,
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
